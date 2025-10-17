@@ -15,7 +15,7 @@ Initial push
 1) From the parent `Projects` dir:
    - cd script-helpers
    - git branch -M main
-   - git remote add origin git@github.com:<your-user-or-org>/script-helpers.git
+   - git remote add origin git@github.com:nikolareljin/script-helpers.git
    - git add . && git commit -m "chore: bootstrap script-helpers library"
    - git push -u origin main
 2) Verify Actions tab is enabled
@@ -33,9 +33,9 @@ Versioning and releases
 Downstream projects
 -------------------
 - Add as submodule in each project repo (example):
-  - git submodule add -b main git@github.com:<user-or-org>/script-helpers.git scripts/script-helpers
+  - git submodule add -b main git@github.com:nikolareljin/script-helpers.git scripts/script-helpers
   - Or pin a specific tag:
-    - git submodule add -b v0.1.0 git@github.com:<user-or-org>/script-helpers.git scripts/script-helpers
+    - git submodule add -b v0.1.0 git@github.com:nikolareljin/script-helpers.git scripts/script-helpers
 - To bump submodule in downstream repos to a new version:
   - cd scripts/script-helpers && git fetch --tags && git checkout vX.Y.Z && cd -
   - git add scripts/script-helpers && git commit -m "chore: bump script-helpers to vX.Y.Z"
