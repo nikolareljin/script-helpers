@@ -214,7 +214,7 @@ docker_stop_all() {
     fi
     
     echo "Stopping all running containers..."
-    docker stop $(docker ps -q)
+    echo "$running" | xargs docker stop
     echo "All containers stopped"
 }
 
@@ -229,7 +229,7 @@ docker_clean_containers() {
     fi
     
     echo "Removing all stopped containers..."
-    docker rm $(docker ps -aq -f status=exited)
+    echo "$stopped" | xargs docker rm
     echo "Stopped containers removed"
 }
 

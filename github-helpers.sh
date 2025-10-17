@@ -92,19 +92,33 @@ github_add_webhook() {
     echo "Events: ${events}"
     
     # Convert comma-separated events to JSON array
-    local events_array=$(echo "$events" | awk -F',' '{for(i=1;i<=NF;i++) printf "\"%s\"%s", $i, (i<NF?",":"")}')
+    local events_json="["
+    IFS=',' read -ra event_array <<< "$events"
+    for i in "${!event_array[@]}"; do
+        if [ $i -gt 0 ]; then
+            events_json+=","
+        fi
+        events_json+="\"${event_array[$i]}\""
+    done
+    events_json+="]"
     
-    # Create webhook using GitHub API
+    # Create webhook using GitHub API with proper JSON payload
     gh api \
         --method POST \
         -H "Accept: application/vnd.github+json" \
         -H "X-GitHub-Api-Version: 2022-11-28" \
         "/repos/${repo}/hooks" \
-        -f name='web' \
-        -F active=true \
-        -f config[url]="${webhook_url}" \
-        -f config[content_type]='json' \
-        -f "events=[${events_array}]"
+        --input - <<EOF
+{
+  "name": "web",
+  "active": true,
+  "events": ${events_json},
+  "config": {
+    "url": "${webhook_url}",
+    "content_type": "json"
+  }
+}
+EOF
     
     if [ $? -eq 0 ]; then
         echo "✅ Webhook successfully added to repository '${repo}'"
