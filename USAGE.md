@@ -8,6 +8,7 @@ This document provides quick start examples for using script-helpers.
 
 1. Add to your repository:
 ```bash
+# Note: Replace the URL with your fork if you've forked this repository
 git submodule add https://github.com/nikolareljin/script-helpers.git scripts/helpers
 git submodule update --init --recursive
 ```
@@ -218,12 +219,18 @@ export LOG_TIMESTAMPS=0
 ### Dialog Configuration
 
 Dialog size is automatically calculated as 85% of terminal size by default.
-You can override this in individual calls:
+You can override this in individual calls by passing the percentage as the third parameter:
 
 ```bash
-# Use 70% of screen size
+# Use 70% of screen size (percentage is the 3rd parameter)
 dialog_menu "Title" "Message" 70 "1" "Option 1" "2" "Option 2"
+
+# Or use default 85% by omitting the percentage
+dialog_menu "Title" "Message" "1" "Option 1" "2" "Option 2"
 ```
+
+The dialog functions intelligently detect whether the third parameter is a percentage (numeric)
+or part of the menu items (non-numeric) and adjust accordingly.
 
 ## Testing Your Scripts
 
