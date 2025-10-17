@@ -14,8 +14,9 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+# lib/ and lib64/ are used for bash script libraries, not Python packages
+# lib/
+# lib64/
 parts/
 sdist/
 var/
