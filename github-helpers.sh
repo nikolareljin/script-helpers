@@ -69,6 +69,13 @@ github_add_team() {
     fi
 }
 
+# Helper function to escape JSON strings
+json_escape() {
+    local input="$1"
+    # Escape backslashes first, then quotes, then other special characters
+    printf '%s' "$input" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\x08/\\b/g; s/\x0c/\\f/g; s/\n/\\n/g; s/\r/\\r/g; s/\t/\\t/g'
+}
+
 # Define a webhook for a repository
 # Usage: github_add_webhook <owner/repo> <webhook-url> [events]
 # Events: Comma-separated list (default: push,pull_request)
@@ -91,14 +98,18 @@ github_add_webhook() {
     echo "Webhook URL: ${webhook_url}"
     echo "Events: ${events}"
     
-    # Convert comma-separated events to JSON array
+    # Escape webhook URL for JSON
+    local escaped_url=$(json_escape "$webhook_url")
+    
+    # Convert comma-separated events to JSON array with proper escaping
     local events_json="["
     IFS=',' read -ra event_array <<< "$events"
     for i in "${!event_array[@]}"; do
         if [ $i -gt 0 ]; then
             events_json+=","
         fi
-        events_json+="\"${event_array[$i]}\""
+        local escaped_event=$(json_escape "${event_array[$i]}")
+        events_json+="\"${escaped_event}\""
     done
     events_json+="]"
     
@@ -114,7 +125,7 @@ github_add_webhook() {
   "active": true,
   "events": ${events_json},
   "config": {
-    "url": "${webhook_url}",
+    "url": "${escaped_url}",
     "content_type": "json"
   }
 }
