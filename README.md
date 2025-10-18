@@ -22,7 +22,11 @@ Quick start
     ```
 
 - Git submodule (once this repo is hosted remotely):
-  - `git submodule add <remote-url> scripts/script-helpers`
+  
+  ```bash
+  git submodule add git@github.com:nikolareljin/script-helpers.git scripts/script-helpers
+  ```
+  
   - Source as shown above.
 
 Loader and modules
