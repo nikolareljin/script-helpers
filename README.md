@@ -44,6 +44,7 @@ Loader and modules
   - `certs.sh` — self-signed cert creation and trust-store helpers.
   - `hosts.sh` — `/etc/hosts` helpers.
   - `clipboard.sh` — `copy_to_clipboard`.
+  - `ollama.sh` — Ollama helpers (`ollama_install_cli`, prepare models index from webfarmer/ollama-get-models, dialog selection, `ollama_pull_model`, `ollama_run_model
 
 Compatibility notes
 -------------------
