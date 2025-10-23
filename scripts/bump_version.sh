@@ -1,13 +1,24 @@
 #!/usr/bin/env bash
+# SCRIPT: bump_version.sh
+# DESCRIPTION: Bump the version number in the VERSION file. 
+# USAGE: ./bump_version.sh [major|minor|patch]
+# EXAMPLE: ./bump_version.sh minor
+# ----------------------------------------------------
 set -euo pipefail
+
+# Resolve script-helpers root and load modules
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+# shellcheck source=/dev/null
+source "$SCRIPT_HELPERS_DIR/helpers.sh"
+shlib_import logging dialog os env json file deps ollama help
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION_FILE="$ROOT_DIR/VERSION"
 
 usage() {
-  echo "Usage: $(basename "$0") [major|minor|patch]" >&2
+  display_help
 }
-
 if [[ $# -lt 1 ]]; then usage; exit 1; fi
 bump_type="$1"
 

@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# SCRIPT: tag_release.sh
+# DESCRIPTION: Tag the current commit with the version from the VERSION file and push the tag to origin.
+# USAGE: ./tag_release.sh
+# ----------------------------------------------------
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
