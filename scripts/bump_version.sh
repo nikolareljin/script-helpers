@@ -16,9 +16,7 @@ VERSION_FILE="$ROOT_DIR/VERSION"
 
 usage() {
   display_help
-  # echo "Usage: $(basename "$0") [major|minor|patch]" >&2
 }
-
 if [[ $# -lt 1 ]]; then usage; exit 1; fi
 bump_type="$1"
 
