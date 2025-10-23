@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # SCRIPT: bump_version.sh
-# DESCRIPTION: Bump the version number in the VERSION file. Usage: ./bump_version.sh [major|minor|patch]
+# DESCRIPTION: Bump the version number in the VERSION file. 
+# USAGE: ./bump_version.sh [major|minor|patch]
+# EXAMPLE: ./bump_version.sh minor
 # ----------------------------------------------------
 set -euo pipefail
 
