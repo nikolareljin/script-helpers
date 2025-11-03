@@ -24,6 +24,29 @@ download_file() {
     fi
   fi
   print_warning "Downloading $url -> $output ..."
+
+  # Prefer dialog gauge when enabled and available
+  # Control via env var DOWNLOAD_USE_DIALOG: auto (default), true/1, false/0, never
+  local use_dialog="${DOWNLOAD_USE_DIALOG:-auto}"
+  if [[ "$use_dialog" != "false" && "$use_dialog" != "0" && "$use_dialog" != "never" ]]; then
+    if command_exists dialog; then
+      # Ensure dialog_download_file is available; try sourcing if missing
+      if ! declare -F dialog_download_file >/dev/null 2>&1; then
+        local _lib_dialog="${SCRIPT_HELPERS_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}/lib/dialog.sh"
+        [[ -f "$_lib_dialog" ]] && source "$_lib_dialog"
+      fi
+      if declare -F dialog_download_file >/dev/null 2>&1; then
+        print_info "Using dialog download gauge..."
+        if dialog_download_file "$url" "$output" auto; then
+          return 0
+        else
+          print_warning "Dialog download failed; falling back to CLI download."
+        fi
+      fi
+    fi
+  fi
+
+  # Fallback to curl/wget without dialog
   if command_exists curl; then
     print_info "curl --max-time 3600 -L -o \"$output\" \"$url\""
     curl --max-time 3600 -L -o "$output" "$url"
