@@ -50,6 +50,25 @@ Loader and modules
   - `clipboard.sh` — `copy_to_clipboard`.
   - `ollama.sh` — Ollama helpers (`ollama_install_cli`, prepare models index from webfarmer/ollama-get-models, dialog selection, `ollama_pull_model`, `ollama_run_model
 
+Download dialog gauge
+---------------------
+
+- `dialog_download_file URL [output_path] [tool]`
+  - Shows a real-time `dialog` gauge with percent, downloaded vs total size, speed, and ETA.
+  - `tool` can be `auto` (default), `curl`, or `wget`.
+  - On errors, displays a `dialog` error message with the exit code and the last lines from the underlying tool (curl/wget) describing the cause.
+  - Example:
+
+    ```bash
+    source ./helpers.sh
+    shlib_import dialog logging
+    dialog_download_file "https://example.com/big.iso" "/tmp/big.iso" auto
+    ```
+
+Notes:
+- Requires `dialog` to be installed. Uses `curl` (preferred) or `wget` for downloading.
+- If server does not provide Content-Length, the gauge will show downloaded bytes and speed with a rolling progress bar and no ETA.
+
 Compatibility notes
 -------------------
 
@@ -87,6 +106,40 @@ print_success "It works!"
 Conventions
 -----------
 
+Download behavior
+-----------------
+
+- `file.sh::download_file URL [output]`
+  - Automatically uses the dialog gauge (`dialog_download_file`) when `dialog` is installed.
+  - Control via env var `DOWNLOAD_USE_DIALOG`:
+    - `auto` (default): use dialog if available.
+    - `true`/`1`: force dialog if available, otherwise fallback.
+    - `false`/`0`/`never`: disable dialog and use plain `curl`/`wget`.
+  - Falls back to plain `curl` or `wget` with no interactive gauge if dialog is unavailable or fails. When a dialog download fails, an error message is shown with details before falling back.
+
+Examples
+--------
+
+- `scripts/example_download.sh` — Download a URL with the dialog progress gauge.
+- `scripts/example_dialog_input.sh` — Prompt for a value using `dialog`.
+- `scripts/example_logging.sh` — Showcase logging helpers (`print_*`, `log_*`).
+- `scripts/example_env.sh` — Use env helpers (`get_project_root`, `resolve_env_value`, `require_env`).
+- `scripts/example_docker_compose_cmd.sh` — Detect the Docker Compose command.
+- `scripts/example_json.sh` — JSON helpers demo (`json_escape`, `format_response`).
+
+Run examples with Makefile
+--------------------------
+
+- `make examples` runs safe, non-interactive demos.
+- Opt-in flags:
+  - `RUN_INTERACTIVE=1` to include `dialog` input demo.
+  - `RUN_NETWORK=1` to include the download demo.
+  
+Example:
+
+```bash
+make examples RUN_INTERACTIVE=1 RUN_NETWORK=1
+```
+
 - Shell: POSIX-friendly where possible; scripts should set `set -euo pipefail` in the caller.
 - Filenames are `snake_case`. Functions are preserved from original includes for compatibility.
-
