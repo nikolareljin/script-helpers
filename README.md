@@ -56,6 +56,7 @@ Download dialog gauge
 - `dialog_download_file URL [output_path] [tool]`
   - Shows a real-time `dialog` gauge with percent, downloaded vs total size, speed, and ETA.
   - `tool` can be `auto` (default), `curl`, or `wget`.
+  - On errors, displays a `dialog` error message with the exit code and the last lines from the underlying tool (curl/wget) describing the cause.
   - Example:
 
     ```bash
@@ -114,7 +115,7 @@ Download behavior
     - `auto` (default): use dialog if available.
     - `true`/`1`: force dialog if available, otherwise fallback.
     - `false`/`0`/`never`: disable dialog and use plain `curl`/`wget`.
-  - Falls back to plain `curl` or `wget` with no interactive gauge if dialog is unavailable or fails.
+  - Falls back to plain `curl` or `wget` with no interactive gauge if dialog is unavailable or fails. When a dialog download fails, an error message is shown with details before falling back.
 
 Examples
 --------

@@ -177,6 +177,8 @@ dialog_download_file() {
   fi
 
   local tmpfile="${output}.part"
+  local errfile
+  errfile=$(mktemp "/tmp/$(basename "$0").download_err.XXXXXXXX")
   rm -f "$tmpfile"
 
   # Fetch total size if possible for accurate percent/ETA
@@ -185,12 +187,13 @@ dialog_download_file() {
   # Start the download in background
   local cmd pid
   if [[ "$tool" == "curl" ]]; then
-    cmd=(curl -L --fail -o "$tmpfile" "$url")
-    "${cmd[@]}" >/dev/null 2>&1 &
+    # -sS hides progress meter but shows errors; --fail makes HTTP errors non-zero
+    cmd=(curl -L --fail -sS -o "$tmpfile" "$url")
+    "${cmd[@]}" >"$errfile" 2>&1 &
   else
     # Ensure -q flag precedes URL
     cmd=(wget -q -O "$tmpfile" "$url")
-    "${cmd[@]}" >/dev/null 2>&1 &
+    "${cmd[@]}" >"$errfile" 2>&1 &
   fi
   pid=$!
 
@@ -268,6 +271,7 @@ dialog_download_file() {
     fi
     wait "$pid" 2>/dev/null || true
     rm -f "$tmpfile"
+    rm -f "$errfile"
     print_warning "Download canceled by user."
     return 1
   fi
@@ -278,10 +282,25 @@ dialog_download_file() {
   if (( rc == 0 )); then
     mv -f "$tmpfile" "$output" 2>/dev/null || { print_error "Failed to finalize download to $output"; return 1; }
     print_success "Downloaded: $output"
+    rm -f "$errfile"
     return 0
   else
     rm -f "$tmpfile"
+    # Show a dialog error with captured cause
+    local err_preview
+    if [[ -s "$errfile" ]]; then
+      err_preview=$(tail -n 20 "$errfile")
+    else
+      err_preview="No additional error output captured."
+    fi
+    # Fallback-friendly message in console
     print_error "Download failed (exit $rc) for $url"
+    print_error "Cause: ${err_preview//$'\n'/ | }"
+    # Try to show a dialog message with error details
+    dialog --title "Download Error" \
+      --msgbox "Download failed (exit $rc) for:\n$url\n\nDetails:\n$err_preview" \
+      "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 2>/dev/null || true
+    rm -f "$errfile"
     return $rc
   fi
 }
