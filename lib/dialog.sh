@@ -191,7 +191,6 @@ dialog_download_file() {
     cmd=(curl -L --fail -sS -o "$tmpfile" "$url")
     "${cmd[@]}" >"$errfile" 2>&1 &
   else
-    # Ensure -q flag precedes URL
     cmd=(wget -q -O "$tmpfile" "$url")
     "${cmd[@]}" >"$errfile" 2>&1 &
   fi
