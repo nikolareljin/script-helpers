@@ -271,7 +271,6 @@ dialog_download_file() {
     wait "$pid" 2>/dev/null || true
     rm -f "$tmpfile"
     rm -f "$errfile"
-    print_warning "Download canceled by user."
     return 1
   fi
 
@@ -280,7 +279,6 @@ dialog_download_file() {
   local rc=$?
   if (( rc == 0 )); then
     mv -f "$tmpfile" "$output" 2>/dev/null || { print_error "Failed to finalize download to $output"; return 1; }
-    print_success "Downloaded: $output"
     rm -f "$errfile"
     return 0
   else
@@ -292,9 +290,6 @@ dialog_download_file() {
     else
       err_preview="No additional error output captured."
     fi
-    # Fallback-friendly message in console
-    print_error "Download failed (exit $rc) for $url"
-    print_error "Cause: ${err_preview//$'\n'/ | }"
     # Try to show a dialog message with error details
     dialog --title "Download Error" \
       --msgbox "Download failed (exit $rc) for:\n$url\n\nDetails:\n$err_preview" \
