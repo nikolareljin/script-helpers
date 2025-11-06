@@ -23,7 +23,8 @@ download_file() {
       output=$(echo "$url" | sed -E 's|.*/([^/]+\.[^/]+)(/.*)?$|\1|')
     fi
   fi
-  print_warning "Downloading $url -> $output ..."
+  # Stay quiet during download; the dialog gauge (if used)
+  # should be the only visible interface.
 
   # Prefer dialog gauge when enabled and available
   # Control via env var DOWNLOAD_USE_DIALOG: auto (default), true/1, false/0, never
@@ -36,11 +37,10 @@ download_file() {
         [[ -f "$_lib_dialog" ]] && source "$_lib_dialog"
       fi
       if declare -F dialog_download_file >/dev/null 2>&1; then
-        print_info "Using dialog download gauge..."
         if dialog_download_file "$url" "$output" auto; then
           return 0
         else
-          print_warning "Dialog download failed; falling back to CLI download."
+          : # fall through to non-dialog download quietly
         fi
       fi
     fi
@@ -48,11 +48,11 @@ download_file() {
 
   # Fallback to curl/wget without dialog
   if command_exists curl; then
-    print_info "curl --max-time 3600 -L -o \"$output\" \"$url\""
-    curl --max-time 3600 -L -o "$output" "$url"
+    # -sS: silent progress, show errors only
+    curl --max-time 3600 -sS -L -o "$output" "$url"
   elif command_exists wget; then
-    print_info "wget --timeout=3600 -O \"$output\" \"$url\""
-    wget --timeout=3600 -O "$output" "$url"
+    # -q: quiet output
+    wget -q --timeout=3600 -O "$output" "$url"
   else
     print_error "Neither curl nor wget is installed."
     return 1
