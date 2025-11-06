@@ -4,11 +4,29 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ## [Unreleased]
 
-- Added: `CHANGELOG.md` to document notable changes going forward.
-- Removed: `RELEASE_CHECKLIST.md` file removed from the working tree and purged from Git history.
-- Maintenance: Rewrote Git history to eliminate `RELEASE_CHECKLIST.md` across branches; created safety backup branch `backup/remove-release-checklist-pre-rewrite` before rewriting.
+- Changed: Tweak download notification messages for clarity in the dialog gauge (2025-11-05).
+
+## [0.3.0] - 2025-11-03
+
+- Added: Dialog-based download progress gauge via `dialog_download_file`, showing percent, size, speed, and ETA. Integrated into `file.sh::download_file` with automatic fallback to `curl`/`wget` when needed (2025-11-03).
+- Added: Example scripts for downloads, dialog input, logging, env, Docker Compose, and JSON helpers; `make examples` target to run demos (2025-11-03).
+- Changed: On download failures, display a `dialog` error with exit code and recent output before falling back to non-interactive download (2025-11-03).
+- Docs: Expanded README with usage, compatibility notes, and `DOWNLOAD_USE_DIALOG` behavior (2025-11-03).
+
+## [0.2.0] - 2025-10-22
+
+- Added: Ollama helpers (`lib/ollama.sh`) and model installer script (`scripts/install_ollama_model.sh`) to install and manage models via dialog selection or CLI (2025-10-18).
+- Added: `CHANGELOG.md` to document notable changes (2025-10-17).
+- Added: `scripts/bump_version.sh` to bump semantic version string in `VERSION` (2025-10-22).
+- Changed: README install instructions and guidance for using this repo as a Git submodule (2025-10-18, 2025-10-22).
+- Maintenance: Purged `RELEASE_CHECKLIST.md` from history; updated version metadata (2025-10-17, 2025-10-22).
+- Docs: Unified script help headers across `scripts/*` for consistent usage output (2025-10-22).
+
+## [0.1.0] - 2025-10-17
+
+- Initial release: Bootstrapped reusable Bash helpers with loader `helpers.sh` and core modules: `logging.sh`, `dialog.sh`, `os.sh`, `deps.sh`, `docker.sh`, `file.sh`, `json.sh`, `env.sh`, `ports.sh`, `browser.sh`, `traps.sh`, `certs.sh`, `hosts.sh`, `clipboard.sh`, and `help.sh` (2025-10-17).
+- Added: Tag and release automation (`scripts/tag_release.sh`) (2025-10-17).
 
 ---
 
-Historical releases prior to this changelog may be incomplete or summarized retroactively.
-
+Historical notes prior to this changelog may be incomplete or summarized retroactively.

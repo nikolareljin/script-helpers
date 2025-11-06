@@ -143,3 +143,12 @@ make examples RUN_INTERACTIVE=1 RUN_NETWORK=1
 
 - Shell: POSIX-friendly where possible; scripts should set `set -euo pipefail` in the caller.
 - Filenames are `snake_case`. Functions are preserved from original includes for compatibility.
+
+Versioning and releases
+-----------------------
+
+- `VERSION` file holds the current semantic version.
+- Tags use plain semver (`X.Y.Z`) without a `v` prefix. Use `scripts/tag_release.sh` to create and push an annotated tag for the current commit.
+- GitHub Actions:
+  - Auto-tag: bumps `VERSION` based on conventional commits and creates a tag.
+  - Release: publishes a GitHub Release when a `*.*.*` tag is pushed.

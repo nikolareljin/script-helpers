@@ -31,6 +31,7 @@ jobs:
           if [[ -z "$current_tag" ]]; then
             current_version=$(cat VERSION 2>/dev/null || echo "0.1.0")
           else
+            # Support old tags prefixed with 'v' while moving forward without it
             current_version=${current_tag#v}
           fi
           echo "Current: $current_version"
@@ -71,7 +72,7 @@ jobs:
         run: |
           set -euo pipefail
           next="${{ steps.bump.outputs.next }}"
-          tag="v${next}"
+          tag="${next}"
           if git rev-parse "$tag" >/dev/null 2>&1; then
             echo "Tag $tag already exists; skipping"; exit 0
           fi
