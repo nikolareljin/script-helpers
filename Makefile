@@ -57,7 +57,8 @@ example_docker:
 	@echo "\n--- Running: example_docker_compose_cmd ---"
 	@if command -v docker >/dev/null 2>&1; then \
 	  bash scripts/example_docker_compose_cmd.sh; \
+	  echo "\n--- Running: example_docker_status ---"; \
+	  bash scripts/example_docker_status.sh || true; \
 	else \
 	  echo "Docker not found; skipping docker example"; \
 	fi
-

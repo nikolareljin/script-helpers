@@ -4,6 +4,9 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ## [Unreleased]
 
+## [0.5.0] - 2025-11-27
+
+- Added: `docker_status` in `lib/docker.sh` to show running containers and cross-check services from the current directory's `docker-compose.yml`, marking statuses with glyphs (✅ running, 💥 failed, ✖️ not running). Includes example `scripts/example_docker_status.sh` and updates to README/Makefile (2025-11-27).
 - Changed: Tweak download notification messages for clarity in the dialog gauge (2025-11-05).
 
 ## [0.3.0] - 2025-11-03

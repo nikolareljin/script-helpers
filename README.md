@@ -38,7 +38,7 @@ Loader and modules
   - `dialog.sh` — dialog sizing helpers and `get_value`.
   - `os.sh` — OS detection (`get_os`, `getos`), clipboard helpers.
   - `deps.sh` — install utilities (`install_dependencies`) where applicable.
-  - `docker.sh` — docker compose detection/wrapper (`docker_compose`, `run_docker_compose_command`, etc.).
+  - `docker.sh` — docker compose detection/wrapper (`docker_compose`, `run_docker_compose_command`), status utility (`docker_status`).
   - `file.sh` — file/dir helpers, checksum verification.
   - `json.sh` — json utilities (`json_escape`, `format_response`, `format_md_response`).
   - `env.sh` — `.env` loading, `require_env`, project-root detection.
@@ -90,6 +90,29 @@ shlib_import logging docker env file json
 print_info "Project root: $(get_project_root)"
 compose_cmd=$(get_docker_compose_cmd)
 log_info "Compose cmd: $compose_cmd"
+
+# Show running containers and compose services status (if docker-compose.yml exists)
+docker_status
+```
+
+Docker status utility
+---------------------
+
+- `docker_status` prints:
+  - A table of running containers from `docker ps` (name, image, status, since, ports).
+  - If a `docker-compose.yml` exists in the current directory, it checks each defined service and marks:
+    - `✅` running (shows "since" time when available)
+    - `💥` failed (e.g., exited/restarting)
+    - `✖️` not running
+- If no `docker-compose.yml` is found in the current directory, it prints a tip to `cd` into a directory that contains it.
+- Requirements: Docker CLI and either `docker compose` (v2) or `docker-compose` (v1).
+
+Example:
+
+```bash
+source ./helpers.sh
+shlib_import logging docker
+docker_status
 ```
 
 Testing locally
@@ -125,6 +148,7 @@ Examples
 - `scripts/example_logging.sh` — Showcase logging helpers (`print_*`, `log_*`).
 - `scripts/example_env.sh` — Use env helpers (`get_project_root`, `resolve_env_value`, `require_env`).
 - `scripts/example_docker_compose_cmd.sh` — Detect the Docker Compose command.
+- `scripts/example_docker_status.sh` — Show Docker/Compose status with glyphs.
 - `scripts/example_json.sh` — JSON helpers demo (`json_escape`, `format_response`).
 
 Run examples with Makefile

@@ -63,3 +63,74 @@ wait_for_service() {
   return 1
 }
 
+# Show running Docker containers and status of services from docker-compose.yml
+# - Prints a table of currently running containers (name, image, status, running for, ports)
+# - If docker-compose.yml is present in CWD, lists defined services and marks:
+#   ✅ running (with since), 💥 failed (exited/restarting), ✖️ not running
+# - If no docker-compose.yml is found, prints a tip to cd into a directory that has it.
+docker_status() {
+  # Verify Docker engine
+  if ! check_docker; then
+    return 1
+  fi
+
+  log_info "Running containers (docker ps):"
+  if [[ -n "$(docker ps -q 2>/dev/null)" ]]; then
+    docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.RunningFor}}\t{{.Ports}}'
+  else
+    log_warn "No containers are currently running."
+  fi
+
+  # Compose services status (if compose file exists in this directory)
+  if [[ ! -f "docker-compose.yml" ]]; then
+    log_warn "No docker-compose.yml in $(pwd). cd to your project root to check service status."
+    return 0
+  fi
+
+  local services
+  if ! services=$(docker_compose config --services 2>/dev/null); then
+    log_error "Failed to parse services from docker-compose.yml"
+    return 1
+  fi
+
+  if [[ -z "$services" ]]; then
+    log_warn "No services found in docker-compose.yml"
+    return 0
+  fi
+
+  echo
+  log_info "Compose services (from docker-compose.yml):"
+
+  local service ids since_list since glyph out
+  while IFS= read -r service; do
+    [[ -z "$service" ]] && continue
+    # Container IDs for running instances of this service (empty if not running)
+    ids=$(docker_compose ps -q "$service" 2>/dev/null | xargs)
+    if [[ -n "$ids" ]]; then
+      # Gather "running for" info for each container id
+      since_list=()
+      local cid rf
+      for cid in $ids; do
+        rf=$(docker ps --filter "id=$cid" --format '{{.RunningFor}}' 2>/dev/null | head -n1)
+        [[ -n "$rf" ]] && since_list+=("$rf")
+      done
+      if [[ ${#since_list[@]} -gt 0 ]]; then
+        since=$(IFS=","; echo "${since_list[*]}")
+        log_info "✅ ${service} — running (since ${since})"
+      else
+        log_info "✅ ${service} — running"
+      fi
+    else
+      # Not running; inspect ps output to differentiate failed vs not started
+      out=$(docker_compose ps "$service" 2>/dev/null || true)
+      if echo "$out" | grep -Eqi '\b(Exit|Exited|exited|dead|restarting)\b'; then
+        # Extract a short status phrase if possible
+        local reason
+        reason=$(echo "$out" | grep -Eio '\b(Exit(ed)?\s*\(?[0-9]*\)?|exited\s*\(?[0-9]*\)?|dead|restarting[^ ]*)\b' | head -n1)
+        log_error "💥 ${service} — failed (${reason:-last state unknown})"
+      else
+        log_warn "✖️ ${service} — not running"
+      fi
+    fi
+  done <<< "$services"
+}
