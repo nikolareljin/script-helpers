@@ -34,7 +34,11 @@ jobs:
             echo "No shell scripts found."
           fi
 
+      - name: Lint documentation coverage
+        run: |
+          set -euo pipefail
+          make lint-docs
+
       - name: Run non-interactive examples
         run: |
           make examples
-

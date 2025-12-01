@@ -1,12 +1,14 @@
 SHELL := /bin/bash
 
-.PHONY: help examples example_logging example_env example_json example_dialog_input example_download example_docker
+.PHONY: help examples example_logging example_env example_json example_dialog_input example_download example_docker lint-docs install-git-hooks
 
 help:
 	@echo "Available targets:"
 	@echo "  make examples                 # Run safe, non-interactive examples"
 	@echo "  make examples RUN_NETWORK=1   # Include download example (network)"
 	@echo "  make examples RUN_INTERACTIVE=1  # Include interactive dialog example"
+	@echo "  make lint-docs                # Verify docs cover modules and functions"
+	@echo "  make install-git-hooks        # Install pre-commit hook to run lint-docs"
 	@echo "  make example_<name>           # Run a specific example"
 
 # Defaults: avoid network and interactive prompts
@@ -62,3 +64,12 @@ example_docker:
 	else \
 	  echo "Docker not found; skipping docker example"; \
 	fi
+
+lint-docs:
+	@bash scripts/lint_docs.sh
+
+install-git-hooks:
+	@mkdir -p .git/hooks
+	@chmod +x scripts/git-hooks/pre-commit
+	@ln -sf ../../scripts/git-hooks/pre-commit .git/hooks/pre-commit 2>/dev/null || cp scripts/git-hooks/pre-commit .git/hooks/pre-commit
+	@echo "Installed pre-commit hook: docs linter"
