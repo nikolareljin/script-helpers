@@ -2,7 +2,9 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
-## [Unreleased]
+## [0.6.0] - 2025-12-16
+
+- Changed: `init_include` now finds the caller project root reliably and keeps debug logging safe under `set -e` (2025-12-16).
 
 ## [0.5.0] - 2025-11-27
 
