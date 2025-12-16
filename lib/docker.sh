@@ -33,8 +33,20 @@ run_docker_compose_command() {
 }
 
 check_docker() {
-  if ! docker info >/dev/null 2>&1; then
-    log_error "Docker daemon is not running or not accessible."
+  if ! command -v docker >/dev/null 2>&1; then
+    log_error "Docker CLI not found. Install Docker and ensure it is on PATH."
+    return 1
+  fi
+
+  local info_output
+  if ! info_output=$(docker info 2>&1); then
+    if echo "$info_output" | grep -qi "permission denied"; then
+      log_error "Docker daemon reachable but permission denied. Add your user to the docker group or run with sudo."
+    elif echo "$info_output" | grep -qi "Cannot connect to the Docker daemon"; then
+      log_error "Docker daemon is not running. Start Docker and try again."
+    else
+      log_error "Docker daemon is not running or unreachable: $info_output"
+    fi
     return 1
   fi
 }
