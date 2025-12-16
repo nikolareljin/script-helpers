@@ -2,6 +2,10 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## [0.7.0] - 2025-12-16
+
+- Changed: Docker checks now distinguish missing CLI, stopped daemon, and permission errors for clearer guidance (2025-12-16).
+
 ## [0.6.0] - 2025-12-16
 
 - Changed: `init_include` now finds the caller project root reliably and keeps debug logging safe under `set -e` (2025-12-16).

@@ -20,7 +20,8 @@ Functions
   - Purpose: Helper that accepts a single combined string (compatibility with some callers).
 
 - check_docker
-  - Purpose: Verify Docker daemon is running and reachable (`docker info`).
+  - Purpose: Verify Docker is installed and the daemon is running/reachable.
+  - Behavior: Checks the Docker CLI exists, then runs `docker info`; provides specific errors for missing CLI, permission denied, or a stopped daemon.
 
 - check_project_root
   - Purpose: Ensure `docker-compose.yml` is present in the current directory.
@@ -39,4 +40,3 @@ Dependencies
 ------------
 
 - Docker CLI and either `docker compose` or `docker-compose`.
-
