@@ -70,7 +70,12 @@ print_line()    { echo "----------------------------------------"; }
 log_info()  { echo -e "${GREEN}[INFO]${NC} $*" >&2; }
 log_warn()  { echo -e "${BOLD_YELLOW:-$YELLOW}[WARN]${NC} $*" >&2; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
-log_debug() { [[ "${DEBUG:-}" == "true" ]] && echo -e "${BLUE}[DEBUG]${NC} $*" >&2; }
+log_debug() {
+  if [[ "${DEBUG:-}" == "true" ]]; then
+    echo -e "${BLUE}[DEBUG]${NC} $*" >&2
+  fi
+  return 0
+}
 
 # Compatibility wrapper for burn-iso `print` function
 print() {

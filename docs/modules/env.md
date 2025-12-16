@@ -6,8 +6,8 @@ Functions
 ---------
 
 - get_project_root
-  - Purpose: Determine project root as the parent directory of the calling script directory.
-  - Behavior: If called from a sourced script, uses `BASH_SOURCE[1]`; otherwise uses CWD.
+  - Purpose: Determine project root as the parent directory of the top-level calling script directory.
+  - Behavior: Walks the `BASH_SOURCE` stack from the outermost caller to find a real script file; falls back to CWD when none is found (e.g., interactive shell).
 
 - load_env [env_file=.env]
   - Purpose: Load environment variables from a dotenv file; exports them for the current shell.
@@ -31,4 +31,3 @@ Functions
 - init_include
   - Purpose: Convenience initializer: sets traps (if available), `cd` to project root, and loads `.env`.
   - Behavior: Calls `setup_traps` when imported; prints debug logs when `DEBUG=true`.
-

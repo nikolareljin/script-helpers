@@ -28,6 +28,7 @@ Functions
 - log_debug message
   - Purpose: Logging to stderr with level prefixes.
   - Environment: `DEBUG=true` enables `log_debug` output.
+  - Returns: Always 0 (safe with `set -e`) even when no debug output is emitted.
 
 - print color message...
   - Purpose: Compatibility wrapper used by some legacy scripts; prints and then echoes `....`.
@@ -39,4 +40,3 @@ Notes
 -----
 
 - Color constants like `RED`, `GREEN` etc. are defined if you want to use raw ANSI codes directly.
-

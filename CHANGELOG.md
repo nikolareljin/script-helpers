@@ -4,6 +4,8 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ## [Unreleased]
 
+- Changed: `init_include` now finds the caller project root reliably and keeps debug logging safe under `set -e` (2025-12-16).
+
 ## [0.5.0] - 2025-11-27
 
 - Added: `docker_status` in `lib/docker.sh` to show running containers and cross-check services from the current directory's `docker-compose.yml`, marking statuses with glyphs (✅ running, 💥 failed, ✖️ not running). Includes example `scripts/example_docker_status.sh` and updates to README/Makefile (2025-11-27).

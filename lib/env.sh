@@ -2,13 +2,24 @@
 # Environment and project helpers
 
 get_project_root() {
-  local script_dir
-  # If called from a sourced script, BASH_SOURCE[1] points to caller; fallback to CWD
-  if [[ -n "${BASH_SOURCE[1]:-}" ]]; then
-    script_dir="$(cd "$(dirname "${BASH_SOURCE[1]}")" && pwd)"
+  local source_path="" script_dir=""
+
+  # Walk the source stack from the outermost caller inward to find the real script file
+  if [[ ${#BASH_SOURCE[@]} -gt 0 ]]; then
+    local i
+    for ((i=${#BASH_SOURCE[@]}-1; i>=0; i--)); do
+      source_path="${BASH_SOURCE[$i]}"
+      [[ -z "$source_path" || "$source_path" == "environment" ]] && continue
+      [[ -f "$source_path" ]] && break
+    done
+  fi
+
+  if [[ -n "$source_path" && -f "$source_path" ]]; then
+    script_dir="$(cd "$(dirname "$source_path")" && pwd)"
   else
     script_dir="$(pwd)"
   fi
+
   echo "$(dirname "$script_dir")"
 }
 
