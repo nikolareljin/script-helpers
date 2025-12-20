@@ -23,6 +23,4 @@ if [[ $# -lt 1 ]]; then
   exit 1
 fi
 
-if ! version_bump "$@"; then
-  exit $?
-fi
+version_bump "$@" || exit $?
