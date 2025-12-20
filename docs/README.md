@@ -37,6 +37,7 @@ Modules overview
 - deps — install utilities and AI Runner tooling profile.
 - json — escape strings, extract fields, markdown-friendly formatting.
 - ports — list port listeners, detect conflicts from env variables.
+- version — semantic version helpers for bumping and comparing.
 - browser — open URLs and wait+open a frontend when ready.
 - certs — self‑signed certs and trust store installation.
 - hosts — /etc/hosts helpers.

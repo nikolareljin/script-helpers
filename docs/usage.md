@@ -21,6 +21,24 @@ print_info "Project root: $(get_project_root)"
 docker_status
 ```
 
+Version bumping and comparison
+```bash
+shlib_import logging env version
+
+# Bump patch version in VERSION at the project root (or pass -f to override)
+version_bump patch
+
+# Compare semantic versions (ignores leading v/V and suffixes)
+version_compare "v1.10.0-rc1" "1.9.9"
+case $? in
+  0) echo "Same version";;
+  1) echo "Left is newer";;
+  255) echo "Left is older";; # 255 represents -1 from version_compare
+  2) echo "Missing args";;
+  3) echo "Invalid input";;
+esac
+```
+
 Import patterns
 ---------------
 
@@ -79,4 +97,3 @@ compose_cmd=$(get_docker_compose_cmd)
 log_info "Compose: $compose_cmd"
 docker_status
 ```
-
