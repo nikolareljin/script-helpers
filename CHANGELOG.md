@@ -2,6 +2,13 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## [0.8.0] - 2025-12-20
+
+- Added: `version` module (`version_bump`, `version_compare`) with support for optional version file paths and preserving prefixes/suffixes.
+- Changed: `scripts/bump_version.sh` now delegates to `version_bump` and accepts `-f/--file`.
+- Changed: `version_compare` now returns -1/0/1 (surfaced as 255/0/1 in shells) and keeps higher codes for errors (2 missing args, 3 invalid format).
+- Docs: Added module docs and usage examples for version helpers.
+
 ## [0.7.0] - 2025-12-16
 
 - Changed: Docker checks now distinguish missing CLI, stopped daemon, and permission errors for clearer guidance (2025-12-16).

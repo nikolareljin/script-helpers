@@ -41,12 +41,13 @@ Loader and modules
   - `docker.sh` — docker compose detection/wrapper (`docker_compose`, `run_docker_compose_command`), status utility (`docker_status`).
   - `file.sh` — file/dir helpers, checksum verification.
   - `json.sh` — json utilities (`json_escape`, `format_response`, `format_md_response`).
-  - `env.sh` — `.env` loading, `require_env`, project-root detection.
-  - `ports.sh` — port usage/availability helpers.
-  - `browser.sh` — `open_url`, `open_frontend_when_ready`.
-  - `traps.sh` — cleanup and signal traps.
-  - `certs.sh` — self-signed cert creation and trust-store helpers.
-  - `hosts.sh` — `/etc/hosts` helpers.
+- `env.sh` — `.env` loading, `require_env`, project-root detection.
+- `version.sh` — semantic version helpers (`version_bump`, `version_compare`).
+- `ports.sh` — port usage/availability helpers.
+- `browser.sh` — `open_url`, `open_frontend_when_ready`.
+- `traps.sh` — cleanup and signal traps.
+- `certs.sh` — self-signed cert creation and trust-store helpers.
+- `hosts.sh` — `/etc/hosts` helpers.
   - `clipboard.sh` — `copy_to_clipboard`.
   - `ollama.sh` — Ollama helpers (`ollama_install_cli`, prepare models index from webfarmer/ollama-get-models, dialog selection, `ollama_pull_model`, `ollama_run_model
 
@@ -173,6 +174,7 @@ Versioning and releases
 
 - `VERSION` file holds the current semantic version.
 - Tags use plain semver (`X.Y.Z`) without a `v` prefix. Use `scripts/tag_release.sh` to create and push an annotated tag for the current commit.
+- Use `scripts/bump_version.sh` or `version_bump` (from `lib/version.sh`) to increment the version file.
 - GitHub Actions:
   - Auto-tag: bumps `VERSION` based on conventional commits and creates a tag.
   - Release: publishes a GitHub Release when a `*.*.*` tag is pushed.

@@ -13,6 +13,7 @@ This index lists all modules and their functions. See the linked module pages fo
 - docker — ./modules/docker.md
 - json — ./modules/json.md
 - ports — ./modules/ports.md
+- version — ./modules/version.md
 - browser — ./modules/browser.md
 - certs — ./modules/certs.md
 - hosts — ./modules/hosts.md
