@@ -21,6 +21,17 @@ Functions
   - Signature: `show_help [path]`
   - Behavior: uses `# USAGE:` when present; emits errors via `log_error` if the script file cannot be read.
 
+- get_script_metadata script_file meta_ref
+  - Purpose: Parse standardized header tags from a script and populate an associative array with metadata fields.
+  - Signature: `get_script_metadata <script_file> <meta_ref>`
+  - Args:
+    - script_file — script path to scan.
+    - meta_ref — name of an associative array (nameref) to receive fields.
+  - Returns: 0 on success; non-zero only if caller-provided references are invalid.
+  - Environment: none.
+  - Dependencies: bash nameref support; `log_error` is used by callers, not by this function.
+  - Notes: Supports multi-line values for `USAGE`, `PARAMETERS`, `EXAMPLE`, and `EXIT_CODES`; also populates `param_lines` with indented parameter lines.
+
 - show_usage [script_file]
   - Purpose: Print generic usage with common options (`-h/--help`, `-v/--verbose`, `-d/--debug`).
 
