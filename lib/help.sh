@@ -172,7 +172,7 @@ get_script_metadata() {
       param_lines+="${param_line}"$'\n'
     fi
   done < "$script_file"
-  _meta[param_lines]="${param_lines%\n}"
+  _meta[param_lines]="${param_lines%$'\n'}"
 }
 
 # Generic usage printer and common arg parser (network-scan style)
