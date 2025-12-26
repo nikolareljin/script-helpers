@@ -169,8 +169,7 @@ get_script_metadata() {
       if [[ "$param_line" == PARAMETERS:* ]]; then
         continue
       fi
-      param_lines+="${param_line}
-"
+      param_lines+="${param_line}"$'\n'
     fi
   done < "$script_file"
   _meta[param_lines]="${param_lines%\n}"
