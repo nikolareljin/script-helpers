@@ -132,12 +132,18 @@ require_script_helpers() {
 }
 
 load_script_helpers_if_available() {
-  # Same guard; returns 1 without blowing up the script.
+  # Soft guard; prints a hint but returns success when missing.
+  if [[ ! -f "$HELPERS_PATH" ]]; then
+    script_helpers_hint
+    return 0
+  fi
   load_script_helpers "$@"
 }
 ```
 
 If `script-helpers` is missing, the loader prevents a hard error and tells the user to install it or run `./update`.
+Use `require_script_helpers` for scripts that must stop when helpers are missing, and `load_script_helpers_if_available`
+for bootstrap scripts that should continue (like `./update`).
 
 scripts/build.sh (safe source for direct call or symlink):
 ```bash
