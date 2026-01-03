@@ -80,7 +80,14 @@ Recommended layout in the consuming repo (supports direct calls and symlinks):
   build -> scripts/build.sh
 ```
 
-scripts/include.sh (shared dependency guard):
+How to create scripts/include.sh
+--------------------------------
+
+1) Create `scripts/include.sh` with the loader below.
+2) Source it from every script: `source "$SCRIPT_DIR/include.sh"`.
+3) Call `require_script_helpers <modules...>` at the top of each script.
+
+scripts/include.sh (loader for all scripts):
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
@@ -133,7 +140,7 @@ load_script_helpers_if_available() {
 }
 ```
 
-If `script-helpers` is missing, the guard prevents a hard error and prints the exact commands to install it first.
+If `script-helpers` is missing, the loader prevents a hard error and tells the user to install it or run `./update`.
 
 scripts/build.sh (safe source for direct call or symlink):
 ```bash
