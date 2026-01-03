@@ -113,8 +113,8 @@ script_helpers_hint() {
   printf "Or:  ./update\n" >&2
 }
 
-require_script_helpers() {
-  # Fail fast with a friendly prompt instead of sourcing a missing file.
+load_script_helpers() {
+  # Shared loader so both call sites stay in sync.
   if [[ ! -f "$HELPERS_PATH" ]]; then
     script_helpers_hint
     return 1
@@ -126,17 +126,14 @@ require_script_helpers() {
   fi
 }
 
+require_script_helpers() {
+  # Fail fast with a friendly prompt instead of sourcing a missing file.
+  load_script_helpers "$@" || return 1
+}
+
 load_script_helpers_if_available() {
   # Same guard; returns 1 without blowing up the script.
-  if [[ ! -f "$HELPERS_PATH" ]]; then
-    script_helpers_hint
-    return 1
-  fi
-  # shellcheck source=/dev/null
-  source "$HELPERS_PATH"
-  if [[ "$#" -gt 0 ]]; then
-    shlib_import "$@"
-  fi
+  load_script_helpers "$@"
 }
 ```
 
