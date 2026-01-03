@@ -11,6 +11,7 @@ Options
   - `git submodule add <repo-url> scripts/script-helpers`
   - `git submodule update --init --recursive`
   - Source as shown in the quick start.
+  - Add an `./update` helper in the repo root that runs `git submodule update --init --recursive` (see `docs/usage.md` for the shared include and update script pattern).
 
 Loader location
 ---------------
@@ -45,4 +46,3 @@ Network and sudo notes
 ----------------------
 
 - Some helpers can use network (e.g., downloads, git clone) or require elevated privileges (e.g., trust store, /etc/hosts). Those functions call out the behavior in their docs and use `run_with_optional_sudo` when appropriate.
-
