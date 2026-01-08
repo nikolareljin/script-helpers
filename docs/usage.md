@@ -65,6 +65,125 @@ Using as a library in other projects
 - Source `helpers.sh` from your scripts and import the modules you need.
 - Keep examples in `scripts/` handy for quick reference; you can copy/paste and adapt.
 
+Shared include and dependency check
+-----------------------------------
+
+Recommended layout in the consuming repo (supports direct calls and symlinks):
+```text
+./
+  scripts/
+    include.sh
+    update.sh
+    script-helpers/    # git submodule
+    build.sh
+  update -> scripts/update.sh
+  build -> scripts/build.sh
+```
+
+scripts/include.sh (shared dependency guard):
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+INCLUDE_SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$INCLUDE_SOURCE" ]; do
+  INCLUDE_DIR="$(cd "$(dirname "$INCLUDE_SOURCE")" && pwd)"
+  INCLUDE_SOURCE="$(readlink "$INCLUDE_SOURCE")"
+  if [[ "$INCLUDE_SOURCE" != /* ]]; then
+    INCLUDE_SOURCE="$INCLUDE_DIR/$INCLUDE_SOURCE"
+  fi
+done
+
+SCRIPT_DIR="$(cd "$(dirname "$INCLUDE_SOURCE")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$ROOT_DIR/scripts/script-helpers}"
+HELPERS_PATH="$SCRIPT_HELPERS_DIR/helpers.sh"
+
+script_helpers_hint() {
+  printf "ERROR: script-helpers dependency not found.\n" >&2
+  printf "Run: git submodule update --init --recursive\n" >&2
+  printf "Or:  git clone <repo-url> scripts/script-helpers\n" >&2
+  printf "Or:  ./update\n" >&2
+}
+
+require_script_helpers() {
+  # Fail fast with a friendly prompt instead of sourcing a missing file.
+  if [[ ! -f "$HELPERS_PATH" ]]; then
+    script_helpers_hint
+    return 1
+  fi
+  # shellcheck source=/dev/null
+  source "$HELPERS_PATH"
+  if [[ "$#" -gt 0 ]]; then
+    shlib_import "$@"
+  fi
+}
+
+load_script_helpers_if_available() {
+  # Same guard; returns 1 without blowing up the script.
+  if [[ ! -f "$HELPERS_PATH" ]]; then
+    script_helpers_hint
+    return 1
+  fi
+  # shellcheck source=/dev/null
+  source "$HELPERS_PATH"
+  if [[ "$#" -gt 0 ]]; then
+    shlib_import "$@"
+  fi
+}
+```
+
+If `script-helpers` is missing, the guard prevents a hard error and prints the exact commands to install it first.
+
+scripts/build.sh (safe source for direct call or symlink):
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SCRIPT_SOURCE" ]; do
+  SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
+  SCRIPT_SOURCE="$(readlink "$SCRIPT_SOURCE")"
+  if [[ "$SCRIPT_SOURCE" != /* ]]; then
+    SCRIPT_SOURCE="$SCRIPT_DIR/$SCRIPT_SOURCE"
+  fi
+done
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
+
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/include.sh"
+require_script_helpers logging help
+
+print_info "script-helpers is available"
+```
+
+scripts/update.sh (submodule bootstrap):
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# shellcheck source=/dev/null
+source "$ROOT_DIR/scripts/include.sh"
+load_script_helpers_if_available help
+
+if ! command -v git >/dev/null 2>&1; then
+  echo "Error: git is not installed."
+  exit 1
+fi
+
+cd "$ROOT_DIR"
+git submodule sync --recursive
+git submodule update --init --recursive --remote
+```
+
+Create root symlinks:
+```bash
+ln -s ./scripts/update.sh ./update
+ln -s ./scripts/build.sh ./build
+```
+
 Common snippets
 ---------------
 
