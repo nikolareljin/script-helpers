@@ -11,7 +11,8 @@ Options
   - `git submodule add <repo-url> scripts/script-helpers`
   - `git submodule update --init --recursive`
   - Source as shown in the quick start.
-  - Add an `./update` helper in the repo root that runs `git submodule update --init --recursive` (see `docs/usage.md` for the shared include and update script pattern).
+  - Create a `scripts/update.sh` in your repo that runs `git submodule update --init --recursive` (see `docs/usage.md` for a sample).
+  - Add a root-level `./update` symlink to that script: `ln -s ./scripts/update.sh ./update`
 
 Loader location
 ---------------

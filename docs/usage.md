@@ -80,7 +80,14 @@ Recommended layout in the consuming repo (supports direct calls and symlinks):
   build -> scripts/build.sh
 ```
 
-scripts/include.sh (shared dependency guard):
+How to create scripts/include.sh
+--------------------------------
+
+1) Create `scripts/include.sh` with the loader below.
+2) Source it from every script: `source "$SCRIPT_DIR/include.sh"`.
+3) Call `require_script_helpers <modules...>` at the top of each script.
+
+scripts/include.sh (loader for all scripts):
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
@@ -106,8 +113,8 @@ script_helpers_hint() {
   printf "Or:  ./update\n" >&2
 }
 
-require_script_helpers() {
-  # Fail fast with a friendly prompt instead of sourcing a missing file.
+load_script_helpers() {
+  # Shared loader so both call sites stay in sync.
   if [[ ! -f "$HELPERS_PATH" ]]; then
     script_helpers_hint
     return 1
@@ -117,23 +124,26 @@ require_script_helpers() {
   if [[ "$#" -gt 0 ]]; then
     shlib_import "$@"
   fi
+}
+
+require_script_helpers() {
+  # Fail fast with a friendly prompt instead of sourcing a missing file.
+  load_script_helpers "$@" || return 1
 }
 
 load_script_helpers_if_available() {
-  # Same guard; returns 1 without blowing up the script.
+  # Soft guard; prints a hint but returns success when missing.
   if [[ ! -f "$HELPERS_PATH" ]]; then
     script_helpers_hint
-    return 1
+    return 0
   fi
-  # shellcheck source=/dev/null
-  source "$HELPERS_PATH"
-  if [[ "$#" -gt 0 ]]; then
-    shlib_import "$@"
-  fi
+  load_script_helpers "$@"
 }
 ```
 
-If `script-helpers` is missing, the guard prevents a hard error and prints the exact commands to install it first.
+If `script-helpers` is missing, the loader prevents a hard error and tells the user to install it or run `./update`.
+Use `require_script_helpers` for scripts that must stop when helpers are missing, and `load_script_helpers_if_available`
+for bootstrap scripts that should continue (like `./update`).
 
 scripts/build.sh (safe source for direct call or symlink):
 ```bash
