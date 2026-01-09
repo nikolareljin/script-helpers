@@ -152,6 +152,15 @@ Examples
 - `scripts/example_docker_status.sh` — Show Docker/Compose status with glyphs.
 - `scripts/example_json.sh` — JSON helpers demo (`json_escape`, `format_response`).
 
+Packaging helpers
+-----------------
+
+- `scripts/build_deb_artifacts.sh` — Build Debian packages and emit artifacts.
+- `scripts/ppa_upload.sh` — Build and upload a Debian source package to a Launchpad PPA.
+
+Library helpers:
+- `lib/package_publish.sh` — Shared helpers for Debian builds and PPA publishing.
+
 Run examples with Makefile
 --------------------------
 
