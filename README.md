@@ -151,6 +151,7 @@ Examples
 - `scripts/example_docker_compose_cmd.sh` — Detect the Docker Compose command.
 - `scripts/example_docker_status.sh` — Show Docker/Compose status with glyphs.
 - `scripts/example_json.sh` — JSON helpers demo (`json_escape`, `format_response`).
+- `scripts/example_package_publish.sh` — Package publishing helpers demo.
 
 Packaging helpers
 -----------------

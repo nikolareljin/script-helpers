@@ -2,6 +2,15 @@
 
 Helpers for Debian package builds and Launchpad PPA publishing.
 
+## Example
+
+```
+source ./helpers.sh
+shlib_import logging package_publish
+
+pkg_build_deb_artifacts "." "make man" ""
+```
+
 ## Functions
 
 ### `pkg_require_cmds`
