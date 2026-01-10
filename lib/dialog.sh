@@ -259,8 +259,11 @@ dialog_download_file() {
       printf "Downloaded: %s\n" "$(_dialog__human_size "$cur_bytes")"
       printf "XXX\n"
     fi
-  local gauge_height=10
+  local gauge_height="$DIALOG_HEIGHT"
   local gauge_width="$DIALOG_WIDTH"
+  # Clamp gauge size to avoid oversized boxes and shadow artifacts on some terminals.
+  (( gauge_height > 15 )) && gauge_height=15
+  (( gauge_height < 10 )) && gauge_height=10
   (( gauge_width > 80 )) && gauge_width=80
   (( gauge_width < 60 )) && gauge_width=60
   ) | dialog --no-shadow --title "Downloading" --gauge "Preparing download..." "$gauge_height" "$gauge_width" 0
