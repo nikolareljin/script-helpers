@@ -7,6 +7,7 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Added: `lib/package_publish.sh` for shared Debian/PPA publishing helpers.
 - Added: package publish example script.
 - Changed: packaging scripts now use shared helpers via `shlib_import`.
+- Changed: download dialog gauge uses fixed sizing and no-shadow to avoid visual artifacts.
 
 - Added: Debian packaging helpers (`scripts/build_deb_artifacts.sh`, `scripts/ppa_upload.sh`).
 
