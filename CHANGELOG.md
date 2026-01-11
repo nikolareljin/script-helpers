@@ -2,6 +2,13 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## [0.10.0] - 2026-01-11
+
+- Added: Cross-distro packaging scaffolds (Debian, RPM, Arch, Homebrew) with shared metadata templates.
+- Added: Packaging helper module and scripts to render templates and build RPM/Arch artifacts.
+- Added: Packaging docs covering structure, build commands, signing notes, and install commands.
+- Changed: Tag existence checks now verify exact refs to avoid false matches (e.g., `0.10.0` vs `0.1.0`).
+
 ## [0.9.1] - 2026-01-08
 
 - Added: `lib/package_publish.sh` for shared Debian/PPA publishing helpers.
