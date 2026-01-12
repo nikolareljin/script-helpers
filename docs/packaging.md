@@ -51,7 +51,7 @@ Dependencies use `|` as a separator to preserve spaces in version constraints.
 ## Publish commands
 
 - PPA (Launchpad): `./vendor/script-helpers/scripts/ppa_upload.sh --repo . --ppa ppa:owner/name --key-id ABCDEF`
-- Homebrew tap: `./vendor/script-helpers/scripts/publish_homebrew.sh --formula packaging/homebrew/myapp.rb --tap-repo owner/homebrew-tap`
+- Homebrew tap: `./vendor/script-helpers/scripts/publish_homebrew.sh --formula packaging/brew/myapp.rb --tap-repo owner/homebrew-tap`
 
 ## End-user install commands
 

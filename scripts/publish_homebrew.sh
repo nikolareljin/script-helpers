@@ -2,10 +2,10 @@
 # SCRIPT: publish_homebrew.sh
 # DESCRIPTION: Publish a Homebrew formula to a tap repository.
 # USAGE: ./publish_homebrew.sh [--repo PATH] [--formula PATH] [--name NAME] [--tap-repo OWNER/REPO] [--tap-token TOKEN] [--tap-branch BRANCH] [--tap-dir DIR] [--commit-message MESSAGE]
-# EXAMPLE: ./publish_homebrew.sh --formula packaging/homebrew/myapp.rb --tap-repo owner/homebrew-tap
+# EXAMPLE: ./publish_homebrew.sh --formula packaging/brew/myapp.rb --tap-repo owner/homebrew-tap
 # PARAMETERS:
 #   --repo <path>            Repo path (default: GITHUB_WORKSPACE or cwd).
-#   --formula <path>         Formula path (default: packaging/homebrew/<name>.rb).
+#   --formula <path>         Formula path (default: packaging/brew/<name>.rb).
 #   --name <name>            Formula name (default: inferred from formula path).
 #   --tap-repo <owner/repo>  GitHub tap repository (default: HOMEBREW_TAP_REPO).
 #   --tap-token <token>      GitHub token (default: HOMEBREW_TAP_TOKEN).
@@ -49,10 +49,17 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$formula_path" ]]; then
-  if [[ -z "$formula_name" ]]; then
-    formula_path="$(ls "$repo_dir"/packaging/homebrew/*.rb 2>/dev/null | head -n 1 || true)"
+  if [[ -n "$formula_name" ]]; then
+    if [[ -f "$repo_dir/packaging/brew/${formula_name}.rb" ]]; then
+      formula_path="$repo_dir/packaging/brew/${formula_name}.rb"
+    else
+      formula_path="$repo_dir/packaging/homebrew/${formula_name}.rb"
+    fi
   else
-    formula_path="$repo_dir/packaging/homebrew/${formula_name}.rb"
+    formula_path="$(ls "$repo_dir"/packaging/brew/*.rb 2>/dev/null | head -n 1 || true)"
+    if [[ -z "$formula_path" ]]; then
+      formula_path="$(ls "$repo_dir"/packaging/homebrew/*.rb 2>/dev/null | head -n 1 || true)"
+    fi
   fi
 fi
 

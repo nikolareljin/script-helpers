@@ -14,7 +14,7 @@
 #   --dep <name>           Dependency (repeatable).
 #   --entrypoint <path>    Entrypoint script (default: name).
 #   --man-path <path>      Manpage path (optional).
-#   --formula-path <path>  Output formula path (default: packaging/homebrew/<name>.rb).
+#   --formula-path <path>  Output formula path (default: packaging/brew/<name>.rb).
 #   --use-libexec          Install into libexec and generate wrapper (default: false).
 #   --env-var <name>       Env var for wrapper (used with --use-libexec).
 #   -h, --help             Show help.
@@ -88,7 +88,7 @@ if [[ -z "$entrypoint" ]]; then
 fi
 
 if [[ -z "$formula_path" ]]; then
-  formula_path="$repo_dir/packaging/homebrew/$name.rb"
+  formula_path="$repo_dir/packaging/brew/$name.rb"
 fi
 
 mkdir -p "$(dirname "$formula_path")"
