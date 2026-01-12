@@ -9,6 +9,7 @@
 #   --homepage <url>       Project homepage (required).
 #   --tarball <path>       Tarball path (required).
 #   --url <url>            Tarball URL (default: GitHub releases URL).
+#   --repo-slug <slug>     GitHub repo slug (owner/repo) for default URL (optional).
 #   --version <version>    Version override (default: from tarball name).
 #   --license <license>    License (default: MIT).
 #   --dep <name>           Dependency (repeatable).
@@ -25,7 +26,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-${ROOT_DIR}}"
 # shellcheck source=/dev/null
 source "${SCRIPT_HELPERS_DIR}/helpers.sh"
-shlib_import logging help
+shlib_import logging help packaging
 
 usage() { display_help; }
 
@@ -43,6 +44,7 @@ man_path=""
 formula_path=""
 use_libexec=false
 env_var=""
+repo_slug="${SOURCE_REPO:-${GITHUB_REPOSITORY:-}}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -51,6 +53,7 @@ while [[ $# -gt 0 ]]; do
     --homepage) homepage="$2"; shift 2;;
     --tarball) tarball="$2"; shift 2;;
     --url) url="$2"; shift 2;;
+    --repo-slug) repo_slug="$2"; shift 2;;
     --version) version="$2"; shift 2;;
     --license) license="$2"; shift 2;;
     --dep) deps+=("$2"); shift 2;;
@@ -79,7 +82,11 @@ if [[ -z "$version" ]]; then
 fi
 
 if [[ -z "$url" ]]; then
-  url="https://github.com/nikolareljin/$name/releases/download/v$version/$name-$version.tar.gz"
+  if [[ -n "$repo_slug" ]]; then
+    url="https://github.com/${repo_slug}/releases/download/v$version/$name-$version.tar.gz"
+  else
+    url="https://github.com/$name/releases/download/v$version/$name-$version.tar.gz"
+  fi
 fi
 
 sha256="$(shasum -a 256 "$tarball" | awk '{print $1}')"
@@ -92,6 +99,8 @@ if [[ -z "$formula_path" ]]; then
 fi
 
 mkdir -p "$(dirname "$formula_path")"
+
+class_name="$(pkg_classify_name "$name")"
 
 deps_block=""
 for dep in "${deps[@]}"; do
@@ -109,7 +118,7 @@ if $use_libexec; then
     exit 2
   fi
   cat >"$formula_path" <<EOF
-class ${name^} < Formula
+class ${class_name} < Formula
   desc "$desc"
   homepage "$homepage"
   url "$url"
@@ -131,7 +140,7 @@ end
 EOF
 else
   cat >"$formula_path" <<EOF
-class ${name^} < Formula
+class ${class_name} < Formula
   desc "$desc"
   homepage "$homepage"
   url "$url"
