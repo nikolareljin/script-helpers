@@ -79,7 +79,7 @@ mkdir -p "$build_root"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 source_tar="${APP_NAME:-app}-${APP_VERSION}.tar.gz"
 source_path="$build_root/SOURCES/$source_tar"
 
-if command -v git >/dev/null 2>&1 && git -C "$repo_dir" rev-parse --git-dir >/dev/null 2>&1; then
+if command -v git >/dev/null 2>&1 && git -C "$repo_dir" rev-parse --git-dir >/dev/null 2>&1 && [[ -z "$prebuild_cmd" ]]; then
   git -C "$repo_dir" archive --format=tar.gz --prefix="${APP_NAME:-app}-${APP_VERSION}/" -o "$source_path" HEAD
 else
   tar -C "$repo_dir" -czf "$source_path" --exclude=".git" .

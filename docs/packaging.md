@@ -33,11 +33,12 @@ Dependencies use `|` as a separator to preserve spaces in version constraints.
 - Debian (.deb): `./vendor/script-helpers/scripts/build_deb_artifacts.sh --repo .`
 - RPM (.rpm): `./vendor/script-helpers/scripts/build_rpm_artifacts.sh --repo .`
 - Arch (.pkg.tar.zst): `./vendor/script-helpers/scripts/build_arch_artifacts.sh --repo .`
+- Homebrew tarball: `./vendor/script-helpers/scripts/build_brew_tarball.sh --name myapp --repo .`
 
 ## Homebrew formula
 
 ```
-./vendor/script-helpers/scripts/render_brew_formula.sh --repo . --url <tarball_url> --sha256 <sha256>
+./vendor/script-helpers/scripts/gen_brew_formula.sh --name myapp --desc "My app" --homepage https://example.com --tarball dist/myapp-1.0.0.tar.gz --url https://example.com/myapp-1.0.0.tar.gz
 ```
 
 ## Signing notes
@@ -46,6 +47,11 @@ Dependencies use `|` as a separator to preserve spaces in version constraints.
 - RPM: configure `~/.rpmmacros` with `%_gpg_name` and run `rpmsign --addsign`.
 - Arch: use `makepkg --sign` (requires `PACKAGER` + GPG key).
 - Homebrew: formula updates are signed by git commit in the tap repo.
+
+## Publish commands
+
+- PPA (Launchpad): `./vendor/script-helpers/scripts/ppa_upload.sh --repo . --ppa ppa:owner/name --key-id ABCDEF`
+- Homebrew tap: `./vendor/script-helpers/scripts/publish_homebrew.sh --formula packaging/homebrew/myapp.rb --tap-repo owner/homebrew-tap`
 
 ## End-user install commands
 
