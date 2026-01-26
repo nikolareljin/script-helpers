@@ -17,7 +17,7 @@ jobs:
         run: |
           set -euo pipefail
           branch="${GITHUB_HEAD_REF#release/}"
-          version="$(cat VERSION)"
+          version="$(head -n1 VERSION | xargs)"
           if [[ "$version" != "$branch" ]]; then
             echo "VERSION ($version) does not match release branch ($branch)." >&2
             exit 1
