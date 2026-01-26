@@ -24,6 +24,6 @@ jobs:
           fi
           version="$(head -n1 VERSION | xargs)"
           if [[ "$version" != "$branch" ]]; then
-            echo "VERSION ($version) does not match release branch ($branch)." >&2
+            echo "VERSION ($version) does not match release branch ($branch). Please update the VERSION file to match the release branch version or rename the branch to match VERSION." >&2
             exit 1
           fi
