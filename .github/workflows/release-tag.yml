@@ -25,7 +25,7 @@ jobs:
               exit 0
             fi
           fi
-          version="$(cat VERSION)"
+          version="$(head -n1 VERSION | xargs)"
           if [[ -z "$version" ]]; then
             echo "VERSION is empty; skipping tag." >&2
             exit 1
