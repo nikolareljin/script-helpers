@@ -27,7 +27,7 @@ jobs:
           fi
           version="$(head -n1 VERSION | xargs)"
           if [[ -z "$version" ]]; then
-            echo "VERSION is empty; skipping tag." >&2
+            echo "ERROR: VERSION is empty; failing tag step." >&2
             exit 1
           fi
           if git rev-parse -q --verify "refs/tags/$version" >/dev/null; then
