@@ -8,7 +8,8 @@
 #   --skip-test        Skip flutter test.
 #   --skip-build       Skip flutter build step.
 #   --build-cmd <c>    Override build command (default: flutter build appbundle --release).
-#   --image <img>      Docker image to use (default: ghcr.io/cirruslabs/flutter:stable@sha256:d18e04... [Flutter 3.38.7]).
+#   --image <img>      Docker image to use (default: ghcr.io/cirruslabs/flutter:stable).
+#   --digest <sha256>  Pin image to specific digest for supply-chain security (e.g., sha256:d18e04...).
 #   --no-docker        Run on the host instead of Docker.
 #   -h, --help         Show this help message.
 # ----------------------------------------------------
@@ -32,8 +33,8 @@ SKIP_TEST=false
 SKIP_BUILD=false
 BUILD_CMD="flutter build appbundle --release"
 USE_DOCKER=true
-# Pin to immutable digest to prevent supply-chain attacks (Flutter 3.38.7 stable as of Jan 2026)
-IMAGE="ghcr.io/cirruslabs/flutter:stable@sha256:d18e043566d957a358fdfa063e53381a303245b4b68e7c0e2ece82b71183537c"
+IMAGE="ghcr.io/cirruslabs/flutter:stable"
+DIGEST=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -43,11 +44,17 @@ while [[ $# -gt 0 ]]; do
     --skip-build) SKIP_BUILD=true; shift;;
     --build-cmd) BUILD_CMD="$2"; shift 2;;
     --image) IMAGE="$2"; shift 2;;
+    --digest) DIGEST="$2"; shift 2;;
     --no-docker) USE_DOCKER=false; shift;;
     -h|--help) show_help "${BASH_SOURCE[0]}"; exit 0;;
     *) echo "Unknown arg: $1" >&2; exit 1;;
   esac
 done
+
+# Apply digest to image if provided
+if [[ -n "$DIGEST" ]]; then
+  IMAGE="${IMAGE}@${DIGEST}"
+fi
 
 if [[ "$USE_DOCKER" == "true" ]]; then
   if ! command -v docker >/dev/null 2>&1; then

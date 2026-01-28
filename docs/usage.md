@@ -210,6 +210,12 @@ use only and will refuse to run when `CI=true`.
 ./scripts/ci_security.sh --workdir backend --python-req requirements.txt
 ```
 
+For enhanced supply-chain security, pin Flutter image to a specific digest:
+
+```bash
+./scripts/ci_flutter.sh --digest sha256:d18e043566d957a358fdfa063e53381a303245b4b68e7c0e2ece82b71183537c
+```
+
 Release branch checks
 ---------------------
 
