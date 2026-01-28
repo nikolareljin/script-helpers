@@ -12,7 +12,8 @@
 #   --node-cmd <c>      Override node audit command (default: npm audit --audit-level=high).
 #   --python-image <i>  Docker image for python checks (default: python:3.11-slim).
 #   --node-image <i>    Docker image for node checks (default: node:20-bullseye).
-#   --gitleaks-image <i> Docker image for gitleaks (default: zricethezav/gitleaks:v8.30.0).
+#   --gitleaks-image <i> Docker image for gitleaks (default: zricethezav/gitleaks:latest).
+#   --gitleaks-version <v> Gitleaks version tag (e.g., v8.30.0). If provided, overrides --gitleaks-image tag.
 #   --no-docker         Run on the host instead of Docker.
 #   -h, --help          Show this help message.
 # ----------------------------------------------------
@@ -40,7 +41,8 @@ NODE_CMD="npm audit --audit-level=high"
 USE_DOCKER=true
 PY_IMAGE="python:3.11-slim"
 NODE_IMAGE="node:20-bullseye"
-GITLEAKS_IMAGE="zricethezav/gitleaks:v8.30.0"
+GITLEAKS_IMAGE="zricethezav/gitleaks:latest"
+GITLEAKS_VERSION=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -55,10 +57,16 @@ while [[ $# -gt 0 ]]; do
     --python-image) PY_IMAGE="$2"; shift 2;;
     --node-image) NODE_IMAGE="$2"; shift 2;;
     --gitleaks-image) GITLEAKS_IMAGE="$2"; shift 2;;
+    --gitleaks-version) GITLEAKS_VERSION="$2"; shift 2;;
     -h|--help) show_help "${BASH_SOURCE[0]}"; exit 0;;
     *) echo "Unknown arg: $1" >&2; exit 1;;
   esac
 done
+
+# If gitleaks version is specified, override the image tag
+if [[ -n "$GITLEAKS_VERSION" ]]; then
+  GITLEAKS_IMAGE="zricethezav/gitleaks:${GITLEAKS_VERSION}"
+fi
 
 ABS_WORKDIR="$(cd "$WORKDIR" && pwd)"
 pushd "$ABS_WORKDIR" >/dev/null
