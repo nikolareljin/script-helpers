@@ -210,6 +210,34 @@ use only and will refuse to run when `CI=true`.
 ./scripts/ci_security.sh --workdir backend --python-req requirements.txt
 ```
 
+Release branch checks
+---------------------
+
+Use this script in repo hooks or CI to ensure `VERSION` matches `release/X.Y.Z[-rcN]` branch naming:
+
+```bash
+./scripts/check_release_version.sh --version-file VERSION --fetch-tags
+```
+
+Reuse in other repositories
+---------------------------
+
+Add a pre-commit hook in another repo that delegates to the shared script:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$ROOT_DIR/scripts/script-helpers}"
+
+bash "$SCRIPT_HELPERS_DIR/scripts/check_release_version.sh" --version-file VERSION --fetch-tags
+```
+
+Notes:
+- Set `SCRIPT_HELPERS_DIR` if your submodule lives elsewhere.
+- The check is a no-op on non-`release/*` branches.
+
 Common snippets
 ---------------
 
