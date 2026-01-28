@@ -8,7 +8,7 @@
 #   --skip-test        Skip flutter test.
 #   --skip-build       Skip flutter build step.
 #   --build-cmd <c>    Override build command (default: flutter build appbundle --release).
-#   --image <img>      Docker image to use (default: pinned digest of Flutter 3.38.7 stable).
+#   --image <img>      Docker image to use (default: ghcr.io/cirruslabs/flutter:stable@sha256:d18e04... [Flutter 3.38.7]).
 #   --no-docker        Run on the host instead of Docker.
 #   -h, --help         Show this help message.
 # ----------------------------------------------------
