@@ -87,7 +87,7 @@ pushd "$ABS_WORKDIR" >/dev/null
 
 if [[ "$USE_DOCKER" == "true" ]]; then
   if ! command -v docker >/dev/null 2>&1; then
-    log_error "docker is required for --docker runs."
+    log_error "docker is required when running in Docker mode (default). Use --no-docker to run on the host instead."
     exit 1
   fi
   if [[ "$SKIP_PYTHON" == "false" ]]; then
