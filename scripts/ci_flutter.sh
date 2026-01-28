@@ -9,6 +9,7 @@
 #   --skip-build       Skip flutter build step.
 #   --build-cmd <c>    Override build command (default: flutter build appbundle --release).
 #   --image <img>      Docker image to use (default: ghcr.io/cirruslabs/flutter:stable).
+#   --digest <sha256>  Pin image to specific digest for supply-chain security (e.g., sha256:d18e04...).
 #   --no-docker        Run on the host instead of Docker.
 #   -h, --help         Show this help message.
 # ----------------------------------------------------
@@ -33,6 +34,7 @@ SKIP_BUILD=false
 BUILD_CMD="flutter build appbundle --release"
 USE_DOCKER=true
 IMAGE="ghcr.io/cirruslabs/flutter:stable"
+DIGEST=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -42,11 +44,27 @@ while [[ $# -gt 0 ]]; do
     --skip-build) SKIP_BUILD=true; shift;;
     --build-cmd) BUILD_CMD="$2"; shift 2;;
     --image) IMAGE="$2"; shift 2;;
+    --digest) DIGEST="$2"; shift 2;;
     --no-docker) USE_DOCKER=false; shift;;
     -h|--help) show_help "${BASH_SOURCE[0]}"; exit 0;;
     *) echo "Unknown arg: $1" >&2; exit 1;;
   esac
 done
+
+# Apply digest to image if provided
+if [[ -n "$DIGEST" ]]; then
+  # Validate digest format
+  if [[ ! "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+    log_error "Invalid digest format. Expected sha256:<64-hex-chars>, got: $DIGEST"
+    exit 1
+  fi
+  # Check if IMAGE already contains a digest
+  if [[ "$IMAGE" =~ @sha256: ]]; then
+    log_error "Image already contains a digest. Use --image without digest or omit --digest parameter."
+    exit 1
+  fi
+  IMAGE="${IMAGE}@${DIGEST}"
+fi
 
 if [[ "$USE_DOCKER" == "true" ]]; then
   if ! command -v docker >/dev/null 2>&1; then
