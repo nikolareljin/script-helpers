@@ -12,7 +12,7 @@
 #   --node-cmd <c>      Override node audit command (default: npm audit --audit-level=high).
 #   --python-image <i>  Docker image for python checks (default: python:3.11-slim).
 #   --node-image <i>    Docker image for node checks (default: node:20-bullseye).
-#   --gitleaks-image <i> Docker image for gitleaks (default: zricethezav/gitleaks:latest).
+#   --gitleaks-image <i> Docker image for gitleaks (default: zricethezav/gitleaks:v8.30.0).
 #   --no-docker         Run on the host instead of Docker.
 #   -h, --help          Show this help message.
 # ----------------------------------------------------
@@ -40,7 +40,7 @@ NODE_CMD="npm audit --audit-level=high"
 USE_DOCKER=true
 PY_IMAGE="python:3.11-slim"
 NODE_IMAGE="node:20-bullseye"
-GITLEAKS_IMAGE="zricethezav/gitleaks:latest"
+GITLEAKS_IMAGE="zricethezav/gitleaks:v8.30.0"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
