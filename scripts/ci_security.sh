@@ -13,6 +13,7 @@
 #   --python-image <i>  Docker image for python checks (default: python:3.11-slim).
 #   --node-image <i>    Docker image for node checks (default: node:20-bullseye).
 #   --gitleaks-image <i> Docker image for gitleaks (default: zricethezav/gitleaks:latest).
+#   --gitleaks-version <v> Gitleaks version tag (e.g., v8.30.0). If provided, overrides --gitleaks-image tag.
 #   --no-docker         Run on the host instead of Docker.
 #   -h, --help          Show this help message.
 # ----------------------------------------------------
@@ -41,6 +42,7 @@ USE_DOCKER=true
 PY_IMAGE="python:3.11-slim"
 NODE_IMAGE="node:20-bullseye"
 GITLEAKS_IMAGE="zricethezav/gitleaks:latest"
+GITLEAKS_VERSION=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -55,10 +57,30 @@ while [[ $# -gt 0 ]]; do
     --python-image) PY_IMAGE="$2"; shift 2;;
     --node-image) NODE_IMAGE="$2"; shift 2;;
     --gitleaks-image) GITLEAKS_IMAGE="$2"; shift 2;;
+    --gitleaks-version) GITLEAKS_VERSION="$2"; shift 2;;
     -h|--help) show_help "${BASH_SOURCE[0]}"; exit 0;;
     *) echo "Unknown arg: $1" >&2; exit 1;;
   esac
 done
+
+# If gitleaks version is specified, override/append the image tag
+if [[ -n "$GITLEAKS_VERSION" ]]; then
+  # Strategy: Check if there's a tag by finding if the last : comes after the last /
+  # registry:5000/image:tag -> last : is after /, so it's a tag
+  # registry:5000/image -> last : is before /, so it's a port
+  # image:tag -> has :, no /, so it's a tag
+  # image -> no :, so no tag
+  
+  LAST_SLASH="${GITLEAKS_IMAGE##*/}"  # Everything after last /
+  if [[ "$LAST_SLASH" == *:* ]]; then
+    # There's a : after the last /, so it's a tag - replace it
+    GITLEAKS_BASE="${GITLEAKS_IMAGE%:*}"
+    GITLEAKS_IMAGE="${GITLEAKS_BASE}:${GITLEAKS_VERSION}"
+  else
+    # No : after last /, so append the version
+    GITLEAKS_IMAGE="${GITLEAKS_IMAGE}:${GITLEAKS_VERSION}"
+  fi
+fi
 
 ABS_WORKDIR="$(cd "$WORKDIR" && pwd)"
 pushd "$ABS_WORKDIR" >/dev/null
