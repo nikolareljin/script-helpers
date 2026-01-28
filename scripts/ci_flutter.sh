@@ -53,6 +53,16 @@ done
 
 # Apply digest to image if provided
 if [[ -n "$DIGEST" ]]; then
+  # Validate digest format
+  if [[ ! "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+    log_error "Invalid digest format. Expected sha256:<64-hex-chars>, got: $DIGEST"
+    exit 1
+  fi
+  # Check if IMAGE already contains a digest
+  if [[ "$IMAGE" =~ @sha256: ]]; then
+    log_error "Image already contains a digest. Use --image without digest or omit --digest parameter."
+    exit 1
+  fi
   IMAGE="${IMAGE}@${DIGEST}"
 fi
 
