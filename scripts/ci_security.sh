@@ -65,7 +65,9 @@ done
 
 # If gitleaks version is specified, override the image tag
 if [[ -n "$GITLEAKS_VERSION" ]]; then
-  GITLEAKS_IMAGE="zricethezav/gitleaks:${GITLEAKS_VERSION}"
+  # Extract the base image name (before the colon) and append the version
+  GITLEAKS_BASE="${GITLEAKS_IMAGE%%:*}"
+  GITLEAKS_IMAGE="${GITLEAKS_BASE}:${GITLEAKS_VERSION}"
 fi
 
 ABS_WORKDIR="$(cd "$WORKDIR" && pwd)"
