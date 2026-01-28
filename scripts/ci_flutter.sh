@@ -8,7 +8,7 @@
 #   --skip-test        Skip flutter test.
 #   --skip-build       Skip flutter build step.
 #   --build-cmd <c>    Override build command (default: flutter build appbundle --release).
-#   --image <img>      Docker image to use (default: ghcr.io/cirruslabs/flutter:stable).
+#   --image <img>      Docker image to use (default: pinned digest of Flutter 3.38.7 stable).
 #   --no-docker        Run on the host instead of Docker.
 #   -h, --help         Show this help message.
 # ----------------------------------------------------
@@ -32,7 +32,8 @@ SKIP_TEST=false
 SKIP_BUILD=false
 BUILD_CMD="flutter build appbundle --release"
 USE_DOCKER=true
-IMAGE="ghcr.io/cirruslabs/flutter:stable"
+# Pin to immutable digest to prevent supply-chain attacks (Flutter 3.38.7 stable as of Jan 2026)
+IMAGE="ghcr.io/cirruslabs/flutter:stable@sha256:d18e043566d957a358fdfa063e53381a303245b4b68e7c0e2ece82b71183537c"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
