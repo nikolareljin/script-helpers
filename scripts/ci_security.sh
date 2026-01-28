@@ -65,8 +65,8 @@ done
 
 # If gitleaks version is specified, override the image tag
 if [[ -n "$GITLEAKS_VERSION" ]]; then
-  # Extract the base image name (before the colon) and append the version
-  GITLEAKS_BASE="${GITLEAKS_IMAGE%%:*}"
+  # Extract the base image name (before the last colon) and append the version
+  GITLEAKS_BASE="${GITLEAKS_IMAGE%:*}"
   GITLEAKS_IMAGE="${GITLEAKS_BASE}:${GITLEAKS_VERSION}"
 fi
 
