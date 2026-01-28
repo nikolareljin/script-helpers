@@ -6,6 +6,7 @@ Reusable Bash helpers extracted from projects in this workspace. Source the load
 - Usage: see ./docs/usage.md
 - Packaging: see ./docs/packaging.md
 - Full API: see ./docs/api.md
+- CI helper scripts: see ./docs/usage.md#ci-helper-scripts
 
 Quick start
 -----------

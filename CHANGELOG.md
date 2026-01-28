@@ -2,6 +2,13 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## [Unreleased]
+
+- Added: CI helper scripts for Node, Python, Flutter, Gradle, Go, and basic security checks.
+- Added: `scripts/pin_production.sh` to fast-forward the production branch to a release tag.
+- Changed: CI helper scripts default to Docker and refuse to run when `CI=true` (local-only).
+- Docs: Added CI helper usage notes and production-branch release guidance.
+
 ## [0.10.0] - 2026-01-11
 
 - Added: Cross-distro packaging scaffolds (Debian, RPM, Arch, Homebrew) with shared metadata templates.

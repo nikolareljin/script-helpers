@@ -194,6 +194,22 @@ ln -s ./scripts/update.sh ./update
 ln -s ./scripts/build.sh ./build
 ```
 
+CI helper scripts
+-----------------
+
+These scripts help reproduce CI steps locally and default to Docker-based
+execution (use `--no-docker` to run on the host). They are intended for local
+use only and will refuse to run when `CI=true`.
+
+```bash
+./scripts/ci_node.sh --workdir frontend
+./scripts/ci_python.sh --workdir backend --requirements requirements.txt --test-cmd "pytest -q"
+./scripts/ci_flutter.sh --workdir . --skip-test --build-cmd "flutter build appbundle --release"
+./scripts/ci_gradle.sh --workdir . --skip-detekt
+./scripts/ci_go.sh --workdir scanner
+./scripts/ci_security.sh --workdir backend --python-req requirements.txt
+```
+
 Common snippets
 ---------------
 
