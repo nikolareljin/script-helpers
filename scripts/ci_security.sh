@@ -63,11 +63,23 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# If gitleaks version is specified, override the image tag
+# If gitleaks version is specified, override/append the image tag
 if [[ -n "$GITLEAKS_VERSION" ]]; then
-  # Extract the base image name (before the last colon) and append the version
-  GITLEAKS_BASE="${GITLEAKS_IMAGE%:*}"
-  GITLEAKS_IMAGE="${GITLEAKS_BASE}:${GITLEAKS_VERSION}"
+  # Strategy: Check if there's a tag by finding if the last : comes after the last /
+  # registry:5000/image:tag -> last : is after /, so it's a tag
+  # registry:5000/image -> last : is before /, so it's a port
+  # image:tag -> has :, no /, so it's a tag
+  # image -> no :, so no tag
+  
+  LAST_SLASH="${GITLEAKS_IMAGE##*/}"  # Everything after last /
+  if [[ "$LAST_SLASH" == *:* ]]; then
+    # There's a : after the last /, so it's a tag - replace it
+    GITLEAKS_BASE="${GITLEAKS_IMAGE%:*}"
+    GITLEAKS_IMAGE="${GITLEAKS_BASE}:${GITLEAKS_VERSION}"
+  else
+    # No : after last /, so append the version
+    GITLEAKS_IMAGE="${GITLEAKS_IMAGE}:${GITLEAKS_VERSION}"
+  fi
 fi
 
 ABS_WORKDIR="$(cd "$WORKDIR" && pwd)"
