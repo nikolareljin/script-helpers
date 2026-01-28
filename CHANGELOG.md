@@ -6,6 +6,7 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 - Added: CI helper scripts for Node, Python, Flutter, Gradle, Go, and basic security checks.
 - Added: `scripts/pin_production.sh` to fast-forward the production branch to a release tag.
+- Added: `scripts/check_release_version.sh` to verify release versions before tagging or publishing.
 - Changed: CI helper scripts default to Docker and refuse to run when `CI=true` (local-only).
 - Docs: Added CI helper usage notes and production-branch release guidance.
 
