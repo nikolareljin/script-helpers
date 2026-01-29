@@ -10,6 +10,7 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Added: `--version` and `--image` parameters to all `ci_*.sh` scripts for Docker image tag and full image override.
 - Added: `--digest` parameter to `ci_flutter.sh` for supply-chain image pinning.
 - Added: `--gitleaks-digest` parameter to `ci_security.sh` for supply-chain image pinning.
+- Added: `lib/ci_defaults.sh` module — centralized Docker image version defaults for all CI scripts. No more `:latest` tags; all images use pinned versions. Overridable via CLI flags or environment variables.
 - Changed: CI helper scripts default to Docker and refuse to run when `CI=true` (local-only).
 - Changed: Docker cache mounts in all `ci_*.sh` scripts now target `/tmp/` paths with corresponding env vars (`NPM_CONFIG_CACHE`, `PIP_CACHE_DIR`, `PUB_CACHE`, `GRADLE_USER_HOME`, `GOMODCACHE`) to avoid permission issues with non-root UIDs.
 - Changed: `ci_python.sh` Docker mode now chains install and test commands in a single container so pip-installed packages persist for the test step.

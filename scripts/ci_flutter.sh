@@ -8,7 +8,7 @@
 #   --skip-test        Skip flutter test.
 #   --skip-build       Skip flutter build step.
 #   --build-cmd <c>    Override build command (default: flutter build appbundle --release).
-#   --version <tag>    Docker image tag (default: stable).
+#   --version <tag>    Docker image tag (default: from ci_defaults module).
 #   --image <img>      Docker image override (default: ghcr.io/cirruslabs/flutter:<version>).
 #   --digest <sha256>  Pin image to specific digest for supply-chain security (e.g., sha256:d18e04...).
 #   --no-docker        Run on the host instead of Docker.
@@ -26,7 +26,7 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=/dev/null
 source "$SCRIPT_HELPERS_DIR/helpers.sh"
-shlib_import help logging
+shlib_import help logging ci_defaults
 
 WORKDIR="."
 SKIP_ANALYZE=false
@@ -34,7 +34,7 @@ SKIP_TEST=false
 SKIP_BUILD=false
 BUILD_CMD="flutter build appbundle --release"
 USE_DOCKER=true
-IMAGE_TAG="stable"
+IMAGE_TAG="$CI_DEFAULT_FLUTTER_VERSION"
 IMAGE_OVERRIDE=""
 DIGEST=""
 
@@ -57,7 +57,7 @@ done
 if [[ -n "$IMAGE_OVERRIDE" ]]; then
   IMAGE="$IMAGE_OVERRIDE"
 else
-  IMAGE="ghcr.io/cirruslabs/flutter:${IMAGE_TAG}"
+  IMAGE="${CI_DEFAULT_FLUTTER_IMAGE}:${IMAGE_TAG}"
 fi
 
 # Apply digest to image if provided

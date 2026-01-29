@@ -10,7 +10,7 @@
 #   --lint-cmd <c>    Override lint command (default: go mod tidy && test -z "$(gofmt -l .)" && go vet ./...).
 #   --test-cmd <c>    Override test command (default: go test -v ./...).
 #   --build-cmd <c>   Override build command (default: go build -v ./...).
-#   --version <tag>   Docker image tag (default: 1.22).
+#   --version <tag>   Docker image tag (default: from ci_defaults module).
 #   --image <img>     Docker image override (default: golang:<version>).
 #   --no-docker       Run on the host instead of Docker.
 #   -h, --help        Show this help message.
@@ -27,7 +27,7 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=/dev/null
 source "$SCRIPT_HELPERS_DIR/helpers.sh"
-shlib_import help logging
+shlib_import help logging ci_defaults
 
 WORKDIR="."
 SKIP_LINT=false
@@ -37,7 +37,7 @@ LINT_CMD='go mod tidy && test -z "$(gofmt -l .)" && go vet ./...'
 TEST_CMD='go test -v ./...'
 BUILD_CMD='go build -v ./...'
 USE_DOCKER=true
-IMAGE_TAG="1.22"
+IMAGE_TAG="$CI_DEFAULT_GO_VERSION"
 IMAGE_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
@@ -60,7 +60,7 @@ done
 if [[ -n "$IMAGE_OVERRIDE" ]]; then
   IMAGE="$IMAGE_OVERRIDE"
 else
-  IMAGE="golang:${IMAGE_TAG}"
+  IMAGE="${CI_DEFAULT_GO_IMAGE}:${IMAGE_TAG}"
 fi
 
 if [[ "$USE_DOCKER" == "true" ]]; then

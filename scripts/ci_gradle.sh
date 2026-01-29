@@ -13,7 +13,7 @@
 #   --lint-task <t>    Override lint task (default: lint).
 #   --detekt-task <t>  Override detekt task (default: detekt).
 #   --no-daemon        Run Gradle with --no-daemon (default: true).
-#   --version <tag>    Docker image tag (default: 8.7-jdk17).
+#   --version <tag>    Docker image tag (default: from ci_defaults module).
 #   --image <img>      Docker image override (default: gradle:<version>).
 #   --no-docker        Run on the host instead of Docker.
 #   -h, --help         Show this help message.
@@ -30,7 +30,7 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=/dev/null
 source "$SCRIPT_HELPERS_DIR/helpers.sh"
-shlib_import help logging
+shlib_import help logging ci_defaults
 
 WORKDIR="."
 SKIP_BUILD=false
@@ -43,7 +43,7 @@ LINT_TASK="lint"
 DETEKT_TASK="detekt"
 NO_DAEMON=true
 USE_DOCKER=true
-IMAGE_TAG="8.7-jdk17"
+IMAGE_TAG="$CI_DEFAULT_GRADLE_VERSION"
 IMAGE_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
@@ -69,7 +69,7 @@ done
 if [[ -n "$IMAGE_OVERRIDE" ]]; then
   IMAGE="$IMAGE_OVERRIDE"
 else
-  IMAGE="gradle:${IMAGE_TAG}"
+  IMAGE="${CI_DEFAULT_GRADLE_IMAGE}:${IMAGE_TAG}"
 fi
 
 GRADLE_FLAGS=()

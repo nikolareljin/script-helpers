@@ -10,9 +10,9 @@
 #   --skip-gitleaks        Skip gitleaks scan.
 #   --python-req <f>       Python requirements file (default: requirements.txt if present).
 #   --node-cmd <c>         Override node audit command (default: npm audit --audit-level=high).
-#   --python-version <v>   Python Docker image tag (default: 3.11-slim).
-#   --node-version <v>     Node Docker image tag (default: 20-bullseye).
-#   --gitleaks-version <v> Gitleaks Docker image tag (default: latest).
+#   --python-version <v>   Python Docker image tag (default: from ci_defaults module).
+#   --node-version <v>     Node Docker image tag (default: from ci_defaults module).
+#   --gitleaks-version <v> Gitleaks Docker image tag (default: from ci_defaults module).
 #   --gitleaks-digest <d>  Pin gitleaks image to a specific digest for supply-chain security.
 #   --python-image <i>     Docker image override for python checks.
 #   --node-image <i>       Docker image override for node checks.
@@ -32,7 +32,7 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=/dev/null
 source "$SCRIPT_HELPERS_DIR/helpers.sh"
-shlib_import help logging
+shlib_import help logging ci_defaults
 
 WORKDIR="."
 INSTALL_TOOLS=false
@@ -42,9 +42,9 @@ SKIP_GITLEAKS=false
 PYTHON_REQ=""
 NODE_CMD="npm audit --audit-level=high"
 USE_DOCKER=true
-PY_VERSION="3.11-slim"
-NODE_VERSION="20-bullseye"
-GITLEAKS_VERSION="latest"
+PY_VERSION="$CI_DEFAULT_PYTHON_VERSION"
+NODE_VERSION="$CI_DEFAULT_NODE_VERSION"
+GITLEAKS_VERSION="$CI_DEFAULT_GITLEAKS_VERSION"
 GITLEAKS_DIGEST=""
 PY_IMAGE_OVERRIDE=""
 NODE_IMAGE_OVERRIDE=""
@@ -76,19 +76,19 @@ done
 if [[ -n "$PY_IMAGE_OVERRIDE" ]]; then
   PY_IMAGE="$PY_IMAGE_OVERRIDE"
 else
-  PY_IMAGE="python:${PY_VERSION}"
+  PY_IMAGE="${CI_DEFAULT_PYTHON_IMAGE}:${PY_VERSION}"
 fi
 
 if [[ -n "$NODE_IMAGE_OVERRIDE" ]]; then
   NODE_IMAGE="$NODE_IMAGE_OVERRIDE"
 else
-  NODE_IMAGE="node:${NODE_VERSION}"
+  NODE_IMAGE="${CI_DEFAULT_NODE_IMAGE}:${NODE_VERSION}"
 fi
 
 if [[ -n "$GITLEAKS_IMAGE_OVERRIDE" ]]; then
   GITLEAKS_IMAGE="$GITLEAKS_IMAGE_OVERRIDE"
 else
-  GITLEAKS_IMAGE="zricethezav/gitleaks:${GITLEAKS_VERSION}"
+  GITLEAKS_IMAGE="${CI_DEFAULT_GITLEAKS_IMAGE}:${GITLEAKS_VERSION}"
 fi
 
 # Apply digest to gitleaks image if provided (supply-chain pinning).

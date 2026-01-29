@@ -12,7 +12,7 @@
 #   --lint-cmd <c>     Override lint command (default: npm run lint).
 #   --test-cmd <c>     Override test command (default: npm run test).
 #   --build-cmd <c>    Override build command (default: npm run build).
-#   --version <tag>    Docker image tag (default: 20-bullseye).
+#   --version <tag>    Docker image tag (default: from ci_defaults module).
 #   --image <img>      Docker image override (default: node:<version>).
 #   --no-docker        Run on the host instead of Docker.
 #   -h, --help         Show this help message.
@@ -29,7 +29,7 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=/dev/null
 source "$SCRIPT_HELPERS_DIR/helpers.sh"
-shlib_import help logging
+shlib_import help logging ci_defaults
 
 WORKDIR="."
 NO_INSTALL=false
@@ -41,7 +41,7 @@ LINT_CMD="npm run lint"
 TEST_CMD="npm run test"
 BUILD_CMD="npm run build"
 USE_DOCKER=true
-IMAGE_TAG="20-bullseye"
+IMAGE_TAG="$CI_DEFAULT_NODE_VERSION"
 IMAGE_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
@@ -66,7 +66,7 @@ done
 if [[ -n "$IMAGE_OVERRIDE" ]]; then
   IMAGE="$IMAGE_OVERRIDE"
 else
-  IMAGE="node:${IMAGE_TAG}"
+  IMAGE="${CI_DEFAULT_NODE_IMAGE}:${IMAGE_TAG}"
 fi
 
 if [[ "$USE_DOCKER" == "true" ]]; then

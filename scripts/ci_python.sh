@@ -10,7 +10,7 @@
 #   --extra-install <c>  Extra packages to install (e.g. "pytest tldextract").
 #   --test-cmd <c>       Test command (default: python -m pytest -q).
 #   --pip-cmd <c>        Override pip install command (replaces default install logic).
-#   --version <tag>      Docker image tag (default: 3.11-slim).
+#   --version <tag>      Docker image tag (default: from ci_defaults module).
 #   --image <img>        Docker image override (default: python:<version>).
 #   --no-docker          Run on the host instead of Docker.
 #   -h, --help           Show this help message.
@@ -27,7 +27,7 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=/dev/null
 source "$SCRIPT_HELPERS_DIR/helpers.sh"
-shlib_import help logging
+shlib_import help logging ci_defaults
 
 WORKDIR="."
 NO_INSTALL=false
@@ -37,7 +37,7 @@ EXTRA_INSTALL=""
 TEST_CMD="python -m pytest -q"
 PIP_CMD=""
 USE_DOCKER=true
-IMAGE_TAG="3.11-slim"
+IMAGE_TAG="$CI_DEFAULT_PYTHON_VERSION"
 IMAGE_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
@@ -60,7 +60,7 @@ done
 if [[ -n "$IMAGE_OVERRIDE" ]]; then
   IMAGE="$IMAGE_OVERRIDE"
 else
-  IMAGE="python:${IMAGE_TAG}"
+  IMAGE="${CI_DEFAULT_PYTHON_IMAGE}:${IMAGE_TAG}"
 fi
 
 if [[ "$USE_DOCKER" == "true" ]]; then
