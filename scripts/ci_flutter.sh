@@ -8,7 +8,8 @@
 #   --skip-test        Skip flutter test.
 #   --skip-build       Skip flutter build step.
 #   --build-cmd <c>    Override build command (default: flutter build appbundle --release).
-#   --image <img>      Docker image to use (default: ghcr.io/cirruslabs/flutter:stable).
+#   --version <tag>    Docker image tag (default: stable).
+#   --image <img>      Docker image override (default: ghcr.io/cirruslabs/flutter:<version>).
 #   --digest <sha256>  Pin image to specific digest for supply-chain security (e.g., sha256:d18e04...).
 #   --no-docker        Run on the host instead of Docker.
 #   -h, --help         Show this help message.
@@ -33,7 +34,8 @@ SKIP_TEST=false
 SKIP_BUILD=false
 BUILD_CMD="flutter build appbundle --release"
 USE_DOCKER=true
-IMAGE="ghcr.io/cirruslabs/flutter:stable"
+IMAGE_TAG="stable"
+IMAGE_OVERRIDE=""
 DIGEST=""
 
 while [[ $# -gt 0 ]]; do
@@ -43,13 +45,20 @@ while [[ $# -gt 0 ]]; do
     --skip-test) SKIP_TEST=true; shift;;
     --skip-build) SKIP_BUILD=true; shift;;
     --build-cmd) BUILD_CMD="$2"; shift 2;;
-    --image) IMAGE="$2"; shift 2;;
+    --version) IMAGE_TAG="$2"; shift 2;;
+    --image) IMAGE_OVERRIDE="$2"; shift 2;;
     --digest) DIGEST="$2"; shift 2;;
     --no-docker) USE_DOCKER=false; shift;;
     -h|--help) show_help "${BASH_SOURCE[0]}"; exit 0;;
     *) echo "Unknown arg: $1" >&2; exit 1;;
   esac
 done
+
+if [[ -n "$IMAGE_OVERRIDE" ]]; then
+  IMAGE="$IMAGE_OVERRIDE"
+else
+  IMAGE="ghcr.io/cirruslabs/flutter:${IMAGE_TAG}"
+fi
 
 # Apply digest to image if provided
 if [[ -n "$DIGEST" ]]; then
@@ -68,13 +77,14 @@ fi
 
 if [[ "$USE_DOCKER" == "true" ]]; then
   if ! command -v docker >/dev/null 2>&1; then
-    log_error "docker is required for --docker runs."
+    log_error "docker is required when running in Docker mode (default). Use --no-docker to run on the host instead."
     exit 1
   fi
   ABS_WORKDIR="$(cd "$WORKDIR" && pwd)"
-  DOCKER_CMD=(docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -v "$ABS_WORKDIR":/work -w /work)
+  DOCKER_CMD=(docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -e PUB_CACHE=/tmp/.pub-cache -v "$ABS_WORKDIR":/work -w /work)
   if [[ -n "${HOME:-}" ]]; then
-    DOCKER_CMD+=(-v "$HOME/.pub-cache":/home/flutter/.pub-cache)
+    mkdir -p "$HOME/.pub-cache"
+    DOCKER_CMD+=(-v "$HOME/.pub-cache":/tmp/.pub-cache)
   fi
   DOCKER_CMD+=("$IMAGE" bash -lc)
   if [[ "$SKIP_ANALYZE" == "false" ]]; then

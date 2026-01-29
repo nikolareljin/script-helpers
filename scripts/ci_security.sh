@@ -3,19 +3,21 @@
 # DESCRIPTION: Run basic security checks (pip-audit/safety/bandit, npm audit, gitleaks).
 # USAGE: scripts/ci_security.sh [--workdir <path>] [--install] [--skip-python] [--skip-node] [--skip-gitleaks]
 # PARAMETERS:
-#   --workdir <path>    Working directory (default: current dir).
-#   --install           Install required tools into current environment.
-#   --skip-python       Skip Python dependency checks.
-#   --skip-node         Skip Node.js audit.
-#   --skip-gitleaks     Skip gitleaks scan.
-#   --python-req <f>    Python requirements file (default: requirements.txt if present).
-#   --node-cmd <c>      Override node audit command (default: npm audit --audit-level=high).
-#   --python-image <i>  Docker image for python checks (default: python:3.11-slim).
-#   --node-image <i>    Docker image for node checks (default: node:20-bullseye).
-#   --gitleaks-image <i> Docker image for gitleaks (default: zricethezav/gitleaks:latest).
-#   --gitleaks-version <v> Gitleaks version tag (e.g., v8.30.0). If provided, overrides --gitleaks-image tag.
-#   --no-docker         Run on the host instead of Docker.
-#   -h, --help          Show this help message.
+#   --workdir <path>       Working directory (default: current dir).
+#   --install              Install required tools into current environment.
+#   --skip-python          Skip Python dependency checks.
+#   --skip-node            Skip Node.js audit.
+#   --skip-gitleaks        Skip gitleaks scan.
+#   --python-req <f>       Python requirements file (default: requirements.txt if present).
+#   --node-cmd <c>         Override node audit command (default: npm audit --audit-level=high).
+#   --python-version <v>   Python Docker image tag (default: 3.11-slim).
+#   --node-version <v>     Node Docker image tag (default: 20-bullseye).
+#   --gitleaks-version <v> Gitleaks Docker image tag (default: latest).
+#   --python-image <i>     Docker image override for python checks.
+#   --node-image <i>       Docker image override for node checks.
+#   --gitleaks-image <i>   Docker image override for gitleaks.
+#   --no-docker            Run on the host instead of Docker.
+#   -h, --help             Show this help message.
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -39,10 +41,12 @@ SKIP_GITLEAKS=false
 PYTHON_REQ=""
 NODE_CMD="npm audit --audit-level=high"
 USE_DOCKER=true
-PY_IMAGE="python:3.11-slim"
-NODE_IMAGE="node:20-bullseye"
-GITLEAKS_IMAGE="zricethezav/gitleaks:latest"
-GITLEAKS_VERSION=""
+PY_VERSION="3.11-slim"
+NODE_VERSION="20-bullseye"
+GITLEAKS_VERSION="latest"
+PY_IMAGE_OVERRIDE=""
+NODE_IMAGE_OVERRIDE=""
+GITLEAKS_IMAGE_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -54,32 +58,34 @@ while [[ $# -gt 0 ]]; do
     --python-req) PYTHON_REQ="$2"; shift 2;;
     --node-cmd) NODE_CMD="$2"; shift 2;;
     --no-docker) USE_DOCKER=false; shift;;
-    --python-image) PY_IMAGE="$2"; shift 2;;
-    --node-image) NODE_IMAGE="$2"; shift 2;;
-    --gitleaks-image) GITLEAKS_IMAGE="$2"; shift 2;;
+    --python-version) PY_VERSION="$2"; shift 2;;
+    --node-version) NODE_VERSION="$2"; shift 2;;
     --gitleaks-version) GITLEAKS_VERSION="$2"; shift 2;;
+    --python-image) PY_IMAGE_OVERRIDE="$2"; shift 2;;
+    --node-image) NODE_IMAGE_OVERRIDE="$2"; shift 2;;
+    --gitleaks-image) GITLEAKS_IMAGE_OVERRIDE="$2"; shift 2;;
     -h|--help) show_help "${BASH_SOURCE[0]}"; exit 0;;
     *) echo "Unknown arg: $1" >&2; exit 1;;
   esac
 done
 
-# If gitleaks version is specified, override/append the image tag
-if [[ -n "$GITLEAKS_VERSION" ]]; then
-  # Strategy: Check if there's a tag by finding if the last : comes after the last /
-  # registry:5000/image:tag -> last : is after /, so it's a tag
-  # registry:5000/image -> last : is before /, so it's a port
-  # image:tag -> has :, no /, so it's a tag
-  # image -> no :, so no tag
-  
-  LAST_SLASH="${GITLEAKS_IMAGE##*/}"  # Everything after last /
-  if [[ "$LAST_SLASH" == *:* ]]; then
-    # There's a : after the last /, so it's a tag - replace it
-    GITLEAKS_BASE="${GITLEAKS_IMAGE%:*}"
-    GITLEAKS_IMAGE="${GITLEAKS_BASE}:${GITLEAKS_VERSION}"
-  else
-    # No : after last /, so append the version
-    GITLEAKS_IMAGE="${GITLEAKS_IMAGE}:${GITLEAKS_VERSION}"
-  fi
+# Resolve images: --*-image overrides take precedence over --*-version defaults.
+if [[ -n "$PY_IMAGE_OVERRIDE" ]]; then
+  PY_IMAGE="$PY_IMAGE_OVERRIDE"
+else
+  PY_IMAGE="python:${PY_VERSION}"
+fi
+
+if [[ -n "$NODE_IMAGE_OVERRIDE" ]]; then
+  NODE_IMAGE="$NODE_IMAGE_OVERRIDE"
+else
+  NODE_IMAGE="node:${NODE_VERSION}"
+fi
+
+if [[ -n "$GITLEAKS_IMAGE_OVERRIDE" ]]; then
+  GITLEAKS_IMAGE="$GITLEAKS_IMAGE_OVERRIDE"
+else
+  GITLEAKS_IMAGE="zricethezav/gitleaks:${GITLEAKS_VERSION}"
 fi
 
 ABS_WORKDIR="$(cd "$WORKDIR" && pwd)"
@@ -95,14 +101,14 @@ if [[ "$USE_DOCKER" == "true" ]]; then
       PYTHON_REQ="requirements.txt"
     fi
     if [[ -n "$PYTHON_REQ" ]]; then
-      docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -v "$ABS_WORKDIR":/work -w /work "$PY_IMAGE" \
-        bash -lc "python -m pip install --upgrade pip pip-audit safety bandit && pip-audit -r \"$PYTHON_REQ\" || true && safety check -r \"$PYTHON_REQ\" --full-report || true && bandit -r . -ll || true"
+      docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$ABS_WORKDIR":/work -w /work "$PY_IMAGE" \
+        bash -lc "python -m pip install --user --upgrade pip pip-audit safety bandit && export PATH=\"/tmp/.local/bin:\$PATH\" && pip-audit -r \"$PYTHON_REQ\" || true && safety check -r \"$PYTHON_REQ\" --full-report || true && bandit -r . -ll || true"
     else
       log_warn "No requirements file found; skipping python audit."
     fi
   fi
   if [[ "$SKIP_NODE" == "false" ]]; then
-    docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -v "$ABS_WORKDIR":/work -w /work "$NODE_IMAGE" \
+    docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -e NPM_CONFIG_CACHE=/tmp/.npm -v "$ABS_WORKDIR":/work -w /work "$NODE_IMAGE" \
       bash -lc "$NODE_CMD" || true
   fi
   if [[ "$SKIP_GITLEAKS" == "false" ]]; then
@@ -130,11 +136,11 @@ else
       else
         log_warn "safety not found; skipping."
       fi
-    fi
-    if command -v bandit >/dev/null 2>&1; then
-      bandit -r . -ll || true
-    else
-      log_warn "bandit not found; skipping."
+      if command -v bandit >/dev/null 2>&1; then
+        bandit -r . -ll || true
+      else
+        log_warn "bandit not found; skipping."
+      fi
     fi
   fi
   if [[ "$SKIP_NODE" == "false" ]]; then

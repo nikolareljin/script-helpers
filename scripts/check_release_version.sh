@@ -65,7 +65,7 @@ if [[ "$BRANCH_NAME" =~ ^release/([0-9]+)\.([0-9]+)\.([0-9]+)(-rc[0-9]+)?$ ]]; t
   if [[ "$release_version" =~ -rc[0-9]+$ ]]; then
     base_version="${release_version%-rc*}"
     if git rev-parse -q --verify "refs/tags/$base_version" >/dev/null; then
-      echo "[check_release_version] Warning: tag $base_version exists. Did you really want to create $release_version?" >&2
+      echo "[check_release_version] Warning: base tag $base_version already exists. This can be expected when creating an RC after a final release, but verify that creating $release_version is intentional." >&2
     fi
   fi
 fi

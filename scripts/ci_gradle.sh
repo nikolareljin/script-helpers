@@ -13,7 +13,8 @@
 #   --lint-task <t>    Override lint task (default: lint).
 #   --detekt-task <t>  Override detekt task (default: detekt).
 #   --no-daemon        Run Gradle with --no-daemon (default: true).
-#   --image <img>      Docker image to use (default: gradle:8.7-jdk17).
+#   --version <tag>    Docker image tag (default: 8.7-jdk17).
+#   --image <img>      Docker image override (default: gradle:<version>).
 #   --no-docker        Run on the host instead of Docker.
 #   -h, --help         Show this help message.
 # ----------------------------------------------------
@@ -42,7 +43,8 @@ LINT_TASK="lint"
 DETEKT_TASK="detekt"
 NO_DAEMON=true
 USE_DOCKER=true
-IMAGE="gradle:8.7-jdk17"
+IMAGE_TAG="8.7-jdk17"
+IMAGE_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -56,12 +58,19 @@ while [[ $# -gt 0 ]]; do
     --lint-task) LINT_TASK="$2"; shift 2;;
     --detekt-task) DETEKT_TASK="$2"; shift 2;;
     --no-daemon) NO_DAEMON=true; shift;;
-    --image) IMAGE="$2"; shift 2;;
+    --version) IMAGE_TAG="$2"; shift 2;;
+    --image) IMAGE_OVERRIDE="$2"; shift 2;;
     --no-docker) USE_DOCKER=false; shift;;
     -h|--help) show_help "${BASH_SOURCE[0]}"; exit 0;;
     *) echo "Unknown arg: $1" >&2; exit 1;;
   esac
 done
+
+if [[ -n "$IMAGE_OVERRIDE" ]]; then
+  IMAGE="$IMAGE_OVERRIDE"
+else
+  IMAGE="gradle:${IMAGE_TAG}"
+fi
 
 GRADLE_FLAGS=()
 if [[ "$NO_DAEMON" == "true" ]]; then
@@ -74,9 +83,10 @@ if [[ "$USE_DOCKER" == "true" ]]; then
     exit 1
   fi
   ABS_WORKDIR="$(cd "$WORKDIR" && pwd)"
-  DOCKER_CMD=(docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -v "$ABS_WORKDIR":/work -w /work)
+  DOCKER_CMD=(docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -e GRADLE_USER_HOME=/tmp/.gradle -v "$ABS_WORKDIR":/work -w /work --entrypoint "")
   if [[ -n "${HOME:-}" ]]; then
-    DOCKER_CMD+=(-v "$HOME/.gradle":/home/gradle/.gradle)
+    mkdir -p "$HOME/.gradle"
+    DOCKER_CMD+=(-v "$HOME/.gradle":/tmp/.gradle)
   fi
   DOCKER_CMD+=("$IMAGE" bash -lc)
   if [[ "$SKIP_BUILD" == "false" ]]; then

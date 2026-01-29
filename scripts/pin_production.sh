@@ -50,7 +50,9 @@ if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
   exit 1
 fi
 
-git checkout production
+# Create or reset local production branch to match remote, handling fresh
+# clones and stale local branches.
+git checkout -B production origin/production
 git merge --ff-only "$TAG"
 git push origin production
 

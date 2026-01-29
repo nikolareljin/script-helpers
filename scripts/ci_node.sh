@@ -12,7 +12,8 @@
 #   --lint-cmd <c>     Override lint command (default: npm run lint).
 #   --test-cmd <c>     Override test command (default: npm run test).
 #   --build-cmd <c>    Override build command (default: npm run build).
-#   --image <img>      Docker image to use (default: node:20-bullseye).
+#   --version <tag>    Docker image tag (default: 20-bullseye).
+#   --image <img>      Docker image override (default: node:<version>).
 #   --no-docker        Run on the host instead of Docker.
 #   -h, --help         Show this help message.
 # ----------------------------------------------------
@@ -40,7 +41,8 @@ LINT_CMD="npm run lint"
 TEST_CMD="npm run test"
 BUILD_CMD="npm run build"
 USE_DOCKER=true
-IMAGE="node:20-bullseye"
+IMAGE_TAG="20-bullseye"
+IMAGE_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -53,12 +55,19 @@ while [[ $# -gt 0 ]]; do
     --lint-cmd) LINT_CMD="$2"; shift 2;;
     --test-cmd) TEST_CMD="$2"; shift 2;;
     --build-cmd) BUILD_CMD="$2"; shift 2;;
-    --image) IMAGE="$2"; shift 2;;
+    --version) IMAGE_TAG="$2"; shift 2;;
+    --image) IMAGE_OVERRIDE="$2"; shift 2;;
     --no-docker) USE_DOCKER=false; shift;;
     -h|--help) show_help "${BASH_SOURCE[0]}"; exit 0;;
     *) echo "Unknown arg: $1" >&2; exit 1;;
   esac
 done
+
+if [[ -n "$IMAGE_OVERRIDE" ]]; then
+  IMAGE="$IMAGE_OVERRIDE"
+else
+  IMAGE="node:${IMAGE_TAG}"
+fi
 
 if [[ "$USE_DOCKER" == "true" ]]; then
   if ! command -v docker >/dev/null 2>&1; then
@@ -66,9 +75,10 @@ if [[ "$USE_DOCKER" == "true" ]]; then
     exit 1
   fi
   ABS_WORKDIR="$(cd "$WORKDIR" && pwd)"
-  DOCKER_CMD=(docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -v "$ABS_WORKDIR":/work -w /work)
+  DOCKER_CMD=(docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -e NPM_CONFIG_CACHE=/tmp/.npm -v "$ABS_WORKDIR":/work -w /work)
   if [[ -n "${HOME:-}" ]]; then
-    DOCKER_CMD+=(-v "$HOME/.npm":/home/node/.npm)
+    mkdir -p "$HOME/.npm"
+    DOCKER_CMD+=(-v "$HOME/.npm":/tmp/.npm)
   fi
   DOCKER_CMD+=("$IMAGE" bash -lc)
   if [[ "$NO_INSTALL" == "false" ]]; then

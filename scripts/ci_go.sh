@@ -10,7 +10,8 @@
 #   --lint-cmd <c>    Override lint command (default: go mod tidy && test -z "$(gofmt -l .)" && go vet ./...).
 #   --test-cmd <c>    Override test command (default: go test -v ./...).
 #   --build-cmd <c>   Override build command (default: go build -v ./...).
-#   --image <img>     Docker image to use (default: golang:1.22).
+#   --version <tag>   Docker image tag (default: 1.22).
+#   --image <img>     Docker image override (default: golang:<version>).
 #   --no-docker       Run on the host instead of Docker.
 #   -h, --help        Show this help message.
 # ----------------------------------------------------
@@ -36,7 +37,8 @@ LINT_CMD='go mod tidy && test -z "$(gofmt -l .)" && go vet ./...'
 TEST_CMD='go test -v ./...'
 BUILD_CMD='go build -v ./...'
 USE_DOCKER=true
-IMAGE="golang:1.22"
+IMAGE_TAG="1.22"
+IMAGE_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -47,22 +49,31 @@ while [[ $# -gt 0 ]]; do
     --lint-cmd) LINT_CMD="$2"; shift 2;;
     --test-cmd) TEST_CMD="$2"; shift 2;;
     --build-cmd) BUILD_CMD="$2"; shift 2;;
-    --image) IMAGE="$2"; shift 2;;
+    --version) IMAGE_TAG="$2"; shift 2;;
+    --image) IMAGE_OVERRIDE="$2"; shift 2;;
     --no-docker) USE_DOCKER=false; shift;;
     -h|--help) show_help "${BASH_SOURCE[0]}"; exit 0;;
     *) echo "Unknown arg: $1" >&2; exit 1;;
   esac
 done
 
+if [[ -n "$IMAGE_OVERRIDE" ]]; then
+  IMAGE="$IMAGE_OVERRIDE"
+else
+  IMAGE="golang:${IMAGE_TAG}"
+fi
+
 if [[ "$USE_DOCKER" == "true" ]]; then
   if ! command -v docker >/dev/null 2>&1; then
-    log_error "docker is required. Use --no-docker to run on the host instead."
+    log_error "docker is required when running in Docker mode (default). Use --no-docker to run on the host instead."
     exit 1
   fi
   ABS_WORKDIR="$(cd "$WORKDIR" && pwd)"
-  DOCKER_CMD=(docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -v "$ABS_WORKDIR":/work -w /work)
+  DOCKER_CMD=(docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -e GOMODCACHE=/tmp/go-cache -v "$ABS_WORKDIR":/work -w /work)
   if [[ -n "${HOME:-}" ]]; then
-    DOCKER_CMD+=(-v "$HOME/go":/go)
+    HOST_GOMODCACHE="${HOME}/.cache/go"
+    mkdir -p "$HOST_GOMODCACHE"
+    DOCKER_CMD+=(-v "$HOST_GOMODCACHE":/tmp/go-cache)
   fi
   DOCKER_CMD+=("$IMAGE" bash -lc)
   if [[ "$SKIP_LINT" == "false" ]]; then

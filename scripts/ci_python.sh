@@ -10,7 +10,8 @@
 #   --extra-install <c>  Extra packages to install (e.g. "pytest tldextract").
 #   --test-cmd <c>       Test command (default: python -m pytest -q).
 #   --pip-cmd <c>        Override pip install command (replaces default install logic).
-#   --image <img>        Docker image to use (default: python:3.11-slim).
+#   --version <tag>      Docker image tag (default: 3.11-slim).
+#   --image <img>        Docker image override (default: python:<version>).
 #   --no-docker          Run on the host instead of Docker.
 #   -h, --help           Show this help message.
 # ----------------------------------------------------
@@ -36,7 +37,8 @@ EXTRA_INSTALL=""
 TEST_CMD="python -m pytest -q"
 PIP_CMD=""
 USE_DOCKER=true
-IMAGE="python:3.11-slim"
+IMAGE_TAG="3.11-slim"
+IMAGE_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -47,12 +49,19 @@ while [[ $# -gt 0 ]]; do
     --extra-install) EXTRA_INSTALL="$2"; shift 2;;
     --test-cmd) TEST_CMD="$2"; shift 2;;
     --pip-cmd) PIP_CMD="$2"; shift 2;;
-    --image) IMAGE="$2"; shift 2;;
+    --version) IMAGE_TAG="$2"; shift 2;;
+    --image) IMAGE_OVERRIDE="$2"; shift 2;;
     --no-docker) USE_DOCKER=false; shift;;
     -h|--help) show_help "${BASH_SOURCE[0]}"; exit 0;;
     *) echo "Unknown arg: $1" >&2; exit 1;;
   esac
 done
+
+if [[ -n "$IMAGE_OVERRIDE" ]]; then
+  IMAGE="$IMAGE_OVERRIDE"
+else
+  IMAGE="python:${IMAGE_TAG}"
+fi
 
 if [[ "$USE_DOCKER" == "true" ]]; then
   if ! command -v docker >/dev/null 2>&1; then
@@ -60,37 +69,41 @@ if [[ "$USE_DOCKER" == "true" ]]; then
     exit 1
   fi
   ABS_WORKDIR="$(cd "$WORKDIR" && pwd)"
-  DOCKER_CMD=(docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -v "$ABS_WORKDIR":/work -w /work)
+  DOCKER_CMD=(docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -e HOME=/tmp -e PIP_CACHE_DIR=/tmp/.cache/pip -v "$ABS_WORKDIR":/work -w /work)
   if [[ -n "${HOME:-}" ]]; then
-    DOCKER_CMD+=(-v "$HOME/.cache/pip":/root/.cache/pip)
+    mkdir -p "$HOME/.cache/pip"
+    DOCKER_CMD+=(-v "$HOME/.cache/pip":/tmp/.cache/pip)
   fi
   DOCKER_CMD+=("$IMAGE" bash -lc)
+
+  # Build a single command string so pip-installed packages persist within
+  # the same container (each docker run is a fresh container).
+  CMDS=()
   if [[ "$NO_INSTALL" == "false" ]]; then
     if [[ -n "$PIP_CMD" ]]; then
-      log_info "$PIP_CMD"
-      "${DOCKER_CMD[@]}" "$PIP_CMD"
+      CMDS+=("$PIP_CMD")
     else
-      log_info "python -m pip install --upgrade pip"
-      "${DOCKER_CMD[@]}" "python -m pip install --upgrade pip"
+      CMDS+=("python -m pip install --user --upgrade pip")
       if [[ -z "$REQ_FILE" && -f "$ABS_WORKDIR/requirements.txt" ]]; then
         REQ_FILE="requirements.txt"
       fi
       if [[ -n "$REQ_FILE" ]]; then
-        install_cmd="python -m pip install -r \"$REQ_FILE\""
+        install_cmd="python -m pip install --user -r \"$REQ_FILE\""
         if [[ -n "$CONSTRAINTS_FILE" ]]; then
           install_cmd+=" -c \"$CONSTRAINTS_FILE\""
         fi
-        log_info "$install_cmd"
-        "${DOCKER_CMD[@]}" "$install_cmd"
+        CMDS+=("$install_cmd")
       fi
       if [[ -n "$EXTRA_INSTALL" ]]; then
-        log_info "python -m pip install $EXTRA_INSTALL"
-        "${DOCKER_CMD[@]}" "python -m pip install $EXTRA_INSTALL"
+        CMDS+=("python -m pip install --user $EXTRA_INSTALL")
       fi
     fi
   fi
-  log_info "$TEST_CMD"
-  "${DOCKER_CMD[@]}" "$TEST_CMD"
+  CMDS+=("export PATH=\"/tmp/.local/bin:\$PATH\" && $TEST_CMD")
+
+  FULL_CMD="$(IFS=' && '; echo "${CMDS[*]}")"
+  log_info "$FULL_CMD"
+  "${DOCKER_CMD[@]}" "$FULL_CMD"
 else
   if ! command -v python >/dev/null 2>&1; then
     log_error "python is required on PATH."
