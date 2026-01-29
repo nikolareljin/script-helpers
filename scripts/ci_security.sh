@@ -13,6 +13,7 @@
 #   --python-version <v>   Python Docker image tag (default: 3.11-slim).
 #   --node-version <v>     Node Docker image tag (default: 20-bullseye).
 #   --gitleaks-version <v> Gitleaks Docker image tag (default: latest).
+#   --gitleaks-digest <d>  Pin gitleaks image to a specific digest for supply-chain security.
 #   --python-image <i>     Docker image override for python checks.
 #   --node-image <i>       Docker image override for node checks.
 #   --gitleaks-image <i>   Docker image override for gitleaks.
@@ -44,6 +45,7 @@ USE_DOCKER=true
 PY_VERSION="3.11-slim"
 NODE_VERSION="20-bullseye"
 GITLEAKS_VERSION="latest"
+GITLEAKS_DIGEST=""
 PY_IMAGE_OVERRIDE=""
 NODE_IMAGE_OVERRIDE=""
 GITLEAKS_IMAGE_OVERRIDE=""
@@ -61,6 +63,7 @@ while [[ $# -gt 0 ]]; do
     --python-version) PY_VERSION="$2"; shift 2;;
     --node-version) NODE_VERSION="$2"; shift 2;;
     --gitleaks-version) GITLEAKS_VERSION="$2"; shift 2;;
+    --gitleaks-digest) GITLEAKS_DIGEST="$2"; shift 2;;
     --python-image) PY_IMAGE_OVERRIDE="$2"; shift 2;;
     --node-image) NODE_IMAGE_OVERRIDE="$2"; shift 2;;
     --gitleaks-image) GITLEAKS_IMAGE_OVERRIDE="$2"; shift 2;;
@@ -88,14 +91,25 @@ else
   GITLEAKS_IMAGE="zricethezav/gitleaks:${GITLEAKS_VERSION}"
 fi
 
-ABS_WORKDIR="$(cd "$WORKDIR" && pwd)"
-pushd "$ABS_WORKDIR" >/dev/null
+# Apply digest to gitleaks image if provided (supply-chain pinning).
+if [[ -n "$GITLEAKS_DIGEST" ]]; then
+  if [[ ! "$GITLEAKS_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+    log_error "Invalid digest format. Expected sha256:<64-hex-chars>, got: $GITLEAKS_DIGEST"
+    exit 1
+  fi
+  if [[ "$GITLEAKS_IMAGE" =~ @sha256: ]]; then
+    log_error "Gitleaks image already contains a digest. Use --gitleaks-image without digest or omit --gitleaks-digest."
+    exit 1
+  fi
+  GITLEAKS_IMAGE="${GITLEAKS_IMAGE}@${GITLEAKS_DIGEST}"
+fi
 
 if [[ "$USE_DOCKER" == "true" ]]; then
   if ! command -v docker >/dev/null 2>&1; then
     log_error "docker is required when running in Docker mode (default). Use --no-docker to run on the host instead."
     exit 1
   fi
+  ABS_WORKDIR="$(cd "$WORKDIR" && pwd)"
   if [[ "$SKIP_PYTHON" == "false" ]]; then
     if [[ -z "$PYTHON_REQ" && -f "$ABS_WORKDIR/requirements.txt" ]]; then
       PYTHON_REQ="requirements.txt"
@@ -116,6 +130,7 @@ if [[ "$USE_DOCKER" == "true" ]]; then
       detect --source . --no-git || true
   fi
 else
+  pushd "$WORKDIR" >/dev/null
   if [[ "$INSTALL_TOOLS" == "true" ]]; then
     if command -v python >/dev/null 2>&1; then
       python -m pip install --upgrade pip pip-audit safety bandit
@@ -157,6 +172,5 @@ else
       log_warn "gitleaks not found; skipping."
     fi
   fi
+  popd >/dev/null
 fi
-
-popd >/dev/null

@@ -9,14 +9,18 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Added: `scripts/check_release_version.sh` to verify release versions before tagging or publishing.
 - Added: `--version` and `--image` parameters to all `ci_*.sh` scripts for Docker image tag and full image override.
 - Added: `--digest` parameter to `ci_flutter.sh` for supply-chain image pinning.
+- Added: `--gitleaks-digest` parameter to `ci_security.sh` for supply-chain image pinning.
 - Changed: CI helper scripts default to Docker and refuse to run when `CI=true` (local-only).
 - Changed: Docker cache mounts in all `ci_*.sh` scripts now target `/tmp/` paths with corresponding env vars (`NPM_CONFIG_CACHE`, `PIP_CACHE_DIR`, `PUB_CACHE`, `GRADLE_USER_HOME`, `GOMODCACHE`) to avoid permission issues with non-root UIDs.
 - Changed: `ci_python.sh` Docker mode now chains install and test commands in a single container so pip-installed packages persist for the test step.
 - Changed: `ci_security.sh` uses `--python-version`, `--node-version`, `--gitleaks-version` with defaults; `--*-image` overrides take precedence.
-- Fixed: `pin_production.sh` now resets local production branch from remote before merge to handle fresh clones and stale local refs.
+- Changed: `ci_security.sh` computes `ABS_WORKDIR` inside Docker/no-Docker branches for consistency with other CI scripts.
+- Fixed: `pin_production.sh` now resets local production branch from remote before merge, with fallback for first-run when remote production does not yet exist.
 - Fixed: `check_release_version.sh` RC warning message is now clearer about when a pre-existing base tag is expected.
 - Fixed: Consistent Docker-not-found error messages across all `ci_*.sh` scripts.
 - Docs: Added CI helper usage notes and production-branch release guidance.
+- Docs: Clarified that `check_release_version.sh` works in both local hooks and CI pipelines.
+- Docs: Added `--version`, `--image`, and `--digest` examples to usage guide.
 
 ## [0.10.0] - 2026-01-11
 

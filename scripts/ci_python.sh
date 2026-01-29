@@ -95,6 +95,8 @@ if [[ "$USE_DOCKER" == "true" ]]; then
         CMDS+=("$install_cmd")
       fi
       if [[ -n "$EXTRA_INSTALL" ]]; then
+        # Word splitting is intentional: EXTRA_INSTALL may contain multiple
+        # space-separated package names (e.g. "pytest tldextract").
         CMDS+=("python -m pip install --user $EXTRA_INSTALL")
       fi
     fi
@@ -130,6 +132,7 @@ else
       fi
       if [[ -n "$EXTRA_INSTALL" ]]; then
         log_info "python -m pip install $EXTRA_INSTALL"
+        # shellcheck disable=SC2086 # Intentional: EXTRA_INSTALL contains space-separated package names.
         python -m pip install $EXTRA_INSTALL
       fi
     fi

@@ -52,7 +52,11 @@ fi
 
 # Create or reset local production branch to match remote, handling fresh
 # clones and stale local branches.
-git checkout -B production origin/production
+if git rev-parse -q --verify origin/production >/dev/null; then
+  git checkout -B production origin/production
+else
+  git checkout -b production "$TAG"
+fi
 git merge --ff-only "$TAG"
 git push origin production
 

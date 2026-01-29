@@ -89,6 +89,8 @@ if [[ "$USE_DOCKER" == "true" ]]; then
     DOCKER_CMD+=(-v "$HOME/.gradle":/tmp/.gradle)
   fi
   DOCKER_CMD+=("$IMAGE" bash -lc)
+  # Docker mode: ${GRADLE_FLAGS[*]} expands into a single string for bash -lc.
+  # Non-Docker mode uses "${GRADLE_FLAGS[@]}" to pass flags as separate arguments.
   if [[ "$SKIP_BUILD" == "false" ]]; then
     log_info "./gradlew $BUILD_TASK ${GRADLE_FLAGS[*]}"
     "${DOCKER_CMD[@]}" "./gradlew $BUILD_TASK ${GRADLE_FLAGS[*]}"

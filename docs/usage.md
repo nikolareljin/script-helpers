@@ -210,16 +210,29 @@ use only and will refuse to run when `CI=true`.
 ./scripts/ci_security.sh --workdir backend --python-req requirements.txt
 ```
 
-For enhanced supply-chain security, pin Flutter image to a specific digest:
+Override Docker image versions with `--version` (tag) or `--image` (full reference):
+
+```bash
+./scripts/ci_node.sh --version 22-bookworm
+./scripts/ci_python.sh --version 3.12-slim
+./scripts/ci_go.sh --image golang:1.23-alpine
+./scripts/ci_security.sh --gitleaks-version v8.21.2
+```
+
+For enhanced supply-chain security, pin images to a specific digest:
 
 ```bash
 ./scripts/ci_flutter.sh --digest sha256:d18e043566d957a358fdfa063e53381a303245b4b68e7c0e2ece82b71183537c
+./scripts/ci_security.sh --gitleaks-digest sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
 ```
 
 Release branch checks
 ---------------------
 
-Use this script in repo hooks or CI to ensure `VERSION` matches `release/X.Y.Z[-rcN]` branch naming:
+Use this script in local pre-commit hooks or CI pipelines to ensure `VERSION`
+matches `release/X.Y.Z[-rcN]` branch naming. Unlike the `ci_*.sh` scripts,
+`check_release_version.sh` does not have a `CI=true` guard and works in both
+environments:
 
 ```bash
 ./scripts/check_release_version.sh --version-file VERSION --fetch-tags
