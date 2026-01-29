@@ -1,0 +1,34 @@
+name: update-production-branch
+on:
+  push:
+    tags:
+      - "*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  production:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Update production branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          TAG="${GITHUB_REF_NAME}"
+          TAG_COMMIT="$(git rev-parse "refs/tags/${TAG}^{commit}")"
+          git fetch origin production || true
+          if git rev-parse -q --verify origin/production >/dev/null; then
+            git checkout -B production origin/production
+          else
+            git checkout -b production "${TAG_COMMIT}"
+          fi
+          git merge --ff-only "${TAG_COMMIT}"
+          git push origin production
+          echo "production branch updated to tag ${TAG}"
