@@ -5,7 +5,8 @@ Helpers to install the Ollama CLI, prepare a models index, select a model/size v
 Expected imports
 ----------------
 
-- logging, os, dialog, file, json, env, python
+- logging, os, dialog, file, json, env
+- `python` module is recommended; if not imported, ollama falls back to local Python detection.
 
 Functions
 ---------

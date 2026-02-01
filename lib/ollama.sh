@@ -2,7 +2,7 @@
 # Ollama helpers: install CLI, prepare models index, select and pull models.
 # Mirrors logic used in ai-runner/include.sh and integrates with script-helpers modules.
 
-# Expected imports by caller (via shlib_import): logging, os, dialog, file, json, env, python
+# Expected imports by caller (via shlib_import): logging, os, dialog, file, json, env (python optional)
 
 # Usage: _ollama_default_repo_url; prints default models repo URL.
 _ollama_default_repo_url() {
@@ -11,7 +11,7 @@ _ollama_default_repo_url() {
 
 _ollama_python_deps_ok() {
   local python_cmd
-  python_cmd="$(python_resolve_3 "" 3 8)" || return 1
+  python_cmd="$(_ollama_resolve_python_cmd)" || return 1
   "$python_cmd" - <<'PY'
 try:
     # beautifulsoup4 installs as 'bs4'
@@ -27,7 +27,7 @@ _ollama_ensure_python_deps() {
   if _ollama_python_deps_ok; then
     return 0
   fi
-  python_cmd="$(python_resolve_3 "" 3 8)" || {
+  python_cmd="$(_ollama_resolve_python_cmd)" || {
     print_error "Python 3 not found; install python3 and try again."
     return 1
   }
@@ -57,6 +57,32 @@ _ollama_ensure_python_deps() {
     return 1
   fi
   return 0
+}
+
+_ollama_resolve_python_cmd() {
+  # Prefer shared python module if available, otherwise fall back locally.
+  if command -v python_resolve_3 >/dev/null 2>&1; then
+    python_resolve_3 "" 3 8 && return 0
+  fi
+  if command -v shlib_import >/dev/null 2>&1; then
+    shlib_import python >/dev/null 2>&1 || true
+    if command -v python_resolve_3 >/dev/null 2>&1; then
+      python_resolve_3 "" 3 8 && return 0
+    fi
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    echo "python3"
+    return 0
+  fi
+  if command -v python >/dev/null 2>&1 && python - <<'PY'
+import sys
+raise SystemExit(0 if sys.version_info[0] == 3 else 1)
+PY
+  then
+    echo "python"
+    return 0
+  fi
+  return 1
 }
 
 # Install Ollama CLI for supported OSes.
@@ -122,7 +148,7 @@ ollama_prepare_models_index() {
         print_error "Missing Python deps for model index."
         return 1
       }
-      python_cmd="$(python_resolve_3 "" 3 8)" || {
+      python_cmd="$(_ollama_resolve_python_cmd)" || {
         print_error "Python 3 not found; install python3 and try again."
         return 1
       }
