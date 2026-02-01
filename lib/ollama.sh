@@ -17,7 +17,7 @@ try:
     # beautifulsoup4 installs as 'bs4'
     import bs4  # noqa: F401
     import requests  # noqa: F401
-except Exception:
+except ImportError:
     raise SystemExit(1)
 PY
 }
@@ -175,7 +175,9 @@ ollama_prepare_models_index() {
       }
       (cd "$repo_dir" && "$python_cmd" get_ollama_models.py) || {
         if [[ -f "$json_path" ]]; then
-          if jq -e '.' "$json_path" >/dev/null 2>&1; then
+          if jq -e '(type == "array" and length > 0)
+                    or (type == "object" and has("models") and (.models | type == "array" and length > 0))' \
+               "$json_path" >/dev/null 2>&1; then
             print_warning "Model index generation failed; using existing JSON."
           else
             print_error "Model index generation failed and JSON is invalid."
