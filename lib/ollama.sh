@@ -69,6 +69,13 @@ _ollama_install_python_deps_pip() {
   return 0
 }
 
+_ollama_is_valid_models_json() {
+  local json_path="$1"
+  jq -e '(type == "array" and length > 0)
+        or (type == "object" and has("models") and (.models | type == "array" and length > 0))' \
+     "$json_path" >/dev/null 2>&1
+}
+
 _ollama_resolve_python_cmd() {
   # Prefer shared python module if available, otherwise fall back locally.
   local python_cmd
@@ -143,6 +150,7 @@ ollama_prepare_models_index() {
   local repo_dir="${1:-ollama-get-models}"
   local repo_url="${2:-$(_ollama_default_repo_url)}"
   local json_path
+  local skip_generate
   json_path="$repo_dir/code/ollama_models.json"
 
   if [[ -d "$repo_dir/.git" ]]; then
@@ -161,9 +169,7 @@ ollama_prepare_models_index() {
   fi
 
   if [[ -f "$json_path" ]]; then
-    if jq -e '(type == "array" and length > 0)
-              or (type == "object" and has("models") and (.models | type == "array" and length > 0))' \
-         "$json_path" >/dev/null 2>&1; then
+    if _ollama_is_valid_models_json "$json_path"; then
       print_info "Using existing models index: $json_path"
       skip_generate=true
     else
@@ -177,19 +183,11 @@ ollama_prepare_models_index() {
   if [[ "$skip_generate" != "true" ]]; then
     # Generate the models JSON via provided script
     if [[ -f "$repo_dir/get_ollama_models.py" ]]; then
-      _ollama_ensure_python_deps || {
-        print_error "Missing Python deps for model index."
-        return 1
-      }
-      python_cmd="$(_ollama_resolve_python_cmd)" || {
-        print_error "Python 3 not found; install python3 and try again."
-        return 1
-      }
+      _ollama_ensure_python_deps || return 1
+      python_cmd="$(_ollama_resolve_python_cmd)" || return 1
       (cd "$repo_dir" && "$python_cmd" get_ollama_models.py) || {
         if [[ -f "$json_path" ]]; then
-          if jq -e '(type == "array" and length > 0)
-                    or (type == "object" and has("models") and (.models | type == "array" and length > 0))' \
-               "$json_path" >/dev/null 2>&1; then
+          if _ollama_is_valid_models_json "$json_path"; then
             print_warning "Model index generation failed; using existing JSON."
           else
             print_error "Model index generation failed and JSON is invalid."
