@@ -10,6 +10,19 @@ Expected imports
 Functions
 ---------
 
+- _ollama_python_cmd
+  - Purpose: Resolve the Python command to use (`python3` preferred, falls back to `python` if it is 3.x).
+  - Returns: Prints the command name on stdout; non-zero if no suitable Python 3 is found.
+
+- _ollama_python_deps_ok
+  - Purpose: Check that `bs4` and `requests` are importable by Python 3.
+  - Returns: zero when deps are available; non-zero otherwise.
+
+- _ollama_ensure_python_deps
+  - Purpose: Ensure Python deps for the models index are installed (`beautifulsoup4`, `requests`).
+  - Behavior: Uses `apt-get` to install `python3-bs4` and `python3-requests` when available; otherwise uses `pip`.
+  - Returns: non-zero on failure.
+
 - ollama_install_cli
   - Purpose: Install the Ollama CLI (Linux/macOS). Prints an error on unsupported platforms.
   - Linux: `curl -fsSL https://ollama.com/install.sh | sh`
@@ -17,7 +30,7 @@ Functions
 
 - ollama_prepare_models_index [repo_dir=ollama-get-models] [repo_url=https://github.com/webfarmer/ollama-get-models.git]
   - Purpose: Ensure a repo containing the models index exists; update/clone; generate `code/ollama_models.json`.
-  - Behavior: Runs `python3 get_ollama_models.py` if present; sorts JSON by name; prints path to the JSON.
+  - Behavior: Uses existing `code/ollama_models.json` if present; otherwise ensures Python deps and runs `get_ollama_models.py` with Python 3; sorts JSON by name; prints path to the JSON.
   - Returns: non-zero on failure.
 
 - ollama_models_json_path [repo_dir=ollama-get-models]
@@ -47,5 +60,4 @@ Functions
 Dependencies
 ------------
 
-- `curl`, `git`, `python3`, `jq`, `dialog`, `ollama`.
-
+- `curl`, `git`, `python3` (or `python` 3.x), `pip`, `jq`, `dialog`, `ollama`.

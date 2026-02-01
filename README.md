@@ -59,7 +59,11 @@ Loader and modules
 - `certs.sh` — self-signed cert creation and trust-store helpers.
 - `hosts.sh` — `/etc/hosts` helpers.
   - `clipboard.sh` — `copy_to_clipboard`.
-  - `ollama.sh` — Ollama helpers (`ollama_install_cli`, prepare models index from webfarmer/ollama-get-models, dialog selection, `ollama_pull_model`, `ollama_run_model
+  - `ollama.sh` — Ollama helpers (`ollama_install_cli`, prepare models index from webfarmer/ollama-get-models, dialog selection, `ollama_pull_model`, `ollama_run_model`).
+
+Notes for Ollama model indexing:
+- Requires Python 3 (`python3` preferred; falls back to `python` if it is 3.x).
+- Installs `beautifulsoup4`/`requests` via `apt` when available; otherwise uses `pip`.
 
 Download dialog gauge
 ---------------------
