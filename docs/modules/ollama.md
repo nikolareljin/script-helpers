@@ -20,7 +20,7 @@ Functions
 
 - _ollama_ensure_python_deps
   - Purpose: Ensure Python deps for the models index are installed (`beautifulsoup4`, `requests`).
-  - Behavior: Uses `apt-get` to install `python3-bs4` and `python3-requests` when available; otherwise uses `pip`.
+  - Behavior: Uses `apt-get` to install `python3-bs4` and `python3-requests` when available; otherwise uses `pip` (requires `python3-pip`).
   - Returns: non-zero on failure.
 
 - ollama_install_cli
@@ -60,4 +60,5 @@ Functions
 Dependencies
 ------------
 
-- `curl`, `git`, `python3` (or `python` 3.x), `pip`, `jq`, `dialog`, `ollama`.
+- `curl`, `git`, `python3` (or `python` 3.x), `jq`, `dialog`, `ollama`.
+- `pip` is required only when `apt-get` is not available for installing Python deps.

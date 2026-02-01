@@ -63,7 +63,7 @@ Loader and modules
 
 Notes for Ollama model indexing:
 - Requires Python 3 (`python3` preferred; falls back to `python` if it is 3.x).
-- Installs `beautifulsoup4`/`requests` via `apt` when available; otherwise uses `pip`.
+- Installs `beautifulsoup4`/`requests` via `apt` when available; otherwise uses `pip` (requires `python3-pip`).
 
 Download dialog gauge
 ---------------------

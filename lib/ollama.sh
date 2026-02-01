@@ -46,17 +46,18 @@ _ollama_ensure_python_deps() {
     print_error "python3 not found; install it and try again."
     return 1
   }
-  if ! "$python_cmd" -m pip --version >/dev/null 2>&1; then
-    print_error "pip not available for python3. Run ./run -i or install python3-pip."
-    return 1
-  fi
   if command -v apt-get >/dev/null 2>&1; then
     print_info "Installing Python deps via apt (python3-bs4, python3-requests)..."
     if ! run_with_optional_sudo true apt-get update; then
       print_warning "apt-get update failed; attempting install with existing package lists."
     fi
     run_with_optional_sudo true apt-get install -y python3-bs4 python3-requests
+    return 0
   else
+    if ! "$python_cmd" -m pip --version >/dev/null 2>&1; then
+      print_error "pip not available for python3. Install python3-pip or use a system package manager."
+      return 1
+    fi
     print_info "Installing Python deps for models index (beautifulsoup4, requests)..."
     "$python_cmd" -m pip install --user --upgrade beautifulsoup4 requests
   fi
