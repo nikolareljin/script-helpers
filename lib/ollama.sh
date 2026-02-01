@@ -161,8 +161,20 @@ ollama_prepare_models_index() {
   fi
 
   if [[ -f "$json_path" ]]; then
-    print_info "Using existing models index: $json_path"
+    if jq -e '(type == "array" and length > 0)
+              or (type == "object" and has("models") and (.models | type == "array" and length > 0))' \
+         "$json_path" >/dev/null 2>&1; then
+      print_info "Using existing models index: $json_path"
+      skip_generate=true
+    else
+      print_warning "Existing models index is invalid; regenerating."
+      skip_generate=false
+    fi
   else
+    skip_generate=false
+  fi
+
+  if [[ "$skip_generate" != "true" ]]; then
     # Generate the models JSON via provided script
     if [[ -f "$repo_dir/get_ollama_models.py" ]]; then
       _ollama_ensure_python_deps || {
