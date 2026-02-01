@@ -14,6 +14,7 @@ _ollama_python_deps_ok() {
   python_cmd="$(python_resolve_3 "" 3 8)" || return 1
   "$python_cmd" - <<'PY'
 try:
+    # beautifulsoup4 installs as 'bs4'
     import bs4  # noqa: F401
     import requests  # noqa: F401
 except Exception:
@@ -127,7 +128,12 @@ ollama_prepare_models_index() {
       }
       (cd "$repo_dir" && "$python_cmd" get_ollama_models.py) || {
         if [[ -f "$json_path" ]]; then
-          print_warning "Model index generation failed; using existing JSON."
+          if jq -e '.' "$json_path" >/dev/null 2>&1; then
+            print_warning "Model index generation failed; using existing JSON."
+          else
+            print_error "Model index generation failed and JSON is invalid."
+            return 1
+          fi
         else
           print_error "Failed to generate models index via Python script."
           return 1

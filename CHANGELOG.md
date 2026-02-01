@@ -16,6 +16,8 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Fixed: Skip `pip` requirement when `apt-get` can install Python deps.
 - Fixed: Fail fast if Python deps fail to install and verify deps after install.
 - Added: `python` module for resolving Python 3 and ensuring local virtualenvs.
+- Fixed: Validate Ollama model index JSON before falling back after a failed refresh.
+- Fixed: Validate venv Python executables before returning from `python_ensure_venv`.
 - Added: `--digest` parameter to `ci_flutter.sh` for supply-chain image pinning.
 - Added: `--gitleaks-digest` parameter to `ci_security.sh` for supply-chain image pinning.
 - Added: `lib/ci_defaults.sh` module — centralized Docker image version defaults for all CI scripts. No more `:latest` tags; all images use pinned versions. Overridable via CLI flags or environment variables.

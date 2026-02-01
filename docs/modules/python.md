@@ -32,6 +32,7 @@ Functions
 - python_ensure_venv python_bin venv_dir
   - Purpose: Ensure a venv exists at the given path and return its `python` path.
   - Returns: Prints the venv python path on stdout; non-zero on failure.
+  - Behavior: Validates that the venv python is executable and functional before returning it.
   - Dependencies: `python -m venv` (may require `python3-venv` on Debian/Ubuntu).
 
 Example

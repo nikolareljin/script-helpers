@@ -71,17 +71,28 @@ python_resolve_3() {
 python_ensure_venv() {
   local python_bin="$1"
   local venv_dir="$2"
+  local venv_python
 
   if [[ -z "$python_bin" || -z "$venv_dir" ]]; then
     return 1
   fi
 
-  if [[ ! -x "$venv_dir/bin/python" ]]; then
+  venv_python="$venv_dir/bin/python"
+  if [[ ! -x "$venv_python" ]]; then
     if ! "$python_bin" -m venv "$venv_dir"; then
       print_error "Failed to create virtualenv at $venv_dir. Ensure python3-venv is installed."
       return 1
     fi
   fi
 
-  echo "$venv_dir/bin/python"
+  if ! python_can_run "$venv_python"; then
+    print_error "Virtualenv Python at $venv_python is not executable."
+    return 1
+  fi
+  if ! python_version "$venv_python" >/dev/null 2>&1; then
+    print_error "Virtualenv Python at $venv_python is not functional. Try recreating the virtualenv."
+    return 1
+  fi
+
+  echo "$venv_python"
 }
