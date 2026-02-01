@@ -11,15 +11,6 @@ Expected imports
 Functions
 ---------
 
-- _ollama_python_deps_ok
-  - Purpose: Check that `bs4` and `requests` are importable by Python 3.
-  - Returns: zero when deps are available; non-zero otherwise.
-
-- _ollama_ensure_python_deps
-  - Purpose: Ensure Python deps for the models index are installed (`beautifulsoup4`, `requests`).
-  - Behavior: Uses `apt-get` to install `python3-bs4` and `python3-requests` when available; otherwise uses `pip` (requires `python3-pip`).
-  - Returns: non-zero on failure.
-
 - ollama_install_cli
   - Purpose: Install the Ollama CLI (Linux/macOS). Prints an error on unsupported platforms.
   - Linux: `curl -fsSL https://ollama.com/install.sh | sh`
@@ -58,6 +49,27 @@ Environment
 
 - ollama_install_model_flow [repo_dir=ollama-get-models] [env_file]
   - Purpose: Full flow: ensure index, select model and size, optionally persist to env, then `ollama pull` the selection.
+
+Internals
+---------
+
+- _ollama_python_deps_ok
+  - Purpose: Check that `bs4` and `requests` are importable by Python 3.
+  - Returns: zero when deps are available; non-zero otherwise.
+
+- _ollama_ensure_python_deps
+  - Purpose: Ensure Python deps for the models index are installed (`beautifulsoup4`, `requests`).
+  - Behavior: Uses `apt-get` to install `python3-bs4` and `python3-requests` when available; otherwise uses `pip` (requires `python3-pip`).
+  - Returns: non-zero on failure.
+
+- _ollama_install_python_deps_pip
+  - Purpose: Install Python deps via pip with appropriate flags.
+
+- _ollama_is_valid_models_json
+  - Purpose: Validate the models index JSON structure.
+
+- _ollama_resolve_python_cmd
+  - Purpose: Resolve a Python 3 executable, preferring the shared python module when available.
 
 Dependencies
 ------------

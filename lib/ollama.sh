@@ -56,13 +56,17 @@ _ollama_ensure_python_deps() {
 
 _ollama_install_python_deps_pip() {
   local python_cmd="$1"
+  local -a pip_args=("--upgrade")
   if ! "$python_cmd" -m pip --version >/dev/null 2>&1; then
     print_error "pip not available for python3. Install python3-pip or use a system package manager."
     return 1
   fi
+  if [[ "$(id -u)" -ne 0 ]]; then
+    pip_args+=("--user")
+  fi
   print_warning "Installing Python deps via pip; prefer system packages to avoid conflicts."
   print_info "Installing Python deps for models index (beautifulsoup4, requests)..."
-  if ! "$python_cmd" -m pip install --user --upgrade beautifulsoup4 requests; then
+  if ! "$python_cmd" -m pip install "${pip_args[@]}" beautifulsoup4 requests; then
     print_error "Failed to install Python deps via pip (beautifulsoup4, requests)."
     return 1
   fi
@@ -156,9 +160,15 @@ ollama_prepare_models_index() {
 
   if [[ -d "$repo_dir/.git" ]]; then
     print_info "Updating models repo: $repo_dir"
-    (cd "$repo_dir" && git pull --ff-only) || {
-      print_warning "git pull failed; continuing with existing index if present."
-    }
+    if [[ -n "${OLLAMA_MODELS_REPO_REF:-}" ]]; then
+      (cd "$repo_dir" && git fetch --tags --prune) || {
+        print_warning "git fetch failed; continuing with existing index if present."
+      }
+    else
+      (cd "$repo_dir" && git pull --ff-only) || {
+        print_warning "git pull failed; continuing with existing index if present."
+      }
+    fi
   elif [[ -d "$repo_dir" ]]; then
     print_warning "$repo_dir exists but is not a git repo. Using as-is."
   else

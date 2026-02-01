@@ -17,6 +17,7 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Fixed: Fail fast if Python deps fail to install and verify deps after install.
 - Added: `python` module for resolving Python 3 and ensuring local virtualenvs.
 - Added: `OLLAMA_MODELS_REPO_REF` to pin the models repo before executing its scripts.
+- Fixed: pip installs for Ollama deps avoid `--user` when running as root.
 - Fixed: Validate Ollama model index JSON before falling back after a failed refresh.
 - Fixed: Validate venv Python executables before returning from `python_ensure_venv`.
 - Added: `--digest` parameter to `ci_flutter.sh` for supply-chain image pinning.
