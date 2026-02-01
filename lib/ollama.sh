@@ -37,8 +37,17 @@ _ollama_ensure_python_deps() {
       print_warning "apt-get update failed; attempting install with existing package lists."
     fi
     if ! run_with_optional_sudo true apt-get install -y python3-bs4 python3-requests; then
-      print_error "Failed to install Python deps via apt (python3-bs4, python3-requests)."
-      return 1
+      print_warning "Failed to install Python deps via apt (python3-bs4, python3-requests); falling back to pip."
+      if ! "$python_cmd" -m pip --version >/dev/null 2>&1; then
+        print_error "pip not available for python3. Install python3-pip or use a system package manager."
+        return 1
+      fi
+      print_warning "Installing Python deps via pip; prefer system packages to avoid conflicts."
+      print_info "Installing Python deps for models index (beautifulsoup4, requests)..."
+      if ! "$python_cmd" -m pip install --user --upgrade beautifulsoup4 requests; then
+        print_error "Failed to install Python deps via pip (beautifulsoup4, requests)."
+        return 1
+      fi
     fi
   else
     if ! "$python_cmd" -m pip --version >/dev/null 2>&1; then
@@ -70,13 +79,17 @@ _ollama_resolve_python_cmd() {
       python_resolve_3 "" 3 8 && return 0
     fi
   fi
-  if command -v python3 >/dev/null 2>&1; then
+  if command -v python3 >/dev/null 2>&1 && python3 - <<'PY'
+import sys
+raise SystemExit(0 if (sys.version_info[0] == 3 and sys.version_info[1] >= 8) else 1)
+PY
+  then
     echo "python3"
     return 0
   fi
   if command -v python >/dev/null 2>&1 && python - <<'PY'
 import sys
-raise SystemExit(0 if sys.version_info[0] == 3 else 1)
+raise SystemExit(0 if (sys.version_info[0] == 3 and sys.version_info[1] >= 8) else 1)
 PY
   then
     echo "python"
