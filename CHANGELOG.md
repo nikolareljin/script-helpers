@@ -14,6 +14,7 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Changed: Ollama model index preparation now reuses an existing JSON when present and resolves Python 3 via `python3` or `python` (3.x). Adds apt-based installs for `python3-bs4`/`python3-requests` with a non-fatal `apt-get update` fallback.
 - Docs: Updated Ollama module docs and README to cover Python resolution and dependency handling.
 - Fixed: Skip `pip` requirement when `apt-get` can install Python deps.
+- Fixed: Fail fast if Python deps fail to install and verify deps after install.
 - Added: `--digest` parameter to `ci_flutter.sh` for supply-chain image pinning.
 - Added: `--gitleaks-digest` parameter to `ci_security.sh` for supply-chain image pinning.
 - Added: `lib/ci_defaults.sh` module — centralized Docker image version defaults for all CI scripts. No more `:latest` tags; all images use pinned versions. Overridable via CLI flags or environment variables.

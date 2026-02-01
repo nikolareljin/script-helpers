@@ -51,16 +51,26 @@ _ollama_ensure_python_deps() {
     if ! run_with_optional_sudo true apt-get update; then
       print_warning "apt-get update failed; attempting install with existing package lists."
     fi
-    run_with_optional_sudo true apt-get install -y python3-bs4 python3-requests
-    return 0
+    if ! run_with_optional_sudo true apt-get install -y python3-bs4 python3-requests; then
+      print_error "Failed to install Python deps via apt (python3-bs4, python3-requests)."
+      return 1
+    fi
   else
     if ! "$python_cmd" -m pip --version >/dev/null 2>&1; then
       print_error "pip not available for python3. Install python3-pip or use a system package manager."
       return 1
     fi
     print_info "Installing Python deps for models index (beautifulsoup4, requests)..."
-    "$python_cmd" -m pip install --user --upgrade beautifulsoup4 requests
+    if ! "$python_cmd" -m pip install --user --upgrade beautifulsoup4 requests; then
+      print_error "Failed to install Python deps via pip (beautifulsoup4, requests)."
+      return 1
+    fi
   fi
+  if ! _ollama_python_deps_ok; then
+    print_error "Python deps are still missing after installation attempt."
+    return 1
+  fi
+  return 0
 }
 
 # Install Ollama CLI for supported OSes.
