@@ -5,14 +5,10 @@ Helpers to install the Ollama CLI, prepare a models index, select a model/size v
 Expected imports
 ----------------
 
-- logging, os, dialog, file, json, env
+- logging, os, dialog, file, json, env, python
 
 Functions
 ---------
-
-- _ollama_python_cmd
-  - Purpose: Resolve the Python command to use (`python3` preferred, falls back to `python` if it is 3.x).
-  - Returns: Prints the command name on stdout; non-zero if no suitable Python 3 is found.
 
 - _ollama_python_deps_ok
   - Purpose: Check that `bs4` and `requests` are importable by Python 3.
@@ -60,5 +56,5 @@ Functions
 Dependencies
 ------------
 
-- `curl`, `git`, `python3` (or `python` 3.x), `jq`, `dialog`, `ollama`.
+- `curl`, `git`, `python3` (3.8+), `jq`, `dialog`, `ollama`.
 - `pip` is required only when `apt-get` is not available for installing Python deps.

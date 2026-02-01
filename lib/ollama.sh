@@ -2,32 +2,16 @@
 # Ollama helpers: install CLI, prepare models index, select and pull models.
 # Mirrors logic used in ai-runner/include.sh and integrates with script-helpers modules.
 
-# Expected imports by caller (via shlib_import): logging, os, dialog, file, json, env
+# Expected imports by caller (via shlib_import): logging, os, dialog, file, json, env, python
 
 # Usage: _ollama_default_repo_url; prints default models repo URL.
 _ollama_default_repo_url() {
   echo "https://github.com/webfarmer/ollama-get-models.git"
 }
 
-_ollama_python_cmd() {
-  if command -v python3 >/dev/null 2>&1; then
-    echo "python3"
-    return 0
-  fi
-  if command -v python >/dev/null 2>&1 && python - <<'PY'
-import sys
-raise SystemExit(0 if sys.version_info[0] == 3 else 1)
-PY
-  then
-    echo "python"
-    return 0
-  fi
-  return 1
-}
-
 _ollama_python_deps_ok() {
   local python_cmd
-  python_cmd="$(_ollama_python_cmd)" || return 1
+  python_cmd="$(python_resolve_3 "" 3 8)" || return 1
   "$python_cmd" - <<'PY'
 try:
     import bs4  # noqa: F401
@@ -42,8 +26,8 @@ _ollama_ensure_python_deps() {
   if _ollama_python_deps_ok; then
     return 0
   fi
-  python_cmd="$(_ollama_python_cmd)" || {
-    print_error "python3 not found; install it and try again."
+  python_cmd="$(python_resolve_3 "" 3 8)" || {
+    print_error "Python 3 not found; install python3 and try again."
     return 1
   }
   if command -v apt-get >/dev/null 2>&1; then
@@ -60,6 +44,7 @@ _ollama_ensure_python_deps() {
       print_error "pip not available for python3. Install python3-pip or use a system package manager."
       return 1
     fi
+    print_warning "Installing Python deps via pip; prefer system packages to avoid conflicts."
     print_info "Installing Python deps for models index (beautifulsoup4, requests)..."
     if ! "$python_cmd" -m pip install --user --upgrade beautifulsoup4 requests; then
       print_error "Failed to install Python deps via pip (beautifulsoup4, requests)."
@@ -136,7 +121,11 @@ ollama_prepare_models_index() {
         print_error "Missing Python deps for model index."
         return 1
       }
-      (cd "$repo_dir" && "$(_ollama_python_cmd)" get_ollama_models.py) || {
+      python_cmd="$(python_resolve_3 "" 3 8)" || {
+        print_error "Python 3 not found; install python3 and try again."
+        return 1
+      }
+      (cd "$repo_dir" && "$python_cmd" get_ollama_models.py) || {
         if [[ -f "$json_path" ]]; then
           print_warning "Model index generation failed; using existing JSON."
         else
