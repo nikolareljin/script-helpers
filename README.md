@@ -52,6 +52,7 @@ Loader and modules
   - `file.sh` — file/dir helpers, checksum verification.
   - `json.sh` — json utilities (`json_escape`, `format_response`, `format_md_response`).
 - `env.sh` — `.env` loading, `require_env`, project-root detection.
+- `python.sh` — resolve Python 3 executables and ensure local virtualenvs.
 - `version.sh` — semantic version helpers (`version_bump`, `version_compare`).
 - `ports.sh` — port usage/availability helpers.
 - `browser.sh` — `open_url`, `open_frontend_when_ready`.

@@ -8,6 +8,7 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Added: `scripts/pin_production.sh` to fast-forward the production branch to a release tag.
 - Added: `scripts/check_release_version.sh` to verify release versions before tagging or publishing.
 - Added: `--version` and `--image` parameters to all `ci_*.sh` scripts for Docker image tag and full image override.
+- Added: `python` module for resolving Python 3 and ensuring local virtualenvs.
 
 ## [0.11.1] - 2026-02-01
 
