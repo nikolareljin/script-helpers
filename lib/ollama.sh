@@ -151,6 +151,7 @@ ollama_prepare_models_index() {
   local repo_url="${2:-$(_ollama_default_repo_url)}"
   local json_path
   local skip_generate
+  local python_cmd
   json_path="$repo_dir/code/ollama_models.json"
 
   if [[ -d "$repo_dir/.git" ]]; then
@@ -166,6 +167,15 @@ ollama_prepare_models_index() {
       print_error "Failed to clone $repo_url"
       return 1
     }
+  fi
+
+  if [[ -n "${OLLAMA_MODELS_REPO_REF:-}" ]]; then
+    (cd "$repo_dir" && git checkout --detach "$OLLAMA_MODELS_REPO_REF") || {
+      print_error "Failed to checkout OLLAMA_MODELS_REPO_REF=$OLLAMA_MODELS_REPO_REF"
+      return 1
+    }
+  else
+    print_warning "OLLAMA_MODELS_REPO_REF not set; executing unpinned repo scripts."
   fi
 
   if [[ -f "$json_path" ]]; then

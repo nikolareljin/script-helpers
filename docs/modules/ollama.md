@@ -30,6 +30,11 @@ Functions
   - Behavior: Uses existing `code/ollama_models.json` if present; otherwise ensures Python deps and runs `get_ollama_models.py` with Python 3; sorts JSON by name; prints path to the JSON.
   - Returns: non-zero on failure.
 
+Environment
+-----------
+
+- `OLLAMA_MODELS_REPO_REF`: optional git ref (tag/commit) to pin the models repo before executing scripts.
+
 - ollama_models_json_path [repo_dir=ollama-get-models]
   - Purpose: Convenience function to print the expected JSON path within the repo.
 
