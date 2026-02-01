@@ -70,13 +70,20 @@ _ollama_ensure_python_deps() {
 
 _ollama_resolve_python_cmd() {
   # Prefer shared python module if available, otherwise fall back locally.
+  local python_cmd
   if command -v python_resolve_3 >/dev/null 2>&1; then
-    python_resolve_3 "" 3 8 && return 0
+    python_cmd="$(python_resolve_3 "" 3 8)" && {
+      echo "$python_cmd"
+      return 0
+    }
   fi
   if command -v shlib_import >/dev/null 2>&1; then
     shlib_import python >/dev/null 2>&1 || true
     if command -v python_resolve_3 >/dev/null 2>&1; then
-      python_resolve_3 "" 3 8 && return 0
+      python_cmd="$(python_resolve_3 "" 3 8)" && {
+        echo "$python_cmd"
+        return 0
+      }
     fi
   fi
   if command -v python3 >/dev/null 2>&1 && python3 - <<'PY'
