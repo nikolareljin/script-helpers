@@ -6,6 +6,7 @@ Expected imports
 ----------------
 
 - logging, os, dialog, file, json, env
+- `python` module is recommended; if not imported, ollama falls back to local Python detection.
 
 Functions
 ---------
@@ -17,8 +18,13 @@ Functions
 
 - ollama_prepare_models_index [repo_dir=ollama-get-models] [repo_url=https://github.com/webfarmer/ollama-get-models.git]
   - Purpose: Ensure a repo containing the models index exists; update/clone; generate `code/ollama_models.json`.
-  - Behavior: Runs `python3 get_ollama_models.py` if present; sorts JSON by name; prints path to the JSON.
+  - Behavior: Uses existing `code/ollama_models.json` if present; otherwise ensures Python deps and runs `get_ollama_models.py` with Python 3; sorts JSON by name; prints path to the JSON.
   - Returns: non-zero on failure.
+
+Environment
+-----------
+
+- `OLLAMA_MODELS_REPO_REF`: optional git ref (tag/commit) to pin the models repo before executing scripts.
 
 - ollama_models_json_path [repo_dir=ollama-get-models]
   - Purpose: Convenience function to print the expected JSON path within the repo.
@@ -44,8 +50,29 @@ Functions
 - ollama_install_model_flow [repo_dir=ollama-get-models] [env_file]
   - Purpose: Full flow: ensure index, select model and size, optionally persist to env, then `ollama pull` the selection.
 
+Internals
+---------
+
+- _ollama_python_deps_ok
+  - Purpose: Check that `bs4` and `requests` are importable by Python 3.
+  - Returns: zero when deps are available; non-zero otherwise.
+
+- _ollama_ensure_python_deps
+  - Purpose: Ensure Python deps for the models index are installed (`beautifulsoup4`, `requests`).
+  - Behavior: Uses `apt-get` to install `python3-bs4` and `python3-requests` when available; otherwise uses `pip` (requires `python3-pip`).
+  - Returns: non-zero on failure.
+
+- _ollama_install_python_deps_pip
+  - Purpose: Install Python deps via pip with appropriate flags.
+
+- _ollama_is_valid_models_json
+  - Purpose: Validate the models index JSON structure.
+
+- _ollama_resolve_python_cmd
+  - Purpose: Resolve a Python 3 executable, preferring the shared python module when available.
+
 Dependencies
 ------------
 
-- `curl`, `git`, `python3`, `jq`, `dialog`, `ollama`.
-
+- `curl`, `git`, `python3` (3.8+), `jq`, `dialog`, `ollama`.
+- `pip` is required only when `apt-get` is not available for installing Python deps.

@@ -2,11 +2,119 @@
 # Ollama helpers: install CLI, prepare models index, select and pull models.
 # Mirrors logic used in ai-runner/include.sh and integrates with script-helpers modules.
 
-# Expected imports by caller (via shlib_import): logging, os, dialog, file, json, env
+# Expected imports by caller (via shlib_import): logging, os, dialog, file, json, env (python optional)
 
 # Usage: _ollama_default_repo_url; prints default models repo URL.
 _ollama_default_repo_url() {
   echo "https://github.com/webfarmer/ollama-get-models.git"
+}
+
+_ollama_python_deps_ok() {
+  local python_cmd
+  python_cmd="$(_ollama_resolve_python_cmd)" || return 1
+  "$python_cmd" - <<'PY'
+try:
+    # beautifulsoup4 installs as 'bs4'
+    import bs4  # noqa: F401
+    import requests  # noqa: F401
+except ImportError:
+    raise SystemExit(1)
+PY
+}
+
+_ollama_ensure_python_deps() {
+  local python_cmd
+  if _ollama_python_deps_ok; then
+    return 0
+  fi
+  python_cmd="$(_ollama_resolve_python_cmd)" || {
+    print_error "Python 3 not found; install python3 and try again."
+    return 1
+  }
+  if command -v apt-get >/dev/null 2>&1; then
+    print_info "Installing Python deps via apt (python3-bs4, python3-requests)..."
+    if ! run_with_optional_sudo true apt-get update; then
+      print_warning "apt-get update failed; attempting install with existing package lists."
+    fi
+    if ! run_with_optional_sudo true apt-get install -y python3-bs4 python3-requests; then
+      print_warning "Failed to install Python deps via apt (python3-bs4, python3-requests); falling back to pip."
+      if ! _ollama_install_python_deps_pip "$python_cmd"; then
+        return 1
+      fi
+    fi
+  else
+    if ! _ollama_install_python_deps_pip "$python_cmd"; then
+      return 1
+    fi
+  fi
+  if ! _ollama_python_deps_ok; then
+    print_error "Python deps are still missing after installation attempt."
+    return 1
+  fi
+  return 0
+}
+
+_ollama_install_python_deps_pip() {
+  local python_cmd="$1"
+  local -a pip_args=("--upgrade")
+  if ! "$python_cmd" -m pip --version >/dev/null 2>&1; then
+    print_error "pip not available for python3. Install python3-pip or use a system package manager."
+    return 1
+  fi
+  if [[ "$(id -u)" -ne 0 ]]; then
+    pip_args+=("--user")
+  fi
+  print_warning "Installing Python deps via pip; prefer system packages to avoid conflicts."
+  print_info "Installing Python deps for models index (beautifulsoup4, requests)..."
+  if ! "$python_cmd" -m pip install "${pip_args[@]}" beautifulsoup4 requests; then
+    print_error "Failed to install Python deps via pip (beautifulsoup4, requests)."
+    return 1
+  fi
+  return 0
+}
+
+_ollama_is_valid_models_json() {
+  local json_path="$1"
+  jq -e '(type == "array" and length > 0)
+        or (type == "object" and has("models") and (.models | type == "array" and length > 0))' \
+     "$json_path" >/dev/null 2>&1
+}
+
+_ollama_resolve_python_cmd() {
+  # Prefer shared python module if available, otherwise fall back locally.
+  local python_cmd
+  if command -v python_resolve_3 >/dev/null 2>&1; then
+    python_cmd="$(python_resolve_3 "" 3 8)" && {
+      echo "$python_cmd"
+      return 0
+    }
+  fi
+  if command -v shlib_import >/dev/null 2>&1; then
+    shlib_import python >/dev/null 2>&1 || true
+    if command -v python_resolve_3 >/dev/null 2>&1; then
+      python_cmd="$(python_resolve_3 "" 3 8)" && {
+        echo "$python_cmd"
+        return 0
+      }
+    fi
+  fi
+  if command -v python3 >/dev/null 2>&1 && python3 - <<'PY'
+import sys
+raise SystemExit(0 if (sys.version_info[0] == 3 and sys.version_info[1] >= 8) else 1)
+PY
+  then
+    echo "python3"
+    return 0
+  fi
+  if command -v python >/dev/null 2>&1 && python - <<'PY'
+import sys
+raise SystemExit(0 if (sys.version_info[0] == 3 and sys.version_info[1] >= 8) else 1)
+PY
+  then
+    echo "python"
+    return 0
+  fi
+  return 1
 }
 
 # Install Ollama CLI for supported OSes.
@@ -46,12 +154,21 @@ ollama_prepare_models_index() {
   local repo_dir="${1:-ollama-get-models}"
   local repo_url="${2:-$(_ollama_default_repo_url)}"
   local json_path
+  local skip_generate
+  local python_cmd
+  json_path="$repo_dir/code/ollama_models.json"
 
   if [[ -d "$repo_dir/.git" ]]; then
     print_info "Updating models repo: $repo_dir"
-    (cd "$repo_dir" && git pull --ff-only) || {
-      print_warning "git pull failed; continuing with existing index if present."
-    }
+    if [[ -n "${OLLAMA_MODELS_REPO_REF:-}" ]]; then
+      (cd "$repo_dir" && git fetch --tags --prune) || {
+        print_warning "git fetch failed; continuing with existing index if present."
+      }
+    else
+      (cd "$repo_dir" && git pull --ff-only) || {
+        print_warning "git pull failed; continuing with existing index if present."
+      }
+    fi
   elif [[ -d "$repo_dir" ]]; then
     print_warning "$repo_dir exists but is not a git repo. Using as-is."
   else
@@ -62,17 +179,50 @@ ollama_prepare_models_index() {
     }
   fi
 
-  # Generate the models JSON via provided script
-  if [[ -f "$repo_dir/get_ollama_models.py" ]]; then
-    (cd "$repo_dir" && python3 get_ollama_models.py) || {
-      print_error "Failed to generate models index via Python script."
+  if [[ -n "${OLLAMA_MODELS_REPO_REF:-}" ]]; then
+    (cd "$repo_dir" && git checkout --detach "$OLLAMA_MODELS_REPO_REF") || {
+      print_error "Failed to checkout OLLAMA_MODELS_REPO_REF=$OLLAMA_MODELS_REPO_REF"
       return 1
     }
   else
-    print_warning "get_ollama_models.py not found in $repo_dir; expecting prebuilt index."
+    print_warning "OLLAMA_MODELS_REPO_REF not set; executing unpinned repo scripts."
   fi
 
-  json_path="$repo_dir/code/ollama_models.json"
+  if [[ -f "$json_path" ]]; then
+    if _ollama_is_valid_models_json "$json_path"; then
+      print_info "Using existing models index: $json_path"
+      skip_generate=true
+    else
+      print_warning "Existing models index is invalid; regenerating."
+      skip_generate=false
+    fi
+  else
+    skip_generate=false
+  fi
+
+  if [[ "$skip_generate" != "true" ]]; then
+    # Generate the models JSON via provided script
+    if [[ -f "$repo_dir/get_ollama_models.py" ]]; then
+      _ollama_ensure_python_deps || return 1
+      python_cmd="$(_ollama_resolve_python_cmd)" || return 1
+      (cd "$repo_dir" && "$python_cmd" get_ollama_models.py) || {
+        if [[ -f "$json_path" ]]; then
+          if _ollama_is_valid_models_json "$json_path"; then
+            print_warning "Model index generation failed; using existing JSON."
+          else
+            print_error "Model index generation failed and JSON is invalid."
+            return 1
+          fi
+        else
+          print_error "Failed to generate models index via Python script."
+          return 1
+        fi
+      }
+    else
+      print_warning "get_ollama_models.py not found in $repo_dir; expecting prebuilt index."
+    fi
+  fi
+
   if [[ ! -f "$json_path" ]]; then
     print_error "Models JSON not found at: $json_path"
     return 1

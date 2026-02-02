@@ -52,14 +52,19 @@ Loader and modules
   - `file.sh` — file/dir helpers, checksum verification.
   - `json.sh` — json utilities (`json_escape`, `format_response`, `format_md_response`).
 - `env.sh` — `.env` loading, `require_env`, project-root detection.
+- `python.sh` — resolve Python 3 executables and ensure local virtualenvs.
 - `version.sh` — semantic version helpers (`version_bump`, `version_compare`).
 - `ports.sh` — port usage/availability helpers.
 - `browser.sh` — `open_url`, `open_frontend_when_ready`.
 - `traps.sh` — cleanup and signal traps.
 - `certs.sh` — self-signed cert creation and trust-store helpers.
 - `hosts.sh` — `/etc/hosts` helpers.
-  - `clipboard.sh` — `copy_to_clipboard`.
-  - `ollama.sh` — Ollama helpers (`ollama_install_cli`, prepare models index from webfarmer/ollama-get-models, dialog selection, `ollama_pull_model`, `ollama_run_model
+- `clipboard.sh` — `copy_to_clipboard`.
+- `ollama.sh` — Ollama helpers (`ollama_install_cli`, prepare models index from webfarmer/ollama-get-models, dialog selection, `ollama_pull_model`, `ollama_run_model`).
+
+Notes for Ollama model indexing:
+- Requires Python 3 (`python3` preferred; falls back to `python` if it is 3.x).
+- Installs `beautifulsoup4`/`requests` via `apt` when available; otherwise uses `pip` (requires `python3-pip`).
 
 Download dialog gauge
 ---------------------
