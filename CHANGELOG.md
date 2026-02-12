@@ -4,6 +4,10 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ## [Unreleased]
 
+- Added: Ollama runtime helpers in `lib/ollama.sh` for local/docker execution (`ollama_runtime_*`) and shared model ref builder (`ollama_model_ref`).
+- Added: `is_wsl` helper in `lib/os.sh` for reusable WSL/WSL2 detection.
+- Added: `DIALOG_DOWNLOAD_SHOW_ERROR_DIALOG` support in `lib/dialog.sh` to optionally suppress popup error dialogs from `dialog_download_file`.
+- Docs: Updated README and module docs for Ollama runtime helpers, WSL detection, and dialog error-popup controls.
 - Added: CI helper scripts for Node, Python, Flutter, Gradle, Go, and basic security checks.
 - Added: `scripts/pin_production.sh` to fast-forward the production branch to a release tag.
 - Added: `scripts/check_release_version.sh` to verify release versions before tagging or publishing.
