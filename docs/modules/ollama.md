@@ -41,6 +41,9 @@ Environment
 - ollama_model_ref model [size=latest]
   - Purpose: Build model reference for Ollama (`name` or `name:tag` when tag is not `latest`).
 
+- ollama_model_ref_safe model [size=latest]
+  - Purpose: Backward-compatible alias for `ollama_model_ref`.
+
 - ollama_pull_model model [size=latest]
   - Purpose: `ollama pull name:size`.
 
