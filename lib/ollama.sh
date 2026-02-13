@@ -271,14 +271,13 @@ ollama_dialog_select_model() {
 
   dialog_init; check_if_dialog_installed || return 1
 
-  local options line key value selected pre=""
+  local line key value selected
   local -a menu_items=()
   while IFS= read -r line; do
     key=$(echo "$line" | awk '{print $1}')
     value=$(echo "$line" | awk '{$1=""; print $0}')
     if [[ "$key" == "$current_model" ]]; then
       menu_items+=("$key" "$value" "on")
-      pre="$key"
     else
       menu_items+=("$key" "$value" "off")
     fi

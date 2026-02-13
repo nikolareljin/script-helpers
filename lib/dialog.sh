@@ -59,8 +59,7 @@ select_multiple_distros() {
   for d in "${!DISTROS[@]}"; do
     options+=("$d" "${DISTROS[$d]}")
   done
-  selected_distros=$(dialog --stdout --title "Select Linux Distro" --checklist "Choose Linux distributions to download:" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0 "${options[@]}")
-  if [[ $? -ne 0 ]]; then
+  if ! selected_distros=$(dialog --stdout --title "Select Linux Distro" --checklist "Choose Linux distributions to download:" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0 "${options[@]}"); then
     print_error "No distro selected. Exiting..."
     return 1
   fi
@@ -74,8 +73,7 @@ select_distro() {
   for d in "${!DISTROS[@]}"; do
     options+=("$d" "${DISTROS[$d]}")
   done
-  selected_distro=$(dialog --stdout --title "Select Linux Distro" --menu "Choose a Linux distribution to download:" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0 "${options[@]}")
-  if [[ $? -ne 0 ]]; then
+  if ! selected_distro=$(dialog --stdout --title "Select Linux Distro" --menu "Choose a Linux distribution to download:" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0 "${options[@]}"); then
     print_error "No distro selected. Exiting..."
     return 1
   fi
