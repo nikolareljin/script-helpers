@@ -12,6 +12,9 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Added: `scripts/pin_production.sh` to fast-forward the production branch to a release tag.
 - Added: `scripts/check_release_version.sh` to verify release versions before tagging or publishing.
 - Added: `--version` and `--image` parameters to all `ci_*.sh` scripts for Docker image tag and full image override.
+
+## [0.12.0] - 2026-02-13
+
 - Docs: Added missing `ollama_model_ref_safe` API entry in `docs/modules/ollama.md` to match exported helper aliases.
 
 ## [0.11.1] - 2026-02-01
