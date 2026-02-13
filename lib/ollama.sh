@@ -458,7 +458,10 @@ ollama_runtime_data_dir() {
     data_dir="$project_root/$data_dir"
   fi
 
-  create_directory "$data_dir" >/dev/null
+  if ! create_directory "$data_dir" >/dev/null; then
+    print_error "Failed to create Ollama data directory: ${data_dir}"
+    return 1
+  fi
   (cd "$data_dir" && pwd)
 }
 
@@ -469,7 +472,7 @@ ollama_runtime_local_models_dir() {
   shared_store="$(resolve_env_value "ollama_shared_model_store" "1" "$env_file")"
   shared_store="$(echo "$shared_store" | tr '[:upper:]' '[:lower:]')"
   if [[ "$shared_store" == "1" || "$shared_store" == "true" || "$shared_store" == "yes" ]]; then
-    data_dir="$(ollama_runtime_data_dir "$env_file")"
+    data_dir="$(ollama_runtime_data_dir "$env_file")" || return 1
     local_models_dir="${data_dir}/models"
   else
     local_models_dir="$(resolve_env_value "ollama_local_models_dir" "${OLLAMA_MODELS:-$HOME/.ollama/models}" "$env_file")"
@@ -479,7 +482,10 @@ ollama_runtime_local_models_dir() {
     project_root="$(_ollama_project_root)"
     local_models_dir="$project_root/$local_models_dir"
   fi
-  create_directory "$local_models_dir" >/dev/null
+  if ! create_directory "$local_models_dir" >/dev/null; then
+    print_error "Failed to create Ollama models directory: ${local_models_dir}"
+    return 1
+  fi
   (cd "$local_models_dir" && pwd)
 }
 
@@ -487,7 +493,7 @@ ollama_runtime_local_cmd() {
   local env_file="$1"
   shift
   local local_models_dir
-  local_models_dir="$(ollama_runtime_local_models_dir "$env_file")"
+  local_models_dir="$(ollama_runtime_local_models_dir "$env_file")" || return 1
   OLLAMA_MODELS="$local_models_dir" ollama "$@"
 }
 
@@ -535,11 +541,16 @@ ollama_runtime_ensure_docker_container() {
 
   print_info "Creating Docker Ollama container '${container}' from ${image}"
   print_info "Mounting model data: ${data_dir} -> /root/.ollama"
-  docker run -d \
+  if ! docker run -d \
     --name "$container" \
     -p "${host_port}:11434" \
     -v "${data_dir}:/root/.ollama" \
-    "$image" >/dev/null
+    "$image" >/dev/null; then
+    print_error "Failed to create and start Docker Ollama container: ${container}"
+    return 1
+  fi
+
+  return 0
 }
 
 ollama_runtime_ensure_ready() {
@@ -614,7 +625,10 @@ ollama_runtime_export_model() {
   local model_ref="$3"
   local output_path="$4"
 
-  create_directory "$(dirname "$output_path")" >/dev/null
+  if ! create_directory "$(dirname "$output_path")" >/dev/null; then
+    print_error "Failed to create export output directory: $(dirname "$output_path")"
+    return 1
+  fi
 
   if [[ "$runtime" == "docker" ]]; then
     local container
@@ -629,7 +643,11 @@ ollama_runtime_export_model() {
   fi
 
   print_info "Exporting ${model_ref} locally to ${output_path}"
-  ollama_runtime_local_cmd "$env_file" export "$model_ref" > "$output_path"
+  if ! ollama_runtime_local_cmd "$env_file" export "$model_ref" > "$output_path"; then
+    rm -f "$output_path"
+    return 1
+  fi
+  return 0
 }
 
 ollama_runtime_run_model() {
