@@ -421,7 +421,11 @@ ollama_runtime_api_base_url() {
   if [[ -z "$base_url" ]]; then
     local website
     website="$(resolve_env_value "website" "http://localhost:11434/api/generate" "$env_file")"
-    base_url="${website%/api/generate}"
+    # Normalize legacy website endpoint values back to base URL.
+    base_url="${website%%#*}"
+    base_url="${base_url%%\?*}"
+    base_url="${base_url%%/api/generate/}"
+    base_url="${base_url%%/api/generate}"
   fi
 
   base_url="${base_url%/}"

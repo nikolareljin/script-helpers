@@ -75,6 +75,7 @@ Runtime functions
 
 - ollama_runtime_api_base_url env_file
   - Purpose: Resolve effective API base URL from runtime fields, `ollama_url`, or legacy `website`.
+  - Behavior: Normalizes legacy `website` values by stripping query/fragment and `/api/generate` suffixes.
 
 - ollama_runtime_generate_endpoint env_file
   - Purpose: Build `/api/generate` endpoint URL.
