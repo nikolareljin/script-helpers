@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# SCRIPT: lint_docs.sh
+# DESCRIPTION: Validate docs coverage and API index consistency for script-helpers modules.
+# USAGE: ./lint_docs.sh
+# PARAMETERS: No required parameters.
+# EXAMPLE: ./lint_docs.sh
+# ----------------------------------------------------
 set -euo pipefail
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
