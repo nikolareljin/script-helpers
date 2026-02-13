@@ -86,6 +86,7 @@ Runtime functions
 - ollama_runtime_data_dir env_file
 - ollama_runtime_local_models_dir env_file
   - Purpose: Resolve and create runtime model data directories.
+  - Returns: absolute path on success; non-zero if directory creation fails.
 
 - ollama_runtime_local_cmd env_file command [args...]
   - Purpose: Run `ollama` command with runtime-local model directory.
@@ -95,6 +96,7 @@ Runtime functions
 
 - ollama_runtime_ensure_docker_container env_file
   - Purpose: Ensure Docker container exists and is running for runtime mode.
+  - Returns: zero on success; non-zero when Docker checks/start/create fail.
 
 - ollama_runtime_ensure_ready runtime env_file
   - Purpose: Prepare runtime prerequisites (currently Docker container startup).
@@ -107,6 +109,8 @@ Runtime functions
 
 - ollama_runtime_export_model runtime env_file model_ref output_path
   - Purpose: Export model through selected runtime to file.
+  - Returns: zero on success; non-zero on export/write failure.
+  - Behavior: Removes partial output file when export fails.
 
 - ollama_runtime_run_model runtime env_file model [size=latest]
   - Purpose: Run model via local runtime (`docker` mode is API-only).
