@@ -526,7 +526,10 @@ ollama_runtime_ensure_docker_container() {
 
   if docker ps -a --filter "name=^/${container}$" -q | grep -q .; then
     print_info "Starting Docker Ollama container: ${container}"
-    docker start "$container" >/dev/null
+    if ! docker start "$container" >/dev/null; then
+      print_error "Failed to start Docker Ollama container: ${container}"
+      return 1
+    fi
     return 0
   fi
 
@@ -592,11 +595,14 @@ ollama_runtime_supports_export() {
     out="$(ollama_runtime_local_cmd "$env_file" export --help 2>&1)" || rc=$?
   fi
 
-  if [[ $rc -eq 0 ]] || [[ "$out" == *"Usage:"* ]] || [[ "$out" == *"export"* ]]; then
-    return 0
-  fi
   if [[ "$out" == *"unknown command"* ]] || [[ "$out" == *"is not a command"* ]]; then
     return 1
+  fi
+  if [[ $rc -eq 0 ]]; then
+    return 0
+  fi
+  if [[ "$out" == *"Usage:"* && "$out" == *"export"* ]]; then
+    return 0
   fi
 
   return 1
