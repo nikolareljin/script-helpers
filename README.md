@@ -46,7 +46,7 @@ Loader and modules
 - Modules live in `lib/*.sh` and are small, dependency-light files:
   - `logging.sh` — color constants and logging helpers (`print_info`, `log_info`, etc.).
   - `dialog.sh` — dialog sizing helpers and `get_value`.
-  - `os.sh` — OS detection (`get_os`, `getos`), clipboard helpers.
+  - `os.sh` — OS detection (`get_os`, `getos`, `is_wsl`) and conditional sudo helper.
   - `deps.sh` — install utilities (`install_dependencies`) where applicable.
   - `docker.sh` — docker compose detection/wrapper (`docker_compose`, `run_docker_compose_command`), status utility (`docker_status`).
   - `file.sh` — file/dir helpers, checksum verification.
@@ -60,7 +60,7 @@ Loader and modules
 - `certs.sh` — self-signed cert creation and trust-store helpers.
 - `hosts.sh` — `/etc/hosts` helpers.
 - `clipboard.sh` — `copy_to_clipboard`.
-- `ollama.sh` — Ollama helpers (`ollama_install_cli`, prepare models index from webfarmer/ollama-get-models, dialog selection, `ollama_pull_model`, `ollama_run_model`).
+- `ollama.sh` — Ollama helpers (`ollama_install_cli`, prepare models index from webfarmer/ollama-get-models, dialog selection, `ollama_pull_model`, `ollama_run_model`) and runtime helpers for local/docker (`ollama_runtime_*`).
 
 Notes for Ollama model indexing:
 - Requires Python 3 (`python3` preferred; falls back to `python` if it is 3.x).
@@ -168,6 +168,7 @@ Download behavior
     - `auto` (default): use dialog if available.
     - `true`/`1`: force dialog if available, otherwise fallback.
     - `false`/`0`/`never`: disable dialog and use plain `curl`/`wget`.
+  - `DIALOG_DOWNLOAD_SHOW_ERROR_DIALOG=0` suppresses dialog popup errors while preserving non-zero exit codes.
   - Falls back to plain `curl` or `wget` with no interactive gauge if dialog is unavailable or fails. When a dialog download fails, an error message is shown with details before falling back.
 
 Examples

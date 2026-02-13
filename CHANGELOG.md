@@ -9,6 +9,14 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Added: `scripts/check_release_version.sh` to verify release versions before tagging or publishing.
 - Added: `--version` and `--image` parameters to all `ci_*.sh` scripts for Docker image tag and full image override.
 
+## [0.12.0] - 2026-02-13
+
+- Added: Ollama runtime helpers in `lib/ollama.sh` for local/docker execution (`ollama_runtime_*`) and shared model ref builder (`ollama_model_ref`).
+- Added: `is_wsl` helper in `lib/os.sh` for reusable WSL/WSL2 detection.
+- Added: `DIALOG_DOWNLOAD_SHOW_ERROR_DIALOG` support in `lib/dialog.sh` to optionally suppress popup error dialogs from `dialog_download_file`.
+- Docs: Updated README and module docs for Ollama runtime helpers, WSL detection, and dialog error-popup controls.
+- Docs: Added missing `ollama_model_ref_safe` API entry in `docs/modules/ollama.md` to match exported helper aliases.
+
 ## [0.11.1] - 2026-02-01
 
 - Changed: Ollama model index preparation now reuses an existing JSON when present and resolves Python 3 via `python3` or `python` (3.x). Adds apt-based installs for `python3-bs4`/`python3-requests` with a non-fatal `apt-get update` fallback.

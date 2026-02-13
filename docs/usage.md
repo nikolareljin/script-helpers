@@ -55,6 +55,9 @@ Environment variables
   - `auto` (default): use dialog gauge if `dialog` is installed.
   - `true`/`1`: force dialog if available.
   - `false`/`0`/`never`: disable dialog UI.
+- `DIALOG_DOWNLOAD_SHOW_ERROR_DIALOG` — controls dialog download error popups:
+  - default `1`: show dialog on download failure.
+  - `0`/`false`/`never`: suppress popup and return non-zero to caller.
 - `PORT_DETECTION_ALLOW_SUDO` — allow sudo when probing ports (`ports` module). Default: `false`.
 - `FRONTEND_HOST`, `FRONTEND_PORT` — host/port for `browser::open_frontend_when_ready`.
 
