@@ -113,3 +113,10 @@ jobs:
           fi
           git push origin production
           echo "production branch updated to tag ${tag}"
+
+      - name: Skip production update on non-main
+        if: ${{ steps.push_tag.outputs.tag_created == 'true' && github.ref != 'refs/heads/main' }}
+        shell: bash
+        run: |
+          echo "Tag ${{ steps.push_tag.outputs.tag_name }} was created, but workflow ref is '${GITHUB_REF}'."
+          echo "Production pinning only runs when auto-tag is dispatched from 'main'."
