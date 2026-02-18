@@ -16,7 +16,7 @@ note()  { echo "[lint-docs] $*"; }
 error() { echo "[lint-docs][ERROR] $*" >&2; failures=$((failures+1)); }
 
 # Collect modules: lib/*.sh + helpers.sh (as module 'helpers')
-mapfile -t lib_files < <(find lib -maxdepth 1 -type f -name '*.sh' | sort)
+mapfile -t lib_files < <(ls -1 lib/*.sh 2>/dev/null | sort)
 lib_files=("helpers.sh" "${lib_files[@]}")
 
 missing_docs=()
