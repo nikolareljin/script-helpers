@@ -671,8 +671,10 @@ ollama_runtime_run_model() {
   fi
 
   local model_ref
+  local models_dir
   model_ref="$(ollama_model_ref "$model" "$size")"
-  nohup bash -lc "OLLAMA_MODELS=\"$(ollama_runtime_local_models_dir "$env_file")\" ollama run \"$model_ref\"" >/dev/null 2>&1 &
+  models_dir="$(ollama_runtime_local_models_dir "$env_file")" || return 1
+  OLLAMA_MODELS="$models_dir" nohup ollama run "$model_ref" >/dev/null 2>&1 &
 }
 
 ollama_runtime_ps() {
