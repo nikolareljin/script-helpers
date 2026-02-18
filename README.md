@@ -221,4 +221,5 @@ Versioning and releases
 - Use `scripts/bump_version.sh` or `version_bump` (from `lib/version.sh`) to increment the version file.
 - GitHub Actions:
   - Auto-tag: bumps `VERSION` based on conventional commits and creates a tag.
+  - Production pinning: when a new release tag is created from `main`, the `production` branch is fast-forwarded to that tag commit.
   - Release: publishes a GitHub Release when a `*.*.*` tag is pushed.
