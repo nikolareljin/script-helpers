@@ -12,7 +12,7 @@ Versioning and releases
   - `scripts/tag_release.sh`
   - This creates tag `<version>` (no 'v' prefix) based on VERSION and pushes it
 - GitHub Actions creates a release for pushed tag with auto-generated notes
-- `production` branch is auto-moved to the new tag by release automation after tagging on `main`.
+- `production` branch is auto-moved to the new tag by release automation in the same workflow run that creates the tag on `main`.
 - Manual fallback (or rollback) to a specific tag:
   - `scripts/pin_production.sh <version>`
   - If a rollback is needed, fast-forward `production` to a previous tag.

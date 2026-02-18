@@ -220,6 +220,6 @@ Versioning and releases
 - Tags use plain semver (`X.Y.Z`) without a `v` prefix. Use `scripts/tag_release.sh` to create and push an annotated tag for the current commit.
 - Use `scripts/bump_version.sh` or `version_bump` (from `lib/version.sh`) to increment the version file.
 - GitHub Actions:
-  - Auto-tag: bumps `VERSION` based on conventional commits and creates a tag.
-  - Production pinning: when a new release tag is created from `main`, the `production` branch is fast-forwarded to that tag commit.
+  - Auto-tag (`.github/workflows/auto-tag.yml`): manually triggered via `workflow_dispatch` to bump `VERSION` from conventional commits and create a semver tag.
+  - Production pinning: when a semver tag is created by release automation from `main`, the same workflow run fast-forwards `production` to that tag commit.
   - Release: publishes a GitHub Release when a `*.*.*` tag is pushed.
