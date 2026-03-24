@@ -260,27 +260,6 @@ ollama_list_models() {
   jq -r '.[].name' "$json_file"
 }
 
-# Internal helper to build a filtered model list from the JSON index.
-_ollama_filtered_models_json() {
-  local json_file="$1"
-  local filter_text="${2:-}"
-
-  if [[ -z "$filter_text" ]]; then
-    jq -c 'sort_by(.name)' "$json_file"
-    return 0
-  fi
-
-  jq -c --arg query "$(printf '%s' "$filter_text" | tr '[:upper:]' '[:lower:]')" '
-    [
-      .[]
-      | . as $item
-      | (($item.name // "") + " " + ($item.description // "") + " " + (($item.sizes // []) | join(" "))) as $haystack
-      | select(($haystack | ascii_downcase) | contains($query))
-    ]
-    | sort_by(.name)
-  ' "$json_file"
-}
-
 ollama_model_menu_cache_path() {
   local json_file="$1"
   local base_dir base_name
@@ -316,6 +295,7 @@ ollama_model_menu_cache_is_fresh() {
 ollama_prepare_model_menu_cache() {
   local json_file="$1"
   local cache_file="${2:-}"
+  local cache_dir tmp_file
 
   if [[ ! -f "$json_file" ]]; then
     print_error "Models JSON not found: $json_file"
@@ -325,6 +305,10 @@ ollama_prepare_model_menu_cache() {
   if [[ -z "$cache_file" ]]; then
     cache_file="$(ollama_model_menu_cache_path "$json_file")"
   fi
+
+  cache_dir="$(dirname "$cache_file")"
+  mkdir -p "$cache_dir"
+  tmp_file="$(mktemp "${cache_file}.tmp.XXXXXX")" || return 1
 
   jq -r '
     map(select(.name | contains("/") | not) | . + { slug: .name })
@@ -337,7 +321,18 @@ ollama_prepare_model_menu_cache() {
         ((.description // "") | gsub("[[:space:]]+"; " "))
       ]
     | @tsv
-  ' "$json_file" > "$cache_file"
+  ' "$json_file" > "$tmp_file" || {
+    rm -f "$tmp_file"
+    return 1
+  }
+
+  if [[ ! -s "$tmp_file" ]]; then
+    rm -f "$tmp_file"
+    print_error "Generated empty Ollama model menu cache: $cache_file"
+    return 1
+  fi
+
+  mv "$tmp_file" "$cache_file"
 
   printf '%s
 ' "$cache_file"
@@ -361,8 +356,13 @@ ollama_dialog_select_model() {
   local -A model_lookup=()
   menu_height=18
 
-  cache_file="${OLLAMA_MODEL_MENU_CACHE_FILE:-}"
-  if [[ -z "$cache_file" || ! -f "$cache_file" ]]; then
+  if [[ -n "${OLLAMA_MODEL_MENU_CACHE_FILE:-}" ]]; then
+    cache_file="$OLLAMA_MODEL_MENU_CACHE_FILE"
+  else
+    cache_file="$(ollama_model_menu_cache_path "$json_file")"
+  fi
+
+  if [[ ! -s "$cache_file" ]] || ! ollama_model_menu_cache_is_fresh "$cache_file"; then
     cache_file="$(ollama_prepare_model_menu_cache "$json_file")" || return 1
   fi
 
@@ -701,7 +701,7 @@ _ollama_dialog_pull_command() {
     return $?
   fi
 
-  local log_file pid rc gauge_height gauge_width
+  local log_file pid rc dialog_rc gauge_height gauge_width
   log_file="$(mktemp)"
   gauge_height="$DIALOG_HEIGHT"
   gauge_width="$DIALOG_WIDTH"
@@ -714,6 +714,16 @@ _ollama_dialog_pull_command() {
   pid=$!
   rc=0
 
+  cleanup() {
+    if [[ -n "${pid:-}" ]] && kill -0 "$pid" >/dev/null 2>&1; then
+      kill "$pid" >/dev/null 2>&1 || true
+      wait "$pid" >/dev/null 2>&1 || true
+    fi
+    rm -f "$log_file"
+  }
+
+  trap cleanup RETURN
+
   (
     printf 'XXX\n0\nPreparing model download...\nXXX\n'
 
@@ -723,8 +733,22 @@ import re
 import sys
 from pathlib import Path
 
+TAIL_BYTES = 65536
+
+
+def read_tail(path: Path, max_bytes: int) -> str:
+    if not path.exists():
+        return ""
+    with path.open('rb') as handle:
+        handle.seek(0, 2)
+        size = handle.tell()
+        handle.seek(max(size - max_bytes, 0))
+        data = handle.read()
+    return data.decode(errors='ignore')
+
+
 log_path = Path(sys.argv[1])
-text = log_path.read_text(errors='ignore') if log_path.exists() else ""
+text = read_tail(log_path, TAIL_BYTES)
 text = re.sub(r'\x1b\[[0-9;?]*[ -/]*[@-~]', '', text)
 text = text.replace('\r', '\n')
 lines = [line.strip() for line in text.splitlines() if line.strip()]
@@ -771,6 +795,11 @@ PY2
       sleep 0.5
     done
   ) | dialog --no-shadow --title "$title" --gauge "Preparing model download..." "$gauge_height" "$gauge_width" 0
+  dialog_rc=$?
+  if [[ $dialog_rc -ne 0 ]]; then
+    cleanup
+    return "$dialog_rc"
+  fi
 
   wait "$pid"
   rc=$?
@@ -792,7 +821,6 @@ if lines:
 PY4
     fi
   fi
-  rm -f "$log_file"
   return $rc
 }
 
@@ -973,7 +1001,7 @@ ollama_update_env() {
 # Side effects: updates env_file with model/size if provided.
 ollama_install_model_flow() {
   local repo_dir="${1:-ollama-get-models}" env_file="${2:-}"
-  local json_file model size
+  local json_file model size size_rc
   json_file=$(ollama_prepare_models_index "$repo_dir") || return 1
 
   # Read current selections from env (if provided)
@@ -983,8 +1011,18 @@ ollama_install_model_flow() {
     current_size=$(resolve_env_value "size" "" "$env_file")
   fi
 
-  model=$(ollama_dialog_select_model "$json_file" "$current_model") || return 1
-  size=$(ollama_dialog_select_size "$json_file" "$model" "$current_size") || return 1
+  while true; do
+    model=$(ollama_dialog_select_model "$json_file" "$current_model") || return 1
+    if size=$(ollama_dialog_select_size "$json_file" "$model" "$current_size"); then
+      break
+    fi
+    size_rc=$?
+    if [[ $size_rc -eq 2 ]]; then
+      current_model="$model"
+      continue
+    fi
+    return "$size_rc"
+  done
 
   if [[ -n "$env_file" ]]; then
     ollama_update_env "$env_file" model "$model"

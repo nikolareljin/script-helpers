@@ -41,10 +41,11 @@ Environment
 
 - ollama_prepare_model_menu_cache json_file [cache_file]
   - Purpose: Convert the official un-namespaced Ollama library models from the JSON index into a TSV cache optimized for dialog-menu reuse.
+  - Behavior: Writes cache updates atomically so interrupted or failed refreshes do not leave partial cache files behind.
 
 - ollama_dialog_select_model json_file [current_model]
   - Purpose: Use a dialog menu to select a model from the indexed official Ollama library catalog; returns the selected full model name on stdout.
-  - Behavior: Reuses `OLLAMA_MODEL_MENU_CACHE_FILE` when present; otherwise prepares a cache on demand.
+  - Behavior: Reuses `OLLAMA_MODEL_MENU_CACHE_FILE` when present; otherwise reuses the default cache path while it remains fresh and non-empty, and regenerates it on demand when stale.
 
 - ollama_dialog_select_size json_file model [current_size]
   - Purpose: Use a dialog menu to select a size for the model; returns `latest` if none are listed.
@@ -67,6 +68,7 @@ Environment
 
 - ollama_install_model_flow [repo_dir=ollama-get-models] [env_file]
   - Purpose: Full flow: ensure index, select model and size, optionally persist to env, then `ollama pull` the selection.
+  - Behavior: Reopens model selection when the size dialog is cancelled.
 
 Runtime functions
 -----------------
@@ -116,7 +118,7 @@ Runtime functions
 
 - ollama_runtime_pull_model runtime env_file model [size=latest]
   - Purpose: Pull model through selected runtime.
-  - Behavior: Uses a dialog progress gauge when dialog support is available.
+  - Behavior: Uses a dialog progress gauge when dialog support is available, tails only recent pull output for progress parsing, and cancels the background pull cleanly if the gauge is closed.
 
 - ollama_runtime_supports_export runtime env_file
   - Purpose: Detect whether runtime supports `ollama export`.
