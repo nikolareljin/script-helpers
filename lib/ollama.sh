@@ -266,8 +266,7 @@ ollama_model_menu_cache_path() {
 
   base_dir="$(dirname "$json_file")"
   base_name="$(basename "$json_file" .json)"
-  printf '%s/%s.model-menu.cache.tsv
-' "$base_dir" "$base_name"
+  printf '%s/%s.model-menu.cache.tsv\n' "$base_dir" "$base_name"
 }
 
 ollama_model_menu_cache_is_fresh() {
@@ -363,7 +362,7 @@ ollama_dialog_select_model() {
   fi
 
   if [[ ! -s "$cache_file" ]] || ! ollama_model_menu_cache_is_fresh "$cache_file"; then
-    cache_file="$(ollama_prepare_model_menu_cache "$json_file")" || return 1
+    cache_file="$(ollama_prepare_model_menu_cache "$json_file" "$cache_file")" || return 1
   fi
 
   while IFS=$'	' read -r slug model_name sizes desc; do
@@ -378,7 +377,7 @@ ollama_dialog_select_model() {
     if [[ -n "$desc" ]]; then
       summary="${summary} | ${desc}"
     fi
-    summary="$(printf '%s' "$summary" | awk '{ print substr($0, 1, 140) }')"
+    summary="${summary:0:140}"
     menu_items+=("$tag" "$summary")
     model_lookup["$tag"]="$model_name"
     if [[ "$model_name" == "$current_model" ]]; then
@@ -393,9 +392,15 @@ ollama_dialog_select_model() {
   fi
 
   if [[ -n "$default_tag" ]]; then
-    selected=$(dialog --stdout --default-item "$default_tag" --menu "$value" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" "$menu_height" "${menu_items[@]}")
+    if ! selected=$(dialog --stdout --default-item "$default_tag" --menu "$value" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" "$menu_height" "${menu_items[@]}"); then
+      print_error "No model selected."
+      return 1
+    fi
   else
-    selected=$(dialog --stdout --menu "$value" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" "$menu_height" "${menu_items[@]}")
+    if ! selected=$(dialog --stdout --menu "$value" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" "$menu_height" "${menu_items[@]}"); then
+      print_error "No model selected."
+      return 1
+    fi
   fi
 
   if [[ -z "$selected" || -z "${model_lookup[$selected]:-}" ]]; then
@@ -700,6 +705,10 @@ _ollama_dialog_pull_command() {
     "$@"
     return $?
   fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    "$@"
+    return $?
+  fi
 
   local log_file pid rc dialog_rc gauge_height gauge_width
   log_file="$(mktemp)"
@@ -724,7 +733,7 @@ _ollama_dialog_pull_command() {
 
   trap cleanup RETURN
 
-  (
+  if (
     printf 'XXX\n0\nPreparing model download...\nXXX\n'
 
     while kill -0 "$pid" >/dev/null 2>&1; do
@@ -794,8 +803,11 @@ print('XXX')
 PY2
       sleep 0.5
     done
-  ) | dialog --no-shadow --title "$title" --gauge "Preparing model download..." "$gauge_height" "$gauge_width" 0
-  dialog_rc=$?
+  ) | dialog --no-shadow --title "$title" --gauge "Preparing model download..." "$gauge_height" "$gauge_width" 0; then
+    dialog_rc=0
+  else
+    dialog_rc=$?
+  fi
   if [[ $dialog_rc -ne 0 ]]; then
     cleanup
     return "$dialog_rc"

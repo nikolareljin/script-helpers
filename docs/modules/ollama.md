@@ -41,11 +41,11 @@ Environment
 
 - ollama_prepare_model_menu_cache json_file [cache_file]
   - Purpose: Convert the official un-namespaced Ollama library models from the JSON index into a TSV cache optimized for dialog-menu reuse.
-  - Behavior: Writes cache updates atomically so interrupted or failed refreshes do not leave partial cache files behind.
+  - Behavior: Writes cache updates atomically so interrupted or failed refreshes do not leave partial cache files behind, and refreshes a caller-supplied cache path in place when `OLLAMA_MODEL_MENU_CACHE_FILE` is set.
 
 - ollama_dialog_select_model json_file [current_model]
   - Purpose: Use a dialog menu to select a model from the indexed official Ollama library catalog; returns the selected full model name on stdout.
-  - Behavior: Reuses `OLLAMA_MODEL_MENU_CACHE_FILE` when present; otherwise reuses the default cache path while it remains fresh and non-empty, and regenerates it on demand when stale.
+  - Behavior: Reuses `OLLAMA_MODEL_MENU_CACHE_FILE` when present; otherwise reuses the default cache path while it remains fresh and non-empty, and regenerates it on demand when stale. Dialog cancellation returns cleanly instead of tripping `set -e` callers.
 
 - ollama_dialog_select_size json_file model [current_size]
   - Purpose: Use a dialog menu to select a size for the model; returns `latest` if none are listed.
@@ -118,7 +118,7 @@ Runtime functions
 
 - ollama_runtime_pull_model runtime env_file model [size=latest]
   - Purpose: Pull model through selected runtime.
-  - Behavior: Uses a dialog progress gauge when dialog support is available, tails only recent pull output for progress parsing, and cancels the background pull cleanly if the gauge is closed.
+  - Behavior: Uses a dialog progress gauge when dialog support and `python3` are available, tails only recent pull output for progress parsing, and cancels the background pull cleanly if the gauge is closed.
 
 - ollama_runtime_supports_export runtime env_file
   - Purpose: Detect whether runtime supports `ollama export`.
@@ -133,3 +133,10 @@ Runtime functions
 
 - ollama_runtime_ps runtime env_file
   - Purpose: Show runtime status (`docker ps` summary or local `ollama ps`).
+
+Dependencies
+------------
+
+- `curl`, `git`, `python3` (3.8+), `jq`, `dialog`, `ollama`.
+- `docker` is required only when using the Docker runtime helpers.
+- `pip` is required only when `apt-get` is not available for installing Python deps used by the models index generator.
