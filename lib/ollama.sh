@@ -641,12 +641,20 @@ ollama_runtime_local_models_dir() {
   (cd "$local_models_dir" && pwd)
 }
 
+ollama_runtime_local_env_assignment() {
+  local env_file="$1"
+  local local_models_dir
+  local_models_dir="$(ollama_runtime_local_models_dir "$env_file")" || return 1
+  printf 'OLLAMA_MODELS=%s
+' "$local_models_dir"
+}
+
 ollama_runtime_local_cmd() {
   local env_file="$1"
   shift
-  local local_models_dir
-  local_models_dir="$(ollama_runtime_local_models_dir "$env_file")" || return 1
-  OLLAMA_MODELS="$local_models_dir" ollama "$@"
+  local local_env
+  local_env="$(ollama_runtime_local_env_assignment "$env_file")" || return 1
+  env "$local_env" ollama "$@"
 }
 
 ollama_runtime_host_port() {
@@ -719,7 +727,7 @@ _ollama_dialog_pull_command() {
   local model_ref="$2"
   shift 2
 
-  if [[ ! -t 0 && ! -t 2 ]] || ! declare -F check_if_dialog_installed >/dev/null 2>&1; then
+  if [[ ! -t 2 ]] || ! declare -F check_if_dialog_installed >/dev/null 2>&1; then
     "$@"
     return $?
   fi
@@ -752,20 +760,12 @@ _ollama_dialog_pull_command() {
 
     _ollama_dialog_pull_cleanup() {
       if [[ -n "${pid:-}" ]] && kill -0 "$pid" >/dev/null 2>&1; then
-        local pgid=""
-        pgid="$(ps -o pgid= "$pid" 2>/dev/null | tr -d '[:space:]')" || pgid=""
-        if [[ -n "$pgid" ]]; then
-          kill -- -"${pgid}" >/dev/null 2>&1 || true
-          sleep 2
-          if kill -0 "$pid" >/dev/null 2>&1; then
-            kill -KILL -- -"${pgid}" >/dev/null 2>&1 || true
-          fi
-        else
-          kill "$pid" >/dev/null 2>&1 || true
-          sleep 0.5
-          if kill -0 "$pid" >/dev/null 2>&1; then
-            kill -KILL "$pid" >/dev/null 2>&1 || true
-          fi
+        # Avoid killing by process group here: in non-interactive shells the
+        # pull process can share a PGID with this script or the dialog UI.
+        kill "$pid" >/dev/null 2>&1 || true
+        sleep 0.5
+        if kill -0 "$pid" >/dev/null 2>&1; then
+          kill -KILL "$pid" >/dev/null 2>&1 || true
         fi
         wait "$pid" >/dev/null 2>&1 || true
       fi
@@ -911,11 +911,11 @@ ollama_runtime_pull_model() {
     return 1
   fi
 
-  local local_models_dir
-  local_models_dir="$(ollama_runtime_local_models_dir "$env_file")" || return 1
+  local local_env
+  local_env="$(ollama_runtime_local_env_assignment "$env_file")" || return 1
 
   print_info "Pulling model locally: ${model_ref}"
-  _ollama_dialog_pull_command "Downloading Model" "$model_ref" env OLLAMA_MODELS="$local_models_dir" ollama pull "$model_ref"
+  _ollama_dialog_pull_command "Downloading Model" "$model_ref" env "$local_env" ollama pull "$model_ref"
 }
 
 ollama_runtime_supports_export() {
