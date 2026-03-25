@@ -752,7 +752,21 @@ _ollama_dialog_pull_command() {
 
     _ollama_dialog_pull_cleanup() {
       if [[ -n "${pid:-}" ]] && kill -0 "$pid" >/dev/null 2>&1; then
-        kill "$pid" >/dev/null 2>&1 || true
+        local pgid=""
+        pgid="$(ps -o pgid= "$pid" 2>/dev/null | tr -d '[:space:]')" || pgid=""
+        if [[ -n "$pgid" ]]; then
+          kill -- -"${pgid}" >/dev/null 2>&1 || true
+          sleep 2
+          if kill -0 "$pid" >/dev/null 2>&1; then
+            kill -KILL -- -"${pgid}" >/dev/null 2>&1 || true
+          fi
+        else
+          kill "$pid" >/dev/null 2>&1 || true
+          sleep 0.5
+          if kill -0 "$pid" >/dev/null 2>&1; then
+            kill -KILL "$pid" >/dev/null 2>&1 || true
+          fi
+        fi
         wait "$pid" >/dev/null 2>&1 || true
       fi
       rm -f "$log_file"
@@ -897,8 +911,11 @@ ollama_runtime_pull_model() {
     return 1
   fi
 
+  local local_models_dir
+  local_models_dir="$(ollama_runtime_local_models_dir "$env_file")" || return 1
+
   print_info "Pulling model locally: ${model_ref}"
-  _ollama_dialog_pull_command "Downloading Model" "$model_ref" ollama_runtime_local_cmd "$env_file" pull "$model_ref"
+  _ollama_dialog_pull_command "Downloading Model" "$model_ref" env OLLAMA_MODELS="$local_models_dir" ollama pull "$model_ref"
 }
 
 ollama_runtime_supports_export() {
