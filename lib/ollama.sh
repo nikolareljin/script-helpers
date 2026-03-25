@@ -345,7 +345,7 @@ ollama_dialog_select_model() {
     return 1
   fi
 
-  dialog_init; check_if_dialog_installed || return 1
+  dialog_init; check_if_dialog_installed >/dev/null 2>&1 || { print_error "Dialog is not installed. Please install it and try again." >&2; return 1; }
 
   local selected default_tag=""
   local menu_height total_count value=""
@@ -717,8 +717,14 @@ _ollama_dialog_pull_command() {
     return $?
   fi
 
-  local log_file pid rc dialog_rc gauge_height gauge_width
-  log_file="$(mktemp)"
+  local log_file gauge_height gauge_width rc=0
+  if ! log_file="$(mktemp -t ollama-pull.XXXXXX 2>/dev/null)"; then
+    if ! log_file="$(mktemp "/tmp/ollama-pull.XXXXXX" 2>/dev/null)"; then
+      echo "Failed to create temporary log file for ollama dialog; running without dialog." >&2
+      "$@"
+      return $?
+    fi
+  fi
   gauge_height="$DIALOG_HEIGHT"
   gauge_width="$DIALOG_WIDTH"
   (( gauge_height > 15 )) && gauge_height=15
@@ -726,25 +732,31 @@ _ollama_dialog_pull_command() {
   (( gauge_width > 90 )) && gauge_width=90
   (( gauge_width < 60 )) && gauge_width=60
 
-  "$@" >"$log_file" 2>&1 &
-  pid=$!
-  rc=0
-
-  cleanup() {
-    if [[ -n "${pid:-}" ]] && kill -0 "$pid" >/dev/null 2>&1; then
-      kill "$pid" >/dev/null 2>&1 || true
-      wait "$pid" >/dev/null 2>&1 || true
-    fi
-    rm -f "$log_file"
-  }
-
-  trap cleanup RETURN
-
   if (
-    printf 'XXX\n0\nPreparing model download...\nXXX\n'
+    local pid dialog_rc=0 pull_rc=0
 
-    while kill -0 "$pid" >/dev/null 2>&1; do
-      python3 - "$log_file" "$model_ref" <<'PY2'
+    _ollama_dialog_pull_cleanup() {
+      if [[ -n "${pid:-}" ]] && kill -0 "$pid" >/dev/null 2>&1; then
+        kill "$pid" >/dev/null 2>&1 || true
+        wait "$pid" >/dev/null 2>&1 || true
+      fi
+      rm -f "$log_file"
+    }
+
+    trap _ollama_dialog_pull_cleanup EXIT
+
+    "$@" >"$log_file" 2>&1 &
+    pid=$!
+
+    if (
+      printf 'XXX
+0
+Preparing model download...
+XXX
+'
+
+      while kill -0 "$pid" >/dev/null 2>&1; do
+        python3 - "$log_file" "$model_ref" <<'PY2'
 import re
 import sys
 from pathlib import Path
@@ -765,82 +777,100 @@ def read_tail(path: Path, max_bytes: int) -> str:
 
 log_path = Path(sys.argv[1])
 text = read_tail(log_path, TAIL_BYTES)
-text = re.sub(r'\x1b\[[0-9;?]*[ -/]*[@-~]', '', text)
-text = text.replace('\r', '\n')
+text = re.sub(r'\[[0-9;?]*[ -/]*[@-~]', '', text)
+text = text.replace('', '
+')
 lines = [line.strip() for line in text.splitlines() if line.strip()]
 line = lines[-1] if lines else ''
 model_ref = sys.argv[2]
 percent = 0
-message = f'Model: {model_ref}\nPreparing model download...'
+message = f'Model: {model_ref}
+Preparing model download...'
 
 for candidate in reversed(lines):
     if 'pulling ' in candidate or 'verifying ' in candidate or 'writing manifest' in candidate or 'success' in candidate or 'pulling manifest' in candidate:
         line = candidate
         break
 
-normalized = re.sub(r'[^\x20-\x7E]+', ' ', line)
+normalized = re.sub(r'[^ -~]+', ' ', line)
 normalized = re.sub(r'\s+', ' ', normalized).strip()
 match = re.search(r'(pulling|verifying)\s+([^:]+):\s*(\d{1,3})%.*?(\d+(?:\.\d+)?\s*[KMGTP]?B)\s*/\s*(\d+(?:\.\d+)?\s*[KMGTP]?B)\s+(\d+(?:\.\d+)?\s*[KMGTP]?B/s)\s+(.+)$', normalized)
 if match:
     action, layer, pct, cur, total, speed, eta = match.groups()
     percent = max(0, min(100, int(pct)))
-    message = f'Model: {model_ref}\nLayer: {layer}\nProgress: {pct}% ({cur} / {total}) | {speed} | ETA: {eta}'
+    message = f'Model: {model_ref}
+Layer: {layer}
+Progress: {pct}% ({cur} / {total}) | {speed} | ETA: {eta}'
 else:
     match = re.search(r'(pulling|verifying)\s+([^:]+):\s*(\d{1,3})%.*?(\d+(?:\.\d+)?\s*[KMGTP]?B)\s*/\s*(\d+(?:\.\d+)?\s*[KMGTP]?B)', normalized)
     if match:
         action, layer, pct, cur, total = match.groups()
         percent = max(0, min(100, int(pct)))
-        message = f'Model: {model_ref}\nLayer: {layer}\nProgress: {pct}% ({cur} / {total})'
+        message = f'Model: {model_ref}
+Layer: {layer}
+Progress: {pct}% ({cur} / {total})'
     elif 'pulling manifest' in normalized:
         percent = 1
-        message = f'Model: {model_ref}\nPreparing model download...\nPulling manifest'
+        message = f'Model: {model_ref}
+Preparing model download...
+Pulling manifest'
     elif 'writing manifest' in normalized:
         percent = 98
-        message = f'Model: {model_ref}\nFinalizing model download...\nWriting manifest'
+        message = f'Model: {model_ref}
+Finalizing model download...
+Writing manifest'
     elif 'success' in normalized:
         percent = 100
-        message = f'Model: {model_ref}\nModel download completed.'
+        message = f'Model: {model_ref}
+Model download completed.'
     elif normalized:
-        message = f'Model: {model_ref}\n{normalized[:140]}'
+        message = f'Model: {model_ref}
+{normalized[:140]}'
 
 print('XXX')
 print(percent)
 print(message)
 print('XXX')
 PY2
-      sleep 0.5
-    done
-  ) | dialog --no-shadow --title "$title" --gauge "Preparing model download..." "$gauge_height" "$gauge_width" 0; then
-    dialog_rc=0
-  else
-    dialog_rc=$?
-  fi
-  if [[ $dialog_rc -ne 0 ]]; then
-    cleanup
-    return "$dialog_rc"
-  fi
+        sleep 0.5
+      done
+    ) | dialog --no-shadow --title "$title" --gauge "Preparing model download..." "$gauge_height" "$gauge_width" 0; then
+      dialog_rc=0
+    else
+      dialog_rc=$?
+    fi
+    if [[ $dialog_rc -ne 0 ]]; then
+      exit "$dialog_rc"
+    fi
 
-  wait "$pid"
-  rc=$?
-  if [[ $rc -ne 0 ]]; then
-    print_error "Ollama pull failed." >&2
-    if [[ -s "$log_file" ]]; then
-      python3 - "$log_file" <<'PY4' >&2
+    wait "$pid"
+    pull_rc=$?
+    if [[ $pull_rc -ne 0 ]]; then
+      print_error "Ollama pull failed." >&2
+      if [[ -s "$log_file" ]]; then
+        python3 - "$log_file" <<'PY4' >&2
 import re
 import sys
 from pathlib import Path
 
 log_path = Path(sys.argv[1])
 text = log_path.read_text(errors='ignore') if log_path.exists() else ""
-text = re.sub(r'\x1b\[[0-9;?]*[ -/]*[@-~]', '', text)
-text = text.replace('\r', '\n')
+text = re.sub(r'\[[0-9;?]*[ -/]*[@-~]', '', text)
+text = text.replace('', '
+')
 lines = [line.strip() for line in text.splitlines() if line.strip()]
 if lines:
     print(lines[-1])
 PY4
+      fi
     fi
+    exit "$pull_rc"
+  ); then
+    rc=0
+  else
+    rc=$?
   fi
-  return $rc
+  return "$rc"
 }
 
 ollama_runtime_pull_model() {
