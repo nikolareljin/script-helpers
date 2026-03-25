@@ -254,7 +254,7 @@ ollama_models_json_path() {
 ollama_list_models() {
   local json_file="$1"
   if [[ ! -f "$json_file" ]]; then
-    print_error "Models JSON not found: $json_file"
+    print_error "Models JSON not found: $json_file" >&2
     return 1
   fi
   jq -r '.[].name' "$json_file"
@@ -327,14 +327,13 @@ ollama_prepare_model_menu_cache() {
 
   if [[ ! -s "$tmp_file" ]]; then
     rm -f "$tmp_file"
-    print_error "Generated empty Ollama model menu cache: $cache_file"
+    print_error "Generated empty Ollama model menu cache: $cache_file" >&2
     return 1
   fi
 
   mv "$tmp_file" "$cache_file"
 
-  printf '%s
-' "$cache_file"
+  printf '%s\n' "$cache_file"
 }
 
 # Use dialog to select a model; preselect current_model if provided.
@@ -393,18 +392,18 @@ ollama_dialog_select_model() {
 
   if [[ -n "$default_tag" ]]; then
     if ! selected=$(dialog --stdout --default-item "$default_tag" --menu "$value" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" "$menu_height" "${menu_items[@]}"); then
-      print_error "No model selected."
+      print_error "No model selected." >&2
       return 1
     fi
   else
     if ! selected=$(dialog --stdout --menu "$value" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" "$menu_height" "${menu_items[@]}"); then
-      print_error "No model selected."
+      print_error "No model selected." >&2
       return 1
     fi
   fi
 
   if [[ -z "$selected" || -z "${model_lookup[$selected]:-}" ]]; then
-    print_error "No model selected."
+    print_error "No model selected." >&2
     return 1
   fi
 
@@ -428,12 +427,20 @@ ollama_dialog_select_size() {
 
   dialog_init; check_if_dialog_installed || return 1
   local -a menu_items=()
-  local s; for s in $sizes; do
+  local -a dialog_args=(--stdout --menu "Select a size for: $model" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 10)
+  local s has_default=""
+  for s in $sizes; do
     menu_items+=("$s" "$s")
+    if [[ -n "$current_size" && "$s" == "$current_size" ]]; then
+      has_default=1
+    fi
   done
+  if [[ -n "$has_default" ]]; then
+    dialog_args=(--stdout --default-item "$current_size" --menu "Select a size for: $model" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 10)
+  fi
 
   local selected status=0
-  if selected=$(dialog --stdout --menu "Select a size for: $model" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 10 "${menu_items[@]}"); then
+  if selected=$(dialog "${dialog_args[@]}" "${menu_items[@]}"); then
     :
   else
     status=$?
