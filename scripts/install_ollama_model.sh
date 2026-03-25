@@ -68,13 +68,14 @@ if ! $non_interactive; then
     model=$(ollama_dialog_select_model "$JSON_FILE" "$current_model") || exit 1
     if size=$(ollama_dialog_select_size "$JSON_FILE" "$model" "$current_size"); then
       break
+    else
+      size_rc=$?
+      if [[ $size_rc -eq 2 ]]; then
+        current_model="$model"
+        continue
+      fi
+      exit "$size_rc"
     fi
-    size_rc=$?
-    if [[ $size_rc -eq 2 ]]; then
-      current_model="$model"
-      continue
-    fi
-    exit "$size_rc"
   done
   # Persist selections
   ollama_update_env "$env_file" model "$model"

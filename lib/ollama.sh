@@ -297,7 +297,7 @@ ollama_prepare_model_menu_cache() {
   local cache_dir tmp_file
 
   if [[ ! -f "$json_file" ]]; then
-    print_error "Models JSON not found: $json_file"
+    print_error "Models JSON not found: $json_file" >&2
     return 1
   fi
 
@@ -341,7 +341,7 @@ ollama_prepare_model_menu_cache() {
 ollama_dialog_select_model() {
   local json_file="$1"; local current_model="${2:-}"
   if [[ ! -f "$json_file" ]]; then
-    print_error "Models JSON not found: $json_file"
+    print_error "Models JSON not found: $json_file" >&2
     return 1
   fi
 
@@ -414,7 +414,7 @@ ollama_dialog_select_model() {
 ollama_dialog_select_size() {
   local json_file="$1"; local model="$2"; local current_size="${3:-}"
   if [[ ! -f "$json_file" ]]; then
-    print_error "Models JSON not found: $json_file"
+    print_error "Models JSON not found: $json_file" >&2
     return 1
   fi
 
@@ -425,7 +425,11 @@ ollama_dialog_select_size() {
     return 0
   fi
 
-  dialog_init; check_if_dialog_installed || return 1
+  dialog_init
+  if ! check_if_dialog_installed >/dev/null 2>&1; then
+    print_error "Dialog is required but not installed." >&2
+    return 1
+  fi
   local -a menu_items=()
   local -a dialog_args=(--stdout --menu "Select a size for: $model" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 10)
   local s has_default=""
@@ -777,15 +781,13 @@ def read_tail(path: Path, max_bytes: int) -> str:
 
 log_path = Path(sys.argv[1])
 text = read_tail(log_path, TAIL_BYTES)
-text = re.sub(r'\[[0-9;?]*[ -/]*[@-~]', '', text)
-text = text.replace('', '
-')
+text = re.sub(r'\x1b\[[0-9;?]*[ -/]*[@-~]', '', text)
+text = text.replace('\r', '\n')
 lines = [line.strip() for line in text.splitlines() if line.strip()]
 line = lines[-1] if lines else ''
 model_ref = sys.argv[2]
 percent = 0
-message = f'Model: {model_ref}
-Preparing model download...'
+message = f'Model: {model_ref}\nPreparing model download...'
 
 for candidate in reversed(lines):
     if 'pulling ' in candidate or 'verifying ' in candidate or 'writing manifest' in candidate or 'success' in candidate or 'pulling manifest' in candidate:
@@ -798,34 +800,24 @@ match = re.search(r'(pulling|verifying)\s+([^:]+):\s*(\d{1,3})%.*?(\d+(?:\.\d+)?
 if match:
     action, layer, pct, cur, total, speed, eta = match.groups()
     percent = max(0, min(100, int(pct)))
-    message = f'Model: {model_ref}
-Layer: {layer}
-Progress: {pct}% ({cur} / {total}) | {speed} | ETA: {eta}'
+    message = f'Model: {model_ref}\nLayer: {layer}\nProgress: {pct}% ({cur} / {total}) | {speed} | ETA: {eta}'
 else:
     match = re.search(r'(pulling|verifying)\s+([^:]+):\s*(\d{1,3})%.*?(\d+(?:\.\d+)?\s*[KMGTP]?B)\s*/\s*(\d+(?:\.\d+)?\s*[KMGTP]?B)', normalized)
     if match:
         action, layer, pct, cur, total = match.groups()
         percent = max(0, min(100, int(pct)))
-        message = f'Model: {model_ref}
-Layer: {layer}
-Progress: {pct}% ({cur} / {total})'
+        message = f'Model: {model_ref}\nLayer: {layer}\nProgress: {pct}% ({cur} / {total})'
     elif 'pulling manifest' in normalized:
         percent = 1
-        message = f'Model: {model_ref}
-Preparing model download...
-Pulling manifest'
+        message = f'Model: {model_ref}\nPreparing model download...\nPulling manifest'
     elif 'writing manifest' in normalized:
         percent = 98
-        message = f'Model: {model_ref}
-Finalizing model download...
-Writing manifest'
+        message = f'Model: {model_ref}\nFinalizing model download...\nWriting manifest'
     elif 'success' in normalized:
         percent = 100
-        message = f'Model: {model_ref}
-Model download completed.'
+        message = f'Model: {model_ref}\nModel download completed.'
     elif normalized:
-        message = f'Model: {model_ref}
-{normalized[:140]}'
+        message = f'Model: {model_ref}\n{normalized[:140]}'
 
 print('XXX')
 print(percent)
@@ -855,9 +847,8 @@ from pathlib import Path
 
 log_path = Path(sys.argv[1])
 text = log_path.read_text(errors='ignore') if log_path.exists() else ""
-text = re.sub(r'\[[0-9;?]*[ -/]*[@-~]', '', text)
-text = text.replace('', '
-')
+text = re.sub(r'\x1b\[[0-9;?]*[ -/]*[@-~]', '', text)
+text = text.replace('\r', '\n')
 lines = [line.strip() for line in text.splitlines() if line.strip()]
 if lines:
     print(lines[-1])
@@ -1064,13 +1055,14 @@ ollama_install_model_flow() {
     model=$(ollama_dialog_select_model "$json_file" "$current_model") || return 1
     if size=$(ollama_dialog_select_size "$json_file" "$model" "$current_size"); then
       break
+    else
+      size_rc=$?
+      if [[ $size_rc -eq 2 ]]; then
+        current_model="$model"
+        continue
+      fi
+      return "$size_rc"
     fi
-    size_rc=$?
-    if [[ $size_rc -eq 2 ]]; then
-      current_model="$model"
-      continue
-    fi
-    return "$size_rc"
   done
 
   if [[ -n "$env_file" ]]; then
