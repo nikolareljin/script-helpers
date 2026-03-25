@@ -45,7 +45,7 @@ Environment
 
 - ollama_dialog_select_model json_file [current_model]
   - Purpose: Use a dialog menu to select a model from the indexed official Ollama library catalog; returns the selected full model name on stdout.
-  - Behavior: Reuses `OLLAMA_MODEL_MENU_CACHE_FILE` when present; otherwise reuses the default cache path while it remains fresh and non-empty, and regenerates it on demand when stale. Dialog cancellation returns cleanly instead of tripping `set -e` callers.
+  - Behavior: Reuses `OLLAMA_MODEL_MENU_CACHE_FILE` when present; otherwise reuses the default cache path while it remains fresh and non-empty, and regenerates it on demand when stale. When the dialog is cancelled, the function prints a message to stderr and returns a non-zero status, so callers using `set -e` must handle cancellations explicitly to avoid script termination. If the prepared cache contains no selectable models, the function returns a clear stderr error instead of invoking an empty dialog.
 
 - ollama_dialog_select_size json_file model [current_size]
   - Purpose: Use a dialog menu to select a size for the model; returns `latest` if none are listed.
@@ -118,7 +118,7 @@ Runtime functions
 
 - ollama_runtime_pull_model runtime env_file model [size=latest]
   - Purpose: Pull model through selected runtime.
-  - Behavior: Uses a dialog progress gauge when dialog support and `python3` are available, tails only recent pull output for progress parsing, and cancels the background pull cleanly if the gauge is closed.
+  - Behavior: Uses a dialog progress gauge when dialog support, `python3`, and an interactive terminal on stdin or stderr are available, tails only recent pull output for progress parsing, and cancels the background pull cleanly if the gauge is closed.
 
 - ollama_runtime_supports_export runtime env_file
   - Purpose: Detect whether runtime supports `ollama export`.

@@ -385,6 +385,10 @@ ollama_dialog_select_model() {
   done < "$cache_file"
 
   total_count="$idx"
+  if [[ $total_count -eq 0 ]]; then
+    print_error "No selectable Ollama models found in cache: $cache_file" >&2
+    return 1
+  fi
   value="Browse official Ollama library models. Showing ${total_count} indexed models."
   if [[ -n "$current_model" ]]; then
     value="${value} Current selection: ${current_model}."
@@ -708,7 +712,7 @@ _ollama_dialog_pull_command() {
   local model_ref="$2"
   shift 2
 
-  if [[ ! -t 1 ]] || ! declare -F check_if_dialog_installed >/dev/null 2>&1; then
+  if [[ ! -t 0 && ! -t 2 ]] || ! declare -F check_if_dialog_installed >/dev/null 2>&1; then
     "$@"
     return $?
   fi
