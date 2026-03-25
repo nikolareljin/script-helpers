@@ -823,7 +823,7 @@ PY2
   wait "$pid"
   rc=$?
   if [[ $rc -ne 0 ]]; then
-    print_error "Ollama pull failed."
+    print_error "Ollama pull failed." >&2
     if [[ -s "$log_file" ]]; then
       python3 - "$log_file" <<'PY4' >&2
 import re
