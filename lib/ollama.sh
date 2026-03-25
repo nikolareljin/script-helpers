@@ -306,7 +306,10 @@ ollama_prepare_model_menu_cache() {
   fi
 
   cache_dir="$(dirname "$cache_file")"
-  mkdir -p "$cache_dir"
+  if ! mkdir -p "$cache_dir"; then
+    print_error "Failed to create Ollama model menu cache directory: $cache_dir" >&2
+    return 1
+  fi
   tmp_file="$(mktemp "${cache_file}.tmp.XXXXXX")" || return 1
 
   jq -r '
@@ -331,7 +334,11 @@ ollama_prepare_model_menu_cache() {
     return 1
   fi
 
-  mv "$tmp_file" "$cache_file"
+  if ! mv "$tmp_file" "$cache_file"; then
+    print_error "Failed to move temporary Ollama model menu cache '$tmp_file' to '$cache_file'" >&2
+    rm -f "$tmp_file"
+    return 1
+  fi
 
   printf '%s\n' "$cache_file"
 }
