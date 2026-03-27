@@ -741,6 +741,14 @@ _ollama_dialog_pull_command() {
     "$@"
     return $?
   fi
+  if ! python3 - <<'PY' >/dev/null 2>&1
+import sys
+raise SystemExit(0 if sys.version_info >= (3, 6) else 1)
+PY
+  then
+    "$@"
+    return $?
+  fi
 
   local log_file gauge_height gauge_width rc=0
   if ! log_file="$(mktemp -t ollama-pull.XXXXXX 2>/dev/null)"; then
