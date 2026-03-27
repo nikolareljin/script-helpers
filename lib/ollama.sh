@@ -648,8 +648,7 @@ ollama_runtime_local_env_assignment() {
   local env_file="$1"
   local local_models_dir
   local_models_dir="$(ollama_runtime_local_models_dir "$env_file")" || return 1
-  printf 'OLLAMA_MODELS=%s
-' "$local_models_dir"
+  printf 'OLLAMA_MODELS=%s\n' "$local_models_dir"
 }
 
 ollama_runtime_local_cmd() {
