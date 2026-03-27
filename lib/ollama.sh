@@ -288,6 +288,9 @@ ollama_model_menu_cache_is_fresh() {
   fi
 
   age=$(( now_ts - mtime ))
+  if (( age < 0 )); then
+    return 1
+  fi
   [[ $age -le $max_age_seconds ]]
 }
 
@@ -1080,7 +1083,7 @@ ollama_install_model_flow() {
   fi
 
   while true; do
-    model=$(ollama_dialog_select_model "$json_file" "$current_model") || return 1
+    model=$(ollama_dialog_select_model "$json_file" "$current_model") || return $?
     if size=$(ollama_dialog_select_size "$json_file" "$model" "$current_size"); then
       break
     else

@@ -65,7 +65,7 @@ if ! $non_interactive; then
   current_size=$(resolve_env_value "size" "" "$env_file")
 
   while true; do
-    model=$(ollama_dialog_select_model "$JSON_FILE" "$current_model") || exit 1
+    model=$(ollama_dialog_select_model "$JSON_FILE" "$current_model") || exit $?
     if size=$(ollama_dialog_select_size "$JSON_FILE" "$model" "$current_size"); then
       break
     else
