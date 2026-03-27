@@ -118,7 +118,7 @@ Runtime functions
 
 - ollama_runtime_pull_model runtime env_file model [size=latest]
   - Purpose: Pull model through selected runtime.
-  - Behavior: Uses a dialog progress gauge when dialog support, `python3`, and an interactive terminal on stdin or stderr are available, tails only recent pull output for progress parsing, and cancels the background pull cleanly if the gauge is closed.
+  - Behavior: Uses a dialog progress gauge when dialog support, `python3`, and an interactive terminal on stderr are available, tails only recent pull output for progress parsing, and cancels the background pull cleanly if the gauge is closed.
 
 - ollama_runtime_supports_export runtime env_file
   - Purpose: Detect whether runtime supports `ollama export`.

@@ -274,7 +274,7 @@ ollama_model_menu_cache_is_fresh() {
   local max_age_seconds="${2:-1800}"
   local now_ts mtime age
 
-  if [[ ! -s "$cache_file" ]]; then
+  if [[ ! -f "$cache_file" ]] || [[ ! -r "$cache_file" ]] || [[ ! -s "$cache_file" ]]; then
     return 1
   fi
 
