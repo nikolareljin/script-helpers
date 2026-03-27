@@ -9,6 +9,17 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Added: `scripts/check_release_version.sh` to verify release versions before tagging or publishing.
 - Added: `--version` and `--image` parameters to all `ci_*.sh` scripts for Docker image tag and full image override.
 
+## [0.12.1] - 2026-03-20
+
+- Changed: Ollama model selection now uses a `dialog --menu` browser instead of the older radiolist/manual-entry flow.
+- Changed: Ollama model browsers now default to official un-namespaced library models, sorted alphabetically, with a reusable parsed menu cache valid for 30 minutes.
+- Changed: `ollama_dialog_select_size` now returns a distinct cancel status so callers can return to model selection instead of implicitly reusing an old size.
+- Fixed: Ollama selector cache generation can be reused safely across repeated opens within the same session and across launches while the cache is still fresh.
+- Fixed: Ollama selector cache refreshes now write atomically and ignore empty/stale cache files instead of reusing corrupted menu data.
+- Fixed: Ollama size-selection warnings now go to stderr so stdout-only callers do not corrupt captured values.
+- Added: dialog-based Ollama pull progress UI for runtime pulls, including model/layer/progress/speed/ETA parsing.
+- Fixed: Dialog pull progress now cleans up background pulls on cancel and bounds progress-log parsing to the recent tail of the log file.
+
 ## [0.12.0] - 2026-02-13
 
 - Added: Ollama runtime helpers in `lib/ollama.sh` for local/docker execution (`ollama_runtime_*`) and shared model ref builder (`ollama_model_ref`).

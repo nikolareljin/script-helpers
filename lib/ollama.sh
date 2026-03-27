@@ -254,10 +254,96 @@ ollama_models_json_path() {
 ollama_list_models() {
   local json_file="$1"
   if [[ ! -f "$json_file" ]]; then
-    print_error "Models JSON not found: $json_file"
+    print_error "Models JSON not found: $json_file" >&2
     return 1
   fi
   jq -r '.[].name' "$json_file"
+}
+
+ollama_model_menu_cache_path() {
+  local json_file="$1"
+  local base_dir base_name
+
+  base_dir="$(dirname "$json_file")"
+  base_name="$(basename "$json_file" .json)"
+  printf '%s/%s.model-menu.cache.tsv\n' "$base_dir" "$base_name"
+}
+
+ollama_model_menu_cache_is_fresh() {
+  local cache_file="$1"
+  local max_age_seconds="${2:-1800}"
+  local now_ts mtime age
+
+  if [[ ! -f "$cache_file" ]] || [[ ! -r "$cache_file" ]] || [[ ! -s "$cache_file" ]]; then
+    return 1
+  fi
+
+  now_ts="$(date +%s)"
+  if mtime="$(stat -c %Y "$cache_file" 2>/dev/null)"; then
+    :
+  elif mtime="$(stat -f %m "$cache_file" 2>/dev/null)"; then
+    :
+  else
+    return 1
+  fi
+
+  age=$(( now_ts - mtime ))
+  if (( age < 0 )); then
+    return 1
+  fi
+  [[ $age -le $max_age_seconds ]]
+}
+
+ollama_prepare_model_menu_cache() {
+  local json_file="$1"
+  local cache_file="${2:-}"
+  local cache_dir tmp_file
+
+  if [[ ! -f "$json_file" ]]; then
+    print_error "Models JSON not found: $json_file" >&2
+    return 1
+  fi
+
+  if [[ -z "$cache_file" ]]; then
+    cache_file="$(ollama_model_menu_cache_path "$json_file")"
+  fi
+
+  cache_dir="$(dirname "$cache_file")"
+  if ! mkdir -p "$cache_dir"; then
+    print_error "Failed to create Ollama model menu cache directory: $cache_dir" >&2
+    return 1
+  fi
+  tmp_file="$(mktemp "${cache_file}.tmp.XXXXXX")" || return 1
+
+  jq -r '
+    map(select(.name | contains("/") | not) | . + { slug: .name })
+    | sort_by(.slug | ascii_downcase)
+    | .[]
+    | [
+        .slug,
+        .name,
+        ((.sizes // []) | join(", ")),
+        ((.description // "") | gsub("[[:space:]]+"; " "))
+      ]
+    | @tsv
+  ' "$json_file" > "$tmp_file" || {
+    rm -f "$tmp_file"
+    return 1
+  }
+
+  if [[ ! -s "$tmp_file" ]]; then
+    rm -f "$tmp_file"
+    print_error "Generated empty Ollama model menu cache: $cache_file" >&2
+    return 1
+  fi
+
+  if ! mv "$tmp_file" "$cache_file"; then
+    print_error "Failed to move temporary Ollama model menu cache '$tmp_file' to '$cache_file'" >&2
+    rm -f "$tmp_file"
+    return 1
+  fi
+
+  printf '%s\n' "$cache_file"
 }
 
 # Use dialog to select a model; preselect current_model if provided.
@@ -265,59 +351,124 @@ ollama_list_models() {
 ollama_dialog_select_model() {
   local json_file="$1"; local current_model="${2:-}"
   if [[ ! -f "$json_file" ]]; then
-    print_error "Models JSON not found: $json_file"
+    print_error "Models JSON not found: $json_file" >&2
     return 1
   fi
 
-  dialog_init; check_if_dialog_installed || return 1
+  dialog_init; check_if_dialog_installed >/dev/null 2>&1 || { print_error "Dialog is not installed. Please install it and try again." >&2; return 1; }
 
-  local line key value selected
+  local selected default_tag=""
+  local menu_height total_count value=""
+  local idx=0 tag model_name slug summary sizes desc cache_file
   local -a menu_items=()
-  while IFS= read -r line; do
-    key=$(echo "$line" | awk '{print $1}')
-    value=$(echo "$line" | awk '{$1=""; print $0}')
-    if [[ "$key" == "$current_model" ]]; then
-      menu_items+=("$key" "$value" "on")
-    else
-      menu_items+=("$key" "$value" "off")
-    fi
-  done < <(jq -r '.[] | "\(.name) sizes:\t\(.sizes)"' "$json_file")
+  local -A model_lookup=()
+  menu_height=18
 
-  selected=$(dialog --radiolist "Select an Ollama model to download" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
-  local status=$?
-  if [[ $status -ne 0 || -z "$selected" ]]; then
-    print_error "No model selected."
+  if [[ -n "${OLLAMA_MODEL_MENU_CACHE_FILE:-}" ]]; then
+    cache_file="$OLLAMA_MODEL_MENU_CACHE_FILE"
+  else
+    cache_file="$(ollama_model_menu_cache_path "$json_file")"
+  fi
+
+  if [[ ! -s "$cache_file" ]] || ! ollama_model_menu_cache_is_fresh "$cache_file"; then
+    cache_file="$(ollama_prepare_model_menu_cache "$json_file" "$cache_file")" || return 1
+  fi
+
+  while IFS=$'	' read -r slug model_name sizes desc; do
+    idx=$((idx + 1))
+    tag=$(printf '%04d' "$idx")
+    summary="${slug}"
+    if [[ -n "$sizes" ]]; then
+      summary="${summary} | sizes: ${sizes}"
+    else
+      summary="${summary} | sizes: latest"
+    fi
+    if [[ -n "$desc" ]]; then
+      summary="${summary} | ${desc}"
+    fi
+    summary="${summary:0:140}"
+    menu_items+=("$tag" "$summary")
+    model_lookup["$tag"]="$model_name"
+    if [[ "$model_name" == "$current_model" ]]; then
+      default_tag="$tag"
+    fi
+  done < "$cache_file"
+
+  total_count="$idx"
+  if [[ $total_count -eq 0 ]]; then
+    print_error "No selectable Ollama models found in cache: $cache_file" >&2
     return 1
   fi
-  echo "$selected"
+  value="Browse official Ollama library models. Showing ${total_count} indexed models."
+  if [[ -n "$current_model" ]]; then
+    value="${value} Current selection: ${current_model}."
+  fi
+
+  if [[ -n "$default_tag" ]]; then
+    if ! selected=$(dialog --stdout --default-item "$default_tag" --menu "$value" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" "$menu_height" "${menu_items[@]}"); then
+      print_error "No model selected." >&2
+      return 1
+    fi
+  else
+    if ! selected=$(dialog --stdout --menu "$value" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" "$menu_height" "${menu_items[@]}"); then
+      print_error "No model selected." >&2
+      return 1
+    fi
+  fi
+
+  if [[ -z "$selected" || -z "${model_lookup[$selected]:-}" ]]; then
+    print_error "No model selected." >&2
+    return 1
+  fi
+
+  echo "${model_lookup[$selected]}"
 }
 
 # Use dialog to select size for a given model. If none available, returns 'latest'.
 ollama_dialog_select_size() {
   local json_file="$1"; local model="$2"; local current_size="${3:-}"
   if [[ ! -f "$json_file" ]]; then
-    print_error "Models JSON not found: $json_file"
+    print_error "Models JSON not found: $json_file" >&2
     return 1
   fi
 
   local sizes; sizes=$(jq -r --arg m "$model" '.[] | select(.name == $m) | .sizes[]?' "$json_file")
   if [[ -z "$sizes" ]]; then
-    print_warning "No sizes listed for $model; using 'latest'."
+    print_warning "No sizes listed for $model; using 'latest'." >&2
     echo "latest"
     return 0
   fi
 
-  dialog_init; check_if_dialog_installed || return 1
+  dialog_init
+  if ! check_if_dialog_installed >/dev/null 2>&1; then
+    print_error "Dialog is required but not installed." >&2
+    return 1
+  fi
   local -a menu_items=()
-  local s; for s in $sizes; do
+  local -a dialog_args=(--stdout --menu "Select a size for: $model" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 10)
+  local s has_default=""
+  for s in $sizes; do
     menu_items+=("$s" "$s")
+    if [[ -n "$current_size" && "$s" == "$current_size" ]]; then
+      has_default=1
+    fi
   done
+  if [[ -n "$has_default" ]]; then
+    dialog_args=(--stdout --default-item "$current_size" --menu "Select a size for: $model" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 10)
+  fi
 
-  local selected
-  selected=$(dialog --menu "Select a size for: $model" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
+  local selected status=0
+  if selected=$(dialog "${dialog_args[@]}" "${menu_items[@]}"); then
+    :
+  else
+    status=$?
+    if [[ $status -eq 1 || $status -eq 255 ]]; then
+      return 2
+    fi
+    return "$status"
+  fi
   if [[ -z "$selected" ]]; then
-    selected="${current_size:-latest}"
-    print_info "No size selected; using '$selected'."
+    return 2
   fi
   echo "$selected"
 }
@@ -493,12 +644,19 @@ ollama_runtime_local_models_dir() {
   (cd "$local_models_dir" && pwd)
 }
 
+ollama_runtime_local_env_assignment() {
+  local env_file="$1"
+  local local_models_dir
+  local_models_dir="$(ollama_runtime_local_models_dir "$env_file")" || return 1
+  printf 'OLLAMA_MODELS=%s\n' "$local_models_dir"
+}
+
 ollama_runtime_local_cmd() {
   local env_file="$1"
   shift
-  local local_models_dir
-  local_models_dir="$(ollama_runtime_local_models_dir "$env_file")" || return 1
-  OLLAMA_MODELS="$local_models_dir" ollama "$@"
+  local local_env
+  local_env="$(ollama_runtime_local_env_assignment "$env_file")" || return 1
+  env "$local_env" ollama "$@"
 }
 
 ollama_runtime_host_port() {
@@ -566,6 +724,181 @@ ollama_runtime_ensure_ready() {
   fi
 }
 
+_ollama_dialog_pull_command() {
+  local title="$1"
+  local model_ref="$2"
+  shift 2
+
+  if [[ ! -t 2 ]] || ! declare -F check_if_dialog_installed >/dev/null 2>&1; then
+    "$@"
+    return $?
+  fi
+  if ! check_if_dialog_installed >/dev/null 2>&1; then
+    "$@"
+    return $?
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    "$@"
+    return $?
+  fi
+  if ! python3 - <<'PY' >/dev/null 2>&1
+import sys
+raise SystemExit(0 if sys.version_info >= (3, 6) else 1)
+PY
+  then
+    "$@"
+    return $?
+  fi
+
+  local log_file gauge_height gauge_width rc=0
+  if ! log_file="$(mktemp -t ollama-pull.XXXXXX 2>/dev/null)"; then
+    if ! log_file="$(mktemp "/tmp/ollama-pull.XXXXXX" 2>/dev/null)"; then
+      echo "Failed to create temporary log file for ollama dialog; running without dialog." >&2
+      "$@"
+      return $?
+    fi
+  fi
+  gauge_height="$DIALOG_HEIGHT"
+  gauge_width="$DIALOG_WIDTH"
+  (( gauge_height > 15 )) && gauge_height=15
+  (( gauge_height < 10 )) && gauge_height=10
+  (( gauge_width > 90 )) && gauge_width=90
+  (( gauge_width < 60 )) && gauge_width=60
+
+  if (
+    local pid dialog_rc=0 pull_rc=0
+
+    _ollama_dialog_pull_cleanup() {
+      if [[ -n "${pid:-}" ]] && kill -0 "$pid" >/dev/null 2>&1; then
+        # Avoid killing by process group here: in non-interactive shells the
+        # pull process can share a PGID with this script or the dialog UI.
+        kill "$pid" >/dev/null 2>&1 || true
+        sleep 0.5
+        if kill -0 "$pid" >/dev/null 2>&1; then
+          kill -KILL "$pid" >/dev/null 2>&1 || true
+        fi
+        wait "$pid" >/dev/null 2>&1 || true
+      fi
+      rm -f "$log_file"
+    }
+
+    trap _ollama_dialog_pull_cleanup EXIT
+
+    "$@" >"$log_file" 2>&1 &
+    pid=$!
+
+    if (
+      printf 'XXX
+0
+Preparing model download...
+XXX
+'
+
+      while kill -0 "$pid" >/dev/null 2>&1; do
+        python3 - "$log_file" "$model_ref" <<'PY2'
+import re
+import sys
+from pathlib import Path
+
+TAIL_BYTES = 65536
+
+
+def read_tail(path: Path, max_bytes: int) -> str:
+    if not path.exists():
+        return ""
+    with path.open('rb') as handle:
+        handle.seek(0, 2)
+        size = handle.tell()
+        handle.seek(max(size - max_bytes, 0))
+        data = handle.read()
+    return data.decode(errors='ignore')
+
+
+log_path = Path(sys.argv[1])
+text = read_tail(log_path, TAIL_BYTES)
+text = re.sub(r'\x1b\[[0-9;?]*[ -/]*[@-~]', '', text)
+text = text.replace('\r', '\n')
+lines = [line.strip() for line in text.splitlines() if line.strip()]
+line = lines[-1] if lines else ''
+model_ref = sys.argv[2]
+percent = 0
+message = f'Model: {model_ref}\nPreparing model download...'
+
+for candidate in reversed(lines):
+    if 'pulling ' in candidate or 'verifying ' in candidate or 'writing manifest' in candidate or 'success' in candidate or 'pulling manifest' in candidate:
+        line = candidate
+        break
+
+normalized = re.sub(r'[^ -~]+', ' ', line)
+normalized = re.sub(r'\s+', ' ', normalized).strip()
+match = re.search(r'(pulling|verifying)\s+([^:]+):\s*(\d{1,3})%.*?(\d+(?:\.\d+)?\s*[KMGTP]?B)\s*/\s*(\d+(?:\.\d+)?\s*[KMGTP]?B)\s+(\d+(?:\.\d+)?\s*[KMGTP]?B/s)\s+(.+)$', normalized)
+if match:
+    action, layer, pct, cur, total, speed, eta = match.groups()
+    percent = max(0, min(100, int(pct)))
+    message = f'Model: {model_ref}\nLayer: {layer}\nProgress: {pct}% ({cur} / {total}) | {speed} | ETA: {eta}'
+else:
+    match = re.search(r'(pulling|verifying)\s+([^:]+):\s*(\d{1,3})%.*?(\d+(?:\.\d+)?\s*[KMGTP]?B)\s*/\s*(\d+(?:\.\d+)?\s*[KMGTP]?B)', normalized)
+    if match:
+        action, layer, pct, cur, total = match.groups()
+        percent = max(0, min(100, int(pct)))
+        message = f'Model: {model_ref}\nLayer: {layer}\nProgress: {pct}% ({cur} / {total})'
+    elif 'pulling manifest' in normalized:
+        percent = 1
+        message = f'Model: {model_ref}\nPreparing model download...\nPulling manifest'
+    elif 'writing manifest' in normalized:
+        percent = 98
+        message = f'Model: {model_ref}\nFinalizing model download...\nWriting manifest'
+    elif 'success' in normalized:
+        percent = 100
+        message = f'Model: {model_ref}\nModel download completed.'
+    elif normalized:
+        message = f'Model: {model_ref}\n{normalized[:140]}'
+
+print('XXX')
+print(percent)
+print(message)
+print('XXX')
+PY2
+        sleep 0.5
+      done
+    ) | dialog --no-shadow --title "$title" --gauge "Preparing model download..." "$gauge_height" "$gauge_width" 0; then
+      dialog_rc=0
+    else
+      dialog_rc=$?
+    fi
+    if [[ $dialog_rc -ne 0 ]]; then
+      exit "$dialog_rc"
+    fi
+
+    wait "$pid"
+    pull_rc=$?
+    if [[ $pull_rc -ne 0 ]]; then
+      print_error "Ollama pull failed." >&2
+      if [[ -s "$log_file" ]]; then
+        python3 - "$log_file" <<'PY4' >&2
+import re
+import sys
+from pathlib import Path
+
+log_path = Path(sys.argv[1])
+text = log_path.read_text(errors='ignore') if log_path.exists() else ""
+text = re.sub(r'\x1b\[[0-9;?]*[ -/]*[@-~]', '', text)
+text = text.replace('\r', '\n')
+lines = [line.strip() for line in text.splitlines() if line.strip()]
+if lines:
+    print(lines[-1])
+PY4
+      fi
+    fi
+    exit "$pull_rc"
+  ); then
+    rc=0
+  else
+    rc=$?
+  fi
+  return "$rc"
+}
+
 ollama_runtime_pull_model() {
   local runtime="$1"
   local env_file="$2"
@@ -579,7 +912,7 @@ ollama_runtime_pull_model() {
     ollama_runtime_ensure_docker_container "$env_file" || return 1
     container="$(ollama_runtime_container_name "$env_file")"
     print_info "Pulling model in Docker: ${model_ref}"
-    docker exec "$container" ollama pull "$model_ref"
+    _ollama_dialog_pull_command "Downloading Model" "$model_ref" docker exec "$container" ollama pull "$model_ref"
     return $?
   fi
 
@@ -588,8 +921,11 @@ ollama_runtime_pull_model() {
     return 1
   fi
 
+  local local_env
+  local_env="$(ollama_runtime_local_env_assignment "$env_file")" || return 1
+
   print_info "Pulling model locally: ${model_ref}"
-  ollama_runtime_local_cmd "$env_file" pull "$model_ref"
+  _ollama_dialog_pull_command "Downloading Model" "$model_ref" env "$local_env" ollama pull "$model_ref"
 }
 
 ollama_runtime_supports_export() {
@@ -743,7 +1079,7 @@ ollama_update_env() {
 # Side effects: updates env_file with model/size if provided.
 ollama_install_model_flow() {
   local repo_dir="${1:-ollama-get-models}" env_file="${2:-}"
-  local json_file model size
+  local json_file model size size_rc
   json_file=$(ollama_prepare_models_index "$repo_dir") || return 1
 
   # Read current selections from env (if provided)
@@ -753,8 +1089,19 @@ ollama_install_model_flow() {
     current_size=$(resolve_env_value "size" "" "$env_file")
   fi
 
-  model=$(ollama_dialog_select_model "$json_file" "$current_model") || return 1
-  size=$(ollama_dialog_select_size "$json_file" "$model" "$current_size") || return 1
+  while true; do
+    model=$(ollama_dialog_select_model "$json_file" "$current_model") || return $?
+    if size=$(ollama_dialog_select_size "$json_file" "$model" "$current_size"); then
+      break
+    else
+      size_rc=$?
+      if [[ $size_rc -eq 2 ]]; then
+        current_model="$model"
+        continue
+      fi
+      return "$size_rc"
+    fi
+  done
 
   if [[ -n "$env_file" ]]; then
     ollama_update_env "$env_file" model "$model"
