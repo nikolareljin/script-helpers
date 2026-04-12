@@ -258,6 +258,51 @@ bash "$SCRIPT_HELPERS_DIR/scripts/check_release_version.sh" --version-file VERSI
 
 Notes:
 - Set `SCRIPT_HELPERS_DIR` if your submodule lives elsewhere.
+
+Reusable workflow helper scripts
+--------------------------------
+
+These scripts are intended to be called from reusable GitHub Actions workflows
+or from local CI debugging sessions where you want the same shell entry points.
+
+Check whether a release tag already exists for a release branch:
+
+```bash
+./scripts/check_release_tag.sh --branch release/0.12.2 --repo . --fetch-tags --print-version
+```
+
+Normalize and evaluate a Gitleaks SARIF report:
+
+```bash
+./scripts/ci_gitleaks_report.sh \
+  --output results.sarif \
+  --requested-output test/tmp/results.sarif \
+  --fail-on-findings true
+```
+
+Run the Pimcore bundle CI helper locally:
+
+```bash
+./scripts/ci_pimcore_bundle_check.sh \
+  --compose-file test/docker-compose.yml \
+  --bundle-src . \
+  --db-service db \
+  --php-service php \
+  --out-dir test/tmp
+```
+
+Run the WordPress plugin CI helper locally:
+
+```bash
+./scripts/ci_wp_plugin_check.sh \
+  --compose-file test/docker-compose.yml \
+  --plugin-slug my-plugin \
+  --plugin-src . \
+  --wpcli-service wpcli \
+  --wordpress-service wordpress \
+  --db-service db \
+  --out-dir test/tmp
+```
 - The check is a no-op on non-`release/*` branches.
 
 Common snippets

@@ -67,7 +67,7 @@ cleanup_stack() {
 }
 trap cleanup_stack EXIT
 
-if [[ -n "$php_version" && ( -n "$php_lint_command" || -n "$phpcs_standalone_command" || -n "$phpunit_standalone_command" ) ]]; then
+if [[ -n "$php_lint_command" || -n "$phpcs_standalone_command" || -n "$phpunit_standalone_command" ]]; then
   if [[ -n "$composer_command" ]]; then
     bash -lc "$composer_command"
   fi

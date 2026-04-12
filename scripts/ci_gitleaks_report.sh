@@ -58,6 +58,11 @@ if [[ -f "$output" && "$requested_output" != "$output" ]]; then
   cp "$output" "$requested_output"
 fi
 
+if [[ ! -s "$requested_output" ]]; then
+  log_error "Selected Gitleaks report is missing or empty: $requested_output"
+  exit 1
+fi
+
 REPORT_FORMAT="$report_format" OUTPUT="$requested_output" FAIL_ON_FINDINGS="$fail_on_findings" python3 - <<'PY'
 import json
 import os

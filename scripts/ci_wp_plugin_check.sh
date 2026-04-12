@@ -81,7 +81,7 @@ cleanup_stack() {
 }
 trap cleanup_stack EXIT
 
-if [[ -n "$php_version" && ( -n "$php_lint_command" || -n "$phpcs_warning_command" || -n "$phpunit_command" ) ]]; then
+if [[ -n "$php_lint_command" || -n "$phpcs_warning_command" || -n "$phpunit_command" ]]; then
   if [[ -n "$php_lint_command" ]]; then
     bash -lc "$php_lint_command"
   fi
@@ -108,35 +108,77 @@ WPCLI
 
 export "$plugin_src_env"="$plugin_src"
 docker compose -f "$compose_file" up -d "$db_service" "$wordpress_service"
-sleep "$db_wait_seconds"
+
+db_ready="false"
+for ((i=0; i<db_wait_seconds; i++)); do
+  if docker compose -f "$compose_file" exec -T "$db_service" sh -lc 'mysqladmin ping -h 127.0.0.1 -uwordpress -pwordpress --silent' >/dev/null 2>&1; then
+    db_ready="true"
+    break
+  fi
+  sleep 1
+done
+
+if [[ "$db_ready" != "true" ]]; then
+  log_error "Timed out waiting for database service '$db_service' to become ready after ${db_wait_seconds}s."
+  exit 1
+fi
 
 docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc 'test -f wp-config.php || wp config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress --dbhost=db:3306 --skip-check'
 
 if [[ "$multisite" == "true" ]]; then
   docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc 'wp config set WP_ALLOW_MULTISITE true --raw || true'
-  docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp core is-installed || wp core multisite-install --url=localhost:${host_port} --title='${site_title}' --admin_user='${admin_user}' --admin_password='${admin_password}' --admin_email='${admin_email}' --skip-email --subdomains=0"
+  docker compose -f "$compose_file" run --rm \
+    -e WP_SITE_TITLE="$site_title" \
+    -e WP_ADMIN_USER="$admin_user" \
+    -e WP_ADMIN_PASSWORD="$admin_password" \
+    -e WP_ADMIN_EMAIL="$admin_email" \
+    "$wpcli_service" \
+    sh -lc 'wp core is-installed || wp core multisite-install --url=localhost:'"${host_port}"' --title="$WP_SITE_TITLE" --admin_user="$WP_ADMIN_USER" --admin_password="$WP_ADMIN_PASSWORD" --admin_email="$WP_ADMIN_EMAIL" --skip-email --subdomains=0'
 else
-  docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp core is-installed || wp core install --url=localhost:${host_port} --title='${site_title}' --admin_user='${admin_user}' --admin_password='${admin_password}' --admin_email='${admin_email}' --skip-email"
+  docker compose -f "$compose_file" run --rm \
+    -e WP_SITE_TITLE="$site_title" \
+    -e WP_ADMIN_USER="$admin_user" \
+    -e WP_ADMIN_PASSWORD="$admin_password" \
+    -e WP_ADMIN_EMAIL="$admin_email" \
+    "$wpcli_service" \
+    sh -lc 'wp core is-installed || wp core install --url=localhost:'"${host_port}"' --title="$WP_SITE_TITLE" --admin_user="$WP_ADMIN_USER" --admin_password="$WP_ADMIN_PASSWORD" --admin_email="$WP_ADMIN_EMAIL" --skip-email'
 fi
 
 if [[ "$activate_network" == "true" ]]; then
-  docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp plugin activate ${plugin_slug} --network || wp plugin activate ${plugin_slug}"
+  docker compose -f "$compose_file" run --rm \
+    -e WP_PLUGIN_SLUG="$plugin_slug" \
+    "$wpcli_service" \
+    sh -lc 'wp plugin activate "$WP_PLUGIN_SLUG" --network || wp plugin activate "$WP_PLUGIN_SLUG"'
 else
-  docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp plugin activate ${plugin_slug}"
+  docker compose -f "$compose_file" run --rm \
+    -e WP_PLUGIN_SLUG="$plugin_slug" \
+    "$wpcli_service" \
+    sh -lc 'wp plugin activate "$WP_PLUGIN_SLUG"'
 fi
 
 docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp plugin install plugin-check --activate || true"
 
+plugin_check_available="false"
 if docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp help plugin | grep -q '\\<check\\>'"; then
-  docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp plugin check ${plugin_slug} --format=json" > "${out_dir}/plugin-check.json" || true
+  plugin_check_available="true"
+  docker compose -f "$compose_file" run --rm \
+    -e WP_PLUGIN_SLUG="$plugin_slug" \
+    "$wpcli_service" \
+    sh -lc 'wp plugin check "$WP_PLUGIN_SLUG" --format=json' > "${out_dir}/plugin-check.json" || true
+elif [[ "$fail_on_findings" == "true" ]]; then
+  log_error "wp plugin check is unavailable in strict mode; cannot evaluate plugin findings."
+  exit 4
 fi
 
 if [[ -n "$meta_check_script" ]]; then
-  docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp eval-file /workspace/${meta_check_script}" > "${out_dir}/meta-check.json"
+  docker compose -f "$compose_file" run --rm \
+    -e WP_META_CHECK_SCRIPT="$meta_check_script" \
+    "$wpcli_service" \
+    sh -lc 'wp eval-file "/workspace/$WP_META_CHECK_SCRIPT"' > "${out_dir}/meta-check.json"
 fi
 
 if [[ "$fail_on_findings" == "true" ]]; then
-  OUT_DIR="$out_dir" python3 - <<'PY'
+  OUT_DIR="$out_dir" PLUGIN_CHECK_AVAILABLE="$plugin_check_available" python3 - <<'PY'
 import json
 import os
 import sys
@@ -145,11 +187,22 @@ from pathlib import Path
 out_dir = Path(os.environ["OUT_DIR"])
 plugin_check = out_dir / "plugin-check.json"
 meta_check = out_dir / "meta-check.json"
+plugin_check_available = os.environ["PLUGIN_CHECK_AVAILABLE"] == "true"
 
 error_count = 0
+parse_errors = []
+
+def load_json(path: Path, label: str):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        parse_errors.append(f"{label} is not valid JSON: {exc}")
+    except OSError as exc:
+        parse_errors.append(f"{label} could not be read: {exc}")
+    return None
 
 if plugin_check.exists():
-    data = json.loads(plugin_check.read_text(encoding="utf-8"))
+    data = load_json(plugin_check, "plugin-check.json")
     if isinstance(data, dict):
         if isinstance(data.get("errors"), int):
             error_count += data.get("errors", 0)
@@ -165,14 +218,21 @@ if plugin_check.exists():
                         error_count += 1
     elif isinstance(data, list):
         error_count += len(data)
+elif plugin_check_available:
+    parse_errors.append("plugin-check.json was not created even though wp plugin check is available")
 
 if meta_check.exists():
-    data = json.loads(meta_check.read_text(encoding="utf-8"))
+    data = load_json(meta_check, "meta-check.json")
     checks = data.get("checks") if isinstance(data, dict) else None
     if isinstance(checks, dict):
         for value in checks.values():
             if isinstance(value, dict) and value.get("ok") is False:
                 error_count += 1
+
+if parse_errors:
+    for message in parse_errors:
+        print(message, file=sys.stderr)
+    sys.exit(5)
 
 if error_count > 0:
     print(f"Plugin checks reported {error_count} error(s)")
