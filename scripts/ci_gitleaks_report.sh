@@ -72,18 +72,24 @@ report_format = os.environ["REPORT_FORMAT"]
 output = os.environ["OUTPUT"]
 fail_on_findings = os.environ["FAIL_ON_FINDINGS"] == "true"
 
-count = 0
-if report_format == "sarif":
+try:
     with open(output, "r", encoding="utf-8") as fh:
         data = json.load(fh)
+except json.JSONDecodeError as exc:
+    print(f"Failed to parse Gitleaks report as JSON: {output}: {exc}", file=sys.stderr)
+    sys.exit(1)
+except OSError as exc:
+    print(f"Failed to read Gitleaks report: {output}: {exc}", file=sys.stderr)
+    sys.exit(1)
+
+count = 0
+if report_format == "sarif":
     runs = data.get("runs", [])
     for run in runs:
         results = run.get("results", [])
         if isinstance(results, list):
             count += len(results)
 else:
-    with open(output, "r", encoding="utf-8") as fh:
-        data = json.load(fh)
     if isinstance(data, list):
         count = len(data)
     elif isinstance(data, dict):

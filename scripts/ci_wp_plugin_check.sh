@@ -9,7 +9,7 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=/dev/null
 source "${SCRIPT_HELPERS_DIR}/helpers.sh"
-shlib_import logging help
+shlib_import logging help docker
 
 usage() { show_help "${BASH_SOURCE[0]}"; }
 
@@ -30,7 +30,6 @@ admin_password="admin"
 admin_email="admin@example.com"
 site_title="WP Test Site"
 meta_check_script=""
-php_version=""
 php_lint_command=""
 phpcs_warning_command=""
 phpunit_command=""
@@ -57,7 +56,6 @@ while [[ $# -gt 0 ]]; do
     --admin-email) admin_email="$2"; shift 2 ;;
     --site-title) site_title="$2"; shift 2 ;;
     --meta-check-script) meta_check_script="$2"; shift 2 ;;
-    --php-version) php_version="$2"; shift 2 ;;
     --php-lint-command) php_lint_command="$2"; shift 2 ;;
     --phpcs-warning-command) phpcs_warning_command="$2"; shift 2 ;;
     --phpunit-command) phpunit_command="$2"; shift 2 ;;
@@ -76,7 +74,7 @@ fi
 
 cleanup_stack() {
   if [[ "$cleanup" == "true" ]]; then
-    docker compose -f "$compose_file" down -v
+    docker_compose -f "$compose_file" down -v
   fi
 }
 trap cleanup_stack EXIT
@@ -107,11 +105,11 @@ apache_modules:
 WPCLI
 
 export "$plugin_src_env"="$plugin_src"
-docker compose -f "$compose_file" up -d "$db_service" "$wordpress_service"
+docker_compose -f "$compose_file" up -d "$db_service" "$wordpress_service"
 
 db_ready="false"
 for ((i=0; i<db_wait_seconds; i++)); do
-  if docker compose -f "$compose_file" exec -T "$db_service" sh -lc 'mysqladmin ping -h 127.0.0.1 -uwordpress -pwordpress --silent' >/dev/null 2>&1; then
+  if docker_compose -f "$compose_file" exec -T "$db_service" sh -lc 'mysqladmin ping -h 127.0.0.1 -uwordpress -pwordpress --silent' >/dev/null 2>&1; then
     db_ready="true"
     break
   fi
@@ -123,11 +121,11 @@ if [[ "$db_ready" != "true" ]]; then
   exit 1
 fi
 
-docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc 'test -f wp-config.php || wp config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress --dbhost=db:3306 --skip-check'
+docker_compose -f "$compose_file" run --rm "$wpcli_service" sh -lc 'test -f wp-config.php || wp config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress --dbhost=db:3306 --skip-check'
 
 if [[ "$multisite" == "true" ]]; then
-  docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc 'wp config set WP_ALLOW_MULTISITE true --raw || true'
-  docker compose -f "$compose_file" run --rm \
+  docker_compose -f "$compose_file" run --rm "$wpcli_service" sh -lc 'wp config set WP_ALLOW_MULTISITE true --raw || true'
+  docker_compose -f "$compose_file" run --rm \
     -e WP_SITE_TITLE="$site_title" \
     -e WP_ADMIN_USER="$admin_user" \
     -e WP_ADMIN_PASSWORD="$admin_password" \
@@ -135,7 +133,7 @@ if [[ "$multisite" == "true" ]]; then
     "$wpcli_service" \
     sh -lc 'wp core is-installed || wp core multisite-install --url=localhost:'"${host_port}"' --title="$WP_SITE_TITLE" --admin_user="$WP_ADMIN_USER" --admin_password="$WP_ADMIN_PASSWORD" --admin_email="$WP_ADMIN_EMAIL" --skip-email --subdomains=0'
 else
-  docker compose -f "$compose_file" run --rm \
+  docker_compose -f "$compose_file" run --rm \
     -e WP_SITE_TITLE="$site_title" \
     -e WP_ADMIN_USER="$admin_user" \
     -e WP_ADMIN_PASSWORD="$admin_password" \
@@ -145,23 +143,23 @@ else
 fi
 
 if [[ "$activate_network" == "true" ]]; then
-  docker compose -f "$compose_file" run --rm \
+  docker_compose -f "$compose_file" run --rm \
     -e WP_PLUGIN_SLUG="$plugin_slug" \
     "$wpcli_service" \
     sh -lc 'wp plugin activate "$WP_PLUGIN_SLUG" --network || wp plugin activate "$WP_PLUGIN_SLUG"'
 else
-  docker compose -f "$compose_file" run --rm \
+  docker_compose -f "$compose_file" run --rm \
     -e WP_PLUGIN_SLUG="$plugin_slug" \
     "$wpcli_service" \
     sh -lc 'wp plugin activate "$WP_PLUGIN_SLUG"'
 fi
 
-docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp plugin install plugin-check --activate || true"
+docker_compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp plugin install plugin-check --activate || true"
 
 plugin_check_available="false"
-if docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp help plugin | grep -q '\\<check\\>'"; then
+if docker_compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp help plugin | grep -q '\\<check\\>'"; then
   plugin_check_available="true"
-  docker compose -f "$compose_file" run --rm \
+  docker_compose -f "$compose_file" run --rm \
     -e WP_PLUGIN_SLUG="$plugin_slug" \
     "$wpcli_service" \
     sh -lc 'wp plugin check "$WP_PLUGIN_SLUG" --format=json' > "${out_dir}/plugin-check.json" || true
@@ -171,7 +169,7 @@ elif [[ "$fail_on_findings" == "true" ]]; then
 fi
 
 if [[ -n "$meta_check_script" ]]; then
-  docker compose -f "$compose_file" run --rm \
+  docker_compose -f "$compose_file" run --rm \
     -e WP_META_CHECK_SCRIPT="$meta_check_script" \
     "$wpcli_service" \
     sh -lc 'wp eval-file "/workspace/$WP_META_CHECK_SCRIPT"' > "${out_dir}/meta-check.json"

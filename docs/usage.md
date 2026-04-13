@@ -271,6 +271,8 @@ Check whether a release tag already exists for a release branch:
 ./scripts/check_release_tag.sh --branch release/0.12.2 --repo . --fetch-tags --print-version
 ```
 
+- The check is a no-op on non-`release/*` branches.
+
 Normalize and evaluate a Gitleaks SARIF report:
 
 ```bash
@@ -303,7 +305,6 @@ Run the WordPress plugin CI helper locally:
   --db-service db \
   --out-dir test/tmp
 ```
-- The check is a no-op on non-`release/*` branches.
 
 Common snippets
 ---------------
