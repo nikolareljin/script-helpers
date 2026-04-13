@@ -284,6 +284,8 @@ Normalize and evaluate a Gitleaks SARIF report:
 
 Run the Pimcore bundle CI helper locally:
 
+Use a compose file from the consuming repository; `test/docker-compose.yml` below is a caller-side placeholder.
+
 ```bash
 ./scripts/ci_pimcore_bundle_check.sh \
   --compose-file test/docker-compose.yml \
@@ -294,6 +296,8 @@ Run the Pimcore bundle CI helper locally:
 ```
 
 Run the WordPress plugin CI helper locally:
+
+Use a compose file from the consuming repository; `test/docker-compose.yml` below is a caller-side placeholder.
 
 ```bash
 ./scripts/ci_wp_plugin_check.sh \

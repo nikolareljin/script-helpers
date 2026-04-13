@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# SCRIPT: ci_pimcore_bundle_check.sh
-# DESCRIPTION: Run Pimcore bundle standalone and Docker-based checks for CI workflows.
+# SCRIPT: Reusable workflow helper for Pimcore bundle checks.
+# DESCRIPTION: Run Pimcore bundle standalone and Docker-based checks from GitHub Actions or similar CI workflows.
 # USAGE: scripts/ci_pimcore_bundle_check.sh [options]
 set -euo pipefail
 
@@ -57,6 +57,16 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ ! -f "$compose_file" ]]; then
+  log_error "Compose file not found: ${compose_file}. Provide a caller-repo path with --compose-file."
+  exit 2
+fi
+
+if ! resolved_bundle_src="$(cd "$bundle_src" 2>/dev/null && pwd -P)"; then
+  log_error "Unable to resolve bundle source directory: ${bundle_src}"
+  exit 2
+fi
+
 cleanup_stack() {
   if [[ "$cleanup" == "true" ]]; then
     docker_compose -f "$compose_file" down -v --remove-orphans
@@ -84,7 +94,7 @@ if [[ -n "$php_lint_command" || -n "$phpcs_standalone_command" || -n "$phpunit_s
 fi
 
 mkdir -p "$out_dir"
-export "$bundle_src_env"="$(realpath "$bundle_src")"
+export "$bundle_src_env"="$resolved_bundle_src"
 docker_compose -f "$compose_file" up -d "$db_service" "$php_service"
 
 elapsed=0

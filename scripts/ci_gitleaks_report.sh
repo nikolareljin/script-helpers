@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# SCRIPT: ci_gitleaks_report.sh
-# DESCRIPTION: Normalize and evaluate a Gitleaks SARIF report for CI workflows.
+# SCRIPT: Reusable workflow helper for Gitleaks SARIF normalization.
+# DESCRIPTION: Normalize and evaluate a Gitleaks SARIF report from GitHub Actions or similar CI workflows.
 # USAGE: scripts/ci_gitleaks_report.sh --output <path> [--requested-output <path>] [--report-format sarif] [--fail-on-findings true|false]
 # PARAMETERS:
 #   --output <path>              Existing report path produced by Gitleaks.

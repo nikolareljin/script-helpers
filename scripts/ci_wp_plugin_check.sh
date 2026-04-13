@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# SCRIPT: ci_wp_plugin_check.sh
-# DESCRIPTION: Run WordPress plugin-check and optional standalone PHP checks for CI workflows.
+# SCRIPT: Reusable workflow helper for WordPress plugin-check.
+# DESCRIPTION: Run WordPress plugin-check and optional standalone PHP checks from GitHub Actions or similar CI workflows.
 # USAGE: scripts/ci_wp_plugin_check.sh [options]
 set -euo pipefail
 
@@ -72,6 +72,11 @@ if [[ -z "$plugin_slug" ]]; then
   exit 2
 fi
 
+if [[ ! -f "$compose_file" ]]; then
+  log_error "Compose file not found: ${compose_file}. Provide a caller-repo path with --compose-file."
+  exit 2
+fi
+
 cleanup_stack() {
   if [[ "$cleanup" == "true" ]]; then
     docker_compose -f "$compose_file" down -v
@@ -121,7 +126,10 @@ if [[ "$db_ready" != "true" ]]; then
   exit 1
 fi
 
-docker_compose -f "$compose_file" run --rm "$wpcli_service" sh -lc 'test -f wp-config.php || wp config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress --dbhost=db:3306 --skip-check'
+docker_compose -f "$compose_file" run --rm \
+  -e WP_DB_HOST="${db_service}:3306" \
+  "$wpcli_service" \
+  sh -lc 'test -f wp-config.php || wp config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress --dbhost="$WP_DB_HOST" --skip-check'
 
 if [[ "$multisite" == "true" ]]; then
   docker_compose -f "$compose_file" run --rm "$wpcli_service" sh -lc 'wp config set WP_ALLOW_MULTISITE true --raw || true'
@@ -157,7 +165,7 @@ fi
 docker_compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp plugin install plugin-check --activate || true"
 
 plugin_check_available="false"
-if docker_compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp help plugin | grep -q '\\<check\\>'"; then
+if docker_compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp help plugin | grep -qw check"; then
   plugin_check_available="true"
   docker_compose -f "$compose_file" run --rm \
     -e WP_PLUGIN_SLUG="$plugin_slug" \
