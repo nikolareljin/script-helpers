@@ -2,6 +2,26 @@
 # SCRIPT: Reusable workflow helper for Pimcore bundle checks.
 # DESCRIPTION: Run Pimcore bundle standalone and Docker-based checks from GitHub Actions or similar CI workflows.
 # USAGE: scripts/ci_pimcore_bundle_check.sh [options]
+# PARAMETERS:
+#   --compose-file <path>                 Path to the Docker Compose file to use.
+#   --bundle-src <path>                   Path to the Pimcore bundle source directory.
+#   --bundle-src-env <name>               Environment variable name used for the bundle source path.
+#   --php-service <name>                  Docker Compose service name for the PHP container.
+#   --db-service <name>                   Docker Compose service name for the database container.
+#   --db-wait-seconds <seconds>           Seconds to wait for the database service to become ready.
+#   --out-dir <path>                      Directory for temporary or output artifacts.
+#   --composer-command <command>          Composer command to run for dependency installation.
+#   --php-lint-command <command>          Standalone PHP lint command to run before Docker-based checks.
+#   --phpcs-standalone-command <command>  Standalone PHPCS command to run before Docker-based checks.
+#   --phpunit-standalone-command <command> Standalone PHPUnit command to run before Docker-based checks.
+#   --phpunit-working-directory <path>    Working directory for standalone PHPUnit execution.
+#   --phpcs-command <command>             PHPCS command to run inside the PHP container.
+#   --phpstan-command <command>           PHPStan command to run inside the PHP container.
+#   --phpunit-command <command>           PHPUnit command to run inside the PHP container.
+#   --phpunit-coverage-command <command>  PHPUnit coverage command to run inside the PHP container.
+#   --fail-on-findings <true|false>       Whether findings should fail the script.
+#   --cleanup <true|false>                Whether Docker resources should be cleaned up after execution.
+#   -h, --help                            Show this help message.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

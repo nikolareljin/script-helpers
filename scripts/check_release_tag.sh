@@ -51,6 +51,11 @@ fi
 
 version="${BASH_REMATCH[1]}"
 
+if ! git -C "$repo_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  log_error "Repository path is not a valid git work tree: $repo_dir"
+  exit 2
+fi
+
 if [[ "$fetch_tags" == "true" ]]; then
   if ! git -C "$repo_dir" fetch --tags --prune --force >/dev/null 2>&1; then
     log_error "Failed to fetch tags from repository: $repo_dir"

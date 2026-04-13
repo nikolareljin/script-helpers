@@ -54,6 +54,11 @@ if [[ "$report_format" != "sarif" ]]; then
   report_format="sarif"
 fi
 
+if [[ ! -f "$output" ]]; then
+  log_error "Gitleaks source report was not created: $output"
+  exit 1
+fi
+
 if [[ -f "$output" && "$requested_output" != "$output" ]]; then
   cp "$output" "$requested_output"
 fi
