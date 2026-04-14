@@ -87,6 +87,14 @@ if ! resolved_bundle_src="$(cd "$bundle_src" 2>/dev/null && pwd -P)"; then
   exit 2
 fi
 
+run_in_bundle_src() {
+  local command="$1"
+  (
+    cd "$resolved_bundle_src"
+    bash -lc "$command"
+  )
+}
+
 cleanup_stack() {
   if [[ "$cleanup" == "true" ]]; then
     docker_compose -f "$compose_file" down -v --remove-orphans
@@ -97,13 +105,13 @@ trap cleanup_stack EXIT
 
 if [[ -n "$php_lint_command" || -n "$phpcs_standalone_command" || -n "$phpunit_standalone_command" ]]; then
   if [[ -n "$composer_command" ]]; then
-    bash -lc "$composer_command"
+    run_in_bundle_src "$composer_command"
   fi
   if [[ -n "$php_lint_command" ]]; then
-    bash -lc "$php_lint_command"
+    run_in_bundle_src "$php_lint_command"
   fi
   if [[ -n "$phpcs_standalone_command" ]]; then
-    bash -lc "$phpcs_standalone_command"
+    run_in_bundle_src "$phpcs_standalone_command"
   fi
   if [[ -n "$phpunit_standalone_command" ]]; then
     (

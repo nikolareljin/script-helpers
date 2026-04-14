@@ -41,6 +41,18 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -z "$output" ]]; then
+  log_error "Invalid value for --output: path must be non-empty."
+  usage
+  exit 2
+fi
+
+if [[ -z "$requested_output" ]]; then
+  log_error "Invalid value for --requested-output: path must be non-empty."
+  usage
+  exit 2
+fi
+
 mkdir -p "$(dirname "$requested_output")"
 
 if [[ "$scan_path" != "." ]]; then
