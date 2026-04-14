@@ -109,15 +109,29 @@ apache_modules:
   - mod_rewrite
 WPCLI
 
-wp_config_file="/workspace/${out_dir}/wp-cli.yml"
-wp_cli_base=(wp --config="$wp_config_file")
+wp_cli_config_contents="$(cat "${out_dir}/wp-cli.yml")"
+container_wp_config_file="/tmp/wp-cli.yml"
+
+run_wp_shell() {
+  local shell_command="$1"
+  docker_compose -f "$compose_file" run --rm \
+    -e WP_CLI_CONFIG_CONTENTS="$wp_cli_config_contents" \
+    -e WP_CLI_CONFIG_PATH="$container_wp_config_file" \
+    "$wpcli_service" \
+    sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; '"$shell_command"
+}
 
 run_wp() {
-  local extra_args=("$@")
-  docker_compose -f "$compose_file" run --rm \
-    -e WP_CLI_CONFIG_PATH="$wp_config_file" \
-    "$wpcli_service" \
-    "${wp_cli_base[@]}" "${extra_args[@]}"
+  local args=("$@")
+  local quoted_args=()
+  local arg
+
+  for arg in "${args[@]}"; do
+    printf -v arg '%q' "$arg"
+    quoted_args+=("$arg")
+  done
+
+  run_wp_shell "wp --config=\"\$WP_CLI_CONFIG_PATH\" ${quoted_args[*]}"
 }
 
 export "$plugin_src_env"="$plugin_src"
@@ -139,9 +153,10 @@ fi
 
 docker_compose -f "$compose_file" run --rm \
   -e WP_DB_HOST="${db_service}:3306" \
-  -e WP_CLI_CONFIG_PATH="$wp_config_file" \
+  -e WP_CLI_CONFIG_CONTENTS="$wp_cli_config_contents" \
+  -e WP_CLI_CONFIG_PATH="$container_wp_config_file" \
   "$wpcli_service" \
-  sh -lc 'test -f wp-config.php || wp --config="$WP_CLI_CONFIG_PATH" config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress --dbhost="$WP_DB_HOST" --skip-check'
+  sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; test -f wp-config.php || wp --config="$WP_CLI_CONFIG_PATH" config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress --dbhost="$WP_DB_HOST" --skip-check'
 
 if [[ "$multisite" == "true" ]]; then
   run_wp config set WP_ALLOW_MULTISITE true --raw || true
@@ -164,9 +179,10 @@ run_wp plugin install plugin-check --activate || true
 
 plugin_check_available="false"
 if docker_compose -f "$compose_file" run --rm \
-  -e WP_CLI_CONFIG_PATH="$wp_config_file" \
+  -e WP_CLI_CONFIG_CONTENTS="$wp_cli_config_contents" \
+  -e WP_CLI_CONFIG_PATH="$container_wp_config_file" \
   "$wpcli_service" \
-  sh -lc 'wp --config="$WP_CLI_CONFIG_PATH" help plugin | grep -qw check'; then
+  sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; wp --config="$WP_CLI_CONFIG_PATH" help plugin | grep -qw check'; then
   plugin_check_available="true"
   run_wp plugin check "$plugin_slug" --format=json > "${out_dir}/plugin-check.json" || true
 elif [[ "$fail_on_findings" == "true" ]]; then
@@ -177,9 +193,10 @@ fi
 if [[ -n "$meta_check_script" ]]; then
   docker_compose -f "$compose_file" run --rm \
     -e WP_META_CHECK_SCRIPT="$meta_check_script" \
-    -e WP_CLI_CONFIG_PATH="$wp_config_file" \
+    -e WP_CLI_CONFIG_CONTENTS="$wp_cli_config_contents" \
+    -e WP_CLI_CONFIG_PATH="$container_wp_config_file" \
     "$wpcli_service" \
-    sh -lc 'wp --config="$WP_CLI_CONFIG_PATH" eval-file "/workspace/$WP_META_CHECK_SCRIPT"' > "${out_dir}/meta-check.json"
+    sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; wp --config="$WP_CLI_CONFIG_PATH" eval-file "$WP_META_CHECK_SCRIPT"' > "${out_dir}/meta-check.json"
 fi
 
 if [[ "$fail_on_findings" == "true" ]]; then
