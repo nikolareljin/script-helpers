@@ -95,6 +95,15 @@ run_in_bundle_src() {
   )
 }
 
+run_in_bundle_src_dir() {
+  local working_directory="$1"
+  local command="$2"
+  (
+    cd "$resolved_bundle_src/$working_directory"
+    bash -lc "$command"
+  )
+}
+
 cleanup_stack() {
   if [[ "$cleanup" == "true" ]]; then
     docker_compose -f "$compose_file" down -v --remove-orphans
@@ -114,10 +123,7 @@ if [[ -n "$php_lint_command" || -n "$phpcs_standalone_command" || -n "$phpunit_s
     run_in_bundle_src "$phpcs_standalone_command"
   fi
   if [[ -n "$phpunit_standalone_command" ]]; then
-    (
-      cd "$phpunit_working_directory"
-      bash -lc "$phpunit_standalone_command"
-    )
+    run_in_bundle_src_dir "$phpunit_working_directory" "$phpunit_standalone_command"
   fi
 fi
 

@@ -109,6 +109,17 @@ apache_modules:
   - mod_rewrite
 WPCLI
 
+wp_config_file="/workspace/${out_dir}/wp-cli.yml"
+wp_cli_base=(wp --config="$wp_config_file")
+
+run_wp() {
+  local extra_args=("$@")
+  docker_compose -f "$compose_file" run --rm \
+    -e WP_CLI_CONFIG_PATH="$wp_config_file" \
+    "$wpcli_service" \
+    "${wp_cli_base[@]}" "${extra_args[@]}"
+}
+
 export "$plugin_src_env"="$plugin_src"
 docker_compose -f "$compose_file" up -d "$db_service" "$wordpress_service"
 
@@ -128,49 +139,36 @@ fi
 
 docker_compose -f "$compose_file" run --rm \
   -e WP_DB_HOST="${db_service}:3306" \
+  -e WP_CLI_CONFIG_PATH="$wp_config_file" \
   "$wpcli_service" \
-  sh -lc 'test -f wp-config.php || wp config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress --dbhost="$WP_DB_HOST" --skip-check'
+  sh -lc 'test -f wp-config.php || wp --config="$WP_CLI_CONFIG_PATH" config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress --dbhost="$WP_DB_HOST" --skip-check'
 
 if [[ "$multisite" == "true" ]]; then
-  docker_compose -f "$compose_file" run --rm "$wpcli_service" sh -lc 'wp config set WP_ALLOW_MULTISITE true --raw || true'
-  docker_compose -f "$compose_file" run --rm \
-    -e WP_SITE_TITLE="$site_title" \
-    -e WP_ADMIN_USER="$admin_user" \
-    -e WP_ADMIN_PASSWORD="$admin_password" \
-    -e WP_ADMIN_EMAIL="$admin_email" \
-    "$wpcli_service" \
-    sh -lc 'wp core is-installed || wp core multisite-install --url=localhost:'"${host_port}"' --title="$WP_SITE_TITLE" --admin_user="$WP_ADMIN_USER" --admin_password="$WP_ADMIN_PASSWORD" --admin_email="$WP_ADMIN_EMAIL" --skip-email --subdomains=0'
+  run_wp config set WP_ALLOW_MULTISITE true --raw || true
+  if ! run_wp core is-installed; then
+    run_wp core multisite-install --url="localhost:${host_port}" --title="$site_title" --admin_user="$admin_user" --admin_password="$admin_password" --admin_email="$admin_email" --skip-email --subdomains=0
+  fi
 else
-  docker_compose -f "$compose_file" run --rm \
-    -e WP_SITE_TITLE="$site_title" \
-    -e WP_ADMIN_USER="$admin_user" \
-    -e WP_ADMIN_PASSWORD="$admin_password" \
-    -e WP_ADMIN_EMAIL="$admin_email" \
-    "$wpcli_service" \
-    sh -lc 'wp core is-installed || wp core install --url=localhost:'"${host_port}"' --title="$WP_SITE_TITLE" --admin_user="$WP_ADMIN_USER" --admin_password="$WP_ADMIN_PASSWORD" --admin_email="$WP_ADMIN_EMAIL" --skip-email'
+  if ! run_wp core is-installed; then
+    run_wp core install --url="localhost:${host_port}" --title="$site_title" --admin_user="$admin_user" --admin_password="$admin_password" --admin_email="$admin_email" --skip-email
+  fi
 fi
 
 if [[ "$activate_network" == "true" ]]; then
-  docker_compose -f "$compose_file" run --rm \
-    -e WP_PLUGIN_SLUG="$plugin_slug" \
-    "$wpcli_service" \
-    sh -lc 'wp plugin activate "$WP_PLUGIN_SLUG" --network || wp plugin activate "$WP_PLUGIN_SLUG"'
+  run_wp plugin activate "$plugin_slug" --network || run_wp plugin activate "$plugin_slug"
 else
-  docker_compose -f "$compose_file" run --rm \
-    -e WP_PLUGIN_SLUG="$plugin_slug" \
-    "$wpcli_service" \
-    sh -lc 'wp plugin activate "$WP_PLUGIN_SLUG"'
+  run_wp plugin activate "$plugin_slug"
 fi
 
-docker_compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp plugin install plugin-check --activate || true"
+run_wp plugin install plugin-check --activate || true
 
 plugin_check_available="false"
-if docker_compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp help plugin | grep -qw check"; then
+if docker_compose -f "$compose_file" run --rm \
+  -e WP_CLI_CONFIG_PATH="$wp_config_file" \
+  "$wpcli_service" \
+  sh -lc 'wp --config="$WP_CLI_CONFIG_PATH" help plugin | grep -qw check'; then
   plugin_check_available="true"
-  docker_compose -f "$compose_file" run --rm \
-    -e WP_PLUGIN_SLUG="$plugin_slug" \
-    "$wpcli_service" \
-    sh -lc 'wp plugin check "$WP_PLUGIN_SLUG" --format=json' > "${out_dir}/plugin-check.json" || true
+  run_wp plugin check "$plugin_slug" --format=json > "${out_dir}/plugin-check.json" || true
 elif [[ "$fail_on_findings" == "true" ]]; then
   log_error "wp plugin check is unavailable in strict mode; cannot evaluate plugin findings."
   exit 4
@@ -179,8 +177,9 @@ fi
 if [[ -n "$meta_check_script" ]]; then
   docker_compose -f "$compose_file" run --rm \
     -e WP_META_CHECK_SCRIPT="$meta_check_script" \
+    -e WP_CLI_CONFIG_PATH="$wp_config_file" \
     "$wpcli_service" \
-    sh -lc 'wp eval-file "/workspace/$WP_META_CHECK_SCRIPT"' > "${out_dir}/meta-check.json"
+    sh -lc 'wp --config="$WP_CLI_CONFIG_PATH" eval-file "/workspace/$WP_META_CHECK_SCRIPT"' > "${out_dir}/meta-check.json"
 fi
 
 if [[ "$fail_on_findings" == "true" ]]; then
