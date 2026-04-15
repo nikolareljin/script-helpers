@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SCRIPT: Reusable workflow helper for WordPress plugin-check.
+# SCRIPT: ci_wp_plugin_check.sh
 # DESCRIPTION: Run WordPress plugin-check and optional standalone PHP checks from GitHub Actions or similar CI workflows.
 # USAGE: scripts/ci_wp_plugin_check.sh [options]
 set -euo pipefail
@@ -77,25 +77,49 @@ if [[ ! -f "$compose_file" ]]; then
   exit 2
 fi
 
+if ! resolved_plugin_src="$(cd "$plugin_src" 2>/dev/null && pwd -P)"; then
+  log_error "Unable to resolve plugin source directory: ${plugin_src}"
+  exit 2
+fi
+
+if [[ ! "$plugin_src_env" =~ ^[A-Z_][A-Z0-9_]*$ ]]; then
+  log_error "Invalid --plugin-src-env value '$plugin_src_env'. Expected a valid environment variable name matching ^[A-Z_][A-Z0-9_]*$."
+  exit 2
+fi
+
+run_in_plugin_src() {
+  local command="$1"
+  (
+    cd "$resolved_plugin_src"
+    bash -lc "$command"
+  )
+}
+
+run_in_plugin_src_dir() {
+  local working_directory="$1"
+  local command="$2"
+  (
+    cd "$resolved_plugin_src/$working_directory"
+    bash -lc "$command"
+  )
+}
+
 cleanup_stack() {
   if [[ "$cleanup" == "true" ]]; then
-    docker_compose -f "$compose_file" down -v
+    docker_compose -f "$compose_file" down -v --remove-orphans
   fi
 }
 trap cleanup_stack EXIT
 
 if [[ -n "$php_lint_command" || -n "$phpcs_warning_command" || -n "$phpunit_command" ]]; then
   if [[ -n "$php_lint_command" ]]; then
-    bash -lc "$php_lint_command"
+    run_in_plugin_src "$php_lint_command"
   fi
   if [[ -n "$phpcs_warning_command" ]]; then
-    bash -lc "$phpcs_warning_command" || true
+    run_in_plugin_src "$phpcs_warning_command" || true
   fi
   if [[ -n "$phpunit_command" ]]; then
-    (
-      cd "$phpunit_working_directory"
-      bash -lc "$phpunit_command"
-    )
+    run_in_plugin_src_dir "$phpunit_working_directory" "$phpunit_command"
   fi
 fi
 
@@ -134,7 +158,7 @@ run_wp() {
   run_wp_shell "wp --config=\"\$WP_CLI_CONFIG_PATH\" ${quoted_args[*]}"
 }
 
-export "$plugin_src_env"="$plugin_src"
+export "$plugin_src_env"="$resolved_plugin_src"
 docker_compose -f "$compose_file" up -d "$db_service" "$wordpress_service"
 
 db_ready="false"
