@@ -206,9 +206,15 @@ if docker_compose -f "$compose_file" run --rm \
   -e WP_CLI_CONFIG_CONTENTS="$wp_cli_config_contents" \
   -e WP_CLI_CONFIG_PATH="$container_wp_config_file" \
   "$wpcli_service" \
-  sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; wp --config="$WP_CLI_CONFIG_PATH" help plugin | grep -qw check'; then
+  sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; wp --config="$WP_CLI_CONFIG_PATH" help plugin check >/dev/null 2>&1'; then
   plugin_check_available="true"
-  run_wp plugin check "$plugin_slug" --format=json > "${out_dir}/plugin-check.json" || true
+  plugin_check_tmp="${out_dir}/plugin-check.json.tmp"
+  rm -f "$plugin_check_tmp"
+  if run_wp plugin check "$plugin_slug" --format=json > "$plugin_check_tmp" && [[ -s "$plugin_check_tmp" ]]; then
+    mv "$plugin_check_tmp" "${out_dir}/plugin-check.json"
+  else
+    rm -f "$plugin_check_tmp"
+  fi
 elif [[ "$fail_on_findings" == "true" ]]; then
   log_error "wp plugin check is unavailable in strict mode; cannot evaluate plugin findings."
   exit 4

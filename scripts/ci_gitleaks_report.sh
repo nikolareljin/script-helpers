@@ -100,20 +100,11 @@ except OSError as exc:
     sys.exit(1)
 
 count = 0
-if report_format == "sarif":
-    runs = data.get("runs", [])
-    for run in runs:
-        results = run.get("results", [])
-        if isinstance(results, list):
-            count += len(results)
-else:
-    if isinstance(data, list):
-        count = len(data)
-    elif isinstance(data, dict):
-        for key in ("findings", "leaks", "results", "issues"):
-            value = data.get(key)
-            if isinstance(value, list):
-                count += len(value)
+runs = data.get("runs", [])
+for run in runs:
+    results = run.get("results", [])
+    if isinstance(results, list):
+        count += len(results)
 
 if count > 0:
     print(f"Gitleaks findings detected: {count}")
