@@ -81,12 +81,11 @@ if [[ ! -s "$requested_output" ]]; then
   exit 1
 fi
 
-REPORT_FORMAT="$report_format" OUTPUT="$requested_output" FAIL_ON_FINDINGS="$fail_on_findings" python3 - <<'PY'
+OUTPUT="$requested_output" FAIL_ON_FINDINGS="$fail_on_findings" python3 - <<'PY'
 import json
 import os
 import sys
 
-report_format = os.environ["REPORT_FORMAT"]
 output = os.environ["OUTPUT"]
 fail_on_findings = os.environ["FAIL_ON_FINDINGS"] == "true"
 
