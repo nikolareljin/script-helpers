@@ -81,13 +81,21 @@ if [[ ! -s "$requested_output" ]]; then
   exit 1
 fi
 
-OUTPUT="$requested_output" FAIL_ON_FINDINGS="$fail_on_findings" python3 - <<'PY'
+REPORT_FORMAT="$report_format" OUTPUT="$requested_output" FAIL_ON_FINDINGS="$fail_on_findings" python3 - <<'PY'
 import json
 import os
 import sys
 
+report_format = os.environ["REPORT_FORMAT"]
 output = os.environ["OUTPUT"]
 fail_on_findings = os.environ["FAIL_ON_FINDINGS"] == "true"
+
+if report_format != "sarif":
+    print(
+        f"Unsupported report format for ci_gitleaks_report.sh: {report_format}. Expected sarif.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 try:
     with open(output, "r", encoding="utf-8") as fh:
