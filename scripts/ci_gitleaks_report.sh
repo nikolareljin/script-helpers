@@ -10,6 +10,7 @@
 #   --config-path <path>         Requested config path; logged when unsupported.
 #   --fail-on-findings <bool>    Exit non-zero when findings exist.
 #   -h, --help                   Show this help message.
+# ----------------------------------------------------
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -99,12 +100,39 @@ except OSError as exc:
     print(f"Failed to read Gitleaks report: {output}: {exc}", file=sys.stderr)
     sys.exit(1)
 
+if not isinstance(data, dict):
+    print(
+        f"Unsupported Gitleaks SARIF structure in {output}: expected a JSON object at the top level.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
 count = 0
 runs = data.get("runs", [])
+if not isinstance(runs, list):
+    print(
+        f"Unsupported Gitleaks SARIF structure in {output}: expected 'runs' to be a list.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
 for run in runs:
+    if not isinstance(run, dict):
+        print(
+            f"Unsupported Gitleaks SARIF structure in {output}: expected each item in 'runs' to be an object.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     results = run.get("results", [])
-    if isinstance(results, list):
-        count += len(results)
+    if not isinstance(results, list):
+        print(
+            f"Unsupported Gitleaks SARIF structure in {output}: expected 'results' to be a list when present.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    count += len(results)
 
 if count > 0:
     print(f"Gitleaks findings detected: {count}")

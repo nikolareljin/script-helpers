@@ -2,6 +2,7 @@
 # SCRIPT: ci_wp_plugin_check.sh
 # DESCRIPTION: Run WordPress plugin-check and optional standalone PHP checks from GitHub Actions or similar CI workflows.
 # USAGE: scripts/ci_wp_plugin_check.sh [options]
+# ----------------------------------------------------
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -66,6 +67,11 @@ while [[ $# -gt 0 ]]; do
     *) log_error "Unknown argument: $1"; usage; exit 2 ;;
   esac
 done
+
+if [[ ! "$db_wait_seconds" =~ ^[0-9]+$ ]] || (( db_wait_seconds <= 0 )); then
+  log_error "Invalid value for --db-wait-seconds: '$db_wait_seconds'. Expected a positive integer."
+  exit 2
+fi
 
 if [[ -z "$plugin_slug" ]]; then
   log_error "--plugin-slug is required"

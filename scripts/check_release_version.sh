@@ -45,7 +45,7 @@ if [[ "$FETCH_TAGS" == "true" ]]; then
   git fetch --tags origin >/dev/null 2>&1 || true
 fi
 
-if [[ "$BRANCH_NAME" =~ ^release/([0-9]+)\.([0-9]+)\.([0-9]+)(-rc[0-9]+)?$ ]]; then
+if [[ "$BRANCH_NAME" =~ ^release/v?([0-9]+)\.([0-9]+)\.([0-9]+)(-rc\.?[0-9]+)?$ ]]; then
   release_version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}${BASH_REMATCH[4]:-}"
   version_file="$(head -n1 "$VERSION_FILE" | xargs || true)"
   if [[ -z "$version_file" ]]; then

@@ -22,6 +22,7 @@
 #   --fail-on-findings <true|false>       Whether findings should fail the script.
 #   --cleanup <true|false>                Whether Docker resources should be cleaned up after execution.
 #   -h, --help                            Show this help message.
+# ----------------------------------------------------
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -76,6 +77,11 @@ while [[ $# -gt 0 ]]; do
     *) log_error "Unknown argument: $1"; usage; exit 2 ;;
   esac
 done
+
+if [[ ! "$db_wait_seconds" =~ ^[0-9]+$ ]] || (( db_wait_seconds <= 0 )); then
+  log_error "Invalid value for --db-wait-seconds: '$db_wait_seconds'. Expected a positive integer."
+  exit 2
+fi
 
 if [[ ! -f "$compose_file" ]]; then
   log_error "Compose file not found: ${compose_file}. Provide a caller-repo path with --compose-file."

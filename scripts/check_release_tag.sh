@@ -8,6 +8,7 @@
 #   --fetch-tags         Fetch tags before checking.
 #   --print-version      Print the parsed version if eligible.
 #   -h, --help           Show this help message.
+# ----------------------------------------------------
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
