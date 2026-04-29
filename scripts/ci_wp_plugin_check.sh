@@ -111,9 +111,14 @@ run_in_plugin_src_dir() {
 }
 
 cleanup_stack() {
+  local exit_status=$?
+
   if [[ "$cleanup" == "true" ]]; then
+    set +e
     docker_compose -f "$compose_file" down -v --remove-orphans
   fi
+
+  return "$exit_status"
 }
 trap cleanup_stack EXIT
 
@@ -143,25 +148,15 @@ wp_cli_config_contents="$(cat "${out_dir}/wp-cli.yml")"
 container_wp_config_file="/tmp/wp-cli.yml"
 
 run_wp_shell() {
-  local shell_command="$1"
   docker_compose -f "$compose_file" run --rm \
     -e WP_CLI_CONFIG_CONTENTS="$wp_cli_config_contents" \
     -e WP_CLI_CONFIG_PATH="$container_wp_config_file" \
     "$wpcli_service" \
-    sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; '"$shell_command"
+    sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; wp --config="$WP_CLI_CONFIG_PATH" "$@"' -- "$@"
 }
 
 run_wp() {
-  local args=("$@")
-  local quoted_args=()
-  local arg
-
-  for arg in "${args[@]}"; do
-    printf -v arg '%q' "$arg"
-    quoted_args+=("$arg")
-  done
-
-  run_wp_shell "wp --config=\"\$WP_CLI_CONFIG_PATH\" ${quoted_args[*]}"
+  run_wp_shell "$@"
 }
 
 export "$plugin_src_env"="$resolved_plugin_src"
