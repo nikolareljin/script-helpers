@@ -9,6 +9,13 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Added: `scripts/check_release_version.sh` to verify release versions before tagging or publishing.
 - Added: `--version` and `--image` parameters to all `ci_*.sh` scripts for Docker image tag and full image override.
 
+## [0.12.2] - 2026-04-11
+
+- Added: `scripts/check_release_tag.sh` so reusable workflows can perform release-tag checks via shared shell logic.
+- Added: `scripts/ci_pimcore_bundle_check.sh` for reusable Pimcore bundle CI orchestration.
+- Added: `scripts/ci_wp_plugin_check.sh` for reusable WordPress plugin-check CI orchestration.
+- Added: `scripts/ci_gitleaks_report.sh` to normalize and evaluate Gitleaks SARIF output in reusable workflows.
+
 ## [0.12.1] - 2026-03-20
 
 - Changed: Ollama model selection now uses a `dialog --menu` browser instead of the older radiolist/manual-entry flow.
