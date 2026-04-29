@@ -2,6 +2,34 @@
 # SCRIPT: ci_wp_plugin_check.sh
 # DESCRIPTION: Run WordPress plugin-check and optional standalone PHP checks from GitHub Actions or similar CI workflows.
 # USAGE: scripts/ci_wp_plugin_check.sh [options]
+# PARAMETERS:
+#   --compose-file <path>                    Path to the caller-repo Docker Compose file (required).
+#   --plugin-slug <slug>                     WordPress plugin slug (required).
+#   --plugin-src <path>                      Path to the plugin source directory (default: .).
+#   --plugin-src-env <name>                  Env var name for the plugin source path (default: PLUGIN_SRC).
+#   --wpcli-service <name>                   Compose service for WP-CLI (default: wpcli).
+#   --db-service <name>                      Compose service for the database (default: db).
+#   --wordpress-service <name>               Compose service for WordPress (default: wordpress).
+#   --db-name <name>                         Database name (default: wordpress).
+#   --db-user <user>                         Database user (default: wordpress).
+#   --db-password <password>                 Database password (default: wordpress).
+#   --host-port <port>                       WordPress host port (default: 8080).
+#   --out-dir <path>                         Directory for output artifacts (default: test/tmp).
+#   --db-wait-seconds <seconds>              Max seconds to wait for DB readiness (default: 30).
+#   --multisite <true|false>                 Enable multisite install (default: true).
+#   --activate-network <true|false>          Activate plugin network-wide (default: true).
+#   --admin-user <user>                      WordPress admin username (default: admin).
+#   --admin-password <password>              WordPress admin password (default: admin).
+#   --admin-email <email>                    WordPress admin email (default: admin@example.com).
+#   --site-title <title>                     WordPress site title (default: WP Test Site).
+#   --meta-check-script <path>               Optional WP eval-file script for meta checks.
+#   --php-lint-command <command>             Standalone PHP lint command.
+#   --phpcs-warning-command <command>        Standalone PHPCS warning command.
+#   --phpunit-command <command>              Standalone PHPUnit command.
+#   --phpunit-working-directory <path>       Working directory for standalone PHPUnit (default: .).
+#   --fail-on-findings <true|false>          Fail on plugin-check errors (default: false).
+#   --cleanup <true|false>                   Clean up Docker resources on exit (default: true).
+#   -h, --help                               Show this help message.
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -20,6 +48,9 @@ plugin_src="."
 plugin_src_env="PLUGIN_SRC"
 wpcli_service="wpcli"
 db_service="db"
+db_name="wordpress"
+db_user="wordpress"
+db_password="wordpress"
 wordpress_service="wordpress"
 host_port="8080"
 out_dir="test/tmp"
@@ -46,6 +77,9 @@ while [[ $# -gt 0 ]]; do
     --plugin-src-env) plugin_src_env="$2"; shift 2 ;;
     --wpcli-service) wpcli_service="$2"; shift 2 ;;
     --db-service) db_service="$2"; shift 2 ;;
+    --db-name) db_name="$2"; shift 2 ;;
+    --db-user) db_user="$2"; shift 2 ;;
+    --db-password) db_password="$2"; shift 2 ;;
     --wordpress-service) wordpress_service="$2"; shift 2 ;;
     --host-port) host_port="$2"; shift 2 ;;
     --out-dir) out_dir="$2"; shift 2 ;;
@@ -164,7 +198,8 @@ docker_compose -f "$compose_file" up -d "$db_service" "$wordpress_service"
 
 db_ready="false"
 for ((i=0; i<db_wait_seconds; i++)); do
-  if docker_compose -f "$compose_file" exec -T "$db_service" sh -lc 'mysqladmin ping -h 127.0.0.1 -uwordpress -pwordpress --silent' >/dev/null 2>&1; then
+  if docker_compose -f "$compose_file" exec -T "$db_service" \
+    mysqladmin ping -h 127.0.0.1 -u"$db_user" -p"$db_password" --silent >/dev/null 2>&1; then
     db_ready="true"
     break
   fi
@@ -178,10 +213,13 @@ fi
 
 docker_compose -f "$compose_file" run --rm \
   -e WP_DB_HOST="${db_service}:3306" \
+  -e WP_DB_NAME="$db_name" \
+  -e WP_DB_USER="$db_user" \
+  -e WP_DB_PASSWORD="$db_password" \
   -e WP_CLI_CONFIG_CONTENTS="$wp_cli_config_contents" \
   -e WP_CLI_CONFIG_PATH="$container_wp_config_file" \
   "$wpcli_service" \
-  sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; test -f wp-config.php || wp --config="$WP_CLI_CONFIG_PATH" config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress --dbhost="$WP_DB_HOST" --skip-check'
+  sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; test -f wp-config.php || wp --config="$WP_CLI_CONFIG_PATH" config create --dbname="$WP_DB_NAME" --dbuser="$WP_DB_USER" --dbpass="$WP_DB_PASSWORD" --dbhost="$WP_DB_HOST" --skip-check'
 
 if [[ "$multisite" == "true" ]]; then
   run_wp config set WP_ALLOW_MULTISITE true --raw || true

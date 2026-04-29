@@ -8,6 +8,8 @@
 #   --bundle-src-env <name>               Environment variable name used for the bundle source path.
 #   --php-service <name>                  Docker Compose service name for the PHP container.
 #   --db-service <name>                   Docker Compose service name for the database container.
+#   --db-user <user>                      Database user for the readiness check (default: empty, no auth).
+#   --db-password <password>              Database password for the readiness check (default: empty).
 #   --db-wait-seconds <seconds>           Seconds to wait for the database service to become ready.
 #   --out-dir <path>                      Directory for temporary or output artifacts.
 #   --composer-command <command>          Composer command to run for dependency installation.
@@ -39,6 +41,8 @@ bundle_src="."
 bundle_src_env="BUNDLE_SRC"
 php_service="php"
 db_service="db"
+db_user=""
+db_password=""
 db_wait_seconds="20"
 out_dir="test/tmp"
 composer_command="composer install --no-interaction --prefer-dist"
@@ -60,6 +64,8 @@ while [[ $# -gt 0 ]]; do
     --bundle-src-env) bundle_src_env="$2"; shift 2 ;;
     --php-service) php_service="$2"; shift 2 ;;
     --db-service) db_service="$2"; shift 2 ;;
+    --db-user) db_user="$2"; shift 2 ;;
+    --db-password) db_password="$2"; shift 2 ;;
     --db-wait-seconds) db_wait_seconds="$2"; shift 2 ;;
     --out-dir) out_dir="$2"; shift 2 ;;
     --composer-command) composer_command="$2"; shift 2 ;;
@@ -148,8 +154,12 @@ fi
 export "$bundle_src_env"="$resolved_bundle_src"
 docker_compose -f "$compose_file" up -d "$db_service" "$php_service"
 
+db_ping_args=(-h 127.0.0.1 --silent)
+[[ -n "$db_user" ]] && db_ping_args+=("-u$db_user")
+[[ -n "$db_password" ]] && db_ping_args+=("-p$db_password")
+
 elapsed=0
-until docker_compose -f "$compose_file" exec -T "$db_service" mysqladmin ping -h 127.0.0.1 --silent 2>/dev/null; do
+until docker_compose -f "$compose_file" exec -T "$db_service" mysqladmin ping "${db_ping_args[@]}" 2>/dev/null; do
   sleep 2
   elapsed=$((elapsed + 2))
   if [[ "$elapsed" -ge "$db_wait_seconds" ]]; then
