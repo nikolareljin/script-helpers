@@ -3,7 +3,7 @@
 # DESCRIPTION: Run WordPress plugin-check and optional standalone PHP checks from GitHub Actions or similar CI workflows.
 # USAGE: scripts/ci_wp_plugin_check.sh [options]
 # PARAMETERS:
-#   --compose-file <path>                    Path to the caller-repo Docker Compose file (required).
+#   --compose-file <path>                    Path to the caller-repo Docker Compose file (default: test/docker-compose.yml).
 #   --plugin-slug <slug>                     WordPress plugin slug (required).
 #   --plugin-src <path>                      Path to the plugin source directory (default: .).
 #   --plugin-src-env <name>                  Env var name for the plugin source path (default: PLUGIN_SRC).
@@ -197,9 +197,14 @@ export "$plugin_src_env"="$resolved_plugin_src"
 docker_compose -f "$compose_file" up -d "$db_service" "$wordpress_service"
 
 db_ready="false"
+mysqladmin_ping_args=(ping -h 127.0.0.1 -u"$db_user" --silent)
+if [[ -n "$db_password" ]]; then
+  mysqladmin_ping_args+=("-p$db_password")
+fi
+
 for ((i=0; i<db_wait_seconds; i++)); do
   if docker_compose -f "$compose_file" exec -T "$db_service" \
-    mysqladmin ping -h 127.0.0.1 -u"$db_user" -p"$db_password" --silent >/dev/null 2>&1; then
+    mysqladmin "${mysqladmin_ping_args[@]}" >/dev/null 2>&1; then
     db_ready="true"
     break
   fi
