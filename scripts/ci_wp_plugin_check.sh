@@ -193,7 +193,7 @@ run_wp() {
   run_wp_shell "$@"
 }
 
-export "$plugin_src_env"="$resolved_plugin_src"
+export "${plugin_src_env}=${resolved_plugin_src}"
 docker_compose -f "$compose_file" up -d "$db_service" "$wordpress_service"
 
 db_ready="false"
@@ -224,7 +224,7 @@ docker_compose -f "$compose_file" run --rm \
   -e WP_CLI_CONFIG_CONTENTS="$wp_cli_config_contents" \
   -e WP_CLI_CONFIG_PATH="$container_wp_config_file" \
   "$wpcli_service" \
-  sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; test -f wp-config.php || wp --config="$WP_CLI_CONFIG_PATH" config create --dbname="$WP_DB_NAME" --dbuser="$WP_DB_USER" --dbpass="$WP_DB_PASSWORD" --dbhost="$WP_DB_HOST" --skip-check'
+  sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; test -f /var/www/html/wp-config.php || wp --config="$WP_CLI_CONFIG_PATH" config create --dbname="$WP_DB_NAME" --dbuser="$WP_DB_USER" --dbpass="$WP_DB_PASSWORD" --dbhost="$WP_DB_HOST" --skip-check'
 
 if [[ "$multisite" == "true" ]]; then
   run_wp config set WP_ALLOW_MULTISITE true --raw || true

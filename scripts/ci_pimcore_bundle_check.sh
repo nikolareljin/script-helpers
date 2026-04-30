@@ -151,7 +151,7 @@ if [[ ! "$bundle_src_env" =~ ^[A-Z_][A-Z0-9_]*$ ]]; then
   log_error "Invalid bundle source environment variable name: '$bundle_src_env'. Expected pattern: ^[A-Z_][A-Z0-9_]*$"
   exit 2
 fi
-export "$bundle_src_env"="$resolved_bundle_src"
+export "${bundle_src_env}=${resolved_bundle_src}"
 docker_compose -f "$compose_file" up -d "$db_service" "$php_service"
 
 db_ping_args=(-h 127.0.0.1 --silent)
