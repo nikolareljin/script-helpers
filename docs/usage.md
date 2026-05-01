@@ -233,9 +233,9 @@ Release branch checks
 ---------------------
 
 Use this script in local pre-commit hooks or CI pipelines to ensure `VERSION`
-matches `release/[v]X.Y.Z[-rcN|-rc.N]` branch naming. Unlike the `ci_*.sh` scripts,
-`check_release_version.sh` does not have a `CI=true` guard and works in both
-environments:
+matches `release/[v]X.Y.Z[-rcN|-rc.N]` branch naming. Unlike the local-only
+`ci_{go,node,python,...}.sh` wrapper scripts that enforce a `CI=true` guard,
+`check_release_version.sh` works in both environments:
 
 ```bash
 ./scripts/check_release_version.sh --version-file VERSION --fetch-tags

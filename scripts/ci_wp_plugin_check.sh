@@ -169,9 +169,10 @@ if [[ -n "$php_lint_command" || -n "$phpcs_warning_command" || -n "$phpunit_comm
 fi
 
 mkdir -p "$out_dir"
+wp_site_url="http://localhost:${host_port}"
 cat > "${out_dir}/wp-cli.yml" <<WPCLI
 path: /var/www/html
-url: http://localhost:${host_port}
+url: ${wp_site_url}
 color: false
 disable_wp_cron: true
 apache_modules:
@@ -229,11 +230,11 @@ docker_compose -f "$compose_file" run --rm \
 if [[ "$multisite" == "true" ]]; then
   run_wp config set WP_ALLOW_MULTISITE true --raw || true
   if ! run_wp core is-installed; then
-    run_wp core multisite-install --url="localhost:${host_port}" --title="$site_title" --admin_user="$admin_user" --admin_password="$admin_password" --admin_email="$admin_email" --skip-email --subdomains=0
+    run_wp core multisite-install --url="$wp_site_url" --title="$site_title" --admin_user="$admin_user" --admin_password="$admin_password" --admin_email="$admin_email" --skip-email --subdomains=0
   fi
 else
   if ! run_wp core is-installed; then
-    run_wp core install --url="localhost:${host_port}" --title="$site_title" --admin_user="$admin_user" --admin_password="$admin_password" --admin_email="$admin_email" --skip-email
+    run_wp core install --url="$wp_site_url" --title="$site_title" --admin_user="$admin_user" --admin_password="$admin_password" --admin_email="$admin_email" --skip-email
   fi
 fi
 
