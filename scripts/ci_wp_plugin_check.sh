@@ -274,6 +274,11 @@ if [[ -n "$meta_check_script" ]]; then
 fi
 
 if [[ "$fail_on_findings" == "true" ]]; then
+  if ! command -v python3 >/dev/null 2>&1; then
+    log_error "python3 is required to evaluate WordPress plugin-check findings."
+    exit 2
+  fi
+
   OUT_DIR="$out_dir" PLUGIN_CHECK_AVAILABLE="$plugin_check_available" python3 - <<'PY'
 import json
 import os

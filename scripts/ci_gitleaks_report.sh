@@ -81,6 +81,11 @@ if [[ ! -s "$requested_output" ]]; then
   exit 1
 fi
 
+if ! command -v python3 >/dev/null 2>&1; then
+  log_error "python3 is required to parse Gitleaks SARIF reports."
+  exit 2
+fi
+
 REPORT_FORMAT="$report_format" OUTPUT="$requested_output" FAIL_ON_FINDINGS="$fail_on_findings" python3 - <<'PY'
 import json
 import os

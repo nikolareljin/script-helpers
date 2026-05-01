@@ -156,10 +156,11 @@ docker_compose -f "$compose_file" up -d "$db_service" "$php_service"
 
 db_ping_args=(-h 127.0.0.1 --silent)
 [[ -n "$db_user" ]] && db_ping_args+=("-u$db_user")
-[[ -n "$db_password" ]] && db_ping_args+=("-p$db_password")
+db_exec_env_args=()
+[[ -n "$db_password" ]] && db_exec_env_args+=(-e MYSQL_PWD)
 
 elapsed=0
-until docker_compose -f "$compose_file" exec -T "$db_service" mysqladmin ping "${db_ping_args[@]}" 2>/dev/null; do
+until MYSQL_PWD="$db_password" DEBUG=false docker_compose -f "$compose_file" exec "${db_exec_env_args[@]}" -T "$db_service" mysqladmin ping "${db_ping_args[@]}" 2>/dev/null; do
   sleep 2
   elapsed=$((elapsed + 2))
   if [[ "$elapsed" -ge "$db_wait_seconds" ]]; then
