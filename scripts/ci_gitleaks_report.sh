@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # SCRIPT: ci_gitleaks_report.sh
 # DESCRIPTION: Normalize and evaluate a Gitleaks SARIF report for reusable workflows and similar CI runners.
-# USAGE: Invoke this helper with --output <path> [--requested-output <path>] [--report-format sarif] [--fail-on-findings true|false]
+# USAGE: Invoke this helper with [--output <path>] [--requested-output <path>] [--report-format sarif] [--scan-path <path>] [--config-path <path>] [--fail-on-findings true|false]
 # PARAMETERS:
-#   --output <path>              Existing report path produced by Gitleaks.
-#   --requested-output <path>    Target report path to copy/normalize to.
-#   --report-format <fmt>        Report format (only sarif is supported).
-#   --scan-path <path>           Requested scan path; logged when unsupported.
+#   --output <path>              Report path produced by Gitleaks. Optional; defaults to results.sarif.
+#   --requested-output <path>    Target report path to copy/normalize to. Optional; defaults to results.sarif.
+#   --report-format <fmt>        Report format. Optional; defaults to sarif (only sarif is supported).
+#   --scan-path <path>           Requested scan path; logged when unsupported. Optional; defaults to ".".
 #   --config-path <path>         Requested config path; logged when unsupported.
-#   --fail-on-findings <bool>    Exit non-zero when findings exist.
+#   --fail-on-findings <bool>    Exit non-zero when findings exist. Optional; defaults to false.
 #   -h, --help                   Show this help message.
 # ----------------------------------------------------
 set -euo pipefail

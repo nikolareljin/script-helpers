@@ -3,26 +3,26 @@
 # DESCRIPTION: Run Pimcore bundle standalone and Docker-based checks from GitHub Actions or similar CI workflows.
 # USAGE: scripts/ci_pimcore_bundle_check.sh [options]
 # PARAMETERS:
-#   --compose-file <path>                 Path to the Docker Compose file to use.
-#   --bundle-src <path>                   Path to the Pimcore bundle source directory.
-#   --bundle-src-env <name>               Environment variable name used for the bundle source path.
-#   --php-service <name>                  Docker Compose service name for the PHP container.
-#   --db-service <name>                   Docker Compose service name for the database container.
+#   --compose-file <path>                 Path to the Docker Compose file to use (default: test/docker-compose.yml).
+#   --bundle-src <path>                   Path to the Pimcore bundle source directory (default: .).
+#   --bundle-src-env <name>               Environment variable name used for the bundle source path (default: BUNDLE_SRC).
+#   --php-service <name>                  Docker Compose service name for the PHP container (default: php).
+#   --db-service <name>                   Docker Compose service name for the database container (default: db).
 #   --db-user <user>                      Database user for the readiness check (default: empty, no auth).
 #   --db-password <password>              Database password for the readiness check (default: empty).
-#   --db-wait-seconds <seconds>           Seconds to wait for the database service to become ready.
-#   --out-dir <path>                      Directory for temporary or output artifacts.
-#   --composer-command <command>          Composer command to run for dependency installation.
+#   --db-wait-seconds <seconds>           Seconds to wait for the database service to become ready (default: 20).
+#   --out-dir <path>                      Directory for temporary or output artifacts (default: test/tmp).
+#   --composer-command <command>          Composer command to run for dependency installation (default: composer install --no-interaction --prefer-dist).
 #   --php-lint-command <command>          Standalone PHP lint command to run before Docker-based checks.
 #   --phpcs-standalone-command <command>  Standalone PHPCS command to run before Docker-based checks.
 #   --phpunit-standalone-command <command> Standalone PHPUnit command to run before Docker-based checks.
-#   --phpunit-working-directory <path>    Working directory for standalone PHPUnit execution.
-#   --phpcs-command <command>             PHPCS command to run inside the PHP container.
+#   --phpunit-working-directory <path>    Working directory for standalone PHPUnit execution (default: .).
+#   --phpcs-command <command>             PHPCS command to run inside the PHP container (default: vendor/bin/phpcs --standard=PSR12 --extensions=php src/).
 #   --phpstan-command <command>           PHPStan command to run inside the PHP container.
-#   --phpunit-command <command>           PHPUnit command to run inside the PHP container.
+#   --phpunit-command <command>           PHPUnit command to run inside the PHP container (default: vendor/bin/phpunit --testdox).
 #   --phpunit-coverage-command <command>  PHPUnit coverage command to run inside the PHP container.
-#   --fail-on-findings <true|false>       Whether findings should fail the script.
-#   --cleanup <true|false>                Whether Docker resources should be cleaned up after execution.
+#   --fail-on-findings <true|false>       Whether findings should fail the script (default: true).
+#   --cleanup <true|false>                Whether Docker resources should be cleaned up after execution (default: true).
 #   -h, --help                            Show this help message.
 # ----------------------------------------------------
 set -euo pipefail
