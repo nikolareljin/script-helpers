@@ -255,10 +255,15 @@ if docker_compose -f "$compose_file" run --rm \
   plugin_check_available="true"
   plugin_check_tmp="${out_dir}/plugin-check.json.tmp"
   rm -f "$plugin_check_tmp"
-  if run_wp plugin check "$plugin_slug" --format=json > "$plugin_check_tmp" && [[ -s "$plugin_check_tmp" ]]; then
+  plugin_check_exit=0
+  run_wp plugin check "$plugin_slug" --format=json > "$plugin_check_tmp" || plugin_check_exit=$?
+  if [[ -s "$plugin_check_tmp" ]]; then
     mv "$plugin_check_tmp" "${out_dir}/plugin-check.json"
   else
     rm -f "$plugin_check_tmp"
+  fi
+  if [[ "$plugin_check_exit" -ne 0 ]]; then
+    log_info "wp plugin check exited with status ${plugin_check_exit}; evaluating captured JSON output when available."
   fi
 elif [[ "$fail_on_findings" == "true" ]]; then
   log_error "wp plugin check is unavailable in strict mode; cannot evaluate plugin findings."
