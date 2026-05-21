@@ -229,6 +229,51 @@ For enhanced supply-chain security, pin images to a specific digest:
 ./scripts/ci_security.sh --gitleaks-digest sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
 ```
 
+Git hook setup and local test runners
+-------------------------------------
+
+Install the shared git hooks from your repository root. The command differs
+depending on whether you are working inside the script-helpers repo itself or
+in a consuming repo that vendors it as a submodule:
+
+```bash
+# Inside the script-helpers repo
+bash scripts/setup-hooks.sh
+
+# In a consuming repo that has script-helpers as a submodule under scripts/script-helpers
+bash scripts/script-helpers/scripts/setup-hooks.sh
+```
+
+The installer detects the correct hook directory automatically. It prefers
+`.githooks/` when both `pre-commit` and `pre-push` are present there, then
+falls back to the submodule path (`scripts/script-helpers/scripts/git-hooks`)
+or the local `scripts/git-hooks` directory. Shared hooks still defer to a
+matching repo-local `.githooks/pre-commit` or `.githooks/pre-push` when one
+is present (same-file recursion guard included).
+
+Run the language-specific local test scripts directly when you want the same
+entry points outside a hook. Use `--quick` for the fast test-only path. The
+Python runner installs `requirements.txt` when present; projects using only
+`pyproject.toml` should prepare their test environment before invoking it.
+
+The command prefix depends on context (same two-variant pattern as `setup-hooks.sh` above):
+
+```bash
+# Inside the script-helpers repo
+bash scripts/local_test_node.sh --quick
+bash scripts/local_test_python.sh --quick --dir backend
+bash scripts/local_test_go.sh --quick
+bash scripts/local_test_rust.sh --quick
+bash scripts/local_test_flutter.sh --quick --dir app
+
+# In a consuming repo (script-helpers as a submodule under scripts/script-helpers)
+bash scripts/script-helpers/scripts/local_test_node.sh --quick
+bash scripts/script-helpers/scripts/local_test_python.sh --quick --dir backend
+bash scripts/script-helpers/scripts/local_test_go.sh --quick
+bash scripts/script-helpers/scripts/local_test_rust.sh --quick
+bash scripts/script-helpers/scripts/local_test_flutter.sh --quick --dir app
+```
+
 Release branch checks
 ---------------------
 
