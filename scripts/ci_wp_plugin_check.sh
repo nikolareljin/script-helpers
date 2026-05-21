@@ -230,7 +230,7 @@ docker_compose -f "$compose_file" run --rm \
 if [[ "$multisite" == "true" ]]; then
   run_wp config set WP_ALLOW_MULTISITE true --raw || true
   if ! run_wp core is-installed; then
-    run_wp core multisite-install --url="$wp_site_url" --title="$site_title" --admin_user="$admin_user" --admin_password="$admin_password" --admin_email="$admin_email" --skip-email --subdomains=0
+    run_wp core multisite-install --url="$wp_site_url" --title="$site_title" --admin_user="$admin_user" --admin_password="$admin_password" --admin_email="$admin_email" --skip-email
   fi
 else
   if ! run_wp core is-installed; then
