@@ -264,6 +264,9 @@ Reusable workflow helper scripts
 
 These scripts are intended to be called from reusable GitHub Actions workflows
 or from local CI debugging sessions where you want the same shell entry points.
+Unlike the local-only `ci_{go,node,python,...}.sh` wrappers above, the
+`ci_gitleaks_report.sh`, `ci_pimcore_bundle_check.sh`, and
+`ci_wp_plugin_check.sh` helpers in this section are safe to call with `CI=true`.
 
 Check whether a release tag already exists for a release branch:
 
@@ -272,6 +275,8 @@ Check whether a release tag already exists for a release branch:
 ```
 
 - The check is a no-op on non-`release/*` branches.
+- `--fetch-tags` reads tags from the `origin` remote by default; pass `--remote`
+  when the repository uses a different remote name.
 
 Normalize and evaluate a Gitleaks SARIF report:
 

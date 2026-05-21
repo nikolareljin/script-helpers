@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # SCRIPT: check_release_tag.sh
 # DESCRIPTION: Guard against tagging an existing release from a release/[v]X.Y.Z[-rcN] or release/[v]X.Y.Z[-rc.N] branch.
-# USAGE: scripts/check_release_tag.sh --branch <branch> [--repo <path>] [--fetch-tags] [--print-version]
+# USAGE: scripts/check_release_tag.sh --branch <branch> [--repo <path>] [--remote <name>] [--fetch-tags] [--print-version]
 # PARAMETERS:
 #   --branch <branch>    Release branch name (defaults to GITHUB_REF_NAME/GITHUB_HEAD_REF).
 #   --repo <path>        Repository path (default: GITHUB_WORKSPACE or cwd).
-#   --fetch-tags         Fetch tags before checking.
+#   --remote <name>      Git remote used with --fetch-tags (default: origin).
+#   --fetch-tags         Fetch tags from --remote before checking.
 #   --print-version      Print the parsed version if eligible.
 #   -h, --help           Show this help message.
 # ----------------------------------------------------
@@ -22,6 +23,7 @@ usage() { show_help "${BASH_SOURCE[0]}"; }
 
 branch=""
 repo_dir="${GITHUB_WORKSPACE:-$(pwd)}"
+remote="origin"
 fetch_tags=false
 print_version=false
 
@@ -29,6 +31,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --branch) branch="$2"; shift 2 ;;
     --repo) repo_dir="$2"; shift 2 ;;
+    --remote) remote="$2"; shift 2 ;;
     --fetch-tags) fetch_tags=true; shift ;;
     --print-version) print_version=true; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -58,8 +61,8 @@ if ! git -C "$repo_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 if [[ "$fetch_tags" == "true" ]]; then
-  if ! git -C "$repo_dir" fetch --tags --prune --force >/dev/null 2>&1; then
-    log_error "Failed to fetch tags from repository: $repo_dir"
+  if ! git -C "$repo_dir" fetch "$remote" --tags --prune >/dev/null 2>&1; then
+    log_error "Failed to fetch tags from remote '$remote' in repository: $repo_dir"
     exit 1
   fi
 fi
