@@ -43,7 +43,13 @@ run_tests() {
   # Node / npm workspaces
   if [[ -f package.json ]] && command -v npm &>/dev/null; then
     local script
-    script="$(node -pe 'var pkg = require("./package.json"); (pkg.scripts && pkg.scripts.test) || ""' 2>/dev/null || echo "")"
+    script="$(
+      node -pe '
+        var pkg = require("./package.json");
+        var test = (pkg.scripts && pkg.scripts.test) || "";
+        test === "echo \"Error: no test specified\" && exit 1" ? "" : test;
+      ' 2>/dev/null || echo ""
+    )"
     if [[ -n "$script" ]]; then
       echo "[pre-push] npm test"
       npm test
