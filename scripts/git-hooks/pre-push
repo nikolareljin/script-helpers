@@ -82,7 +82,7 @@ run_tests() {
       elif command -v python &>/dev/null; then python_bin="python"; fi
 
       if [[ -n "$python_bin" ]] && "$python_bin" -m pytest --version &>/dev/null; then
-        echo "[pre-push] python -m pytest"
+        echo "[pre-push] $python_bin -m pytest"
         "$python_bin" -m pytest --tb=short -q
         _ran_tests=true
         return 0
