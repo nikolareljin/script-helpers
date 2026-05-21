@@ -29,6 +29,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if [[ ! -d "$repo_root/$FLUTTER_DIR" ]]; then
+  echo "[local-test-flutter] Directory not found: $repo_root/$FLUTTER_DIR" >&2
+  exit 1
+fi
 cd "$repo_root/$FLUTTER_DIR"
 
 if ! command -v flutter &>/dev/null; then
