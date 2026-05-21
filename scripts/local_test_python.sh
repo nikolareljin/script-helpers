@@ -29,6 +29,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if [[ ! -d "$repo_root/$TEST_DIR" ]]; then
+  echo "[local-test-python] Directory not found: $repo_root/$TEST_DIR" >&2
+  exit 1
+fi
 cd "$repo_root/$TEST_DIR"
 
 # Resolve one Python interpreter for both dependency installs and test runs.

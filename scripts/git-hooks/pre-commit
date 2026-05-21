@@ -30,8 +30,14 @@ fi
 
 # Release version check — only meaningful on release/* branches
 current_branch="$(git symbolic-ref --short HEAD 2>/dev/null || echo "")"
-if [[ "$current_branch" == release/* ]] && [[ -f scripts/check_release_version.sh ]]; then
-  if ! bash scripts/check_release_version.sh --version-file VERSION; then
+if [[ "$current_branch" == release/* ]]; then
+  _crv=""
+  if [[ -f scripts/script-helpers/scripts/check_release_version.sh ]]; then
+    _crv="scripts/script-helpers/scripts/check_release_version.sh"
+  elif [[ -f scripts/check_release_version.sh ]]; then
+    _crv="scripts/check_release_version.sh"
+  fi
+  if [[ -n "$_crv" ]] && ! bash "$_crv" --version-file VERSION; then
     echo "[pre-commit] Release branch VERSION check failed." >&2
     exit 1
   fi
