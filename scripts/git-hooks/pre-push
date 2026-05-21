@@ -11,8 +11,13 @@ repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$repo_root"
 
 # Allow a repo-local pre-push hook to replace the shared hook when present.
+# Guard: skip delegation if the local hook resolves to this same script (avoids infinite recursion).
 if [[ -f .githooks/pre-push ]]; then
-  exec bash .githooks/pre-push "$@"
+  _local="$(realpath .githooks/pre-push 2>/dev/null || true)"
+  _self="$(realpath "$0" 2>/dev/null || true)"
+  if [[ -n "$_local" && "$_local" != "$_self" ]]; then
+    exec bash .githooks/pre-push "$@"
+  fi
 fi
 
 run_go_tests() {

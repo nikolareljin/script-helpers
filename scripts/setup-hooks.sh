@@ -24,12 +24,12 @@ has_required_hooks() {
 }
 
 resolve_hooks_dir() {
-  if has_required_hooks ".githooks"; then
-    echo ".githooks"
-  elif has_required_hooks "scripts/script-helpers/scripts/git-hooks"; then
-    echo "scripts/script-helpers/scripts/git-hooks"
-  elif has_required_hooks "scripts/git-hooks"; then
-    echo "scripts/git-hooks"
+  if has_required_hooks "$repo_root/.githooks"; then
+    echo "$repo_root/.githooks"
+  elif has_required_hooks "$repo_root/scripts/script-helpers/scripts/git-hooks"; then
+    echo "$repo_root/scripts/script-helpers/scripts/git-hooks"
+  elif has_required_hooks "$repo_root/scripts/git-hooks"; then
+    echo "$repo_root/scripts/git-hooks"
   else
     echo ""
   fi
@@ -44,10 +44,10 @@ if [[ -z "$hooks_dir" ]]; then
 fi
 
 # Make all hook files executable
-find "$hooks_dir" -maxdepth 1 -type f | while read -r hook; do
+while IFS= read -r -d '' hook; do
   chmod +x "$hook"
-done
+done < <(find "$hooks_dir" -maxdepth 1 -type f -print0)
 
 git config core.hooksPath "$hooks_dir"
-echo "[setup-hooks] core.hooksPath = $hooks_dir"
+echo "[setup-hooks] core.hooksPath = ${hooks_dir#"$repo_root/"}"
 echo "[setup-hooks] Done. Hooks active for this repo."
