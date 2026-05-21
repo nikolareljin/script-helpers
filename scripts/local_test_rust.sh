@@ -14,7 +14,14 @@ MANIFEST="Cargo.toml"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --quick) QUICK=true ;;
-    --manifest) MANIFEST="$2"; shift ;;
+    --manifest)
+      if [[ $# -lt 2 ]]; then
+        echo "[local-test-rust] --manifest requires a Cargo.toml path." >&2
+        exit 1
+      fi
+      MANIFEST="$2"
+      shift
+      ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
   shift

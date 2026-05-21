@@ -9,8 +9,8 @@ if [[ -f .githooks/pre-commit ]]; then
   exec bash .githooks/pre-commit "$@"
 fi
 
-# Block accidental .env commits
-if git diff --cached --name-only | grep -qE '(^|\/)(\.env|\.env\..+)$'; then
+# Block accidental .env commits while allowing cleanup deletions.
+if git diff --cached --name-only --diff-filter=ACMR | grep -qE '(^|\/)(\.env|\.env\..+)$'; then
   echo "[pre-commit] ERROR: Staging a .env file. Remove it from the index first." >&2
   echo "  git restore --staged <file>" >&2
   exit 1

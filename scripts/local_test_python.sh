@@ -14,7 +14,14 @@ TEST_DIR="."
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --quick) QUICK=true ;;
-    --dir) TEST_DIR="$2"; shift ;;
+    --dir)
+      if [[ $# -lt 2 ]]; then
+        echo "[local-test-python] --dir requires a path." >&2
+        exit 1
+      fi
+      TEST_DIR="$2"
+      shift
+      ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
   shift
@@ -27,7 +34,8 @@ cd "$repo_root/$TEST_DIR"
 PYTEST="pytest"
 if [[ -x venv/bin/pytest ]]; then PYTEST="venv/bin/pytest"
 elif [[ -x .venv/bin/pytest ]]; then PYTEST=".venv/bin/pytest"
-elif [[ -x "$repo_root/venv/bin/pytest" ]]; then PYTEST="$repo_root/venv/bin/pytest"; fi
+elif [[ -x "$repo_root/venv/bin/pytest" ]]; then PYTEST="$repo_root/venv/bin/pytest"
+elif [[ -x "$repo_root/.venv/bin/pytest" ]]; then PYTEST="$repo_root/.venv/bin/pytest"; fi
 
 if [[ "$PYTEST" == */* ]]; then
   if [[ ! -x "$PYTEST" ]]; then
@@ -43,7 +51,8 @@ if [[ "$QUICK" == "false" ]]; then
   PIP="pip"
   if [[ -x venv/bin/pip ]]; then PIP="venv/bin/pip"
   elif [[ -x .venv/bin/pip ]]; then PIP=".venv/bin/pip"
-  elif [[ -x "$repo_root/venv/bin/pip" ]]; then PIP="$repo_root/venv/bin/pip"; fi
+  elif [[ -x "$repo_root/venv/bin/pip" ]]; then PIP="$repo_root/venv/bin/pip"
+  elif [[ -x "$repo_root/.venv/bin/pip" ]]; then PIP="$repo_root/.venv/bin/pip"; fi
 
   if [[ -f requirements.txt ]]; then
     if [[ "$PIP" == */* ]]; then

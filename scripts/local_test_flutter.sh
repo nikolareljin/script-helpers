@@ -14,7 +14,14 @@ FLUTTER_DIR="."
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --quick) QUICK=true ;;
-    --dir) FLUTTER_DIR="$2"; shift ;;
+    --dir)
+      if [[ $# -lt 2 ]]; then
+        echo "[local-test-flutter] --dir requires a path." >&2
+        exit 1
+      fi
+      FLUTTER_DIR="$2"
+      shift
+      ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
   shift

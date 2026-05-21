@@ -14,7 +14,14 @@ MODULE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --quick) QUICK=true ;;
-    --module) MODULE="$2"; shift ;;
+    --module)
+      if [[ $# -lt 2 ]]; then
+        echo "[local-test-go] --module requires a path." >&2
+        exit 1
+      fi
+      MODULE="$2"
+      shift
+      ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
   shift
