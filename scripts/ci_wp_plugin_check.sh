@@ -102,8 +102,28 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+validate_bool_option() {
+  local option="$1"
+  local value="$2"
+
+  if [[ "$value" != "true" && "$value" != "false" ]]; then
+    log_error "Invalid value for ${option}: '$value'. Expected true or false."
+    exit 2
+  fi
+}
+
+validate_bool_option "--multisite" "$multisite"
+validate_bool_option "--activate-network" "$activate_network"
+validate_bool_option "--fail-on-findings" "$fail_on_findings"
+validate_bool_option "--cleanup" "$cleanup"
+
 if [[ ! "$db_wait_seconds" =~ ^[0-9]+$ ]] || (( db_wait_seconds <= 0 )); then
   log_error "Invalid value for --db-wait-seconds: '$db_wait_seconds'. Expected a positive integer."
+  exit 2
+fi
+
+if [[ ! "$host_port" =~ ^[0-9]+$ ]] || (( host_port < 1 || host_port > 65535 )); then
+  log_error "Invalid value for --host-port: '$host_port'. Expected an integer between 1 and 65535."
   exit 2
 fi
 
@@ -198,7 +218,8 @@ export "${plugin_src_env}=${resolved_plugin_src}"
 docker_compose -f "$compose_file" up -d "$db_service" "$wordpress_service"
 
 db_ready="false"
-mysqladmin_ping_args=(ping -h 127.0.0.1 -u"$db_user" --silent)
+mysqladmin_ping_args=(ping -h 127.0.0.1 --silent)
+[[ -n "$db_user" ]] && mysqladmin_ping_args+=("-u$db_user")
 db_exec_env_args=()
 [[ -n "$db_password" ]] && db_exec_env_args+=(-e MYSQL_PWD)
 

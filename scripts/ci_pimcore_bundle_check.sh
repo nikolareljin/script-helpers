@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SCRIPT: Reusable workflow helper for Pimcore bundle checks.
+# SCRIPT: ci_pimcore_bundle_check.sh
 # DESCRIPTION: Run Pimcore bundle standalone and Docker-based checks from GitHub Actions or similar CI workflows.
 # USAGE: scripts/ci_pimcore_bundle_check.sh [options]
 # PARAMETERS:
@@ -83,6 +83,19 @@ while [[ $# -gt 0 ]]; do
     *) log_error "Unknown argument: $1"; usage; exit 2 ;;
   esac
 done
+
+validate_bool_option() {
+  local option="$1"
+  local value="$2"
+
+  if [[ "$value" != "true" && "$value" != "false" ]]; then
+    log_error "Invalid value for ${option}: '$value'. Expected true or false."
+    exit 2
+  fi
+}
+
+validate_bool_option "--fail-on-findings" "$fail_on_findings"
+validate_bool_option "--cleanup" "$cleanup"
 
 if [[ ! "$db_wait_seconds" =~ ^[0-9]+$ ]] || (( db_wait_seconds <= 0 )); then
   log_error "Invalid value for --db-wait-seconds: '$db_wait_seconds'. Expected a positive integer."
