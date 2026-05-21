@@ -42,6 +42,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ "$fail_on_findings" != "true" && "$fail_on_findings" != "false" ]]; then
+  log_error "Invalid value for --fail-on-findings: '$fail_on_findings'. Expected true or false."
+  exit 2
+fi
+
 if [[ -z "$output" ]]; then
   log_error "Invalid value for --output: path must be non-empty."
   usage

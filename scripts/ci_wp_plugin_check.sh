@@ -22,7 +22,7 @@
 #   --admin-password <password>              WordPress admin password (default: admin).
 #   --admin-email <email>                    WordPress admin email (default: admin@example.com).
 #   --site-title <title>                     WordPress site title (default: WP Test Site).
-#   --meta-check-script <path>               Optional WP eval-file script for meta checks.
+#   --meta-check-script <path>               Optional container-visible WP eval-file script for meta checks.
 #   --php-lint-command <command>             Standalone PHP lint command.
 #   --phpcs-warning-command <command>        Standalone PHPCS warning command.
 #   --phpunit-command <command>              Standalone PHPUnit command.

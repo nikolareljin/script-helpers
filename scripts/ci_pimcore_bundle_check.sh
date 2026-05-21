@@ -8,7 +8,7 @@
 #   --bundle-src-env <name>               Environment variable name used for the bundle source path (default: BUNDLE_SRC).
 #   --php-service <name>                  Docker Compose service name for the PHP container (default: php).
 #   --db-service <name>                   Docker Compose service name for the database container (default: db).
-#   --db-user <user>                      Database user for the readiness check (default: empty, no auth).
+#   --db-user <user>                      Database user for the readiness check (default: empty; mysqladmin uses its default user).
 #   --db-password <password>              Database password for the readiness check (default: empty).
 #   --db-wait-seconds <seconds>           Seconds to wait for the database service to become ready (default: 20).
 #   --out-dir <path>                      Directory for temporary or output artifacts (default: test/tmp).
