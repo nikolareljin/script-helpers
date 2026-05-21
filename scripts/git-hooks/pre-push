@@ -95,7 +95,7 @@ run_tests() {
   if command -v go &>/dev/null; then
     local first_gomod
     first_gomod="$(find . \( -name .git -o -path "*/node_modules" -o -path "*/vendor" \) -prune \
-      -o -type f -name go.mod -print | head -1)"
+      -o -type f -name go.mod -print -quit)"
     if [[ -n "$first_gomod" ]]; then
       if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_go.sh" ]]; then
         echo "[pre-push] local_test_go.sh --quick"
