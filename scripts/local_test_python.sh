@@ -30,48 +30,39 @@ done
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$repo_root/$TEST_DIR"
 
-# Locate pytest — prefer venv
-PYTEST="pytest"
-if [[ -x venv/bin/pytest ]]; then PYTEST="venv/bin/pytest"
-elif [[ -x .venv/bin/pytest ]]; then PYTEST=".venv/bin/pytest"
-elif [[ -x "$repo_root/venv/bin/pytest" ]]; then PYTEST="$repo_root/venv/bin/pytest"
-elif [[ -x "$repo_root/.venv/bin/pytest" ]]; then PYTEST="$repo_root/.venv/bin/pytest"; fi
+# Resolve one Python interpreter for both dependency installs and test runs.
+PYTHON=""
+if [[ -x venv/bin/python ]]; then PYTHON="venv/bin/python"
+elif [[ -x .venv/bin/python ]]; then PYTHON=".venv/bin/python"
+elif [[ -x "$repo_root/venv/bin/python" ]]; then PYTHON="$repo_root/venv/bin/python"
+elif [[ -x "$repo_root/.venv/bin/python" ]]; then PYTHON="$repo_root/.venv/bin/python"
+elif command -v python3 &>/dev/null; then PYTHON="python3"
+elif command -v python &>/dev/null; then PYTHON="python"; fi
 
-if [[ "$PYTEST" == */* ]]; then
-  if [[ ! -x "$PYTEST" ]]; then
-    echo "[local-test-python] pytest is not executable at $PYTEST. Install it in the active environment." >&2
-    exit 1
-  fi
-elif ! command -v "$PYTEST" &>/dev/null; then
-  echo "[local-test-python] pytest not found in PATH. Activate a venv or install pytest first." >&2
+if [[ -z "$PYTHON" ]]; then
+  echo "[local-test-python] Python not found. Activate a venv or install Python first." >&2
   exit 1
 fi
 
 if [[ "$QUICK" == "false" ]]; then
-  PIP="pip"
-  if [[ -x venv/bin/pip ]]; then PIP="venv/bin/pip"
-  elif [[ -x .venv/bin/pip ]]; then PIP=".venv/bin/pip"
-  elif [[ -x "$repo_root/venv/bin/pip" ]]; then PIP="$repo_root/venv/bin/pip"
-  elif [[ -x "$repo_root/.venv/bin/pip" ]]; then PIP="$repo_root/.venv/bin/pip"; fi
-
   if [[ -f requirements.txt ]]; then
-    if [[ "$PIP" == */* ]]; then
-      if [[ ! -x "$PIP" ]]; then
-        echo "[local-test-python] pip is not executable at $PIP. Install it in the active environment." >&2
-        exit 1
-      fi
-    elif ! command -v "$PIP" &>/dev/null; then
-      echo "[local-test-python] pip not found in PATH. Activate a venv or install pip first." >&2
+    if ! "$PYTHON" -m pip --version &>/dev/null; then
+      echo "[local-test-python] pip not found for $PYTHON. Install pip in the selected Python environment." >&2
       exit 1
     fi
 
-    echo "[local-test-python] pip install -r requirements.txt"
-    "$PIP" install -r requirements.txt --quiet
+    echo "[local-test-python] python -m pip install -r requirements.txt"
+    "$PYTHON" -m pip install -r requirements.txt --quiet
   elif [[ -f pyproject.toml ]]; then
-    echo "[local-test-python] pyproject.toml found without requirements.txt; using the current environment."
+    echo "[local-test-python] pyproject.toml found without requirements.txt; using the selected Python environment."
   fi
 fi
 
-echo "[local-test-python] pytest --tb=short -q"
-"$PYTEST" --tb=short -q
+if ! "$PYTHON" -m pytest --version &>/dev/null; then
+  echo "[local-test-python] pytest not found for $PYTHON. Install it in the selected Python environment." >&2
+  exit 1
+fi
+
+echo "[local-test-python] python -m pytest --tb=short -q"
+"$PYTHON" -m pytest --tb=short -q
 echo "[local-test-python] Done."

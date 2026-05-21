@@ -33,7 +33,9 @@ run_go_tests() {
       -o -type f -name go.mod -print | sort
   )
 
-  [[ "$found" == "true" ]]
+  if [[ "$found" != "true" ]]; then
+    return 2
+  fi
 }
 
 run_tests() {
@@ -61,8 +63,15 @@ run_tests() {
   fi
 
   # Go modules may live at the repo root or inside a monorepo subdirectory.
-  if command -v go &>/dev/null && run_go_tests; then
-    return 0
+  if command -v go &>/dev/null; then
+    if run_go_tests; then
+      return 0
+    else
+      local go_status=$?
+      if [[ "$go_status" -ne 2 ]]; then
+        return "$go_status"
+      fi
+    fi
   fi
 
   # Rust
