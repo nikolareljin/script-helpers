@@ -24,18 +24,20 @@ has_required_hooks() {
 }
 
 resolve_hooks_dir() {
+  # Returns a repo-relative path for git config storage; uses absolute paths for existence checks.
   if has_required_hooks "$repo_root/.githooks"; then
-    echo "$repo_root/.githooks"
+    echo ".githooks"
   elif has_required_hooks "$repo_root/scripts/script-helpers/scripts/git-hooks"; then
-    echo "$repo_root/scripts/script-helpers/scripts/git-hooks"
+    echo "scripts/script-helpers/scripts/git-hooks"
   elif has_required_hooks "$repo_root/scripts/git-hooks"; then
-    echo "$repo_root/scripts/git-hooks"
+    echo "scripts/git-hooks"
   else
     echo ""
   fi
 }
 
-hooks_dir="$(resolve_hooks_dir)"
+hooks_dir="$(resolve_hooks_dir)"   # relative — portable across clones
+hooks_dir_abs="$repo_root/$hooks_dir"
 
 if [[ -z "$hooks_dir" ]]; then
   echo "[setup-hooks] ERROR: No hooks directory found." >&2
@@ -46,8 +48,8 @@ fi
 # Make all hook files executable
 while IFS= read -r -d '' hook; do
   chmod +x "$hook"
-done < <(find "$hooks_dir" -maxdepth 1 -type f -print0)
+done < <(find "$hooks_dir_abs" -maxdepth 1 -type f -print0)
 
 git config core.hooksPath "$hooks_dir"
-echo "[setup-hooks] core.hooksPath = ${hooks_dir#"$repo_root/"}"
+echo "[setup-hooks] core.hooksPath = $hooks_dir"
 echo "[setup-hooks] Done. Hooks active for this repo."

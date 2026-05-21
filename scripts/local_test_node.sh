@@ -42,7 +42,12 @@ fi
 
 if [[ "$QUICK" == "false" ]]; then
   echo "[local-test-node] Installing dependencies..."
-  npm ci
+  if [[ -f package-lock.json ]] || [[ -f npm-shrinkwrap.json ]]; then
+    npm ci
+  else
+    echo "[local-test-node] No lockfile found; using npm install (consider committing package-lock.json)."
+    npm install
+  fi
 fi
 
 if [[ -n "$WORKSPACE" ]]; then

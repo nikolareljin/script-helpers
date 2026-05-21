@@ -5,13 +5,9 @@ repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$repo_root"
 
 # Allow a repo-local pre-commit hook to replace the shared hook when present.
-# Guard: skip delegation if the local hook resolves to this same script (avoids infinite recursion).
-if [[ -f .githooks/pre-commit ]]; then
-  _local="$(realpath .githooks/pre-commit 2>/dev/null || true)"
-  _self="$(realpath "$0" 2>/dev/null || true)"
-  if [[ -n "$_local" && "$_local" != "$_self" ]]; then
-    exec bash .githooks/pre-commit "$@"
-  fi
+# -ef guard: skip delegation when the local hook is the same file as this script (avoids infinite recursion).
+if [[ -f .githooks/pre-commit ]] && ! [[ .githooks/pre-commit -ef "$0" ]]; then
+  exec bash .githooks/pre-commit "$@"
 fi
 
 # Block accidental .env commits while allowing cleanup deletions.

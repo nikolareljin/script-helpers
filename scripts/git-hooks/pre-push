@@ -11,95 +11,113 @@ repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$repo_root"
 
 # Allow a repo-local pre-push hook to replace the shared hook when present.
-# Guard: skip delegation if the local hook resolves to this same script (avoids infinite recursion).
-if [[ -f .githooks/pre-push ]]; then
-  _local="$(realpath .githooks/pre-push 2>/dev/null || true)"
-  _self="$(realpath "$0" 2>/dev/null || true)"
-  if [[ -n "$_local" && "$_local" != "$_self" ]]; then
-    exec bash .githooks/pre-push "$@"
-  fi
+# -ef guard: skip delegation when the local hook is the same file as this script (avoids infinite recursion).
+if [[ -f .githooks/pre-push ]] && ! [[ .githooks/pre-push -ef "$0" ]]; then
+  exec bash .githooks/pre-push "$@"
 fi
 
-run_go_tests() {
-  local found=false gomod module_dir
+# Resolve local_test_*.sh scripts directory; submodule path takes priority.
+_scripts_dir=""
+if [[ -d "$repo_root/scripts/script-helpers/scripts" ]]; then
+  _scripts_dir="$repo_root/scripts/script-helpers/scripts"
+elif [[ -d "$repo_root/scripts" ]]; then
+  _scripts_dir="$repo_root/scripts"
+fi
 
+# Inline Go runner used when local_test_go.sh is not available.
+run_go_tests_inline() {
+  local gomod module_dir
   while IFS= read -r gomod; do
-    found=true
     module_dir="$(dirname "$gomod")"
     echo "[pre-push] go test ./... ($module_dir)"
-    if ! (
-      cd "$module_dir"
-      go test ./...
-    ); then
-      return 1
-    fi
+    (cd "$module_dir" && go test ./...)
   done < <(
     find . \
       \( -path "./.git" -o -path "*/node_modules" -o -path "*/vendor" \) -prune \
       -o -type f -name go.mod -print | sort
   )
-
-  if [[ "$found" != "true" ]]; then
-    return 2
-  fi
 }
 
 run_tests() {
   # Node / npm workspaces
   if [[ -f package.json ]] && command -v npm &>/dev/null; then
-    local script
-    script="$(
-      node -pe '
-        var pkg = require("./package.json");
-        var test = (pkg.scripts && pkg.scripts.test) || "";
-        test === "echo \"Error: no test specified\" && exit 1" ? "" : test;
-      ' 2>/dev/null || echo ""
-    )"
-    if [[ -n "$script" ]]; then
-      echo "[pre-push] npm test"
-      npm test
-      return 0
+    if [[ -f "$_scripts_dir/local_test_node.sh" ]]; then
+      echo "[pre-push] local_test_node.sh --quick"
+      bash "$_scripts_dir/local_test_node.sh" --quick
+    else
+      local test_script
+      test_script="$(
+        node -pe '
+          var pkg = require("./package.json");
+          var test = (pkg.scripts && pkg.scripts.test) || "";
+          test === "echo \"Error: no test specified\" && exit 1" ? "" : test;
+        ' 2>/dev/null || echo ""
+      )"
+      if [[ -n "$test_script" ]]; then
+        echo "[pre-push] npm test"
+        npm test
+      fi
     fi
+    return 0
   fi
 
   # Python — run pytest through one selected interpreter.
   if [[ -f pyproject.toml ]] || [[ -f setup.py ]] || [[ -f requirements.txt ]]; then
-    local python_bin=""
-    if [[ -x venv/bin/python ]]; then python_bin="venv/bin/python"
-    elif [[ -x .venv/bin/python ]]; then python_bin=".venv/bin/python"
-    elif command -v python3 &>/dev/null; then python_bin="python3"
-    elif command -v python &>/dev/null; then python_bin="python"; fi
+    if [[ -f "$_scripts_dir/local_test_python.sh" ]]; then
+      echo "[pre-push] local_test_python.sh --quick"
+      bash "$_scripts_dir/local_test_python.sh" --quick
+    else
+      local python_bin=""
+      if [[ -x venv/bin/python ]]; then python_bin="venv/bin/python"
+      elif [[ -x .venv/bin/python ]]; then python_bin=".venv/bin/python"
+      elif command -v python3 &>/dev/null; then python_bin="python3"
+      elif command -v python &>/dev/null; then python_bin="python"; fi
 
-    if [[ -n "$python_bin" ]] && "$python_bin" -m pytest --version &>/dev/null; then
-      echo "[pre-push] python -m pytest"
-      "$python_bin" -m pytest --tb=short -q
-      return 0
+      if [[ -n "$python_bin" ]] && "$python_bin" -m pytest --version &>/dev/null; then
+        echo "[pre-push] python -m pytest"
+        "$python_bin" -m pytest --tb=short -q
+      fi
     fi
+    return 0
   fi
 
-  # Go modules may live at the repo root or inside a monorepo subdirectory.
+  # Go — detect go.mod first so non-Go repos fall through to Rust/Flutter.
   if command -v go &>/dev/null; then
-    if run_go_tests; then
-      return 0
-    else
-      local go_status=$?
-      if [[ "$go_status" -ne 2 ]]; then
-        return "$go_status"
+    local first_gomod
+    first_gomod="$(find . \( -path "./.git" -o -path "*/node_modules" -o -path "*/vendor" \) -prune \
+      -o -type f -name go.mod -print | head -1)"
+    if [[ -n "$first_gomod" ]]; then
+      if [[ -f "$_scripts_dir/local_test_go.sh" ]]; then
+        echo "[pre-push] local_test_go.sh --quick"
+        bash "$_scripts_dir/local_test_go.sh" --quick
+      else
+        run_go_tests_inline
       fi
+      return 0
     fi
   fi
 
   # Rust
   if [[ -f Cargo.toml ]] && command -v cargo &>/dev/null; then
-    echo "[pre-push] cargo test"
-    cargo test
+    if [[ -f "$_scripts_dir/local_test_rust.sh" ]]; then
+      echo "[pre-push] local_test_rust.sh --quick"
+      bash "$_scripts_dir/local_test_rust.sh" --quick
+    else
+      echo "[pre-push] cargo test"
+      cargo test
+    fi
     return 0
   fi
 
   # Flutter / Dart
   if [[ -f pubspec.yaml ]] && command -v flutter &>/dev/null; then
-    echo "[pre-push] flutter test"
-    flutter test
+    if [[ -f "$_scripts_dir/local_test_flutter.sh" ]]; then
+      echo "[pre-push] local_test_flutter.sh --quick"
+      bash "$_scripts_dir/local_test_flutter.sh" --quick
+    else
+      echo "[pre-push] flutter test"
+      flutter test
+    fi
     return 0
   fi
 
