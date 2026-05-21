@@ -16,7 +16,7 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   - Docs lint (`lint_docs.sh`) skipped gracefully when the script is absent.
   - Release version check runs only on `release/*` branches (not on every commit).
 - Added: `scripts/git-hooks/pre-push` — language-aware test runner (Node/Python/Go/Rust/Flutter) with auto-detection. Runs before every push; skip with `--no-verify` only when justified.
-- Added: `scripts/setup-hooks.sh` — one-liner hook installer. Prefers `.githooks/` (repo-local overrides), falls back to `scripts/script-helpers/scripts/git-hooks/`, then `scripts/git-hooks/`.
+- Added: `scripts/setup-hooks.sh` — one-liner hook installer. Uses `.githooks/` when both shared hook entry points are overridden, otherwise falls back to `scripts/script-helpers/scripts/git-hooks/`, then `scripts/git-hooks/`.
 - Added: `scripts/local_test_node.sh` — install + test for Node/npm projects (`--quick`, `--workspace`).
 - Added: `scripts/local_test_python.sh` — venv-aware pytest runner (`--quick`, `--dir`).
 - Added: `scripts/local_test_go.sh` — `go vet` + `go test` across all modules (`--quick`, `--module`).

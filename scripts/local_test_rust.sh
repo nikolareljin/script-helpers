@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# local_test_rust.sh — check and test a Rust project.
-#
-# Usage:
-#   bash scripts/local_test_rust.sh [--quick] [--manifest <path>]
+# SCRIPT: local_test_rust.sh
+# DESCRIPTION: Check, lint, and test a Rust project.
+# USAGE: bash scripts/local_test_rust.sh [--quick] [--manifest <path>]
 #
 # Options:
 #   --quick      Skip cargo check/clippy; run tests only.

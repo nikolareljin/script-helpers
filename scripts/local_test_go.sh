@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# local_test_go.sh — vet and test all Go modules in the repo.
-#
-# Usage:
-#   bash scripts/local_test_go.sh [--quick] [--module <path>]
+# SCRIPT: local_test_go.sh
+# DESCRIPTION: Vet and test all Go modules in the repository.
+# USAGE: bash scripts/local_test_go.sh [--quick] [--module <path>]
 #
 # Options:
 #   --quick     Skip vet; run tests only.

@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# local_test_node.sh — install deps and run tests for Node/npm projects.
-#
-# Usage:
-#   bash scripts/local_test_node.sh [--quick] [--workspace <name>]
+# SCRIPT: local_test_node.sh
+# DESCRIPTION: Install dependencies and run tests for Node/npm projects.
+# USAGE: bash scripts/local_test_node.sh [--quick] [--workspace <name>]
 #
 # Options:
 #   --quick       Skip install; run tests against existing node_modules.
@@ -26,6 +25,11 @@ cd "$repo_root"
 
 if [[ ! -f package.json ]]; then
   echo "[local-test-node] No package.json found at repo root." >&2; exit 1
+fi
+
+if ! command -v npm &>/dev/null; then
+  echo "[local-test-node] npm not found in PATH. Install Node.js/npm before running this script." >&2
+  exit 1
 fi
 
 if [[ "$QUICK" == "false" ]]; then

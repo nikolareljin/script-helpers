@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# setup-hooks.sh — configure git to use the project's hooks directory.
-#
-# Usage:
-#   bash scripts/setup-hooks.sh
+# SCRIPT: setup-hooks.sh
+# DESCRIPTION: Configure git to use shared or repository-local hook scripts.
+# USAGE: bash scripts/setup-hooks.sh
 #
 # Priority:
-#   1. .githooks/  (repo-local overrides, checked into VCS)
+#   1. .githooks/  (repo-local overrides with both pre-commit and pre-push)
 #   2. scripts/script-helpers/scripts/git-hooks/  (submodule bundled hooks)
 #   3. scripts/git-hooks/  (in script-helpers itself)
 #
@@ -16,7 +15,7 @@ repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$repo_root"
 
 resolve_hooks_dir() {
-  if [[ -d .githooks ]]; then
+  if [[ -f .githooks/pre-commit ]] && [[ -f .githooks/pre-push ]]; then
     echo ".githooks"
   elif [[ -d scripts/script-helpers/scripts/git-hooks ]]; then
     echo "scripts/script-helpers/scripts/git-hooks"
@@ -31,7 +30,7 @@ hooks_dir="$(resolve_hooks_dir)"
 
 if [[ -z "$hooks_dir" ]]; then
   echo "[setup-hooks] ERROR: No hooks directory found." >&2
-  echo "  Expected one of: .githooks/  scripts/script-helpers/scripts/git-hooks/  scripts/git-hooks/" >&2
+  echo "  Expected shared hooks in scripts/ or both .githooks/pre-commit and .githooks/pre-push." >&2
   exit 1
 fi
 

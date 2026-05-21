@@ -9,10 +9,28 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$repo_root"
 
-# Allow per-repo override: if .githooks/pre-push exists, defer to it entirely.
-if [[ -f .githooks/pre-push ]] && [[ "$(git config core.hooksPath 2>/dev/null)" != "scripts/git-hooks" ]]; then
+# Allow a repo-local pre-push hook to replace the shared hook when present.
+if [[ -f .githooks/pre-push ]]; then
   exec bash .githooks/pre-push "$@"
 fi
+
+run_go_tests() {
+  local found=false gomod module_dir
+
+  while IFS= read -r gomod; do
+    found=true
+    module_dir="$(dirname "$gomod")"
+    echo "[pre-push] go test ./... ($module_dir)"
+    if ! (
+      cd "$module_dir"
+      go test ./...
+    ); then
+      return 1
+    fi
+  done < <(find . -name go.mod -not -path "*/vendor/*" | sort)
+
+  [[ "$found" == "true" ]]
+}
 
 run_tests() {
   # Node / npm workspaces
@@ -38,10 +56,8 @@ run_tests() {
     fi
   fi
 
-  # Go
-  if [[ -f go.mod ]] && command -v go &>/dev/null; then
-    echo "[pre-push] go test ./..."
-    go test ./...
+  # Go modules may live at the repo root or inside a monorepo subdirectory.
+  if command -v go &>/dev/null && run_go_tests; then
     return 0
   fi
 

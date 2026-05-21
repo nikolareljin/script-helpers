@@ -4,6 +4,11 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$repo_root"
 
+# Allow a repo-local pre-commit hook to replace the shared hook when present.
+if [[ -f .githooks/pre-commit ]]; then
+  exec bash .githooks/pre-commit "$@"
+fi
+
 # Block accidental .env commits
 if git diff --cached --name-only | grep -qE '(^|\/)(\.env|\.env\..+)$'; then
   echo "[pre-commit] ERROR: Staging a .env file. Remove it from the index first." >&2

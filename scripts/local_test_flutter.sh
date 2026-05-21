@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# local_test_flutter.sh — analyze and test a Flutter project.
-#
-# Usage:
-#   bash scripts/local_test_flutter.sh [--quick] [--dir <path>]
+# SCRIPT: local_test_flutter.sh
+# DESCRIPTION: Fetch dependencies, analyze, and test a Flutter project.
+# USAGE: bash scripts/local_test_flutter.sh [--quick] [--dir <path>]
 #
 # Options:
-#   --quick   Skip flutter analyze; run tests only.
+#   --quick   Skip dependency install and flutter analyze; run tests only.
 #   --dir     Project directory containing pubspec.yaml (default: .).
 set -euo pipefail
 
@@ -32,10 +31,9 @@ if [[ ! -f pubspec.yaml ]]; then
   echo "[local-test-flutter] No pubspec.yaml in $FLUTTER_DIR." >&2; exit 1
 fi
 
-echo "[local-test-flutter] flutter pub get"
-flutter pub get
-
 if [[ "$QUICK" == "false" ]]; then
+  echo "[local-test-flutter] flutter pub get"
+  flutter pub get
   echo "[local-test-flutter] flutter analyze"
   flutter analyze
 fi

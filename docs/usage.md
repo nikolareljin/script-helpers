@@ -229,6 +229,31 @@ For enhanced supply-chain security, pin images to a specific digest:
 ./scripts/ci_security.sh --gitleaks-digest sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
 ```
 
+Git hook setup and local test runners
+-------------------------------------
+
+Install the shared git hooks from the consuming repository root:
+
+```bash
+bash scripts/script-helpers/scripts/setup-hooks.sh
+```
+
+When vendored under `scripts/script-helpers`, the installer uses the shared
+hook directory unless `.githooks/` provides both `pre-commit` and `pre-push`.
+Shared hooks still defer to a matching repo-local `.githooks/pre-commit` or
+`.githooks/pre-push` when one is present.
+
+Run the language-specific local test scripts directly when you want the same
+entry points outside a hook. Use `--quick` for the fast test-only path:
+
+```bash
+bash scripts/script-helpers/scripts/local_test_node.sh --quick
+bash scripts/script-helpers/scripts/local_test_python.sh --quick --dir backend
+bash scripts/script-helpers/scripts/local_test_go.sh --quick
+bash scripts/script-helpers/scripts/local_test_rust.sh --quick
+bash scripts/script-helpers/scripts/local_test_flutter.sh --quick --dir app
+```
+
 Release branch checks
 ---------------------
 
