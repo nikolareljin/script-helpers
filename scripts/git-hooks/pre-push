@@ -24,6 +24,8 @@ elif [[ -d "$repo_root/scripts" ]]; then
   _scripts_dir="$repo_root/scripts"
 fi
 
+_ran_tests=false
+
 # Inline Go runner used when local_test_go.sh is not available.
 run_go_tests_inline() {
   local gomod module_dir
@@ -33,7 +35,7 @@ run_go_tests_inline() {
     (cd "$module_dir" && go test ./...)
   done < <(
     find . \
-      \( -path "./.git" -o -path "*/node_modules" -o -path "*/vendor" \) -prune \
+      \( -name .git -o -path "*/node_modules" -o -path "*/vendor" \) -prune \
       -o -type f -name go.mod -print | sort
   )
 }
@@ -44,6 +46,7 @@ run_tests() {
     if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_node.sh" ]]; then
       echo "[pre-push] local_test_node.sh --quick"
       bash "$_scripts_dir/local_test_node.sh" --quick
+      _ran_tests=true
     elif command -v node &>/dev/null; then
       local test_script
       test_script="$(
@@ -56,6 +59,7 @@ run_tests() {
       if [[ -n "$test_script" ]]; then
         echo "[pre-push] npm test"
         npm test
+        _ran_tests=true
       fi
     fi
     return 0
@@ -66,6 +70,7 @@ run_tests() {
     if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_python.sh" ]]; then
       echo "[pre-push] local_test_python.sh --quick"
       bash "$_scripts_dir/local_test_python.sh" --quick
+      _ran_tests=true
     else
       local python_bin=""
       if [[ -x venv/bin/python ]]; then python_bin="venv/bin/python"
@@ -76,6 +81,7 @@ run_tests() {
       if [[ -n "$python_bin" ]] && "$python_bin" -m pytest --version &>/dev/null; then
         echo "[pre-push] python -m pytest"
         "$python_bin" -m pytest --tb=short -q
+        _ran_tests=true
       fi
     fi
     return 0
@@ -84,7 +90,7 @@ run_tests() {
   # Go — detect go.mod first so non-Go repos fall through to Rust/Flutter.
   if command -v go &>/dev/null; then
     local first_gomod
-    first_gomod="$(find . \( -path "./.git" -o -path "*/node_modules" -o -path "*/vendor" \) -prune \
+    first_gomod="$(find . \( -name .git -o -path "*/node_modules" -o -path "*/vendor" \) -prune \
       -o -type f -name go.mod -print | head -1)"
     if [[ -n "$first_gomod" ]]; then
       if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_go.sh" ]]; then
@@ -93,6 +99,7 @@ run_tests() {
       else
         run_go_tests_inline
       fi
+      _ran_tests=true
       return 0
     fi
   fi
@@ -106,6 +113,7 @@ run_tests() {
       echo "[pre-push] cargo test"
       cargo test
     fi
+    _ran_tests=true
     return 0
   fi
 
@@ -118,12 +126,14 @@ run_tests() {
       echo "[pre-push] flutter test"
       flutter test
     fi
+    _ran_tests=true
     return 0
   fi
 
   echo "[pre-push] No test runner detected — skipping. Run tests manually before pushing."
-  return 0
 }
 
 run_tests
-echo "[pre-push] All checks passed."
+if [[ "$_ran_tests" == "true" ]]; then
+  echo "[pre-push] All checks passed."
+fi

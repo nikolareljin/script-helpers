@@ -56,7 +56,7 @@ else
     run_module "$(dirname "$gomod")"
   done < <(
     find . \
-      \( -path "./.git" -o -path "*/node_modules" -o -path "*/vendor" \) -prune \
+      \( -name .git -o -path "*/node_modules" -o -path "*/vendor" \) -prune \
       -o -type f -name go.mod -print | sort
   )
 fi
