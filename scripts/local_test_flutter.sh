@@ -3,9 +3,10 @@
 # DESCRIPTION: Fetch dependencies, analyze, and test a Flutter project.
 # USAGE: bash scripts/local_test_flutter.sh [--quick] [--dir <path>]
 #
-# Options:
+# PARAMETERS:
 #   --quick   Skip dependency install and flutter analyze; run tests only.
 #   --dir     Project directory containing pubspec.yaml (default: .).
+# ----------------------------------------------------
 set -euo pipefail
 
 QUICK=false

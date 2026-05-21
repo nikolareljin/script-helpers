@@ -3,9 +3,10 @@
 # DESCRIPTION: Install dependencies and run tests for Node/npm projects.
 # USAGE: bash scripts/local_test_node.sh [--quick] [--workspace <name>]
 #
-# Options:
+# PARAMETERS:
 #   --quick       Skip install; run tests against existing node_modules.
 #   --workspace   Run tests only for a specific npm workspace.
+# ----------------------------------------------------
 set -euo pipefail
 
 QUICK=false

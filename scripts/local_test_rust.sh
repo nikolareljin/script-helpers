@@ -3,9 +3,10 @@
 # DESCRIPTION: Check, lint, and test a Rust project.
 # USAGE: bash scripts/local_test_rust.sh [--quick] [--manifest <path>]
 #
-# Options:
+# PARAMETERS:
 #   --quick      Skip cargo check/clippy; run tests only.
 #   --manifest   Path to Cargo.toml (default: ./Cargo.toml).
+# ----------------------------------------------------
 set -euo pipefail
 
 QUICK=false

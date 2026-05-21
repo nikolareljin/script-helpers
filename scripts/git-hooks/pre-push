@@ -2,6 +2,7 @@
 # pre-push hook — run language-appropriate tests before every push.
 # Install via: git config core.hooksPath scripts/git-hooks
 #              or: bash scripts/setup-hooks.sh
+#              or from a submodule: bash scripts/script-helpers/scripts/setup-hooks.sh
 #
 # Skip with: git push --no-verify  (discouraged; use only for docs-only pushes)
 set -euo pipefail
@@ -50,14 +51,17 @@ run_tests() {
     fi
   fi
 
-  # Python — prefer pytest inside venv
+  # Python — run pytest through one selected interpreter.
   if [[ -f pyproject.toml ]] || [[ -f setup.py ]] || [[ -f requirements.txt ]]; then
-    local pytest_bin="pytest"
-    if [[ -x venv/bin/pytest ]]; then pytest_bin="venv/bin/pytest"
-    elif [[ -x .venv/bin/pytest ]]; then pytest_bin=".venv/bin/pytest"; fi
-    if command -v "$pytest_bin" &>/dev/null; then
-      echo "[pre-push] pytest"
-      "$pytest_bin" --tb=short -q
+    local python_bin=""
+    if [[ -x venv/bin/python ]]; then python_bin="venv/bin/python"
+    elif [[ -x .venv/bin/python ]]; then python_bin=".venv/bin/python"
+    elif command -v python3 &>/dev/null; then python_bin="python3"
+    elif command -v python &>/dev/null; then python_bin="python"; fi
+
+    if [[ -n "$python_bin" ]] && "$python_bin" -m pytest --version &>/dev/null; then
+      echo "[pre-push] python -m pytest"
+      "$python_bin" -m pytest --tb=short -q
       return 0
     fi
   fi

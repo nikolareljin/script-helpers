@@ -3,9 +3,10 @@
 # DESCRIPTION: Vet and test all Go modules in the repository.
 # USAGE: bash scripts/local_test_go.sh [--quick] [--module <path>]
 #
-# Options:
+# PARAMETERS:
 #   --quick     Skip vet; run tests only.
 #   --module    Path to a specific module directory (default: all go.mod roots).
+# ----------------------------------------------------
 set -euo pipefail
 
 QUICK=false

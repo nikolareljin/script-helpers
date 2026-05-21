@@ -3,9 +3,10 @@
 # DESCRIPTION: Use a local virtualenv when available and run pytest.
 # USAGE: bash scripts/local_test_python.sh [--quick] [--dir <path>]
 #
-# Options:
+# PARAMETERS:
 #   --quick   Skip install; run tests against the current environment.
 #   --dir     Subdirectory containing pyproject.toml/requirements.txt (default: .).
+# ----------------------------------------------------
 set -euo pipefail
 
 QUICK=false

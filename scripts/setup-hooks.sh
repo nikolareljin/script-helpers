@@ -2,12 +2,13 @@
 # SCRIPT: setup-hooks.sh
 # DESCRIPTION: Configure git to use shared or repository-local hook scripts.
 # USAGE: bash scripts/setup-hooks.sh
-#
-# Priority:
-#   1. .githooks/  (repo-local overrides with both pre-commit and pre-push)
-#   2. scripts/script-helpers/scripts/git-hooks/  (submodule bundled hooks)
-#   3. scripts/git-hooks/  (in script-helpers itself)
-#
+# PARAMETERS:
+#   No command-line parameters.
+#   Hook directory priority:
+#     1. .githooks/  (repo-local overrides with both pre-commit and pre-push)
+#     2. scripts/script-helpers/scripts/git-hooks/  (submodule bundled hooks)
+#     3. scripts/git-hooks/  (in script-helpers itself)
+# ----------------------------------------------------
 # After running, hooks are active for all subsequent git operations in this repo.
 set -euo pipefail
 
