@@ -41,12 +41,13 @@ run_go_tests_inline() {
 }
 
 run_tests() {
-  # Node / npm workspaces
+  # Node / npm workspaces — only return when tests actually ran; otherwise fall through.
   if [[ -f package.json ]] && command -v npm &>/dev/null; then
     if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_node.sh" ]]; then
       echo "[pre-push] local_test_node.sh --quick"
       bash "$_scripts_dir/local_test_node.sh" --quick
       _ran_tests=true
+      return 0
     elif command -v node &>/dev/null; then
       local test_script
       test_script="$(
@@ -60,17 +61,19 @@ run_tests() {
         echo "[pre-push] npm test"
         npm test
         _ran_tests=true
+        return 0
       fi
     fi
-    return 0
+    # package.json present but no runnable test command — fall through to other runners.
   fi
 
-  # Python — run pytest through one selected interpreter.
+  # Python — only return when tests actually ran; otherwise fall through.
   if [[ -f pyproject.toml ]] || [[ -f setup.py ]] || [[ -f requirements.txt ]]; then
     if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_python.sh" ]]; then
       echo "[pre-push] local_test_python.sh --quick"
       bash "$_scripts_dir/local_test_python.sh" --quick
       _ran_tests=true
+      return 0
     else
       local python_bin=""
       if [[ -x venv/bin/python ]]; then python_bin="venv/bin/python"
@@ -82,9 +85,10 @@ run_tests() {
         echo "[pre-push] python -m pytest"
         "$python_bin" -m pytest --tb=short -q
         _ran_tests=true
+        return 0
       fi
     fi
-    return 0
+    # Python files present but pytest not available — fall through to other runners.
   fi
 
   # Go — detect go.mod first so non-Go repos fall through to Rust/Flutter.
