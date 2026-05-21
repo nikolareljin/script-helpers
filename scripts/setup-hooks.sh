@@ -11,15 +11,23 @@
 # After running, hooks are active for all subsequent git operations in this repo.
 set -euo pipefail
 
-repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if ! repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+  echo "[setup-hooks] ERROR: Run this script inside a Git worktree." >&2
+  exit 1
+fi
 cd "$repo_root"
 
+has_required_hooks() {
+  local dir="$1"
+  [[ -f "$dir/pre-commit" ]] && [[ -f "$dir/pre-push" ]]
+}
+
 resolve_hooks_dir() {
-  if [[ -f .githooks/pre-commit ]] && [[ -f .githooks/pre-push ]]; then
+  if has_required_hooks ".githooks"; then
     echo ".githooks"
-  elif [[ -d scripts/script-helpers/scripts/git-hooks ]]; then
+  elif has_required_hooks "scripts/script-helpers/scripts/git-hooks"; then
     echo "scripts/script-helpers/scripts/git-hooks"
-  elif [[ -d scripts/git-hooks ]]; then
+  elif has_required_hooks "scripts/git-hooks"; then
     echo "scripts/git-hooks"
   else
     echo ""

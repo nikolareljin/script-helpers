@@ -45,12 +45,11 @@ if [[ "$QUICK" == "false" ]]; then
   elif [[ -x .venv/bin/pip ]]; then PIP=".venv/bin/pip"
   elif [[ -x "$repo_root/venv/bin/pip" ]]; then PIP="$repo_root/venv/bin/pip"; fi
 
-  if [[ -f pyproject.toml ]]; then
-    echo "[local-test-python] pip install -e '.[dev]'"
-    "$PIP" install -e '.[dev]' --quiet
-  elif [[ -f requirements.txt ]]; then
+  if [[ -f requirements.txt ]]; then
     echo "[local-test-python] pip install -r requirements.txt"
     "$PIP" install -r requirements.txt --quiet
+  elif [[ -f pyproject.toml ]]; then
+    echo "[local-test-python] pyproject.toml found without requirements.txt; using the current environment."
   fi
 fi
 

@@ -244,7 +244,9 @@ Shared hooks still defer to a matching repo-local `.githooks/pre-commit` or
 `.githooks/pre-push` when one is present.
 
 Run the language-specific local test scripts directly when you want the same
-entry points outside a hook. Use `--quick` for the fast test-only path:
+entry points outside a hook. Use `--quick` for the fast test-only path. The
+Python runner installs `requirements.txt` when present; projects using only
+`pyproject.toml` should prepare their test environment before invoking it:
 
 ```bash
 bash scripts/script-helpers/scripts/local_test_node.sh --quick
