@@ -183,7 +183,7 @@ wp_cli_config_contents="$(cat "${out_dir}/wp-cli.yml")"
 container_wp_config_file="/tmp/wp-cli.yml"
 
 run_wp_shell() {
-  docker_compose -f "$compose_file" run --rm \
+  DEBUG=false docker_compose -f "$compose_file" run --rm \
     -e WP_CLI_CONFIG_CONTENTS="$wp_cli_config_contents" \
     -e WP_CLI_CONFIG_PATH="$container_wp_config_file" \
     "$wpcli_service" \
@@ -199,12 +199,11 @@ docker_compose -f "$compose_file" up -d "$db_service" "$wordpress_service"
 
 db_ready="false"
 mysqladmin_ping_args=(ping -h 127.0.0.1 -u"$db_user" --silent)
-if [[ -n "$db_password" ]]; then
-  mysqladmin_ping_args+=("-p$db_password")
-fi
+db_exec_env_args=()
+[[ -n "$db_password" ]] && db_exec_env_args+=(-e MYSQL_PWD)
 
 for ((i=0; i<db_wait_seconds; i++)); do
-  if docker_compose -f "$compose_file" exec -T "$db_service" \
+  if MYSQL_PWD="$db_password" DEBUG=false docker_compose -f "$compose_file" exec "${db_exec_env_args[@]}" -T "$db_service" \
     mysqladmin "${mysqladmin_ping_args[@]}" >/dev/null 2>&1; then
     db_ready="true"
     break
@@ -217,7 +216,7 @@ if [[ "$db_ready" != "true" ]]; then
   exit 1
 fi
 
-docker_compose -f "$compose_file" run --rm \
+DEBUG=false docker_compose -f "$compose_file" run --rm \
   -e WP_DB_HOST="${db_service}:3306" \
   -e WP_DB_NAME="$db_name" \
   -e WP_DB_USER="$db_user" \
