@@ -43,10 +43,14 @@ run_module() {
 if [[ -n "$MODULE" ]]; then
   run_module "$MODULE"
 else
-  # Find all go.mod files (skip vendor dirs)
+  # Find all go.mod files while skipping large generated or vendored trees.
   while IFS= read -r gomod; do
     run_module "$(dirname "$gomod")"
-  done < <(find . -name go.mod -not -path "*/vendor/*" | sort)
+  done < <(
+    find . \
+      \( -path "./.git" -o -path "*/node_modules" -o -path "*/vendor" \) -prune \
+      -o -type f -name go.mod -print | sort
+  )
 fi
 
 echo "[local-test-go] Done."

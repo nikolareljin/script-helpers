@@ -46,6 +46,16 @@ if [[ "$QUICK" == "false" ]]; then
   elif [[ -x "$repo_root/venv/bin/pip" ]]; then PIP="$repo_root/venv/bin/pip"; fi
 
   if [[ -f requirements.txt ]]; then
+    if [[ "$PIP" == */* ]]; then
+      if [[ ! -x "$PIP" ]]; then
+        echo "[local-test-python] pip is not executable at $PIP. Install it in the active environment." >&2
+        exit 1
+      fi
+    elif ! command -v "$PIP" &>/dev/null; then
+      echo "[local-test-python] pip not found in PATH. Activate a venv or install pip first." >&2
+      exit 1
+    fi
+
     echo "[local-test-python] pip install -r requirements.txt"
     "$PIP" install -r requirements.txt --quiet
   elif [[ -f pyproject.toml ]]; then
