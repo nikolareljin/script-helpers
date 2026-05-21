@@ -61,7 +61,7 @@ if ! git -C "$repo_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 if [[ "$fetch_tags" == "true" ]]; then
-  if ! git -C "$repo_dir" fetch "$remote" --tags --prune >/dev/null 2>&1; then
+  if ! git -C "$repo_dir" fetch "$remote" --tags >/dev/null 2>&1; then
     log_error "Failed to fetch tags from remote '$remote' in repository: $repo_dir"
     exit 1
   fi

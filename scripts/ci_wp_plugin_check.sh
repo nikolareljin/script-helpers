@@ -237,11 +237,11 @@ if [[ "$db_ready" != "true" ]]; then
   exit 1
 fi
 
-DEBUG=false docker_compose -f "$compose_file" run --rm \
+WP_DB_PASSWORD="$db_password" DEBUG=false docker_compose -f "$compose_file" run --rm \
   -e WP_DB_HOST="${db_service}:3306" \
   -e WP_DB_NAME="$db_name" \
   -e WP_DB_USER="$db_user" \
-  -e WP_DB_PASSWORD="$db_password" \
+  -e WP_DB_PASSWORD \
   -e WP_CLI_CONFIG_CONTENTS="$wp_cli_config_contents" \
   -e WP_CLI_CONFIG_PATH="$container_wp_config_file" \
   "$wpcli_service" \
