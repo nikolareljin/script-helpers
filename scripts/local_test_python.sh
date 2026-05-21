@@ -56,7 +56,7 @@ if [[ "$QUICK" == "false" ]]; then
       exit 1
     fi
 
-    echo "[local-test-python] python -m pip install -r requirements.txt"
+    echo "[local-test-python] $PYTHON -m pip install -r requirements.txt"
     "$PYTHON" -m pip install -r requirements.txt --quiet
   elif [[ -f pyproject.toml ]]; then
     echo "[local-test-python] pyproject.toml found without requirements.txt; using the selected Python environment."
@@ -68,6 +68,6 @@ if ! "$PYTHON" -m pytest --version &>/dev/null; then
   exit 1
 fi
 
-echo "[local-test-python] python -m pytest --tb=short -q"
+echo "[local-test-python] $PYTHON -m pytest --tb=short -q"
 "$PYTHON" -m pytest --tb=short -q
 echo "[local-test-python] Done."
