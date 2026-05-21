@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# pre-push hook — run language-appropriate tests before every push.
+# Install via: git config core.hooksPath scripts/git-hooks
+#              or: bash scripts/setup-hooks.sh
+#
+# Skip with: git push --no-verify  (discouraged; use only for docs-only pushes)
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$repo_root"
+
+# Allow per-repo override: if .githooks/pre-push exists, defer to it entirely.
+if [[ -f .githooks/pre-push ]] && [[ "$(git config core.hooksPath 2>/dev/null)" != "scripts/git-hooks" ]]; then
+  exec bash .githooks/pre-push "$@"
+fi
+
+run_tests() {
+  # Node / npm workspaces
+  if [[ -f package.json ]] && command -v npm &>/dev/null; then
+    local script
+    script="$(node -pe 'require("./package.json").scripts?.test ?? ""' 2>/dev/null || echo "")"
+    if [[ -n "$script" ]]; then
+      echo "[pre-push] npm test"
+      npm test
+      return 0
+    fi
+  fi
+
+  # Python — prefer pytest inside venv
+  if [[ -f pyproject.toml ]] || [[ -f setup.py ]] || [[ -f requirements.txt ]]; then
+    local pytest_bin="pytest"
+    if [[ -x venv/bin/pytest ]]; then pytest_bin="venv/bin/pytest"
+    elif [[ -x .venv/bin/pytest ]]; then pytest_bin=".venv/bin/pytest"; fi
+    if command -v "$pytest_bin" &>/dev/null; then
+      echo "[pre-push] pytest"
+      "$pytest_bin" --tb=short -q
+      return 0
+    fi
+  fi
+
+  # Go
+  if [[ -f go.mod ]] && command -v go &>/dev/null; then
+    echo "[pre-push] go test ./..."
+    go test ./...
+    return 0
+  fi
+
+  # Rust
+  if [[ -f Cargo.toml ]] && command -v cargo &>/dev/null; then
+    echo "[pre-push] cargo test"
+    cargo test
+    return 0
+  fi
+
+  # Flutter / Dart
+  if [[ -f pubspec.yaml ]] && command -v flutter &>/dev/null; then
+    echo "[pre-push] flutter test"
+    flutter test
+    return 0
+  fi
+
+  echo "[pre-push] No test runner detected — skipping. Run tests manually before pushing."
+  return 0
+}
+
+run_tests
+echo "[pre-push] All checks passed."
