@@ -223,3 +223,12 @@ Versioning and releases
   - Auto-tag (`.github/workflows/auto-tag.yml`): manually triggered via `workflow_dispatch` to bump `VERSION` from conventional commits and create a semver tag.
   - Production pinning: when a semver tag is created by release automation from `main`, the same workflow run fast-forwards `production` to that tag commit.
   - Release: publishes a GitHub Release when a `*.*.*` tag is pushed.
+
+
+---
+
+## Clone traffic
+
+![Clone traffic](https://raw.githubusercontent.com/nikolareljin/stats/main/charts/script-helpers.svg)
+
+_Updated daily. Total and unique cloners over the last 14 days._
