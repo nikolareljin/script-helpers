@@ -40,6 +40,7 @@ if ($UseDocker) {
     if (-not $SkipTest) { $parts += $TestCmd }
     if ($parts.Count -gt 0) {
         docker run --rm -v "${absWorkdir}:/work" -w /work $img sh -c ($parts -join ' && ')
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
 } else {
     $py = python_resolve_3 $PythonBin
@@ -55,12 +56,18 @@ if ($UseDocker) {
         if (Test-Path $req) {
             log_info "Installing dependencies from requirements.txt"
             & $venvPy -m pip install -r $req --quiet
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         }
     }
     if (-not $SkipTest) {
         log_info "Running: $TestCmd"
         Push-Location $absWorkdir
-        try { Invoke-Expression $TestCmd } finally { Pop-Location }
+        try {
+            $exe, $rest = $TestCmd -split '\s+', 2
+            $argList = if ($rest) { $rest -split '\s+' } else { @() }
+            & $exe @argList
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        } finally { Pop-Location }
     }
 }
 print_success "Python CI complete."

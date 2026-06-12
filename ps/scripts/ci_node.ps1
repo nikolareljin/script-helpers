@@ -47,9 +47,15 @@ function _Run {
     if ($UseDocker) {
         $img = if ($Image) { $Image } elseif ($env:CI_NODE_IMAGE) { $env:CI_NODE_IMAGE } else { 'node:22-alpine' }
         docker run --rm -v "${absWorkdir}:/work" -w /work $img sh -c $Cmd
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     } else {
         Push-Location $absWorkdir
-        try { Invoke-Expression $Cmd } finally { Pop-Location }
+        try {
+            $exe, $rest = $Cmd -split '\s+', 2
+            $argList = if ($rest) { $rest -split '\s+' } else { @() }
+            & $exe @argList
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        } finally { Pop-Location }
     }
 }
 

@@ -36,17 +36,21 @@ if ($UseDocker) {
     $cmds = "cargo check $manifestFlag"
     if (-not $Quick) { $cmds += " && cargo clippy $manifestFlag && cargo test $manifestFlag" }
     docker run --rm -v "${absWorkdir}:/work" -w /work $img sh -c $cmds
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 } else {
     if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { Write-Error "cargo not found on PATH. Install Rust via https://rustup.rs"; exit 1 }
     Push-Location $absWorkdir
     try {
         log_info "cargo check"
         cargo check @cargoArgs
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         if (-not $Quick) {
             log_info "cargo clippy"
             cargo clippy @cargoArgs
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             log_info "cargo test"
             cargo test @cargoArgs
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         }
     } finally { Pop-Location }
 }
