@@ -32,7 +32,9 @@ function download_file {
         $Output = [System.IO.Path]::GetFileName(([uri]$Url).LocalPath)
     }
     Write-Host "[script-helpers] Downloading $Url -> $Output"
-    Invoke-WebRequest -Uri $Url -OutFile $Output -UseBasicParsing
+    $iwrArgs = @{ Uri = $Url; OutFile = $Output }
+    if ($PSVersionTable.PSVersion.Major -lt 6) { $iwrArgs['UseBasicParsing'] = $true }
+    Invoke-WebRequest @iwrArgs
 }
 
 function verify_checksum {

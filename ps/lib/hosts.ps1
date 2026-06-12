@@ -12,7 +12,7 @@ function add_hosts_entry {
     }
     $entry = "$Ip`t$Domain"
     $content = Get-Content $_SHLIB_HOSTS_FILE -Raw
-    if ($content -match [regex]::Escape($Domain)) {
+    if ($content -match "(?im)(^|\s)$([regex]::Escape($Domain))(\s|$)") {
         if (Get-Command log_info -ErrorAction SilentlyContinue) { log_info "Host entry for $Domain already exists." }
         return
     }
@@ -26,7 +26,7 @@ function remove_hosts_entry {
         throw "Admin elevation required"
     }
     $lines  = Get-Content $_SHLIB_HOSTS_FILE
-    $filtered = $lines | Where-Object { $_ -notmatch [regex]::Escape($Domain) }
+    $filtered = $lines | Where-Object { $_ -notmatch "(?i)(^|\s)$([regex]::Escape($Domain))(\s|$)" }
     Set-Content -Path $_SHLIB_HOSTS_FILE -Value $filtered
     if (Get-Command print_success -ErrorAction SilentlyContinue) { print_success "Removed hosts entry for $Domain" }
 }

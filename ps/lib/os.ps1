@@ -32,7 +32,7 @@ function is_wsl {
 # This function is a no-op shim so scripts that call run_with_optional_sudo still work.
 function run_with_optional_sudo {
     param([string]$UseSudo, [Parameter(ValueFromRemainingArguments)][string[]]$Cmd)
-    & $Cmd[0] $Cmd[1..($Cmd.Length - 1)]
+    if ($Cmd.Length -eq 1) { & $Cmd[0] } else { & $Cmd[0] $Cmd[1..($Cmd.Length - 1)] }
 }
 
 function is_admin {

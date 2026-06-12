@@ -4,7 +4,7 @@
 # ----------------------------------------------------
 
 $ScriptDir = $PSScriptRoot
-$env:SCRIPT_HELPERS_DIR = if ($env:SCRIPT_HELPERS_DIR) { $env:SCRIPT_HELPERS_DIR } else { Split-Path $ScriptDir -Parent }
+$env:SCRIPT_HELPERS_DIR = if ($env:SCRIPT_HELPERS_DIR) { $env:SCRIPT_HELPERS_DIR } else { Split-Path (Split-Path $ScriptDir -Parent) -Parent }
 . (Join-Path $env:SCRIPT_HELPERS_DIR 'ps\helpers.ps1')
 Import-ScriptHelpers logging
 

@@ -15,7 +15,7 @@ param(
 )
 
 $ScriptDir = $PSScriptRoot
-$env:SCRIPT_HELPERS_DIR = if ($env:SCRIPT_HELPERS_DIR) { $env:SCRIPT_HELPERS_DIR } else { Split-Path $ScriptDir -Parent }
+$env:SCRIPT_HELPERS_DIR = if ($env:SCRIPT_HELPERS_DIR) { $env:SCRIPT_HELPERS_DIR } else { Split-Path (Split-Path $ScriptDir -Parent) -Parent }
 . (Join-Path $env:SCRIPT_HELPERS_DIR 'ps\helpers.ps1')
 Import-ScriptHelpers help logging version env
 
@@ -23,7 +23,7 @@ if ($Help) { display_help $PSCommandPath; exit 0 }
 
 if (-not (Test-Path $File)) { Write-Error "VERSION file not found: $File"; exit 1 }
 $version = (Get-Content $File -Raw).Trim()
-if ($version -notmatch '^\d+\.\d+\.\d+') { Write-Error "Invalid version in $File: $version"; exit 1 }
+if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { Write-Error "Invalid version in $File: $version"; exit 1 }
 
 log_info "Version: $version"
 

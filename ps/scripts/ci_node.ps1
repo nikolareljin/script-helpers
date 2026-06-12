@@ -33,7 +33,7 @@ param(
 if ($env:CI -eq 'true') { Write-Error "This script is for local use only."; exit 1 }
 
 $ScriptDir = $PSScriptRoot
-$env:SCRIPT_HELPERS_DIR = if ($env:SCRIPT_HELPERS_DIR) { $env:SCRIPT_HELPERS_DIR } else { Split-Path $ScriptDir -Parent }
+$env:SCRIPT_HELPERS_DIR = if ($env:SCRIPT_HELPERS_DIR) { $env:SCRIPT_HELPERS_DIR } else { Split-Path (Split-Path $ScriptDir -Parent) -Parent }
 . (Join-Path $env:SCRIPT_HELPERS_DIR 'ps\helpers.ps1')
 Import-ScriptHelpers help logging ci_defaults
 
@@ -45,8 +45,7 @@ if (-not $absWorkdir) { $absWorkdir = Join-Path $PWD.Path $Workdir }
 function _Run {
     param([string]$Cmd)
     if ($UseDocker) {
-        $img = if ($Image) { $Image } else { "node:$($env:CI_NODE_IMAGE ?? 'node:22-alpine')" }
-        $img = if ($Image) { $Image } else { $env:CI_NODE_IMAGE }
+        $img = if ($Image) { $Image } elseif ($env:CI_NODE_IMAGE) { $env:CI_NODE_IMAGE } else { 'node:22-alpine' }
         docker run --rm -v "${absWorkdir}:/work" -w /work $img sh -c $Cmd
     } else {
         Push-Location $absWorkdir

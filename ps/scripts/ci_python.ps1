@@ -25,7 +25,7 @@ param(
 if ($env:CI -eq 'true') { Write-Error "This script is for local use only."; exit 1 }
 
 $ScriptDir = $PSScriptRoot
-$env:SCRIPT_HELPERS_DIR = if ($env:SCRIPT_HELPERS_DIR) { $env:SCRIPT_HELPERS_DIR } else { Split-Path $ScriptDir -Parent }
+$env:SCRIPT_HELPERS_DIR = if ($env:SCRIPT_HELPERS_DIR) { $env:SCRIPT_HELPERS_DIR } else { Split-Path (Split-Path $ScriptDir -Parent) -Parent }
 . (Join-Path $env:SCRIPT_HELPERS_DIR 'ps\helpers.ps1')
 Import-ScriptHelpers help logging python ci_defaults
 
@@ -34,8 +34,13 @@ if ($Help) { display_help $PSCommandPath; exit 0 }
 $absWorkdir = if ([System.IO.Path]::IsPathRooted($Workdir)) { $Workdir } else { Join-Path $PWD.Path $Workdir }
 
 if ($UseDocker) {
-    $img = if ($Image) { $Image } else { $env:CI_PYTHON_IMAGE }
-    docker run --rm -v "${absWorkdir}:/work" -w /work $img sh -c "pip install -r requirements.txt && $TestCmd"
+    $img = if ($Image) { $Image } elseif ($env:CI_PYTHON_IMAGE) { $env:CI_PYTHON_IMAGE } else { 'python:3-slim' }
+    $parts = @()
+    if (-not $Quick) { $parts += 'pip install -r requirements.txt' }
+    if (-not $SkipTest) { $parts += $TestCmd }
+    if ($parts.Count -gt 0) {
+        docker run --rm -v "${absWorkdir}:/work" -w /work $img sh -c ($parts -join ' && ')
+    }
 } else {
     $py = python_resolve_3 $PythonBin
     if (-not $py) { Write-Error "Python 3.8+ not found on PATH."; exit 1 }

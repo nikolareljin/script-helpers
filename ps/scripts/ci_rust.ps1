@@ -21,17 +21,18 @@ param(
 if ($env:CI -eq 'true') { Write-Error "This script is for local use only."; exit 1 }
 
 $ScriptDir = $PSScriptRoot
-$env:SCRIPT_HELPERS_DIR = if ($env:SCRIPT_HELPERS_DIR) { $env:SCRIPT_HELPERS_DIR } else { Split-Path $ScriptDir -Parent }
+$env:SCRIPT_HELPERS_DIR = if ($env:SCRIPT_HELPERS_DIR) { $env:SCRIPT_HELPERS_DIR } else { Split-Path (Split-Path $ScriptDir -Parent) -Parent }
 . (Join-Path $env:SCRIPT_HELPERS_DIR 'ps\helpers.ps1')
 Import-ScriptHelpers help logging ci_defaults
 
 if ($Help) { display_help $PSCommandPath; exit 0 }
 
 $absWorkdir = if ([System.IO.Path]::IsPathRooted($Workdir)) { $Workdir } else { Join-Path $PWD.Path $Workdir }
-$manifestFlag = if ($Manifest) { "--manifest-path $Manifest" } else { '' }
+$cargoArgs  = if ($Manifest) { @('--manifest-path', $Manifest) } else { @() }
 
 if ($UseDocker) {
-    $img  = if ($Image) { $Image } else { $env:CI_RUST_IMAGE }
+    $img          = if ($Image) { $Image } elseif ($env:CI_RUST_IMAGE) { $env:CI_RUST_IMAGE } else { 'rust:latest' }
+    $manifestFlag = if ($Manifest) { "--manifest-path '$Manifest'" } else { '' }
     $cmds = "cargo check $manifestFlag"
     if (-not $Quick) { $cmds += " && cargo clippy $manifestFlag && cargo test $manifestFlag" }
     docker run --rm -v "${absWorkdir}:/work" -w /work $img sh -c $cmds
@@ -40,12 +41,12 @@ if ($UseDocker) {
     Push-Location $absWorkdir
     try {
         log_info "cargo check"
-        Invoke-Expression "cargo check $manifestFlag"
+        cargo check @cargoArgs
         if (-not $Quick) {
             log_info "cargo clippy"
-            Invoke-Expression "cargo clippy $manifestFlag"
+            cargo clippy @cargoArgs
             log_info "cargo test"
-            Invoke-Expression "cargo test $manifestFlag"
+            cargo test @cargoArgs
         }
     } finally { Pop-Location }
 }

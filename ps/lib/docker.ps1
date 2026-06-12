@@ -3,23 +3,28 @@
 function get_docker_compose_cmd {
     $result = docker compose version 2>&1
     if ($LASTEXITCODE -eq 0) { return 'docker compose' }
-    if (command_exists 'docker-compose') { return 'docker-compose' }
+    if (Get-Command 'docker-compose' -ErrorAction SilentlyContinue) { return 'docker-compose' }
     if (Get-Command log_error -ErrorAction SilentlyContinue) { log_error "Neither 'docker compose' nor 'docker-compose' found." }
     throw "Docker Compose not available"
 }
 
 function docker_compose {
     param([Parameter(ValueFromRemainingArguments)][string[]]$Args)
-    $cmd = get_docker_compose_cmd
-    if (Get-Command log_debug -ErrorAction SilentlyContinue) { log_debug "Executing: $cmd $Args" }
-    & docker @(($cmd -split ' ')[1..99] + $Args)
+    $cmd   = get_docker_compose_cmd
+    if (Get-Command log_debug -ErrorAction SilentlyContinue) { log_debug "Executing: $cmd $($Args -join ' ')" }
+    $parts = $cmd -split ' '
+    if ($parts.Count -gt 1) {
+        & $parts[0] @($parts[1..($parts.Count - 1)] + $Args)
+    } else {
+        & $parts[0] @Args
+    }
 }
 
 function run_docker_compose        { param([Parameter(ValueFromRemainingArguments)][string[]]$A); docker_compose @A }
 function run_docker_compose_command { param([Parameter(ValueFromRemainingArguments)][string[]]$A); docker_compose @A }
 
 function check_docker {
-    if (-not (command_exists 'docker')) {
+    if (-not (Get-Command 'docker' -ErrorAction SilentlyContinue)) {
         if (Get-Command log_error -ErrorAction SilentlyContinue) { log_error "Docker CLI not found. Install Docker Desktop and ensure it is on PATH." }
         return $false
     }
@@ -36,8 +41,8 @@ function service_is_running {
     param([string]$ServiceName, [string]$ComposeFile = '')
     $args = @('ps', '--services', '--filter', 'status=running')
     if ($ComposeFile) { $args = @('-f', $ComposeFile) + $args }
-    $running = docker_compose @args 2>/dev/null
-    return ($running -split '\n') -contains $ServiceName
+    $running = docker_compose @args 2>$null
+    return ($running -split '\r?\n') -contains $ServiceName
 }
 
 function wait_for_service {

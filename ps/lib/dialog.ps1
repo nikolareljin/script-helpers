@@ -44,6 +44,8 @@ function dialog_password {
 function dialog_download_file {
     param([string]$Url, [string]$Output, [string]$Title = 'Downloading')
     Write-Progress -Activity $Title -Status "Downloading $Url"
-    Invoke-WebRequest -Uri $Url -OutFile $Output -UseBasicParsing
+    $iwrArgs = @{ Uri = $Url; OutFile = $Output }
+    if ($PSVersionTable.PSVersion.Major -lt 6) { $iwrArgs['UseBasicParsing'] = $true }
+    Invoke-WebRequest @iwrArgs
     Write-Progress -Activity $Title -Completed
 }

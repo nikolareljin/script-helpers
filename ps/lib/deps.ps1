@@ -2,9 +2,9 @@
 # Uses winget (Windows 11 built-in) > choco > scoop for package installation.
 
 function _Deps_GetPackageManager {
-    if (command_exists winget) { return 'winget' }
-    if (command_exists choco)  { return 'choco'  }
-    if (command_exists scoop)  { return 'scoop'  }
+    if (Get-Command winget -ErrorAction SilentlyContinue) { return 'winget' }
+    if (Get-Command choco  -ErrorAction SilentlyContinue) { return 'choco'  }
+    if (Get-Command scoop  -ErrorAction SilentlyContinue) { return 'scoop'  }
     return $null
 }
 
@@ -34,7 +34,7 @@ function require_command {
     param([Parameter(Mandatory, ValueFromRemainingArguments)][string[]]$Names)
     $missing = @()
     foreach ($name in $Names) {
-        if (-not (command_exists $name)) { $missing += $name }
+        if (-not (Get-Command $name -ErrorAction SilentlyContinue)) { $missing += $name }
     }
     if ($missing.Count -gt 0) {
         $msg = "Required commands not found: $($missing -join ', ')"

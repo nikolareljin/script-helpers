@@ -3,7 +3,9 @@
 function python_version {
     param([string]$Bin)
     try {
-        $out = & $Bin -c 'import sys; v=sys.version_info; print("{}.{}".format(v[0],v[1]))' 2>&1
+        $pyArgs = @('-c', 'import sys; v=sys.version_info; print("{}.{}".format(v[0],v[1]))')
+        if ($Bin -eq 'py') { $pyArgs = @('-3') + $pyArgs }
+        $out = & $Bin @pyArgs 2>&1
         if ($LASTEXITCODE -eq 0) { return $out.Trim() }
     } catch {}
     return $null
@@ -51,7 +53,8 @@ function python_ensure_venv {
 
     $venvPython = Join-Path $VenvDir 'Scripts\python.exe'
     if (-not (Test-Path $venvPython)) {
-        & $PythonBin -m venv $VenvDir
+        $venvArgs = if ($PythonBin -eq 'py') { @('-3', '-m', 'venv', $VenvDir) } else { @('-m', 'venv', $VenvDir) }
+        & $PythonBin @venvArgs
         if ($LASTEXITCODE -ne 0) {
             if (Get-Command print_error -ErrorAction SilentlyContinue) { print_error "Failed to create virtualenv at $VenvDir" }
             throw "Failed to create venv"

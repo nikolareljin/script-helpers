@@ -52,10 +52,12 @@ function _Shlib_SourceModule {
     if ($_SHLIB_LOADED.ContainsKey($Name)) { return }
     $file = Join-Path $_SHLIB_LIB_DIR "$Name.ps1"
     if (-not (Test-Path $file)) {
-        Write-Error "[script-helpers] Unknown module: $Name"
-        return
+        throw "[script-helpers] Unknown module: $Name"
     }
-    . $file
+    # Dot-sourcing inside a function puts symbols in the function's transient scope.
+    # New-Module + Import-Module -Global exports them into the global session state.
+    $sb = [scriptblock]::Create([System.IO.File]::ReadAllText($file))
+    New-Module -Name "shlib_$Name" -ScriptBlock $sb | Import-Module -Global -Force
     $_SHLIB_LOADED[$Name] = $true
 }
 

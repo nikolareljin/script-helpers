@@ -26,7 +26,7 @@ function json_get {
 # jq-style query. If jq is installed, use it; otherwise fall back to PS.
 function jq_query {
     param([string]$Filter, [string]$Json)
-    if (command_exists 'jq') {
+    if (Get-Command 'jq' -ErrorAction SilentlyContinue) {
         return ($Json | jq $Filter)
     }
     # Minimal fallback: supports simple `.field` access only.
