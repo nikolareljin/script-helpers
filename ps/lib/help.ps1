@@ -120,7 +120,9 @@ function show_usage {
 Usage: $name [OPTIONS]
 
 Common Options:
-  -Help     Show this help message
+  -Help, -h, --help         Show this help message
+  -Verbose, -v, --verbose   Enable verbose output
+  -Debug, -d, --debug       Enable debug logging
 
 Environment Variables:
   DEBUG=true  Enable debug logging
@@ -132,9 +134,9 @@ function parse_common_args {
     param([string[]]$Args)
     foreach ($arg in $Args) {
         switch ($arg) {
-            '-Help'    { $env:SHLIB_HELP_SHOWN = 'true'; show_help; exit 0 }
-            '-Verbose' { $env:VERBOSE = 'true' }
-            '-Debug'   { $env:DEBUG = 'true' }
+            { $_ -in '-Help', '-h', '--help' }       { $env:SHLIB_HELP_SHOWN = 'true'; show_help; exit 0 }
+            { $_ -in '-Verbose', '-v', '--verbose' }  { $env:VERBOSE = 'true' }
+            { $_ -in '-Debug', '-d', '--debug' }      { $env:DEBUG = 'true' }
         }
     }
 }

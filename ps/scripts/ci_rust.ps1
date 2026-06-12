@@ -31,12 +31,19 @@ $absWorkdir = if ([System.IO.Path]::IsPathRooted($Workdir)) { $Workdir } else { 
 $cargoArgs  = if ($Manifest) { @('--manifest-path', $Manifest) } else { @() }
 
 if ($UseDocker) {
-    $img          = if ($Image) { $Image } elseif ($env:CI_RUST_IMAGE) { $env:CI_RUST_IMAGE } else { 'rust:latest' }
-    $manifestFlag = if ($Manifest) { "--manifest-path '$Manifest'" } else { '' }
-    $cmds = "cargo check $manifestFlag"
-    if (-not $Quick) { $cmds += " && cargo clippy $manifestFlag && cargo test $manifestFlag" }
-    docker run --rm -v "${absWorkdir}:/work" -w /work $img sh -c $cmds
+    $img     = if ($Image) { $Image } elseif ($env:CI_RUST_IMAGE) { $env:CI_RUST_IMAGE } else { 'rust:latest' }
+    $volArgs = @('run', '--rm', '-v', "${absWorkdir}:/work", '-w', '/work', $img)
+    log_info "cargo check"
+    docker @volArgs cargo check @cargoArgs
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    if (-not $Quick) {
+        log_info "cargo clippy"
+        docker @volArgs cargo clippy @cargoArgs
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        log_info "cargo test"
+        docker @volArgs cargo test @cargoArgs
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
 } else {
     if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { Write-Error "cargo not found on PATH. Install Rust via https://rustup.rs"; exit 1 }
     Push-Location $absWorkdir
