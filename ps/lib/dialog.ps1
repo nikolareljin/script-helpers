@@ -20,7 +20,7 @@ function dialog_yesno {
 }
 
 function dialog_menu {
-    param([string]$Title = 'Menu', [string[]]$Items, [string]$Prompt = 'Select')
+    param([string]$Title = 'Menu', [Parameter(Mandatory)][string[]]$Items, [string]$Prompt = 'Select')
     Write-Host "--- $Title ---"
     for ($i = 0; $i -lt $Items.Count; $i++) {
         Write-Host "  $($i + 1)) $($Items[$i])"

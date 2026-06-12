@@ -8,9 +8,10 @@ function open_url {
 function check_port_open {
     param([string]$Host = 'localhost', [int]$Port, [int]$TimeoutMs = 1000)
     try {
-        $tcp = [System.Net.Sockets.TcpClient]::new()
+        $tcp  = [System.Net.Sockets.TcpClient]::new()
         $conn = $tcp.BeginConnect($Host, $Port, $null, $null)
-        $ok = $conn.AsyncWaitHandle.WaitOne($TimeoutMs, $false)
+        $ok   = $conn.AsyncWaitHandle.WaitOne($TimeoutMs, $false)
+        if ($ok) { $tcp.EndConnect($conn) }  # throws on refused/error; WaitOne alone doesn't
         $tcp.Close()
         return $ok
     } catch {
