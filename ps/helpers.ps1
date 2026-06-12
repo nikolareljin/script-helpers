@@ -9,8 +9,6 @@
 #   . (Join-Path $PSScriptRoot '..\script-helpers\ps\helpers.ps1')
 #   Import-ScriptHelpers logging
 
-Set-StrictMode -Off
-
 function _Shlib_ResolveRoot {
     if ($env:SCRIPT_HELPERS_DIR -and (Test-Path $env:SCRIPT_HELPERS_DIR)) {
         return $env:SCRIPT_HELPERS_DIR

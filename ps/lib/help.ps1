@@ -121,8 +121,6 @@ Usage: $name [OPTIONS]
 
 Common Options:
   -Help     Show this help message
-  -Verbose  Enable verbose output
-  -Debug    Enable debug output
 
 Environment Variables:
   DEBUG=true  Enable debug logging

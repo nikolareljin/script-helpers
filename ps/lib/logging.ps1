@@ -13,7 +13,7 @@ function _Shlib_WriteColor {
         White   = 'White';   Gray    = 'Gray'
     }
     if ($Stderr) {
-        $host.UI.WriteErrorLine($Message)
+        [Console]::Error.WriteLine($Message)
         return
     }
     $fc = if ($map.ContainsKey($Color)) { $map[$Color] } else { 'White' }
@@ -30,9 +30,9 @@ function print_color {
 }
 
 function print_info    { _Shlib_WriteColor White   "[Info]: $args" }
-function print_error   { _Shlib_WriteColor Red     "[Error!]: $args"; [Console]::Beep(800, 200) }
-function print_success { _Shlib_WriteColor Green   "Success [OK]: $args" }
-function print_warning { _Shlib_WriteColor Yellow  "[Warning!]: $args"; [Console]::Beep(800, 200) }
+function print_error   { _Shlib_WriteColor Red    "[Error!]: $args";   try { [Console]::Beep(800, 200) } catch {} }
+function print_success { _Shlib_WriteColor Green  "Success [OK]: $args" }
+function print_warning { _Shlib_WriteColor Yellow "[Warning!]: $args"; try { [Console]::Beep(800, 200) } catch {} }
 function print_line    { Write-Host "----------------------------------------" }
 
 function log_info  { _Shlib_WriteColor Green  "[INFO] $args" -Stderr }
