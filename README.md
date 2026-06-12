@@ -56,6 +56,10 @@ PowerShell CI scripts (`ps/scripts/`):
 # Run Python CI natively
 .\ps\scripts\ci_python.ps1 -Workdir . -Quick
 
+# Python CI — quick mode also works in Docker
+.\ps\scripts\ci_python.ps1 -Workdir . -Quick -UseDocker
+.\ps\scripts\ci_python.ps1 -Workdir . -SkipTest -UseDocker
+
 # Go and Rust CI
 .\ps\scripts\ci_go.ps1 -Workdir .
 .\ps\scripts\ci_rust.ps1 -Workdir . -Quick
@@ -68,6 +72,9 @@ PowerShell CI scripts (`ps/scripts/`):
 ```
 
 All CI scripts also accept `-UseDocker` to run inside Docker Desktop (Linux containers) instead of natively.
+`-Quick` and `-SkipTest` flags are honoured in both native and Docker modes.
+
+Scripts auto-detect `SCRIPT_HELPERS_DIR` from `$PSScriptRoot`; you can override it by setting the env var before invoking the script.
 
 Notes:
 - PS 5.1 (Windows built-in) and PS 7+ are both supported. ANSI color output works automatically on PS 7+.
@@ -75,6 +82,7 @@ Notes:
 - `dialog.ps1` uses `Read-Host` prompts instead of the Linux `dialog` ncurses widget.
 - `ollama.ps1` is not included; use the Ollama Windows installer directly.
 - Package installation via `deps.ps1` uses `winget` (Windows 11) → `choco` → `scoop`, in that order.
+- `hosts.ps1` matches domains as complete tokens; `example.com` will not match `myexample.com`.
 
 Quick start
 -----------

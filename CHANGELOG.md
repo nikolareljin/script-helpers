@@ -16,7 +16,7 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   - 19 PowerShell modules in `ps/lib/` mirroring all core Bash lib modules:
     `logging`, `os`, `env`, `file`, `deps`, `help`, `version`, `docker`, `ports`, `json`,
     `browser`, `traps`, `python`, `clipboard`, `dialog`, `certs`, `hosts`, `ci_defaults`, `packaging`.
-  - `ps/scripts/ci_node.ps1`, `ci_python.ps1`, `ci_go.ps1`, `ci_rust.ps1` — CI runners that work natively on Windows (no Docker required); pass `-UseDocker` for Docker Desktop mode.
+  - `ps/scripts/ci_node.ps1`, `ci_python.ps1`, `ci_go.ps1`, `ci_rust.ps1` — CI runners that work natively on Windows (no Docker required); pass `-UseDocker` for Docker Desktop mode. `-UseDocker` honours `-Quick` and `-SkipTest` in Python CI.
   - `ps/scripts/bump_version.ps1`, `tag_release.ps1` — version management for Windows.
   - `ps/scripts/example_logging.ps1` — demonstration script.
   - PS 5.1 (Windows built-in) and PS 7+ both supported.
@@ -25,6 +25,18 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   - `certs.ps1` uses Windows Certificate Store (`New-SelfSignedCertificate`, `Import-Certificate`).
   - `hosts.ps1` targets `C:\Windows\System32\drivers\etc\hosts` (requires admin elevation).
   - `dialog.ps1` uses `Read-Host`-based prompts (Windows has no ncurses `dialog` binary).
+- Fixed: `ps/helpers.ps1` — imported functions now survive into the caller's scope (`New-Module + Import-Module -Global`; previously dot-source inside a function discarded them on return).
+- Fixed: `ps/scripts/*.ps1` — `SCRIPT_HELPERS_DIR` auto-detection now resolves to the repo root correctly (scripts live two levels below root, not one).
+- Fixed: `ps/scripts/ci_node.ps1` — removed PS 7-only `??` null-coalescing operator; defaults to `node:22-alpine` when `CI_NODE_IMAGE` is unset.
+- Fixed: `ps/scripts/ci_rust.ps1` — replaced `Invoke-Expression` with splatted `cargo` args to prevent injection from paths with spaces.
+- Fixed: `ps/scripts/tag_release.ps1` — version regex now rejects trailing garbage while accepting pre-release suffixes (e.g. `1.2.3-rc1`).
+- Fixed: `ps/lib/docker.ps1` — `docker_compose` now correctly invokes `docker-compose` binary when the plugin form is unavailable; `2>/dev/null` replaced with `2>$null`; CRLF-safe output splitting.
+- Fixed: `ps/lib/os.ps1` — `run_with_optional_sudo` no longer passes a null arg when the command is a single token.
+- Fixed: `ps/lib/traps.ps1` — `setup_exit_trap` unregisters the previous subscription before registering a new one, preventing duplicate exit handlers.
+- Fixed: `ps/lib/file.ps1`, `ps/lib/dialog.ps1` — `-UseBasicParsing` gated to PS 5.1 only (removed deprecation warning on PS 7+).
+- Fixed: `ps/lib/python.ps1` — `py` launcher now always passes `-3` when detecting version and creating venvs.
+- Fixed: `ps/lib/deps.ps1`, `ps/lib/json.ps1` — replaced `command_exists` calls with `Get-Command` to remove hidden cross-module dependency.
+- Fixed: `ps/lib/hosts.ps1` — domain existence checks and removal now use word-boundary regex to avoid false matches on substrings.
 
 ## [0.13.0] - 2026-05-21
 
