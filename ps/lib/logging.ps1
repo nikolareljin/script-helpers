@@ -43,22 +43,22 @@ function print_color {
     }
 }
 
-function print_info    { _Shlib_WriteColor White   "[Info]: $args" }
-function print_error   { _Shlib_WriteColor Red    "[Error!]: $args";   try { [Console]::Beep(800, 200) } catch {} }
-function print_success { _Shlib_WriteColor Green  "Success [OK]: $args" }
-function print_warning { _Shlib_WriteColor Yellow "[Warning!]: $args"; try { [Console]::Beep(800, 200) } catch {} }
+function print_info    { _Shlib_WriteColor White   "[Info]: $($args -join ' ')" }
+function print_error   { _Shlib_WriteColor Red    "[Error!]: $($args -join ' ')";   try { [Console]::Beep(800, 200) } catch {} }
+function print_success { _Shlib_WriteColor Green  "Success [OK]: $($args -join ' ')" }
+function print_warning { _Shlib_WriteColor Yellow "[Warning!]: $($args -join ' ')"; try { [Console]::Beep(800, 200) } catch {} }
 function print_line    { Write-Host "----------------------------------------" }
 
-function log_info  { _Shlib_WriteColor Green  "[INFO] $args" -Stderr }
-function log_warn  { _Shlib_WriteColor Yellow "[WARN] $args" -Stderr }
-function log_error { _Shlib_WriteColor Red    "[ERROR] $args" -Stderr }
+function log_info  { _Shlib_WriteColor Green  "[INFO] $($args -join ' ')" -Stderr }
+function log_warn  { _Shlib_WriteColor Yellow "[WARN] $($args -join ' ')" -Stderr }
+function log_error { _Shlib_WriteColor Red    "[ERROR] $($args -join ' ')" -Stderr }
 function log_debug {
     if ($env:DEBUG -eq 'true') {
-        _Shlib_WriteColor Blue "[DEBUG] $args" -Stderr
+        _Shlib_WriteColor Blue "[DEBUG] $($args -join ' ')" -Stderr
     }
 }
 
-function print_red     { _Shlib_WriteColor Red     "$args" }
-function print_green   { _Shlib_WriteColor Green   "$args" }
-function print_yellow  { _Shlib_WriteColor Yellow  "$args" }
-function print_blue    { _Shlib_WriteColor Blue    "$args" }
+function print_red     { _Shlib_WriteColor Red     "$($args -join ' ')" }
+function print_green   { _Shlib_WriteColor Green   "$($args -join ' ')" }
+function print_yellow  { _Shlib_WriteColor Yellow  "$($args -join ' ')" }
+function print_blue    { _Shlib_WriteColor Blue    "$($args -join ' ')" }

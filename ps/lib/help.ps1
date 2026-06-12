@@ -59,7 +59,11 @@ function get_script_metadata {
 
         if (-not $matched -and $currentField) {
             if ($line -match '^#\s(.*)') {
-                $meta[$currentField] += "`n" + $Matches[1]
+                if ($meta[$currentField]) {
+                    $meta[$currentField] += "`n" + $Matches[1]
+                } else {
+                    $meta[$currentField] = $Matches[1]
+                }
             } elseif ($line -match '^#\s*-{3,}') {
                 $currentField = ''; break
             } elseif ($line -match '^#') {
