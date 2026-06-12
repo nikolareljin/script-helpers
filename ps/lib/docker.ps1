@@ -55,6 +55,6 @@ function wait_for_service {
         if (service_is_running $ServiceName $ComposeFile) { return $true }
         Start-Sleep -Seconds 2
     }
-    if (Get-Command log_error -ErrorAction SilentlyContinue) { log_error "Service '$ServiceName' did not become healthy within ${TimeoutSec}s" }
+    if (Get-Command log_error -ErrorAction SilentlyContinue) { log_error "Service '$ServiceName' did not become running within ${TimeoutSec}s" }
     return $false
 }
