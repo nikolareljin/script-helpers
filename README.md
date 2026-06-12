@@ -75,6 +75,8 @@ All CI scripts also accept `-UseDocker` to run inside Docker Desktop (Linux cont
 `-Quick` and `-SkipTest` flags are honoured in both native and Docker modes.
 `*Cmd` override parameters (e.g. `-TestCmd`) accept token arrays for commands with spaces or quotes: `-TestCmd "pytest","-k","my test"`.
 
+> **Note:** All `ci_*.ps1` scripts are for **local developer use only**. They exit immediately with an error when `CI=true` is set (as it would be in GitHub Actions or any standard CI environment), preventing accidental execution inside automated pipelines.
+
 Scripts auto-detect `SCRIPT_HELPERS_DIR` from `$PSScriptRoot`; you can override it by setting the env var before invoking the script.
 
 Notes:

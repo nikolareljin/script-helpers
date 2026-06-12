@@ -48,6 +48,9 @@ function Import-ScriptHelpers {
 function _Shlib_SourceModule {
     param([string]$Name)
     if ($_SHLIB_LOADED.ContainsKey($Name)) { return }
+    if ($Name -notmatch '^[a-zA-Z_][a-zA-Z0-9_]*$') {
+        throw "[script-helpers] Invalid module name: $Name"
+    }
     $file = Join-Path $_SHLIB_LIB_DIR "$Name.ps1"
     if (-not (Test-Path $file)) {
         throw "[script-helpers] Unknown module: $Name"

@@ -22,6 +22,11 @@ function install_package {
             'choco'  { choco install $pkg -y }
             'scoop'  { scoop install $pkg }
         }
+        if ($LASTEXITCODE -ne 0) {
+            $msg = "Failed to install package '$pkg' via $mgr (exit $LASTEXITCODE)"
+            if (Get-Command log_warn -ErrorAction SilentlyContinue) { log_warn $msg }
+            else { Write-Warning $msg }
+        }
     }
 }
 

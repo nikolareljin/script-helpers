@@ -44,7 +44,7 @@ function verify_checksum {
         [string]$Algorithm = 'SHA256'
     )
     $actual = (Get-FileHash -Path $FilePath -Algorithm $Algorithm).Hash
-    if ($actual -eq $ExpectedHash.ToUpper()) {
+    if ($actual -eq $ExpectedHash.Trim().ToUpper()) {
         if (Get-Command print_success -ErrorAction SilentlyContinue) { print_success "Checksum OK: $FilePath" }
         else { Write-Host "Checksum OK: $FilePath" }
         return $true

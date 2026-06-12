@@ -23,8 +23,15 @@ function _Shlib_WriteColor {
         }
         return
     }
-    $fc = if ($map.ContainsKey($Color)) { $map[$Color] } else { 'White' }
-    Write-Host $Message -ForegroundColor $fc
+    if ($_SHLIB_ANSI) {
+        $ansiMap = @{ Red='31'; Green='32'; Yellow='33'; Blue='34'; Cyan='36'; Magenta='35'; White='37'; Gray='90' }
+        $esc  = [char]27
+        $code = if ($ansiMap.ContainsKey($Color)) { $ansiMap[$Color] } else { '37' }
+        Write-Output "${esc}[${code}m${Message}${esc}[0m"
+    } else {
+        $fc = if ($map.ContainsKey($Color)) { $map[$Color] } else { 'White' }
+        Write-Host $Message -ForegroundColor $fc
+    }
 }
 
 function print_color {
