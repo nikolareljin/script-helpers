@@ -46,6 +46,7 @@ if (-not (Test-Path $absWorkdir -PathType Container)) { Write-Error "Working dir
 
 function _Run {
     param([string[]]$Cmd)
+    if (-not $Cmd -or $Cmd.Count -eq 0) { Write-Error "_Run: command array must not be empty"; exit 1 }
     $exe     = $Cmd[0]
     $cmdArgs = if ($Cmd.Length -gt 1) { $Cmd[1..($Cmd.Length - 1)] } else { @() }
     if ($UseDocker) {

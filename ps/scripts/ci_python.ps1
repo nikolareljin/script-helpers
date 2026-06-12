@@ -31,6 +31,7 @@ $env:SCRIPT_HELPERS_DIR = if ($env:SCRIPT_HELPERS_DIR) { $env:SCRIPT_HELPERS_DIR
 Import-ScriptHelpers help logging python ci_defaults
 
 if ($Help) { display_help $PSCommandPath; exit 0 }
+if ($TestCmd.Count -eq 0) { Write-Error "-TestCmd must contain at least one token (the executable)."; exit 1 }
 
 $absWorkdir = if ([System.IO.Path]::IsPathRooted($Workdir)) { $Workdir } else { Join-Path $PWD.Path $Workdir }
 if (-not (Test-Path $absWorkdir -PathType Container)) { Write-Error "Working directory not found: $absWorkdir"; exit 1 }

@@ -28,6 +28,9 @@ function _Shlib_WriteColor {
         $esc  = [char]27
         $code = if ($ansiMap.ContainsKey($Color)) { $ansiMap[$Color] } else { '37' }
         Write-Output "${esc}[${code}m${Message}${esc}[0m"
+    } elseif ([Console]::IsOutputRedirected) {
+        # Stdout is captured/redirected — emit plain text so callers get the message
+        Write-Output $Message
     } else {
         $fc = if ($map.ContainsKey($Color)) { $map[$Color] } else { 'White' }
         Write-Host $Message -ForegroundColor $fc
@@ -47,7 +50,10 @@ function print_info    { _Shlib_WriteColor White   "[Info]: $($args -join ' ')" 
 function print_error   { _Shlib_WriteColor Red    "[Error!]: $($args -join ' ')";   try { [Console]::Beep(800, 200) } catch {} }
 function print_success { _Shlib_WriteColor Green  "Success [OK]: $($args -join ' ')" }
 function print_warning { _Shlib_WriteColor Yellow "[Warning!]: $($args -join ' ')"; try { [Console]::Beep(800, 200) } catch {} }
-function print_line    { Write-Host "----------------------------------------" }
+function print_line {
+    if ([Console]::IsOutputRedirected) { Write-Output "----------------------------------------" }
+    else { Write-Host "----------------------------------------" }
+}
 
 function log_info  { _Shlib_WriteColor Green  "[INFO] $($args -join ' ')" -Stderr }
 function log_warn  { _Shlib_WriteColor Yellow "[WARN] $($args -join ' ')" -Stderr }
