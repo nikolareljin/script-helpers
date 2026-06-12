@@ -24,6 +24,7 @@ function load_env {
         if ($line -match '^([^=]+)=(.*)$') {
             $key = $Matches[1].Trim()
             $val = $Matches[2].Trim() -replace '^"(.*)"$','$1' -replace "^'(.*)'$",'$1'
+            $val = resolve_env_value $val
             [System.Environment]::SetEnvironmentVariable($key, $val, 'Process')
         }
     }

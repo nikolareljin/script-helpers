@@ -2,24 +2,25 @@
 # DESCRIPTION: Run Python CI steps (venv, install, test) on Windows.
 # USAGE: ps\scripts\ci_python.ps1 [-Workdir <path>] [-SkipTest] [-Quick]
 # PARAMETERS:
-#   -Workdir <path>   Working directory (default: current dir).
-#   -SkipTest         Skip pytest step.
-#   -Quick            Skip install, only run tests.
-#   -PythonBin <bin>  Python binary to use (auto-detected by default).
-#   -TestCmd <cmd>    Override test command (default: pytest).
-#   -UseDocker        Run inside Docker Desktop instead of natively.
-#   -Image <img>      Docker image override (requires -UseDocker).
-#   -Help             Show this help message.
+#   -Workdir <path>      Working directory (default: current dir).
+#   -SkipTest            Skip pytest step.
+#   -Quick               Skip install, only run tests.
+#   -PythonBin <bin>     Python binary to use (auto-detected by default).
+#   -TestCmd <tok...>    Override test command tokens (default: pytest).
+#   -UseDocker           Run inside Docker Desktop instead of natively.
+#   -Image <img>         Docker image override (requires -UseDocker).
+#   -Help                Show this help message.
+# EXAMPLE: .\ci_python.ps1 -TestCmd "pytest","-k","my test"
 # ----------------------------------------------------
 param(
-    [string] $Workdir   = '.',
-    [switch] $SkipTest,
-    [switch] $Quick,
-    [string] $PythonBin = '',
-    [string] $TestCmd   = 'pytest',
-    [switch] $UseDocker,
-    [string] $Image     = '',
-    [switch] $Help
+    [string]   $Workdir   = '.',
+    [switch]   $SkipTest,
+    [switch]   $Quick,
+    [string]   $PythonBin = '',
+    [string[]] $TestCmd   = @('pytest'),
+    [switch]   $UseDocker,
+    [string]   $Image     = '',
+    [switch]   $Help
 )
 
 if ($env:CI -eq 'true') { Write-Error "This script is for local use only."; exit 1 }
@@ -34,12 +35,16 @@ if ($Help) { display_help $PSCommandPath; exit 0 }
 $absWorkdir = if ([System.IO.Path]::IsPathRooted($Workdir)) { $Workdir } else { Join-Path $PWD.Path $Workdir }
 
 if ($UseDocker) {
-    $img = if ($Image) { $Image } elseif ($env:CI_PYTHON_IMAGE) { $env:CI_PYTHON_IMAGE } else { 'python:3-slim' }
-    $parts = @()
-    if (-not $Quick) { $parts += 'pip install -r requirements.txt' }
-    if (-not $SkipTest) { $parts += $TestCmd }
-    if ($parts.Count -gt 0) {
-        docker run --rm -v "${absWorkdir}:/work" -w /work $img sh -c ($parts -join ' && ')
+    $img     = if ($Image) { $Image } elseif ($env:CI_PYTHON_IMAGE) { $env:CI_PYTHON_IMAGE } else { 'python:3-slim' }
+    $volArgs = @('run', '--rm', '-v', "${absWorkdir}:/work", '-w', '/work', $img)
+    if (-not $Quick) {
+        log_info "pip install -r requirements.txt"
+        docker @volArgs pip install -r requirements.txt
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+    if (-not $SkipTest) {
+        log_info "$($TestCmd -join ' ')"
+        docker @volArgs @TestCmd
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
 } else {
@@ -60,12 +65,12 @@ if ($UseDocker) {
         }
     }
     if (-not $SkipTest) {
-        log_info "Running: $TestCmd"
+        log_info "Running: $($TestCmd -join ' ')"
         Push-Location $absWorkdir
         try {
-            $exe, $rest = $TestCmd -split '\s+', 2
-            $argList = if ($rest) { $rest -split '\s+' } else { @() }
-            & $exe @argList
+            $exe     = $TestCmd[0]
+            $cmdArgs = if ($TestCmd.Length -gt 1) { $TestCmd[1..($TestCmd.Length - 1)] } else { @() }
+            & $exe @cmdArgs
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         } finally { Pop-Location }
     }

@@ -44,8 +44,8 @@ PowerShell modules (mirrors each Bash lib/*.sh):
 | `help.ps1`       | `display_help`, `print_help`, `show_help`, `get_script_metadata`, `parse_common_args` |
 | `certs.ps1`      | `generate_self_signed_cert`, `trust_cert` — Windows Certificate Store |
 | `hosts.ps1`      | `add_hosts_entry`, `remove_hosts_entry` — Windows hosts file (requires admin) |
-| `ci_defaults.ps1`| Docker image version pins (same values as Bash `ci_defaults.sh`) |
-| `packaging.ps1`  | `join_by`, `quote_args`, `load_packaging_metadata`, `get_package_version` |
+| `ci_defaults.ps1`| Docker image version pins (current stable; see module for divergence note vs Bash `ci_defaults.sh`) |
+| `packaging.ps1`  | `pkg_load_metadata`, `pkg_require_vars`, `pkg_trim`, `pkg_join_list`, `pkg_quote_list`, `pkg_render_lines`, `pkg_classify_name`, `pkg_guess_version` + PS helpers: `join_by`, `quote_args`, `load_packaging_metadata`, `get_package_version` |
 
 PowerShell CI scripts (`ps/scripts/`):
 

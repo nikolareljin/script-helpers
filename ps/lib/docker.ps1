@@ -1,7 +1,10 @@
 # Docker/Docker Compose helpers — PowerShell companion to lib/docker.sh.
 
 function get_docker_compose_cmd {
-    $result = docker compose version 2>&1
+    if (-not (Get-Command 'docker' -ErrorAction SilentlyContinue)) {
+        throw "Docker CLI not found. Install Docker Desktop and ensure it is on PATH."
+    }
+    docker compose version 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) { return 'docker compose' }
     if (Get-Command 'docker-compose' -ErrorAction SilentlyContinue) { return 'docker-compose' }
     if (Get-Command log_error -ErrorAction SilentlyContinue) { log_error "Neither 'docker compose' nor 'docker-compose' found." }

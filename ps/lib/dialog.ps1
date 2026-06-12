@@ -27,7 +27,9 @@ function dialog_menu {
     }
     do {
         $raw = Read-Host "$Prompt (1-$($Items.Count))"
-        $sel = [int]$raw - 1
+        $n   = 0
+        $ok  = [int]::TryParse($raw, [ref]$n)
+        $sel = if ($ok) { $n - 1 } else { -1 }
     } while ($sel -lt 0 -or $sel -ge $Items.Count)
     return $Items[$sel]
 }

@@ -1,5 +1,9 @@
 # CI defaults — PowerShell companion to lib/ci_defaults.sh.
 # Centralised Docker image version pins used by ci_*.ps1 scripts.
+#
+# NOTE: These pins use current stable versions and intentionally diverge from
+# the Bash ci_defaults.sh (which targets older LTS versions for broader CI compat).
+# Override any value by setting the env var before importing this module.
 
 $env:CI_NODE_IMAGE    = if ($env:CI_NODE_IMAGE)    { $env:CI_NODE_IMAGE    } else { 'node:22-alpine'      }
 $env:CI_PYTHON_IMAGE  = if ($env:CI_PYTHON_IMAGE)  { $env:CI_PYTHON_IMAGE  } else { 'python:3.13-slim'    }
