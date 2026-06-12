@@ -1,0 +1,67 @@
+# Loader for script-helpers PowerShell companion library.
+# Dot-source this file, then call Import-ScriptHelpers with module names.
+#
+# Usage:
+#   . "$env:SCRIPT_HELPERS_DIR\ps\helpers.ps1"
+#   Import-ScriptHelpers logging env docker
+#
+# Or from a script file, with auto-detection:
+#   . (Join-Path $PSScriptRoot '..\script-helpers\ps\helpers.ps1')
+#   Import-ScriptHelpers logging
+
+Set-StrictMode -Off
+
+function _Shlib_ResolveRoot {
+    if ($env:SCRIPT_HELPERS_DIR -and (Test-Path $env:SCRIPT_HELPERS_DIR)) {
+        return $env:SCRIPT_HELPERS_DIR
+    }
+    # Resolve relative to this file: ps/helpers.ps1 -> repo root is one level up
+    return Split-Path -Parent $PSScriptRoot
+}
+
+$_SHLIB_ROOT_DIR = _Shlib_ResolveRoot
+$_SHLIB_LIB_DIR  = Join-Path $_SHLIB_ROOT_DIR 'ps\lib'
+
+# Track the script that dot-sourced helpers.ps1
+if ($MyInvocation.ScriptName) {
+    $env:SHLIB_CALLER_SCRIPT = $MyInvocation.ScriptName
+}
+
+$env:SCRIPT_HELPERS_DIR = $_SHLIB_ROOT_DIR
+
+# Tracks which modules have already been loaded to avoid re-sourcing.
+$_SHLIB_LOADED = @{}
+
+# Import-ScriptHelpers: load one or more modules by name.
+# Logging is always loaded first (auto-imported if not explicitly requested).
+function Import-ScriptHelpers {
+    param([Parameter(Mandatory, ValueFromRemainingArguments)][string[]]$Modules)
+
+    $requested = @($Modules)
+    $needLogging = $requested -notcontains 'logging'
+    if ($needLogging) {
+        _Shlib_SourceModule 'logging'
+    }
+    foreach ($name in $requested) {
+        _Shlib_SourceModule $name
+    }
+}
+
+function _Shlib_SourceModule {
+    param([string]$Name)
+    if ($_SHLIB_LOADED.ContainsKey($Name)) { return }
+    $file = Join-Path $_SHLIB_LIB_DIR "$Name.ps1"
+    if (-not (Test-Path $file)) {
+        Write-Error "[script-helpers] Unknown module: $Name"
+        return
+    }
+    . $file
+    $_SHLIB_LOADED[$Name] = $true
+}
+
+# Import-ScriptHelpersAll: load every available module.
+function Import-ScriptHelpersAll {
+    Get-ChildItem -Path $_SHLIB_LIB_DIR -Filter '*.ps1' | ForEach-Object {
+        _Shlib_SourceModule $_.BaseName
+    }
+}

@@ -9,6 +9,23 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Added: `scripts/check_release_version.sh` to verify release versions before tagging or publishing.
 - Added: `--version` and `--image` parameters to all `ci_*.sh` scripts for Docker image tag and full image override.
 
+## [0.14.0] - 2026-06-12
+
+- Added: PowerShell companion library (`ps/`) for native Windows support without WSL.
+  - `ps/helpers.ps1` — loader with `Import-ScriptHelpers` function (mirrors `helpers.sh` / `shlib_import`).
+  - 19 PowerShell modules in `ps/lib/` mirroring all core Bash lib modules:
+    `logging`, `os`, `env`, `file`, `deps`, `help`, `version`, `docker`, `ports`, `json`,
+    `browser`, `traps`, `python`, `clipboard`, `dialog`, `certs`, `hosts`, `ci_defaults`, `packaging`.
+  - `ps/scripts/ci_node.ps1`, `ci_python.ps1`, `ci_go.ps1`, `ci_rust.ps1` — CI runners that work natively on Windows (no Docker required); pass `-UseDocker` for Docker Desktop mode.
+  - `ps/scripts/bump_version.ps1`, `tag_release.ps1` — version management for Windows.
+  - `ps/scripts/example_logging.ps1` — demonstration script.
+  - PS 5.1 (Windows built-in) and PS 7+ both supported.
+  - `deps.ps1` uses `winget` → `choco` → `scoop` for package installation.
+  - `ports.ps1` uses `Get-NetTCPConnection` replacing `lsof`/`ss`/`netstat`.
+  - `certs.ps1` uses Windows Certificate Store (`New-SelfSignedCertificate`, `Import-Certificate`).
+  - `hosts.ps1` targets `C:\Windows\System32\drivers\etc\hosts` (requires admin elevation).
+  - `dialog.ps1` uses `Read-Host`-based prompts (Windows has no ncurses `dialog` binary).
+
 ## [0.13.0] - 2026-05-21
 
 - Changed: `scripts/git-hooks/pre-commit` — hardened for universal use across all repos:
