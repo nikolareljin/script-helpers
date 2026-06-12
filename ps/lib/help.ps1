@@ -43,7 +43,7 @@ function get_script_metadata {
                 if ($sawHeaderKey) { break }
                 continue
             }
-            if ($line -match '^#-{3,}') { break }
+            if ($line -match '^#\s*-{3,}') { break }
         }
 
         $matched = $false
@@ -60,7 +60,7 @@ function get_script_metadata {
         if (-not $matched -and $currentField) {
             if ($line -match '^#\s(.*)') {
                 $meta[$currentField] += "`n" + $Matches[1]
-            } elseif ($line -match '^#-{3,}') {
+            } elseif ($line -match '^#\s*-{3,}') {
                 $currentField = ''; break
             } elseif ($line -match '^#') {
                 $currentField = ''

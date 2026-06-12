@@ -38,9 +38,12 @@ if ($UseDocker) {
     $img     = if ($Image) { $Image } elseif ($env:CI_PYTHON_IMAGE) { $env:CI_PYTHON_IMAGE } else { 'python:3-slim' }
     $volArgs = @('run', '--rm', '-v', "${absWorkdir}:/work", '-w', '/work', $img)
     if (-not $Quick) {
-        log_info "pip install -r requirements.txt"
-        docker @volArgs pip install -r requirements.txt
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $req = Join-Path $absWorkdir 'requirements.txt'
+        if (Test-Path $req) {
+            log_info "pip install -r requirements.txt"
+            docker @volArgs pip install -r requirements.txt
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        }
     }
     if (-not $SkipTest) {
         log_info "$($TestCmd -join ' ')"
