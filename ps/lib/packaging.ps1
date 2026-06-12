@@ -48,9 +48,9 @@ function to_camel_case {
 function pkg_load_metadata {
     param([string]$File = 'packaging/packaging.env')
     if (-not (Test-Path $File)) { throw "Packaging metadata not found: $File" }
-    Get-Content $File | ForEach-Object {
+    foreach ($_ in (Get-Content $File)) {
         $line = $_.Trim()
-        if ($line -match '^\s*#' -or $line -eq '') { return }
+        if ($line -match '^\s*#' -or $line -eq '') { continue }
         if ($line -match '^([^=]+)=(.*)$') {
             $k = $Matches[1].Trim()
             $v = $Matches[2].Trim() -replace '^"(.*)"$','$1' -replace "^'(.*)'$",'$1'

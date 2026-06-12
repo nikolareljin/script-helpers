@@ -16,10 +16,9 @@ function load_env {
         Write-Warning "[script-helpers] env file not found: $EnvFile"
         return
     }
-    Get-Content $EnvFile | ForEach-Object {
+    foreach ($_ in (Get-Content $EnvFile)) {
         $line = $_.Trim()
-        # Skip comments and blank lines
-        if ($line -match '^\s*#' -or $line -eq '') { return }
+        if ($line -match '^\s*#' -or $line -eq '') { continue }
         if ($line -match '^export\s+') { $line = $line -replace '^export\s+', '' }
         if ($line -match '^([^=]+)=(.*)$') {
             $key = $Matches[1].Trim()
