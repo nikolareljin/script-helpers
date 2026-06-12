@@ -28,9 +28,9 @@ function cleanup_on_exit {
 }
 
 # Enable strict terminating-error mode — mirrors Bash 'set -e'.
-# Sets $ErrorActionPreference globally (function scope cannot reach the caller's script scope).
-# Scripts that want strict mode only locally should set $ErrorActionPreference = 'Stop' directly.
+# Writes ErrorActionPreference into the immediate caller's scope (Scope 1) so it
+# applies to that script without leaking into the wider session.
 function enable_strict_mode {
-    $Global:ErrorActionPreference = 'Stop'
+    Set-Variable -Name 'ErrorActionPreference' -Value 'Stop' -Scope 1
     Set-StrictMode -Version Latest
 }

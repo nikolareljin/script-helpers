@@ -36,13 +36,14 @@ if ($env:CI -eq 'true') { Write-Error "This script is for local use only."; exit
 $ScriptDir = $PSScriptRoot
 $env:SCRIPT_HELPERS_DIR = if ($env:SCRIPT_HELPERS_DIR) { $env:SCRIPT_HELPERS_DIR } else { Split-Path (Split-Path $ScriptDir -Parent) -Parent }
 . (Join-Path $env:SCRIPT_HELPERS_DIR 'ps\helpers.ps1')
-Import-ScriptHelpers help logging ci_defaults
+Import-ScriptHelpers help logging docker ci_defaults
 
 if ($Help) { display_help $PSCommandPath; exit 0 }
 
 $absWorkdir = Resolve-Path $Workdir -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path
 if (-not $absWorkdir) { $absWorkdir = Join-Path $PWD.Path $Workdir }
 if (-not (Test-Path $absWorkdir -PathType Container)) { Write-Error "Working directory not found: $absWorkdir"; exit 1 }
+if ($UseDocker -and -not (check_docker)) { exit 1 }
 
 function _Run {
     param([string[]]$Cmd)

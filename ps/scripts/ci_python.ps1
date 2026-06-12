@@ -28,7 +28,7 @@ if ($env:CI -eq 'true') { Write-Error "This script is for local use only."; exit
 $ScriptDir = $PSScriptRoot
 $env:SCRIPT_HELPERS_DIR = if ($env:SCRIPT_HELPERS_DIR) { $env:SCRIPT_HELPERS_DIR } else { Split-Path (Split-Path $ScriptDir -Parent) -Parent }
 . (Join-Path $env:SCRIPT_HELPERS_DIR 'ps\helpers.ps1')
-Import-ScriptHelpers help logging python ci_defaults
+Import-ScriptHelpers help logging python docker ci_defaults
 
 if ($Help) { display_help $PSCommandPath; exit 0 }
 if ($TestCmd.Count -eq 0) { Write-Error "-TestCmd must contain at least one token (the executable)."; exit 1 }
@@ -37,6 +37,7 @@ $absWorkdir = if ([System.IO.Path]::IsPathRooted($Workdir)) { $Workdir } else { 
 if (-not (Test-Path $absWorkdir -PathType Container)) { Write-Error "Working directory not found: $absWorkdir"; exit 1 }
 
 if ($UseDocker) {
+    if (-not (check_docker)) { exit 1 }
     $img     = if ($Image) { $Image } elseif ($env:CI_PYTHON_IMAGE) { $env:CI_PYTHON_IMAGE } else { 'python:3-slim' }
     $volArgs = @('run', '--rm', '-v', "${absWorkdir}:/work", '-w', '/work', $img)
     if (-not $Quick) {

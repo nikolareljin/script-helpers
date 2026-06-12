@@ -23,7 +23,7 @@ if ($env:CI -eq 'true') { Write-Error "This script is for local use only."; exit
 $ScriptDir = $PSScriptRoot
 $env:SCRIPT_HELPERS_DIR = if ($env:SCRIPT_HELPERS_DIR) { $env:SCRIPT_HELPERS_DIR } else { Split-Path (Split-Path $ScriptDir -Parent) -Parent }
 . (Join-Path $env:SCRIPT_HELPERS_DIR 'ps\helpers.ps1')
-Import-ScriptHelpers help logging ci_defaults
+Import-ScriptHelpers help logging docker ci_defaults
 
 if ($Help) { display_help $PSCommandPath; exit 0 }
 
@@ -32,6 +32,7 @@ if (-not (Test-Path $absWorkdir -PathType Container)) { Write-Error "Working dir
 $cargoArgs  = if ($Manifest) { @('--manifest-path', $Manifest) } else { @() }
 
 if ($UseDocker) {
+    if (-not (check_docker)) { exit 1 }
     $img     = if ($Image) { $Image } elseif ($env:CI_RUST_IMAGE) { $env:CI_RUST_IMAGE } else { 'rust:latest' }
     $volArgs = @('run', '--rm', '-v', "${absWorkdir}:/work", '-w', '/work', $img)
     log_info "cargo check"

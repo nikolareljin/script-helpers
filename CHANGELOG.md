@@ -11,6 +11,10 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ## [0.14.0] - 2026-06-12
 
+- Fixed: `ps/helpers.ps1` — `Import-ScriptHelpers` now always loads `logging` first unconditionally; previously it skipped the pre-load when `logging` appeared anywhere in the caller's list, leaving other modules without logging if they were listed before it.
+- Fixed: `ps/lib/help.ps1` — `get_script_metadata` and `_Help_Render` now guard against empty/null `$ScriptFile` (interactive use with no `SHLIB_CALLER_SCRIPT`) instead of throwing on `Test-Path` and `Path::GetFileName(null)`.
+- Fixed: `ps/lib/traps.ps1` — `enable_strict_mode` uses `Set-Variable -Scope 1` to write `ErrorActionPreference` into the immediate caller's scope rather than `$Global:`, so it no longer leaks strict mode into the wider PowerShell session.
+- Fixed: `ps/scripts/ci_go.ps1`, `ci_node.ps1`, `ci_python.ps1`, `ci_rust.ps1` — `-UseDocker` mode now calls `check_docker` before invoking Docker; previously a missing/stopped Docker daemon produced a generic "command not found" error instead of the structured diagnostic from the helper.
 - Fixed: `ps/lib/env.ps1` — `load_env` now uses `foreach`/`continue` instead of `ForEach-Object`/`return`; the old form exited the function on the first blank line or comment instead of skipping only that line.
 - Fixed: `ps/lib/packaging.ps1` — `pkg_load_metadata` same fix: `ForEach-Object { return }` was exiting the function early on blank/comment lines.
 - Fixed: `ps/lib/docker.ps1` — `check_docker` normalises each element of `docker info 2>&1` output to a string before joining, so ErrorRecord objects in mixed-type arrays do not produce a garbled error message in PS 5.1.

@@ -42,12 +42,9 @@ $_SHLIB_LOADED = @{}
 function Import-ScriptHelpers {
     param([Parameter(Mandatory, ValueFromRemainingArguments)][string[]]$Modules)
 
-    $requested = @($Modules)
-    $needLogging = $requested -notcontains 'logging'
-    if ($needLogging) {
-        _Shlib_SourceModule 'logging'
-    }
-    foreach ($name in $requested) {
+    # Always ensure logging is loaded first so other modules can use it during import.
+    _Shlib_SourceModule 'logging'
+    foreach ($name in @($Modules)) {
         _Shlib_SourceModule $name
     }
 }

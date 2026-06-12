@@ -15,7 +15,7 @@ function get_script_metadata {
         name=''; description=''; author=''; created=''; version='';
         usage=''; parameters=''; example=''; exit_codes=''; date=''; creator=''
     }
-    if (-not (Test-Path $ScriptFile)) { return $meta }
+    if (-not $ScriptFile -or -not (Test-Path $ScriptFile)) { return $meta }
 
     $multiline = @('parameters','usage','example','exit_codes')
     $patterns  = @{
@@ -92,7 +92,7 @@ function _Help_PrintBlock {
 function _Help_Render {
     param([string]$Mode, [string]$ScriptFile)
     $meta   = get_script_metadata $ScriptFile
-    $usage  = if ($meta.usage) { $meta.usage } else { "$([System.IO.Path]::GetFileName($ScriptFile)) [OPTIONS]" }
+    $usage  = if ($meta.usage) { $meta.usage } elseif ($ScriptFile) { "$([System.IO.Path]::GetFileName($ScriptFile)) [OPTIONS]" } else { 'script.ps1 [OPTIONS]' }
 
     if ($Mode -eq 'full' -and $meta.name)    { _Help_PrintInline 'Cyan'   'Script'      $meta.name }
     elseif ($meta.name)                       { _Help_PrintInline 'Green'  'Script Name' $meta.name }
