@@ -19,6 +19,7 @@ $env:SCRIPT_HELPERS_DIR = if ($env:SCRIPT_HELPERS_DIR) { $env:SCRIPT_HELPERS_DIR
 . (Join-Path $env:SCRIPT_HELPERS_DIR 'ps\helpers.ps1')
 Import-ScriptHelpers help logging version env
 
-if ($Help -or -not $BumpType) { display_help $PSCommandPath; exit 0 }
+if ($Help) { display_help $PSCommandPath; exit 0 }
+if (-not $BumpType) { display_help $PSCommandPath; exit 1 }
 
 version_bump -BumpType $BumpType -VersionFile $File

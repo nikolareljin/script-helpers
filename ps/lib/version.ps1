@@ -46,7 +46,7 @@ function version_bump {
 
     $newCore    = "$($v.Major).$($v.Minor).$($v.Patch)"
     $newVersion = "$prefix$newCore$suffix"
-    Set-Content -Path $VersionFile -Value $newVersion
+    Set-Content -Path $VersionFile -Value $newVersion -Encoding ascii
 
     if (Get-Command print_success -ErrorAction SilentlyContinue) { print_success "Bumped version: $current -> $newVersion" }
     else { Write-Host "Bumped version: $current -> $newVersion" }

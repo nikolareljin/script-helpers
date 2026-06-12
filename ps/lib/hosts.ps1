@@ -16,7 +16,7 @@ function add_hosts_entry {
         if (Get-Command log_info -ErrorAction SilentlyContinue) { log_info "Host entry for $Domain already exists." }
         return
     }
-    Add-Content -Path $_SHLIB_HOSTS_FILE -Value $entry
+    Add-Content -Path $_SHLIB_HOSTS_FILE -Value $entry -Encoding ascii
     if (Get-Command print_success -ErrorAction SilentlyContinue) { print_success "Added hosts entry: $entry" }
 }
 
@@ -27,6 +27,6 @@ function remove_hosts_entry {
     }
     $lines  = Get-Content $_SHLIB_HOSTS_FILE
     $filtered = $lines | Where-Object { $_ -notmatch "(?i)(^|\s)$([regex]::Escape($Domain))(\s|$)" }
-    Set-Content -Path $_SHLIB_HOSTS_FILE -Value $filtered
+    Set-Content -Path $_SHLIB_HOSTS_FILE -Value $filtered -Encoding ascii
     if (Get-Command print_success -ErrorAction SilentlyContinue) { print_success "Removed hosts entry for $Domain" }
 }
