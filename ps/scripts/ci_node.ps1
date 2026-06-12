@@ -42,6 +42,7 @@ if ($Help) { display_help $PSCommandPath; exit 0 }
 
 $absWorkdir = Resolve-Path $Workdir -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path
 if (-not $absWorkdir) { $absWorkdir = Join-Path $PWD.Path $Workdir }
+if (-not (Test-Path $absWorkdir -PathType Container)) { Write-Error "Working directory not found: $absWorkdir"; exit 1 }
 
 function _Run {
     param([string[]]$Cmd)

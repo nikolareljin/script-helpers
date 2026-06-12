@@ -36,6 +36,8 @@ if ($DryRun) {
     exit 0
 }
 
+$existing = git tag -l $version
+if ($existing) { Write-Error "Tag '$version' already exists. Bump VERSION first."; exit 1 }
 git tag -a $version -m "Release $version"
 if ($LASTEXITCODE -ne 0) { Write-Error "git tag failed."; exit 1 }
 git push $Remote $version

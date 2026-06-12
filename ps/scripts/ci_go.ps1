@@ -28,6 +28,7 @@ Import-ScriptHelpers help logging ci_defaults
 if ($Help) { display_help $PSCommandPath; exit 0 }
 
 $absWorkdir = if ([System.IO.Path]::IsPathRooted($Workdir)) { $Workdir } else { Join-Path $PWD.Path $Workdir }
+if (-not (Test-Path $absWorkdir -PathType Container)) { Write-Error "Working directory not found: $absWorkdir"; exit 1 }
 
 if ($UseDocker) {
     $img  = if ($Image) { $Image } elseif ($env:CI_GO_IMAGE) { $env:CI_GO_IMAGE } else { 'golang:latest' }
