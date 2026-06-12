@@ -33,7 +33,7 @@ function check_docker {
     }
     $info = docker info 2>&1
     if ($LASTEXITCODE -ne 0) {
-        $msg = $info -join ' '
+        $msg = ($info | ForEach-Object { "$_" }) -join ' '
         if (Get-Command log_error -ErrorAction SilentlyContinue) { log_error "Docker daemon unavailable: $msg" }
         return $false
     }

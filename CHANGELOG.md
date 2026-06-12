@@ -11,6 +11,9 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ## [0.14.0] - 2026-06-12
 
+- Fixed: `ps/lib/docker.ps1` — `check_docker` normalises each element of `docker info 2>&1` output to a string before joining, so ErrorRecord objects in mixed-type arrays do not produce a garbled error message in PS 5.1.
+- Fixed: `ps/lib/certs.ps1` — `generate_self_signed_cert` no longer exports a PFX by default. PFX export is now opt-in: pass `-PfxPassword <SecureString>` to write the private-key bundle; the public `.cer` is always written. Prevents accidental unprotected private-key files on disk.
+
 - Added: PowerShell companion library (`ps/`) for native Windows support without WSL.
   - `ps/helpers.ps1` — loader with `Import-ScriptHelpers` function (mirrors `helpers.sh` / `shlib_import`).
   - 19 PowerShell modules in `ps/lib/` mirroring all core Bash lib modules:
