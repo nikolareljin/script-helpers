@@ -73,11 +73,12 @@ PowerShell CI scripts (`ps/scripts/`):
 
 All CI scripts also accept `-UseDocker` to run inside Docker Desktop (Linux containers) instead of natively.
 `-Quick` and `-SkipTest` flags are honoured in both native and Docker modes.
+`*Cmd` override parameters (e.g. `-TestCmd`) accept token arrays for commands with spaces or quotes: `-TestCmd "pytest","-k","my test"`.
 
 Scripts auto-detect `SCRIPT_HELPERS_DIR` from `$PSScriptRoot`; you can override it by setting the env var before invoking the script.
 
 Notes:
-- PS 5.1 (Windows built-in) and PS 7+ are both supported. ANSI color output works automatically on PS 7+.
+- PS 5.1 (Windows built-in) and PS 7+ are both supported. ANSI colour applies to both stdout (`print_*`) and stderr (`log_*`) on PS 7+ and on any terminal advertising ANSI support via `$env:TERM`.
 - `certs.ps1` and `hosts.ps1` require administrator elevation.
 - `dialog.ps1` uses `Read-Host` prompts instead of the Linux `dialog` ncurses widget.
 - `ollama.ps1` is not included; use the Ollama Windows installer directly.
