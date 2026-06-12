@@ -8,6 +8,8 @@ function generate_self_signed_cert {
         [string]$OutputDir  = '.',
         [string]$CertName   = 'selfsigned'
     )
+    New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
+
     $cert = New-SelfSignedCertificate `
         -DnsName $DnsName `
         -CertStoreLocation 'Cert:\CurrentUser\My' `

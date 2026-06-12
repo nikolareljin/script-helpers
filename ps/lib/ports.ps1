@@ -43,5 +43,6 @@ function get_port_conflicts_json {
             }
         }
     }
+    if ($conflicts.Count -eq 0) { return '[]' }
     return ($conflicts | ConvertTo-Json -Compress)
 }

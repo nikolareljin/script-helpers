@@ -20,10 +20,17 @@ function _Shlib_ResolveRoot {
 $_SHLIB_ROOT_DIR = _Shlib_ResolveRoot
 $_SHLIB_LIB_DIR  = Join-Path $_SHLIB_ROOT_DIR 'ps\lib'
 
-# Track the script that dot-sourced helpers.ps1
-if ($MyInvocation.ScriptName) {
-    $env:SHLIB_CALLER_SCRIPT = $MyInvocation.ScriptName
+# Track the script that dot-sourced helpers.ps1.
+# $MyInvocation.ScriptName is reliable when dot-sourced from a .ps1 file but can be
+# empty when invoked from the console or certain host environments. Fall back to the
+# call stack to find the first caller outside this file.
+$_shlib_caller = $MyInvocation.ScriptName
+if (-not $_shlib_caller) {
+    $_shlib_caller = (Get-PSCallStack |
+        Where-Object { $_.ScriptName -and $_.ScriptName -ne $PSCommandPath } |
+        Select-Object -First 1).ScriptName
 }
+if ($_shlib_caller) { $env:SHLIB_CALLER_SCRIPT = $_shlib_caller }
 
 $env:SCRIPT_HELPERS_DIR = $_SHLIB_ROOT_DIR
 

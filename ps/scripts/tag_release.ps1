@@ -21,6 +21,10 @@ Import-ScriptHelpers help logging version env
 
 if ($Help) { display_help $PSCommandPath; exit 0 }
 
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Write-Error "git not found on PATH."; exit 1 }
+git rev-parse --show-toplevel 2>$null | Out-Null
+if ($LASTEXITCODE -ne 0) { Write-Error "Not inside a git repository."; exit 1 }
+
 if (-not [System.IO.Path]::IsPathRooted($File)) {
     $gitRoot = git rev-parse --show-toplevel 2>$null
     if ($LASTEXITCODE -eq 0 -and $gitRoot) { $File = Join-Path $gitRoot.Trim() $File }
