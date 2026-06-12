@@ -18,7 +18,7 @@ function install_package {
     }
     foreach ($pkg in $Packages) {
         switch ($mgr) {
-            'winget' { winget install --id $pkg --accept-package-agreements --accept-source-agreements -e }
+            'winget' { winget install $pkg --accept-package-agreements --accept-source-agreements }
             'choco'  { choco install $pkg -y }
             'scoop'  { scoop install $pkg }
         }

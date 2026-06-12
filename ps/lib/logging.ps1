@@ -13,7 +13,14 @@ function _Shlib_WriteColor {
         White   = 'White';   Gray    = 'Gray'
     }
     if ($Stderr) {
-        [Console]::Error.WriteLine($Message)
+        if ($_SHLIB_ANSI) {
+            $ansiMap = @{ Red='31'; Green='32'; Yellow='33'; Blue='34'; Cyan='36'; Magenta='35'; White='37'; Gray='90' }
+            $esc  = [char]27
+            $code = if ($ansiMap.ContainsKey($Color)) { $ansiMap[$Color] } else { '37' }
+            [Console]::Error.WriteLine("${esc}[${code}m${Message}${esc}[0m")
+        } else {
+            [Console]::Error.WriteLine($Message)
+        }
         return
     }
     $fc = if ($map.ContainsKey($Color)) { $map[$Color] } else { 'White' }

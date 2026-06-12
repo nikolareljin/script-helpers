@@ -36,8 +36,11 @@ function get_package_version {
 
 function to_camel_case {
     param([string]$Value)
-    $parts = $Value -split '[_\-\s]+'
-    return ($parts | ForEach-Object { $_.Substring(0,1).ToUpper() + $_.Substring(1).ToLower() }) -join ''
+    $parts = ($Value -split '[_\-\s]+') | Where-Object { $_ }
+    return ($parts | ForEach-Object {
+        if ($_.Length -eq 1) { $_.ToUpper() }
+        else { $_.Substring(0,1).ToUpper() + $_.Substring(1).ToLower() }
+    }) -join ''
 }
 
 # --- Bash API-compatible pkg_* functions ---
