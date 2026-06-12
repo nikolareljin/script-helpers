@@ -69,7 +69,8 @@ function pkg_trim { param([string]$Value); return $Value.Trim() }
 
 function pkg_join_list {
     param([string]$List, [string]$Separator)
-    return (($List -split '\|') | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Join-String -Separator $Separator)
+    $items = ($List -split '\|') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+    return ($items -join $Separator)
 }
 
 function pkg_quote_list {
