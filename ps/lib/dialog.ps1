@@ -9,7 +9,7 @@ function dialog_input {
     Write-Host "--- $Title ---"
     $hint = if ($Default) { " [$Default]" } else { '' }
     $val  = Read-Host "$Prompt$hint"
-    return if ($val) { $val } else { $Default }
+    return $(if ($val) { $val } else { $Default })
 }
 
 function dialog_yesno {
