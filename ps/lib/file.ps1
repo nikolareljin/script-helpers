@@ -26,16 +26,22 @@ function create_directory {
 
 function download_file {
     param(
-        [string]$Url,
+        [Parameter(Mandatory)][string]$Url,
         [string]$Output = ''
     )
-    if (-not $Output) {
-        $Output = [System.IO.Path]::GetFileName(([uri]$Url).LocalPath)
+    try {
+        if (-not $Output) {
+            $Output = [System.IO.Path]::GetFileName(([uri]$Url).LocalPath)
+        }
+        Write-Host "[script-helpers] Downloading $Url -> $Output"
+        $iwrArgs = @{ Uri = $Url; OutFile = $Output; ErrorAction = 'Stop' }
+        if ($PSVersionTable.PSVersion.Major -lt 6) { $iwrArgs['UseBasicParsing'] = $true }
+        Invoke-WebRequest @iwrArgs
+        return $true
+    } catch {
+        Write-Error "download_file: failed to download '$Url': $_"
+        return $false
     }
-    Write-Host "[script-helpers] Downloading $Url -> $Output"
-    $iwrArgs = @{ Uri = $Url; OutFile = $Output }
-    if ($PSVersionTable.PSVersion.Major -lt 6) { $iwrArgs['UseBasicParsing'] = $true }
-    Invoke-WebRequest @iwrArgs
 }
 
 function verify_checksum {

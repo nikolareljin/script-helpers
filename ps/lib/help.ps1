@@ -119,7 +119,7 @@ function show_help    { param([string]$ScriptFile = $env:SHLIB_CALLER_SCRIPT); _
 function show_usage {
     param([string]$ScriptFile = '')
     $name = if ($ScriptFile) { [System.IO.Path]::GetFileName($ScriptFile) } else { 'script.ps1' }
-    Write-Host @"
+    Write-Output @"
 
 Usage: $name [OPTIONS]
 
