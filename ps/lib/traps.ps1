@@ -5,25 +5,23 @@
 # - Use try/catch or Register-EngineEvent for cleanup on exit.
 # - The setup_exit_trap function registers a script block to run on engine exit.
 
-$_SHLIB_EXIT_HANDLER      = $null
-$_SHLIB_EXIT_SUBSCRIPTION = $null
+$_SHLIB_EXIT_HANDLER = $null
+$_SHLIB_EXIT_SOURCE  = [System.Management.Automation.PsEngineEvent]::Exiting
 
 function setup_exit_trap {
     param([scriptblock]$Handler)
-    if ($script:_SHLIB_EXIT_SUBSCRIPTION) {
-        Unregister-Event -SubscriptionId $script:_SHLIB_EXIT_SUBSCRIPTION -ErrorAction SilentlyContinue
-    }
+    # Unregister by SourceIdentifier to avoid duplicate handlers.
+    # Register-EngineEvent -Action returns a PSEventJob whose .Id is the job ID,
+    # not the subscription ID needed by Unregister-Event -SubscriptionId, so we
+    # use -SourceIdentifier for both register and unregister.
+    Unregister-Event -SourceIdentifier $script:_SHLIB_EXIT_SOURCE -ErrorAction SilentlyContinue
     $script:_SHLIB_EXIT_HANDLER = $Handler
-    # Pass the handler via -MessageData so the event action (which runs in a
-    # separate runspace) can access it through $event.MessageData rather than
-    # trying to reach a script-scope variable that is not visible there.
-    $script:_SHLIB_EXIT_SUBSCRIPTION = (Register-EngineEvent `
-        -SourceIdentifier ([System.Management.Automation.PsEngineEvent]::Exiting) `
+    # Pass handler via -MessageData; event actions run in a separate runspace
+    # where script-scope variables are not visible.
+    Register-EngineEvent `
+        -SourceIdentifier $script:_SHLIB_EXIT_SOURCE `
         -MessageData $Handler `
-        -Action {
-            if ($event.MessageData) { & $event.MessageData }
-        }
-    ).Id
+        -Action { if ($event.MessageData) { & $event.MessageData } } | Out-Null
 }
 
 function cleanup_on_exit {

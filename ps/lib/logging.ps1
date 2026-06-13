@@ -13,7 +13,7 @@ function _Shlib_WriteColor {
         White   = 'White';   Gray    = 'Gray'
     }
     if ($Stderr) {
-        if ($_SHLIB_ANSI) {
+        if ($_SHLIB_ANSI -and -not [Console]::IsErrorRedirected) {
             $ansiMap = @{ Red='31'; Green='32'; Yellow='33'; Blue='34'; Cyan='36'; Magenta='35'; White='37'; Gray='90' }
             $esc  = [char]27
             $code = if ($ansiMap.ContainsKey($Color)) { $ansiMap[$Color] } else { '37' }
