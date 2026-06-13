@@ -44,5 +44,7 @@ function get_port_conflicts_json {
         }
     }
     if ($conflicts.Count -eq 0) { return '[]' }
-    return ($conflicts | ConvertTo-Json -Compress)
+    # Wrap in @() to force array output from ConvertTo-Json even for a single element;
+    # without this PS unwraps a one-item array to a bare object, breaking JSON consumers.
+    return (@($conflicts) | ConvertTo-Json -Compress)
 }

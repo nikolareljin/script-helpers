@@ -52,7 +52,16 @@ function verify_checksum {
         [string]$ExpectedHash,
         [string]$Algorithm = 'SHA256'
     )
-    $actual = (Get-FileHash -Path $FilePath -Algorithm $Algorithm).Hash
+    if (-not (Test-Path $FilePath -PathType Leaf)) {
+        Write-Error "verify_checksum: file not found: $FilePath"
+        return $false
+    }
+    try {
+        $actual = (Get-FileHash -Path $FilePath -Algorithm $Algorithm -ErrorAction Stop).Hash
+    } catch {
+        Write-Error "verify_checksum: could not hash '$FilePath': $_"
+        return $false
+    }
     if ($actual -eq $ExpectedHash.Trim().ToUpper()) {
         if (Get-Command print_success -ErrorAction SilentlyContinue) { print_success "Checksum OK: $FilePath" }
         else { Write-Host "Checksum OK: $FilePath" }

@@ -29,21 +29,37 @@ if ($Help) { display_help $PSCommandPath; exit 0 }
 
 $absWorkdir = if ([System.IO.Path]::IsPathRooted($Workdir)) { $Workdir } else { Join-Path $PWD.Path $Workdir }
 if (-not (Test-Path $absWorkdir -PathType Container)) { Write-Error "Working directory not found: $absWorkdir"; exit 1 }
-$cargoArgs  = if ($Manifest) { @('--manifest-path', $Manifest) } else { @() }
+
+# Resolve manifest to an absolute host path now; Docker mode will translate to /work/<rel>.
+$absManifest = ''
+if ($Manifest) {
+    $absManifest = if ([System.IO.Path]::IsPathRooted($Manifest)) { $Manifest } else { Join-Path $absWorkdir $Manifest }
+}
+$cargoArgs = if ($absManifest) { @('--manifest-path', $absManifest) } else { @() }
 
 if ($UseDocker) {
     if (-not (check_docker)) { exit 1 }
+    # Translate manifest to a container-relative path under /work.
+    $dockerCargoArgs = @()
+    if ($absManifest) {
+        $norm = $absWorkdir.TrimEnd('\', '/')
+        if (-not $absManifest.StartsWith($norm)) {
+            Write-Error "-Manifest '$Manifest' must be within -Workdir '$absWorkdir' when using -UseDocker"; exit 1
+        }
+        $rel = $absManifest.Substring($norm.Length).TrimStart('\', '/') -replace '\\','/'
+        $dockerCargoArgs = @('--manifest-path', "/work/$rel")
+    }
     $img     = if ($Image) { $Image } elseif ($env:CI_RUST_IMAGE) { $env:CI_RUST_IMAGE } else { 'rust:latest' }
     $volArgs = @('run', '--rm', '-v', "${absWorkdir}:/work", '-w', '/work', $img)
     log_info "cargo check"
-    docker @volArgs cargo check @cargoArgs
+    docker @volArgs cargo check @dockerCargoArgs
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     if (-not $Quick) {
         log_info "cargo clippy"
-        docker @volArgs cargo clippy @cargoArgs
+        docker @volArgs cargo clippy @dockerCargoArgs
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         log_info "cargo test"
-        docker @volArgs cargo test @cargoArgs
+        docker @volArgs cargo test @dockerCargoArgs
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
 } else {
