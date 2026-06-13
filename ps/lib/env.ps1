@@ -52,10 +52,11 @@ function resolve_env_value {
     $v = [System.Environment]::GetEnvironmentVariable($Name)
     if ($null -ne $v -and $v -ne '') { return $v }
     if ($EnvFile -and (Test-Path $EnvFile)) {
+        $prefix = "${Name}="
         $line = Get-Content $EnvFile -ErrorAction SilentlyContinue |
-            Where-Object { $_ -match "^${Name}=" } | Select-Object -Last 1
+            Where-Object { $_.StartsWith($prefix) } | Select-Object -Last 1
         if ($line) {
-            $v = ($line -replace "^${Name}=", '').Trim() `
+            $v = $line.Substring($prefix.Length).Trim() `
                 -replace '^"(.*)"$','$1' -replace "^'(.*)'$",'$1'
             $v = $v -replace '\s*#.*$', ''   # strip inline comments
             $v = $v.Trim()
