@@ -12,10 +12,16 @@ function create_directory {
     param([string]$Path)
     if (Test-Path $Path -PathType Container) {
         Write-Host "Directory $Path already exists."
-        return
+        return $true
     }
-    New-Item -ItemType Directory -Path $Path -Force | Out-Null
-    Write-Host "Directory $Path created."
+    try {
+        New-Item -ItemType Directory -Path $Path -Force -ErrorAction Stop | Out-Null
+        Write-Host "Directory $Path created."
+        return $true
+    } catch {
+        Write-Error "create_directory: failed to create '$Path': $_"
+        return $false
+    }
 }
 
 function ensure_dir {

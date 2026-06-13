@@ -58,15 +58,16 @@ function resolve_env_value {
 function expand_env_refs {
     param([string]$Value)
     $result = $Value
+    # Unset vars expand to empty string, matching Bash load_env behaviour.
     $result = [regex]::Replace($result, '\$\{([^}]+)\}', {
         param($m)
         $v = [System.Environment]::GetEnvironmentVariable($m.Groups[1].Value)
-        if ($null -ne $v) { $v } else { $m.Value }
+        if ($null -ne $v) { $v } else { '' }
     })
     $result = [regex]::Replace($result, '\$([A-Za-z_][A-Za-z0-9_]*)', {
         param($m)
         $v = [System.Environment]::GetEnvironmentVariable($m.Groups[1].Value)
-        if ($null -ne $v) { $v } else { $m.Value }
+        if ($null -ne $v) { $v } else { '' }
     })
     return $result
 }

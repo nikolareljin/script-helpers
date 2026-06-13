@@ -29,6 +29,8 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Fixed: `ps/lib/traps.ps1` — `$_SHLIB_EXIT_SOURCE` now holds the literal string `'PowerShell.Exiting'` instead of `[PsEngineEvent]::Exiting`; the enum stringifies to `"Exiting"` which does not match the engine event's actual `SourceIdentifier`, so the exit handler would never fire (and could not be unregistered).
 - Fixed: `ps/lib/env.ps1` — `get_project_root` now checks the filesystem root itself for `.git` after the traversal loop exits; previously the root path was never evaluated, causing incorrect fallback to `$StartDir` on drive-root repos.
 - Fixed: `ps/lib/version.ps1` — `version_bump` success message now logs the original version string (including prefix/suffix like `v1.2.0-rc1`) instead of the stripped core after prefix/suffix mutation.
+- Fixed: `ps/lib/file.ps1` — `create_directory` now returns `$true` on success and `$false` on failure (via `try/catch` with `-ErrorAction Stop`); previously it returned `$null` on all paths, making success checks unreliable.
+- Fixed: `ps/lib/env.ps1` — `expand_env_refs` now expands unset `$VAR`/`${VAR}` references to empty string instead of leaving the literal placeholder, matching Bash `load_env` behaviour.
 
 - Added: PowerShell companion library (`ps/`) for native Windows support without WSL.
   - `ps/helpers.ps1` — loader with `Import-ScriptHelpers` function (mirrors `helpers.sh` / `shlib_import`).
