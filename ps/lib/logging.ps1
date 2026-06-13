@@ -5,7 +5,7 @@
 $_SHLIB_ANSI = ($PSVersionTable.PSVersion.Major -ge 7) -or ($env:TERM -match 'color')
 
 function _Shlib_WriteColor {
-    param([string]$Color, [string]$Message, [switch]$Stderr)
+    param([string]$Color, [string]$Message, [switch]$Stderr, [switch]$InPipeline)
     $map = @{
         Red     = 'Red';     Green   = 'Green'
         Yellow  = 'Yellow';  Blue    = 'Blue'
@@ -23,8 +23,8 @@ function _Shlib_WriteColor {
         }
         return
     }
-    if ([Console]::IsOutputRedirected) {
-        # Redirected/captured — always plain text; never inject ANSI escape codes into files or pipelines.
+    # Treat PS pipelines the same as file redirection: emit plain text so callers can capture output.
+    if ([Console]::IsOutputRedirected -or $InPipeline) {
         Write-Output $Message
     } elseif ($_SHLIB_ANSI) {
         $ansiMap = @{ Red='31'; Green='32'; Yellow='33'; Blue='34'; Cyan='36'; Magenta='35'; White='37'; Gray='90' }
@@ -39,19 +39,20 @@ function _Shlib_WriteColor {
 
 function print_color {
     param([string]$Color, [string]$Text, [string]$Text2 = '', [string]$Color2 = '')
-    _Shlib_WriteColor -Color $Color -Message $Text
+    $inPipe = $MyInvocation.PipelineLength -gt 1
+    _Shlib_WriteColor -Color $Color -Message $Text -InPipeline:$inPipe
     if ($Text2) {
         $c2 = if ($Color2) { $Color2 } else { $Color }
-        _Shlib_WriteColor -Color $c2 -Message $Text2
+        _Shlib_WriteColor -Color $c2 -Message $Text2 -InPipeline:$inPipe
     }
 }
 
-function print_info    { _Shlib_WriteColor White   "[Info]: $($args -join ' ')" }
-function print_error   { _Shlib_WriteColor Red    "[Error!]: $($args -join ' ')";   try { [Console]::Beep(800, 200) } catch {} }
-function print_success { _Shlib_WriteColor Green  "Success [OK]: $($args -join ' ')" }
-function print_warning { _Shlib_WriteColor Yellow "[Warning!]: $($args -join ' ')"; try { [Console]::Beep(800, 200) } catch {} }
+function print_info    { _Shlib_WriteColor White   "[Info]: $($args -join ' ')"    -InPipeline:($MyInvocation.PipelineLength -gt 1) }
+function print_error   { _Shlib_WriteColor Red    "[Error!]: $($args -join ' ')"   -InPipeline:($MyInvocation.PipelineLength -gt 1); try { [Console]::Beep(800, 200) } catch {} }
+function print_success { _Shlib_WriteColor Green  "Success [OK]: $($args -join ' ')" -InPipeline:($MyInvocation.PipelineLength -gt 1) }
+function print_warning { _Shlib_WriteColor Yellow "[Warning!]: $($args -join ' ')" -InPipeline:($MyInvocation.PipelineLength -gt 1); try { [Console]::Beep(800, 200) } catch {} }
 function print_line {
-    if ([Console]::IsOutputRedirected) { Write-Output "----------------------------------------" }
+    if ([Console]::IsOutputRedirected -or ($MyInvocation.PipelineLength -gt 1)) { Write-Output "----------------------------------------" }
     else { Write-Host "----------------------------------------" }
 }
 
@@ -64,7 +65,7 @@ function log_debug {
     }
 }
 
-function print_red     { _Shlib_WriteColor Red     "$($args -join ' ')" }
-function print_green   { _Shlib_WriteColor Green   "$($args -join ' ')" }
-function print_yellow  { _Shlib_WriteColor Yellow  "$($args -join ' ')" }
-function print_blue    { _Shlib_WriteColor Blue    "$($args -join ' ')" }
+function print_red     { _Shlib_WriteColor Red     "$($args -join ' ')" -InPipeline:($MyInvocation.PipelineLength -gt 1) }
+function print_green   { _Shlib_WriteColor Green   "$($args -join ' ')" -InPipeline:($MyInvocation.PipelineLength -gt 1) }
+function print_yellow  { _Shlib_WriteColor Yellow  "$($args -join ' ')" -InPipeline:($MyInvocation.PipelineLength -gt 1) }
+function print_blue    { _Shlib_WriteColor Blue    "$($args -join ' ')" -InPipeline:($MyInvocation.PipelineLength -gt 1) }

@@ -42,11 +42,13 @@ if ($UseDocker) {
     # Translate manifest to a container-relative path under /work.
     $dockerCargoArgs = @()
     if ($absManifest) {
-        $norm = $absWorkdir.TrimEnd('\', '/')
-        if (-not $absManifest.StartsWith($norm)) {
+        $sep      = [System.IO.Path]::DirectorySeparatorChar
+        $normDir  = [System.IO.Path]::GetFullPath($absWorkdir).TrimEnd($sep, '/') + $sep
+        $fullMani = [System.IO.Path]::GetFullPath($absManifest)
+        if (-not $fullMani.StartsWith($normDir, [System.StringComparison]::OrdinalIgnoreCase)) {
             Write-Error "-Manifest '$Manifest' must be within -Workdir '$absWorkdir' when using -UseDocker"; exit 1
         }
-        $rel = $absManifest.Substring($norm.Length).TrimStart('\', '/') -replace '\\','/'
+        $rel = $fullMani.Substring($normDir.Length) -replace '\\','/'
         $dockerCargoArgs = @('--manifest-path', "/work/$rel")
     }
     $img     = if ($Image) { $Image } elseif ($env:CI_RUST_IMAGE) { $env:CI_RUST_IMAGE } else { 'rust:latest' }
