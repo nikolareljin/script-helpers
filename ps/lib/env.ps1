@@ -52,14 +52,19 @@ function resolve_env_value {
     $v = [System.Environment]::GetEnvironmentVariable($Name)
     if ($null -ne $v -and $v -ne '') { return $v }
     if ($EnvFile -and (Test-Path $EnvFile)) {
-        $prefix = "${Name}="
-        $line = Get-Content $EnvFile -ErrorAction SilentlyContinue |
-            Where-Object { $_.StartsWith($prefix) } | Select-Object -Last 1
-        if ($line) {
-            $v = $line.Substring($prefix.Length).Trim() `
-                -replace '^"(.*)"$','$1' -replace "^'(.*)'$",'$1'
-            $v = $v -replace '\s*#.*$', ''   # strip inline comments
-            $v = $v.Trim()
+        # Mirror load_env parsing: handle export prefix, spaces around =, quotes.
+        $matched = $null
+        foreach ($line in (Get-Content $EnvFile -ErrorAction SilentlyContinue)) {
+            $l = $line.Trim()
+            if ($l -match '^\s*#' -or $l -eq '') { continue }
+            if ($l -match '^export\s+') { $l = $l -replace '^export\s+', '' }
+            if ($l -match '^([^=]+)=(.*)$') {
+                if ($Matches[1].Trim() -eq $Name) { $matched = $Matches[2] }
+            }
+        }
+        if ($null -ne $matched) {
+            $v = $matched.Trim() -replace '^"(.*)"$','$1' -replace "^'(.*)'$",'$1'
+            $v = ($v -replace '\s*#.*$', '').Trim()
             if ($v -ne '') { return $v }
         }
     }

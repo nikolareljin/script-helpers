@@ -78,15 +78,15 @@ function _Help_PrintInline {
     param([string]$Color, [string]$Label, [string]$Value)
     if (-not $Value) { return }
     if (Get-Command print_color -ErrorAction SilentlyContinue) { print_color $Color "${Label}: $Value" }
-    else { Write-Host "${Label}: $Value" }
+    else { Write-Output "${Label}: $Value" }
 }
 
 function _Help_PrintBlock {
     param([string]$Color, [string]$Label, [string]$Value)
     if (-not $Value) { return }
     if (Get-Command print_color -ErrorAction SilentlyContinue) { print_color $Color "${Label}:" }
-    else { Write-Host "${Label}:" }
-    $Value -split "`n" | ForEach-Object { Write-Host "  $_" }
+    else { Write-Output "${Label}:" }
+    $Value -split "`n" | ForEach-Object { Write-Output "  $_" }
 }
 
 function _Help_Render {
