@@ -25,6 +25,7 @@ function version_bump {
         [ValidateSet('major','minor','patch')][string]$BumpType,
         [string]$VersionFile = 'VERSION'
     )
+    if (-not $BumpType) { throw "version_bump: BumpType is required (major/minor/patch)" }
     if (-not [System.IO.Path]::IsPathRooted($VersionFile)) {
         $root = if (Get-Command get_project_root -ErrorAction SilentlyContinue) { get_project_root } else { $PWD.Path }
         $VersionFile = Join-Path $root $VersionFile
@@ -46,6 +47,8 @@ function version_bump {
 
     $newCore    = "$($v.Major).$($v.Minor).$($v.Patch)"
     $newVersion = "$prefix$newCore$suffix"
+    $parentDir  = Split-Path $VersionFile -Parent
+    if ($parentDir -and -not (Test-Path $parentDir)) { New-Item -ItemType Directory -Path $parentDir -Force | Out-Null }
     Set-Content -Path $VersionFile -Value $newVersion -Encoding ascii
 
     if (Get-Command print_success -ErrorAction SilentlyContinue) { print_success "Bumped version: $current -> $newVersion" }

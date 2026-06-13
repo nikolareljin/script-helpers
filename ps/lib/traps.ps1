@@ -10,14 +10,18 @@ $_SHLIB_EXIT_SUBSCRIPTION = $null
 
 function setup_exit_trap {
     param([scriptblock]$Handler)
-    $script:_SHLIB_EXIT_HANDLER = $Handler
     if ($script:_SHLIB_EXIT_SUBSCRIPTION) {
         Unregister-Event -SubscriptionId $script:_SHLIB_EXIT_SUBSCRIPTION -ErrorAction SilentlyContinue
     }
+    $script:_SHLIB_EXIT_HANDLER = $Handler
+    # Pass the handler via -MessageData so the event action (which runs in a
+    # separate runspace) can access it through $event.MessageData rather than
+    # trying to reach a script-scope variable that is not visible there.
     $script:_SHLIB_EXIT_SUBSCRIPTION = (Register-EngineEvent `
         -SourceIdentifier ([System.Management.Automation.PsEngineEvent]::Exiting) `
+        -MessageData $Handler `
         -Action {
-            if ($script:_SHLIB_EXIT_HANDLER) { & $script:_SHLIB_EXIT_HANDLER }
+            if ($event.MessageData) { & $event.MessageData }
         }
     ).Id
 }

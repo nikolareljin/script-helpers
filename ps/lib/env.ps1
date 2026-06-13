@@ -23,7 +23,7 @@ function load_env {
         if ($line -match '^([^=]+)=(.*)$') {
             $key = $Matches[1].Trim()
             $val = $Matches[2].Trim() -replace '^"(.*)"$','$1' -replace "^'(.*)'$",'$1'
-            $val = resolve_env_value $val
+            $val = expand_env_refs $val
             [System.Environment]::SetEnvironmentVariable($key, $val, 'Process')
         }
     }
@@ -42,9 +42,19 @@ function require_env {
     }
 }
 
+# Mirror Bash resolve_env_value(key, default=''):
+# Returns the named environment variable's value, or $Default when unset/empty.
 function resolve_env_value {
+    param([string]$Name, [string]$Default = '')
+    $v = [System.Environment]::GetEnvironmentVariable($Name)
+    if ($null -ne $v -and $v -ne '') { return $v }
+    return $Default
+}
+
+# Expand ${VAR} and $VAR references inside a value string using the current
+# process environment. Used internally by load_env.
+function expand_env_refs {
     param([string]$Value)
-    # Expand ${VAR} and $VAR references using current process environment.
     $result = $Value
     $result = [regex]::Replace($result, '\$\{([^}]+)\}', {
         param($m)
