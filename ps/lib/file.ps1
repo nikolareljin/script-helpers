@@ -24,11 +24,6 @@ function create_directory {
     }
 }
 
-function ensure_dir {
-    param([string]$Path)
-    New-Item -ItemType Directory -Path $Path -Force | Out-Null
-}
-
 function download_file {
     param(
         [string]$Url,
