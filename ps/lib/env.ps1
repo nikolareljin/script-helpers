@@ -7,6 +7,8 @@ function get_project_root {
         if (Test-Path (Join-Path $dir '.git')) { return $dir }
         $dir = Split-Path $dir -Parent
     }
+    # Check the filesystem root itself (loop exits before evaluating it).
+    if (Test-Path (Join-Path $dir '.git')) { return $dir }
     return $StartDir
 }
 

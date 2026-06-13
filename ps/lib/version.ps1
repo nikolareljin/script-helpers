@@ -31,7 +31,8 @@ function version_bump {
         $VersionFile = Join-Path $root $VersionFile
     }
 
-    $current = if (Test-Path $VersionFile) { (Get-Content $VersionFile -Raw).Trim() } else { '0.1.0' }
+    $current  = if (Test-Path $VersionFile) { (Get-Content $VersionFile -Raw).Trim() } else { '0.1.0' }
+    $original = $current   # preserve for success message before mutations strip prefix/suffix
 
     $prefix = ''
     if ($current -match '^([vV])(.+)$') { $prefix = $Matches[1]; $current = $Matches[2] }
@@ -51,7 +52,7 @@ function version_bump {
     if ($parentDir -and -not (Test-Path $parentDir)) { New-Item -ItemType Directory -Path $parentDir -Force | Out-Null }
     Set-Content -Path $VersionFile -Value $newVersion -Encoding ascii
 
-    if (Get-Command print_success -ErrorAction SilentlyContinue) { print_success "Bumped version: $current -> $newVersion" }
-    else { Write-Host "Bumped version: $current -> $newVersion" }
+    if (Get-Command print_success -ErrorAction SilentlyContinue) { print_success "Bumped version: $original -> $newVersion" }
+    else { Write-Host "Bumped version: $original -> $newVersion" }
     return $newVersion
 }

@@ -6,7 +6,9 @@
 # - The setup_exit_trap function registers a script block to run on engine exit.
 
 $_SHLIB_EXIT_HANDLER = $null
-$_SHLIB_EXIT_SOURCE  = [System.Management.Automation.PsEngineEvent]::Exiting
+# Use the literal SourceIdentifier string; the enum stringifies to "Exiting" which
+# does not match the engine event's actual identifier "PowerShell.Exiting".
+$_SHLIB_EXIT_SOURCE  = 'PowerShell.Exiting'
 
 function setup_exit_trap {
     param([scriptblock]$Handler)
