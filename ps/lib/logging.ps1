@@ -23,14 +23,14 @@ function _Shlib_WriteColor {
         }
         return
     }
-    if ($_SHLIB_ANSI) {
+    if ([Console]::IsOutputRedirected) {
+        # Redirected/captured — always plain text; never inject ANSI escape codes into files or pipelines.
+        Write-Output $Message
+    } elseif ($_SHLIB_ANSI) {
         $ansiMap = @{ Red='31'; Green='32'; Yellow='33'; Blue='34'; Cyan='36'; Magenta='35'; White='37'; Gray='90' }
         $esc  = [char]27
         $code = if ($ansiMap.ContainsKey($Color)) { $ansiMap[$Color] } else { '37' }
         Write-Output "${esc}[${code}m${Message}${esc}[0m"
-    } elseif ([Console]::IsOutputRedirected) {
-        # Stdout is captured/redirected — emit plain text so callers get the message
-        Write-Output $Message
     } else {
         $fc = if ($map.ContainsKey($Color)) { $map[$Color] } else { 'White' }
         Write-Host $Message -ForegroundColor $fc
