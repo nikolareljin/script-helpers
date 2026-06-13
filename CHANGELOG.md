@@ -32,6 +32,8 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Fixed: `ps/lib/file.ps1` — `create_directory` now returns `$true` on success and `$false` on failure (via `try/catch` with `-ErrorAction Stop`); previously it returned `$null` on all paths, making success checks unreliable.
 - Fixed: `ps/lib/env.ps1` — `expand_env_refs` now expands unset `$VAR`/`${VAR}` references to empty string instead of leaving the literal placeholder, matching Bash `load_env` behaviour.
 - Removed: `ps/lib/file.ps1` — `ensure_dir` helper removed; it was undocumented, absent from the Bash `lib/file.sh` API, and fully covered by `create_directory`.
+- Fixed: `ps/lib/env.ps1` — `resolve_env_value` now mirrors the full Bash API with an optional third `$EnvFile` parameter; when the process env var is unset it falls back to reading the key from that file (default `.env`), matching the Bash `resolve_env_value(key, default, env_file)` signature.
+- Fixed: `ps/helpers.ps1` — `Import-ScriptHelpersAll` now loads `logging` first before iterating `Get-ChildItem` output; filesystem ordering is non-deterministic so the previous code could load other modules before `logging`, breaking any module that logs during import.
 
 - Added: PowerShell companion library (`ps/`) for native Windows support without WSL.
   - `ps/helpers.ps1` — loader with `Import-ScriptHelpers` function (mirrors `helpers.sh` / `shlib_import`).

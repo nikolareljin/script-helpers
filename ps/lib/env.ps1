@@ -44,12 +44,24 @@ function require_env {
     }
 }
 
-# Mirror Bash resolve_env_value(key, default=''):
-# Returns the named environment variable's value, or $Default when unset/empty.
+# Mirror Bash resolve_env_value(key, default='', env_file='.env'):
+# Returns the process env var value when set; falls back to reading $EnvFile
+# for the key when the process env is unset/empty; finally returns $Default.
 function resolve_env_value {
-    param([string]$Name, [string]$Default = '')
+    param([string]$Name, [string]$Default = '', [string]$EnvFile = '.env')
     $v = [System.Environment]::GetEnvironmentVariable($Name)
     if ($null -ne $v -and $v -ne '') { return $v }
+    if ($EnvFile -and (Test-Path $EnvFile)) {
+        $line = Get-Content $EnvFile -ErrorAction SilentlyContinue |
+            Where-Object { $_ -match "^${Name}=" } | Select-Object -Last 1
+        if ($line) {
+            $v = ($line -replace "^${Name}=", '').Trim() `
+                -replace '^"(.*)"$','$1' -replace "^'(.*)'$",'$1'
+            $v = $v -replace '\s*#.*$', ''   # strip inline comments
+            $v = $v.Trim()
+            if ($v -ne '') { return $v }
+        }
+    }
     return $Default
 }
 

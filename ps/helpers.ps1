@@ -67,7 +67,9 @@ function _Shlib_SourceModule {
 }
 
 # Import-ScriptHelpersAll: load every available module.
+# Logging is always loaded first (same invariant as Import-ScriptHelpers).
 function Import-ScriptHelpersAll {
+    _Shlib_SourceModule 'logging'
     Get-ChildItem -Path $_SHLIB_LIB_DIR -Filter '*.ps1' | ForEach-Object {
         _Shlib_SourceModule $_.BaseName
     }
