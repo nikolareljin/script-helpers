@@ -36,7 +36,9 @@ function download_file {
         Write-Host "[script-helpers] Downloading $Url -> $Output"
         $iwrArgs = @{ Uri = $Url; OutFile = $Output; ErrorAction = 'Stop' }
         if ($PSVersionTable.PSVersion.Major -lt 6) { $iwrArgs['UseBasicParsing'] = $true }
-        Invoke-WebRequest @iwrArgs
+        # Suppress the response object and the noisy PS progress bar; callers get $true/$false only.
+        $prev = $ProgressPreference; $ProgressPreference = 'SilentlyContinue'
+        try { Invoke-WebRequest @iwrArgs | Out-Null } finally { $ProgressPreference = $prev }
         return $true
     } catch {
         Write-Error "download_file: failed to download '$Url': $_"

@@ -48,6 +48,6 @@ function dialog_download_file {
     Write-Progress -Activity $Title -Status "Downloading $Url"
     $iwrArgs = @{ Uri = $Url; OutFile = $Output }
     if ($PSVersionTable.PSVersion.Major -lt 6) { $iwrArgs['UseBasicParsing'] = $true }
-    Invoke-WebRequest @iwrArgs
+    Invoke-WebRequest @iwrArgs | Out-Null
     Write-Progress -Activity $Title -Completed
 }
