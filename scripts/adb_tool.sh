@@ -30,7 +30,7 @@ source "$SCRIPT_HELPERS_DIR/helpers.sh"
 shlib_import logging help adb
 
 cmd="${1:-}"
-shift 2>/dev/null || true
+shift || true   # drop the subcommand; the rest are its args
 case "$cmd" in
   list)         adb_list_devices "$@" ;;
   status)       adb_device_status "$@" ;;

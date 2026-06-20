@@ -82,7 +82,7 @@ adb_list_devices() {
 
 # Usage: adb_shell <serial> <command...>; run a shell command on a device.
 adb_shell() {
-  local serial="$1"; shift 2>/dev/null || true
+  local serial="$1"; shift || true   # drop the serial; the rest is the command
   adb_available || return 1
   [[ -n "$serial" && $# -gt 0 ]] || { log_error "adb_shell: need <serial> <command...>"; return 2; }
   adb -s "$serial" shell "$@"
@@ -138,7 +138,7 @@ adb_pull() {
 # Usage: adb_install <serial> <apk> [extra adb install args...]; (re)install an
 # APK to one device (-r keeps app data). Returns adb's exit status.
 adb_install() {
-  local serial="$1" apk="$2"; shift 2 2>/dev/null || true
+  local serial="$1" apk="$2"; shift 2 || true   # drop serial+apk; rest = adb flags
   adb_available || return 1
   [[ -n "$serial" && -n "$apk" ]] || { log_error "adb_install: need <serial> <apk>"; return 2; }
   [[ -f "$apk" ]] || { log_error "adb_install: APK not found: $apk"; return 2; }
@@ -149,7 +149,7 @@ adb_install() {
 # Usage: adb_install_all <apk> [extra adb install args...]; install the APK to
 # every ready device. Continues past failures; returns non-zero if any failed.
 adb_install_all() {
-  local apk="$1"; shift 2>/dev/null || true
+  local apk="$1"; shift || true   # drop the apk; rest = extra adb install flags
   local s rc=0 ok=0 fail=0
   local -a serials=()
   adb_available || return 1

@@ -68,6 +68,17 @@ Using as a library in other projects
 - Source `helpers.sh` from your scripts and import the modules you need.
 - Keep examples in `scripts/` handy for quick reference; you can copy/paste and adapt.
 
+Bundled CLIs
+------------
+
+- `scripts/adb_tool.sh` — a ready-to-use CLI over the `adb` module for inspecting
+  and debugging Android devices (multi-device safe). Subcommands:
+  `list`, `status <serial>`, `ip <serial> [iface]`, `install <serial> <apk>`,
+  `install-all <apk>`, `push <serial> <local> <remote>`, `pull <serial> <remote> [local]`,
+  `shell <serial> <cmd...>`, `logcat <serial> [regex]`, `clear-logcat <serial>`,
+  `uninstall <serial> <package>`. Run `scripts/adb_tool.sh --help` for details.
+  See [`modules/adb.md`](modules/adb.md).
+
 Shared include and dependency check
 -----------------------------------
 

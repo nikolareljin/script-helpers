@@ -118,16 +118,18 @@ function adb_install {
 
 function adb_install_all {
     param([string]$Apk)
-    if (-not (adb_available)) { return }
-    if (-not $Apk -or -not (Test-Path $Apk)) { log_error "adb_install_all: APK not found: $Apk"; return }
+    if (-not (adb_available)) { return $false }
+    if (-not $Apk -or -not (Test-Path $Apk)) { log_error "adb_install_all: APK not found: $Apk"; return $false }
     $serials = @(adb_ready_serials)
-    if ($serials.Count -eq 0) { log_warn 'No ready devices to install to.'; return }
+    if ($serials.Count -eq 0) { log_warn 'No ready devices to install to.'; return $true }
     $ok = 0; $fail = 0
     foreach ($s in $serials) {
         & adb -s $s install -r @args $Apk *> $null
         if ($LASTEXITCODE -eq 0) { log_info "installed on $s"; $ok++ } else { log_warn "install FAILED on $s"; $fail++ }
     }
     log_info "install summary: $ok ok, $fail failed of $($serials.Count) device(s)"
+    # Mirror lib/adb.sh's non-zero-on-any-failure contract: $true iff all succeeded.
+    return ($fail -eq 0)
 }
 
 function adb_uninstall {
