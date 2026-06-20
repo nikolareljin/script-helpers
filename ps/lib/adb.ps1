@@ -65,12 +65,15 @@ function adb_list_devices {
 # --- shell / debugging -----------------------------------------------------
 
 function adb_shell {
-    param([string]$Serial)
-    if (-not (adb_available) -or -not $Serial -or $args.Count -eq 0) {
+    param(
+        [string]$Serial,
+        [Parameter(ValueFromRemainingArguments = $true)][string[]]$Cmd
+    )
+    if (-not (adb_available) -or -not $Serial -or -not $Cmd -or $Cmd.Count -eq 0) {
         if (Get-Command log_error -ErrorAction SilentlyContinue) { log_error 'adb_shell: need <serial> <command...>' }
         return
     }
-    & adb -s $Serial shell @args
+    & adb -s $Serial shell @Cmd
 }
 
 function adb_logcat {
@@ -108,23 +111,29 @@ function adb_pull {
 # --- apps ------------------------------------------------------------------
 
 function adb_install {
-    param([string]$Serial, [string]$Apk)
+    param(
+        [string]$Serial, [string]$Apk,
+        [Parameter(ValueFromRemainingArguments = $true)][string[]]$ExtraArgs
+    )
     if (-not (adb_available)) { return }
     if (-not $Serial -or -not $Apk) { log_error 'adb_install: need <serial> <apk>'; return }
     if (-not (Test-Path $Apk)) { log_error "adb_install: APK not found: $Apk"; return }
     log_info "install $Apk -> $Serial"
-    & adb -s $Serial install -r @args $Apk
+    & adb -s $Serial install -r @ExtraArgs $Apk
 }
 
 function adb_install_all {
-    param([string]$Apk)
+    param(
+        [string]$Apk,
+        [Parameter(ValueFromRemainingArguments = $true)][string[]]$ExtraArgs
+    )
     if (-not (adb_available)) { return $false }
     if (-not $Apk -or -not (Test-Path $Apk)) { log_error "adb_install_all: APK not found: $Apk"; return $false }
     $serials = @(adb_ready_serials)
     if ($serials.Count -eq 0) { log_warn 'No ready devices to install to.'; return $true }
     $ok = 0; $fail = 0
     foreach ($s in $serials) {
-        & adb -s $s install -r @args $Apk *> $null
+        & adb -s $s install -r @ExtraArgs $Apk *> $null
         if ($LASTEXITCODE -eq 0) { log_info "installed on $s"; $ok++ } else { log_warn "install FAILED on $s"; $fail++ }
     }
     log_info "install summary: $ok ok, $fail failed of $($serials.Count) device(s)"
