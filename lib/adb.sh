@@ -210,9 +210,9 @@ adb_device_status() {
   [[ -n "$serial" ]] || return 1
   if adb_screen_on "$serial"; then screen="on"; elif [[ $? -eq 1 ]]; then screen="off"; fi
   printf 'serial:  %s\n' "$serial"
-  printf 'model:   %s\n' "$(adb_device_model "$serial")"
-  printf 'android: %s (API %s)\n' "$(adb_android_version "$serial")" "$(adb_device_api "$serial")"
-  printf 'battery: %s%%\n' "$(adb_battery_level "$serial")"
+  printf 'model:   %s\n' "$(adb_device_model "$serial" 2>/dev/null || echo '?')"
+  printf 'android: %s (API %s)\n' "$(adb_android_version "$serial" 2>/dev/null || echo '?')" "$(adb_device_api "$serial" 2>/dev/null || echo '?')"
+  printf 'battery: %s%%\n' "$(adb_battery_level "$serial" 2>/dev/null || echo '?')"
   printf 'screen:  %s\n' "$screen"
   printf 'wifi_ip: %s\n' "$(adb_device_ip "$serial" 2>/dev/null || echo '-')"
 }
