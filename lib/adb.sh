@@ -193,7 +193,10 @@ adb_screen_on() {
   local serial="$1" out
   adb_available || return 2
   [[ -n "$serial" ]] || return 2
-  out="$(adb -s "$serial" shell dumpsys power 2>/dev/null | tr -d '\r')"
+  # No pipe / guarded substitution so a failed adb call can't abort a caller
+  # running with `set -e -o pipefail`; we always reach the `return 2` contract.
+  out="$(adb -s "$serial" shell dumpsys power 2>/dev/null)" || out=""
+  out="${out//$'\r'/}"
   if grep -qE 'Display Power: state=ON|mScreenOn=true|mWakefulness=Awake' <<<"$out"; then
     return 0
   elif grep -qE 'Display Power: state=OFF|mScreenOn=false|mWakefulness=(Asleep|Dozing)' <<<"$out"; then
