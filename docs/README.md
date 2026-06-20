@@ -51,5 +51,6 @@ Modules overview
 - package_publish — Debian package builds and PPA upload helpers.
 - packaging — packaging metadata helpers and template formatting.
 - ci_defaults — centralized Docker image version defaults for CI helper scripts.
+- adb — list/inspect USB-connected Android devices (serials, model, Wi-Fi IP); multi-device safe.
 
 If you add a new module or function, update ./docs/api.md and the relevant ./docs/modules/*.md file. See AGENTS.md for the process and checklist.

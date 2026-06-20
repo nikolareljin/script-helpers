@@ -4,6 +4,7 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ## [Unreleased]
 
+- Added: `adb` module (`lib/adb.sh`) — multi-device-safe Android Debug Bridge helpers: `adb_available`, `adb_ready_serials`, `adb_device_ip`, `adb_device_model`, and an `adb_list_devices` SERIAL/MODEL/Wi-Fi-IP table. Uses `adb -s <serial>` so it works with more than one device attached.
 - Added: CI helper scripts for Node, Python, Flutter, Gradle, Go, and basic security checks.
 - Added: `scripts/pin_production.sh` to fast-forward the production branch to a release tag.
 - Added: `scripts/check_release_version.sh` to verify release versions before tagging or publishing.
