@@ -6,8 +6,9 @@ APKs, copy files to/from a device, run shell commands, and read logcat/status.
 
 Everything is **multi-device safe** — functions target a device with
 `adb -s <serial>` rather than a bare `adb shell`, which errors with *more than one
-device* once a second device is attached. Every function returns non-zero / no-ops
-when `adb` is missing, so callers degrade cleanly.
+device* once a second device is attached. Every function no-ops when `adb` is
+missing — the Bash functions return non-zero, the PowerShell functions return
+`$null` / nothing — so callers degrade cleanly.
 
 Available in both Bash (`lib/adb.sh`) and PowerShell (`ps/lib/adb.ps1`) with the
 same function names. A ready-to-use CLI wrapper lives at `scripts/adb_tool.sh`.

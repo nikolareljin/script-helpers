@@ -96,7 +96,8 @@ adb_logcat() {
   adb_available || return 1
   [[ -n "$serial" ]] || return 1
   if [[ -n "$regex" ]]; then
-    adb -s "$serial" logcat -d 2>/dev/null | grep -E "$regex"
+    # `--` so a regex starting with '-' isn't taken as a grep option.
+    adb -s "$serial" logcat -d 2>/dev/null | grep -E -- "$regex"
   else
     adb -s "$serial" logcat -d 2>/dev/null
   fi

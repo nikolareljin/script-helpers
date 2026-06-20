@@ -19,7 +19,9 @@
 #   uninstall <serial> <package>     Uninstall an app package
 #   -h, --help                       Show this help
 # EXAMPLE: scripts/adb_tool.sh list
-# EXIT_CODES: 0 on success, 2 on usage error
+# EXIT_CODES: 0 on success; 2 on unknown command; otherwise the exit status of
+#   the underlying adb_* helper (e.g. 1 when adb is missing, or adb's own code
+#   from install/push/pull) is propagated.
 # CREATOR: Nik Reljin
 set -euo pipefail
 
