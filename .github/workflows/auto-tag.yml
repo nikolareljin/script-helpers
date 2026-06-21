@@ -97,6 +97,19 @@ jobs:
           echo "tag_created=true" >> "$GITHUB_OUTPUT"
           echo "tag_name=$tag" >> "$GITHUB_OUTPUT"
 
+      # GITHUB_TOKEN-pushed tags don't trigger release.yml's `on: push: tags`
+      # (GitHub anti-recursion), so create the Release in this job — same fix as
+      # release-tag.yml.
+      - name: Create GitHub Release
+        if: ${{ steps.push_tag.outputs.tag_created == 'true' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.push_tag.outputs.tag_name }}
+          name: Release ${{ steps.push_tag.outputs.tag_name }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Move production to new tag
         if: ${{ steps.push_tag.outputs.tag_created == 'true' && github.ref == 'refs/heads/main' }}
         shell: bash
