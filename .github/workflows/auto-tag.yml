@@ -11,6 +11,9 @@ jobs:
   auto-tag:
     if: ${{ github.actor != 'github-actions[bot]' }}
     runs-on: ubuntu-latest
+    outputs:
+      tag_created: ${{ steps.push_tag.outputs.tag_created }}
+      tag_name: ${{ steps.push_tag.outputs.tag_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -97,19 +100,6 @@ jobs:
           echo "tag_created=true" >> "$GITHUB_OUTPUT"
           echo "tag_name=$tag" >> "$GITHUB_OUTPUT"
 
-      # GITHUB_TOKEN-pushed tags don't trigger release.yml's `on: push: tags`
-      # (GitHub anti-recursion), so create the Release in this job — same fix as
-      # release-tag.yml.
-      - name: Create GitHub Release
-        if: ${{ steps.push_tag.outputs.tag_created == 'true' }}
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.push_tag.outputs.tag_name }}
-          name: Release ${{ steps.push_tag.outputs.tag_name }}
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Move production to new tag
         if: ${{ steps.push_tag.outputs.tag_created == 'true' && github.ref == 'refs/heads/main' }}
         shell: bash
@@ -133,3 +123,14 @@ jobs:
         run: |
           echo "Tag ${{ steps.push_tag.outputs.tag_name }} was created, but workflow ref is '${GITHUB_REF}'."
           echo "Production pinning only runs when auto-tag is dispatched from 'main'."
+
+  # The tag is pushed with GITHUB_TOKEN, which doesn't trigger release.yml's
+  # tag-push event, so create the Release here via the shared ci-helpers workflow.
+  release:
+    needs: auto-tag
+    if: ${{ needs.auto-tag.outputs.tag_created == 'true' }}
+    permissions:
+      contents: write
+    uses: nikolareljin/ci-helpers/.github/workflows/create-github-release.yml@production
+    with:
+      release_tag: ${{ needs.auto-tag.outputs.tag_name }}

@@ -10,6 +10,9 @@ permissions:
 jobs:
   tag:
     runs-on: ubuntu-latest
+    outputs:
+      tag_created: ${{ steps.tag_release.outputs.tag_created }}
+      tag_name: ${{ steps.tag_release.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,21 +49,6 @@ jobs:
           echo "tag_created=true" >> "$GITHUB_OUTPUT"
           echo "tag_name=$version" >> "$GITHUB_OUTPUT"
 
-      # The tag above is pushed with the workflow's GITHUB_TOKEN, and GitHub does
-      # NOT trigger other workflows (e.g. release.yml's `on: push: tags`) for refs
-      # created by GITHUB_TOKEN — that anti-recursion rule is why Releases stopped
-      # being created after 0.10.1. So create the GitHub Release right here, in the
-      # same job that made the tag, instead of relying on the tag-push event.
-      - name: Create GitHub Release
-        if: ${{ steps.tag_release.outputs.tag_created == 'true' }}
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag_release.outputs.tag_name }}
-          name: Release ${{ steps.tag_release.outputs.tag_name }}
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Move production to new tag
         if: ${{ steps.tag_release.outputs.tag_created == 'true' }}
         shell: bash
@@ -77,3 +65,17 @@ jobs:
           fi
           git push origin production
           echo "production branch updated to tag ${tag}"
+
+  # The tag above is pushed with the workflow's GITHUB_TOKEN, and GitHub does NOT
+  # trigger other workflows (e.g. release.yml's `on: push: tags`) for refs created
+  # by GITHUB_TOKEN — that anti-recursion rule is why Releases stopped being
+  # created after 0.10.1. Create the Release here via the shared ci-helpers
+  # reusable workflow instead of relying on the suppressed tag-push event.
+  release:
+    needs: tag
+    if: ${{ needs.tag.outputs.tag_created == 'true' }}
+    permissions:
+      contents: write
+    uses: nikolareljin/ci-helpers/.github/workflows/create-github-release.yml@production
+    with:
+      release_tag: ${{ needs.tag.outputs.tag_name }}
