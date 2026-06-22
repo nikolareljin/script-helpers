@@ -26,6 +26,15 @@ jobs:
   #    tag-push trigger restriction.
   tag:
     uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@production
+    # The reusable workflow's `dispatch` job declares job-level `actions: write`
+    # unconditionally (only its execution is gated by `if`), and GitHub validates
+    # job permissions statically — so every caller must grant `actions: write`
+    # here or the run fails validation before `tag` can execute, even though we
+    # leave `release_workflow` unset and the dispatch job is skipped.
+    permissions:
+      contents: write
+      pull-requests: read
+      actions: write
     with:
       update_production_tag: false
 
