@@ -41,6 +41,31 @@ run_go_tests_inline() {
 }
 
 run_tests() {
+  # PHP / Laravel — detect composer.json first so Laravel apps (which also ship a
+  # package.json for Vite) run their PHP suite rather than the Node runner.
+  if [[ -f composer.json ]] && command -v php &>/dev/null && command -v composer &>/dev/null; then
+    if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_php.sh" ]]; then
+      echo "[pre-push] local_test_php.sh --quick"
+      bash "$_scripts_dir/local_test_php.sh" --quick
+    else
+      if [[ -x vendor/bin/pint ]]; then
+        echo "[pre-push] vendor/bin/pint --test"
+        vendor/bin/pint --test
+      fi
+      if [[ "${SKIP_PHP_TESTS:-}" != "1" ]]; then
+        if [[ -f artisan ]]; then
+          echo "[pre-push] php artisan test"
+          php artisan test
+        elif [[ -x vendor/bin/phpunit ]]; then
+          echo "[pre-push] vendor/bin/phpunit"
+          vendor/bin/phpunit
+        fi
+      fi
+    fi
+    _ran_tests=true
+    return 0
+  fi
+
   # Node / npm workspaces — only return when tests actually ran; otherwise fall through.
   if [[ -f package.json ]] && command -v npm &>/dev/null; then
     if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_node.sh" ]]; then
