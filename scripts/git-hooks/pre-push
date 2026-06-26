@@ -43,11 +43,11 @@ run_go_tests_inline() {
 run_tests() {
   # PHP / Laravel — composer.json is authoritative: Laravel apps also ship a
   # package.json for Vite, so once composer.json is present we run the PHP suite
-  # (or stop with a clear message) and never fall through to the Node runner.
+  # (or skip with a clear message) and never fall through to the Node runner.
   if [[ -f composer.json ]]; then
     if ! command -v php &>/dev/null || ! command -v composer &>/dev/null; then
-      echo "[pre-push] composer.json found but php/composer are not installed — skipping PHP checks." >&2
-      echo "[pre-push] Install PHP and Composer to test this repo, or push with --no-verify." >&2
+      echo "[pre-push] composer.json found but php/composer are not installed — skipping PHP checks; push proceeds." >&2
+      echo "[pre-push] Install PHP and Composer to run these checks before pushing." >&2
       return 0
     fi
     if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_php.sh" ]]; then

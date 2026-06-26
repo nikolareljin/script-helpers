@@ -78,7 +78,11 @@ elif [[ -x vendor/bin/phpunit ]]; then
   echo "[local-test-php] vendor/bin/phpunit"
   vendor/bin/phpunit
 else
-  echo "[local-test-php] No test runner found (artisan/phpunit). Skipping tests." >&2
+  # Exit non-zero so callers (pre-push hooks, CI) do not mistake "no runner" for
+  # a passing suite. Use SKIP_PHP_TESTS=1 for an intentional style-only run.
+  echo "[local-test-php] No test runner found (artisan/phpunit) and tests were not skipped." >&2
+  echo "[local-test-php] Set SKIP_PHP_TESTS=1 for a style-only run, or add a test runner." >&2
+  exit 1
 fi
 
 echo "[local-test-php] Done."

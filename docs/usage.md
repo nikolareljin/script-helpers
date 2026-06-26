@@ -290,12 +290,15 @@ bash scripts/script-helpers/scripts/local_test_php.sh --quick --dir backend
 The PHP runner targets PHP/Laravel projects: it runs `composer install`
 (skipped with `--quick`), checks style with Laravel Pint when
 `vendor/bin/pint` is present, then runs the suite via `php artisan test`
-(falling back to `vendor/bin/phpunit`). Set `SKIP_PHP_TESTS=1` for a
-style-only run that skips the (often DB-backed) test suite — handy for a
-pre-push on a machine without a local database. In the `pre-push` hook,
-`composer.json` is authoritative: a repo that has it runs the PHP suite (or
-stops with a clear message) rather than falling through to the Node runner,
-even when a `package.json` is also present for Vite.
+(falling back to `vendor/bin/phpunit`). When tests are not skipped and no
+runner is found, the script exits non-zero so callers do not treat "no runner"
+as a passing suite. Set `SKIP_PHP_TESTS=1` for a style-only run that skips the
+(often DB-backed) test suite — handy for a pre-push on a machine without a
+local database. In the `pre-push` hook, `composer.json` is authoritative: a
+repo that has it runs the PHP suite rather than falling through to the Node
+runner, even when a `package.json` is also present for Vite. If PHP or Composer
+is not installed, the hook prints a message and skips the PHP checks (the push
+still proceeds).
 
 Release branch checks
 ---------------------
