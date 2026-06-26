@@ -9,6 +9,7 @@
 # ENVIRONMENT:
 #   SKIP_PHP_TESTS=1   Run style checks only; skip the (DB-backed) test suite.
 #                      Useful for a pre-push without a local database.
+# ----------------------------------------------------
 set -euo pipefail
 
 QUICK=false

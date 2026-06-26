@@ -41,28 +41,44 @@ run_go_tests_inline() {
 }
 
 run_tests() {
-  # PHP / Laravel — detect composer.json first so Laravel apps (which also ship a
-  # package.json for Vite) run their PHP suite rather than the Node runner.
-  if [[ -f composer.json ]] && command -v php &>/dev/null && command -v composer &>/dev/null; then
+  # PHP / Laravel — composer.json is authoritative: Laravel apps also ship a
+  # package.json for Vite, so once composer.json is present we run the PHP suite
+  # (or stop with a clear message) and never fall through to the Node runner.
+  if [[ -f composer.json ]]; then
+    if ! command -v php &>/dev/null || ! command -v composer &>/dev/null; then
+      echo "[pre-push] composer.json found but php/composer are not installed — skipping PHP checks." >&2
+      echo "[pre-push] Install PHP and Composer to test this repo, or push with --no-verify." >&2
+      return 0
+    fi
     if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_php.sh" ]]; then
       echo "[pre-push] local_test_php.sh --quick"
       bash "$_scripts_dir/local_test_php.sh" --quick
+      _ran_tests=true
     else
+      # Track whether any PHP check actually ran so _ran_tests stays honest.
+      local _php_checked=false
       if [[ -x vendor/bin/pint ]]; then
         echo "[pre-push] vendor/bin/pint --test"
         vendor/bin/pint --test
+        _php_checked=true
       fi
       if [[ "${SKIP_PHP_TESTS:-}" != "1" ]]; then
         if [[ -f artisan ]]; then
           echo "[pre-push] php artisan test"
           php artisan test
+          _php_checked=true
         elif [[ -x vendor/bin/phpunit ]]; then
           echo "[pre-push] vendor/bin/phpunit"
           vendor/bin/phpunit
+          _php_checked=true
         fi
       fi
+      if [[ "$_php_checked" == "true" ]]; then
+        _ran_tests=true
+      else
+        echo "[pre-push] composer.json found but no PHP checks ran (no pint/artisan/phpunit, or tests skipped)." >&2
+      fi
     fi
-    _ran_tests=true
     return 0
   fi
 
