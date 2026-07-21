@@ -52,5 +52,6 @@ Modules overview
 - packaging — packaging metadata helpers and template formatting.
 - ci_defaults — centralized Docker image version defaults for CI helper scripts.
 - adb — Android Debug Bridge toolkit: list/inspect devices (model, Android OS, API level, IP), install apps, copy files to/from, and debug (shell/logcat/status); multi-device safe; Bash + PowerShell + `scripts/adb_tool.sh` CLI.
+- serve — serve a static site directory locally for preview (auto-picks a free port; prefers `python3 -m http.server`); CLI wrapper `bin/serve-pages`.
 
 If you add a new module or function, update ./docs/api.md and the relevant ./docs/modules/*.md file. See AGENTS.md for the process and checklist.
