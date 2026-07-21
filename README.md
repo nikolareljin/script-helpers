@@ -232,7 +232,7 @@ docker_status
 Serving a static site locally
 ------------------------------
 
-- `serve_static_site <dir> [port]` (from `lib/serve.sh`) starts a static HTTP server rooted at `<dir>`, auto-selecting the first free port at/after `[port]` (default `8000`). Prefers `python3 -m http.server`, falling back to `python -m SimpleHTTPServer`, then `npx http-server`. Prints the URL and serves until Ctrl-C.
+- `serve_static_site <dir> [port]` (from `lib/serve.sh`) starts a static HTTP server rooted at `<dir>`, auto-selecting the first free port at/after `[port]` (default `8000`). Prefers `python3 -m http.server`, falling back to `python` (its `http.server` on Python 3 or `SimpleHTTPServer` on Python 2), then `npx http-server`. Prints the URL and serves until Ctrl-C.
 - `bin/serve-pages <dir> [port]` — CLI wrapper, handy for previewing a static/GitHub-Pages build output:
 
 ```bash
