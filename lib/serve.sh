@@ -32,7 +32,9 @@ serve_static_site() {
     p=$(( p + 1 )); tries=$(( tries + 1 ))
   done
   if (( ! found )); then
-    echo "serve_static_site: no free port found in ${port}..$(( port + 19 ))" >&2
+    # Report the actual range probed (last attempted port is p-1), which may end
+    # before port+19 if the search hit the 65535 ceiling.
+    echo "serve_static_site: no free port found in ${port}..$(( p - 1 ))" >&2
     return 4
   fi
 

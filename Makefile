@@ -76,7 +76,7 @@ lint-docs:
 test:
 	@for f in tests/*_test.sh; do \
 	  [[ -f "$$f" ]] || continue; \
-	  echo "\n--- Running: $$f ---"; \
+	  printf '\n--- Running: %s ---\n' "$$f"; \
 	  bash "$$f" || exit 1; \
 	done
 
