@@ -27,14 +27,29 @@ else
 fi
 
 # 2) serve_static_site returns 2 for a missing directory.
+# Create a temp dir then remove it so the path is guaranteed not to exist
+# (a hard-coded /nonexistent could accidentally exist under some sandboxes).
+missing_dir="$(mktemp -d)"
+rmdir "$missing_dir"
 set +e
-serve_static_site /nonexistent/dir/for-serve-test 8000 >/dev/null 2>&1
+serve_static_site "$missing_dir" 8000 >/dev/null 2>&1
 rc=$?
 set -e
 if [[ "$rc" -eq 2 ]]; then
-  note "serve_static_site /nonexistent returns 2"
+  note "serve_static_site on a missing directory returns 2"
 else
-  error "serve_static_site /nonexistent returned $rc, expected 2"
+  error "serve_static_site on a missing directory returned $rc, expected 2"
+fi
+
+# 3) serve_static_site returns 2 for a non-numeric port.
+set +e
+serve_static_site "$root_dir" not-a-port >/dev/null 2>&1
+rc=$?
+set -e
+if [[ "$rc" -eq 2 ]]; then
+  note "serve_static_site with a non-numeric port returns 2"
+else
+  error "serve_static_site with a non-numeric port returned $rc, expected 2"
 fi
 
 if (( failures == 0 )); then

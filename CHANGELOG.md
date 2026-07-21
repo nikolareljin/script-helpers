@@ -4,6 +4,8 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-07-21
+
 - Added: `serve` module (`lib/serve.sh`) with `serve_static_site <dir> [port]` to preview a static/GitHub-Pages directory locally — auto-picks a free port (default `8000`), prefers `python3 -m http.server`, falls back to `python -m SimpleHTTPServer` then `npx http-server`. Plus a CLI wrapper `bin/serve-pages` and a `tests/serve_test.sh` smoke test (also runnable via new `make test` target).
 - Added: PHP/Laravel support for the local test runner and `pre-push` hook. New `scripts/local_test_php.sh` runs `composer install` (skipped with `--quick`), Laravel Pint style checks when available, and the suite via `php artisan test` (falling back to `vendor/bin/phpunit`); `SKIP_PHP_TESTS=1` gives a style-only run for pre-push without a local database. In the `pre-push` hook, `composer.json` is authoritative so Laravel apps that also ship a `package.json` for Vite run their PHP suite instead of falling through to the Node runner.
 - Changed: release automation now reuses the shared ci-helpers reusable workflows instead of hand-rolled logic. `auto-tag-release.yml` (on merge of a `release/X.Y.Z` PR to `main`) calls `ci-helpers/auto-tag-release.yml@production` to detect+tag the version, `create-github-release.yml@production` to publish the Release in the same run, and moves the `production` branch. Removes the bespoke `release-tag.yml` and `auto-tag.yml`.

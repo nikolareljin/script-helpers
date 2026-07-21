@@ -4,7 +4,7 @@
 
 # serve_static_site <dir> [port]
 # Serves <dir> over HTTP on the first free port at/after [port] (default 8000).
-# Prefers python3, then python2, then npx http-server. Blocks until Ctrl-C.
+# Prefers python3, then `python` (3 or 2), then npx http-server. Blocks until Ctrl-C.
 serve_static_site() {
   local dir="${1:-}"
   local port="${2:-8000}"
@@ -14,26 +14,46 @@ serve_static_site() {
     return 2
   fi
 
-  # find a free port (try up to 20 above the requested one)
-  local p="$port" tries=0
-  while (( tries < 20 )); do
-    if ! { exec 3<>"/dev/tcp/127.0.0.1/${p}"; } 2>/dev/null; then
-      break                      # connect failed => port is free
+  # Reject non-numeric ports early: the free-port probe below does arithmetic
+  # on this value, which would fail noisily on e.g. "abc".
+  if [[ ! "$port" =~ ^[0-9]+$ ]] || (( port < 1 || port > 65535 )); then
+    echo "serve_static_site: invalid port: '${port}' (expected 1-65535)" >&2
+    return 2
+  fi
+
+  # Find a free port, trying up to 20 above the requested one. `found` tells a
+  # genuine free port apart from exhausting the window on an all-busy range.
+  local p="$port" tries=0 found=0
+  while (( tries < 20 && p <= 65535 )); do
+    if ! { : <>"/dev/tcp/127.0.0.1/${p}"; } 2>/dev/null; then
+      found=1                    # connect failed => nothing listening => port is free
+      break
     fi
-    exec 3>&- 3<&- 2>/dev/null || true
     p=$(( p + 1 )); tries=$(( tries + 1 ))
   done
-  exec 3>&- 3<&- 2>/dev/null || true
+  if (( ! found )); then
+    echo "serve_static_site: no free port found in ${port}..$(( port + 19 ))" >&2
+    return 4
+  fi
 
   local url="http://localhost:${p}/"
   echo "Serving '${dir}' at ${url}  (Ctrl-C to stop)"
 
+  # Run the server in the foreground WITHOUT `exec`: when this function is called
+  # from a sourced context (`source helpers.sh; serve_static_site ...`), `exec`
+  # would replace the caller's shell, so Ctrl-C would kill their session instead
+  # of just the server. As a plain child, Ctrl-C stops the server and returns here.
   if command -v python3 >/dev/null 2>&1; then
-    exec python3 -m http.server "${p}" --directory "${dir}"
+    python3 -m http.server "${p}" --directory "${dir}"
   elif command -v python >/dev/null 2>&1; then
-    ( cd "${dir}" && exec python -m SimpleHTTPServer "${p}" )
+    # `python` may be Python 3 or 2; the stdlib server module differs between them.
+    if python -c 'import sys; sys.exit(0 if sys.version_info[0] >= 3 else 1)' 2>/dev/null; then
+      ( cd "${dir}" && python -m http.server "${p}" )
+    else
+      ( cd "${dir}" && python -m SimpleHTTPServer "${p}" )
+    fi
   elif command -v npx >/dev/null 2>&1; then
-    exec npx --yes http-server "${dir}" -p "${p}"
+    npx --yes http-server "${dir}" -p "${p}"
   else
     echo "serve_static_site: need python3, python, or npx to serve" >&2
     return 3
