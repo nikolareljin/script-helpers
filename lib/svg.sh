@@ -29,6 +29,10 @@ svg_rasterize() {
     _svg_log_error "usage: svg_rasterize <in.svg> <out.png> [size]"
     return 2
   fi
+  if [[ ! "$size" =~ ^[1-9][0-9]*$ ]]; then
+    _svg_log_error "size must be a positive integer: $size"
+    return 2
+  fi
   if [[ ! -f "$in" ]]; then
     _svg_log_error "input SVG not found: $in"
     return 2
@@ -48,10 +52,13 @@ svg_rasterize() {
         || inkscape -z -e "$out" -w "$size" -h "$size" "$in" >/dev/null 2>&1
       ;;
     magick)
-      magick -background none "$in" -resize "${size}x${size}" "$out"
+      # -extent on a centered gravity guarantees a square canvas.
+      magick -background none "$in" -resize "${size}x${size}" \
+        -gravity center -extent "${size}x${size}" "$out"
       ;;
     convert)
-      convert -background none "$in" -resize "${size}x${size}" "$out"
+      convert -background none "$in" -resize "${size}x${size}" \
+        -gravity center -extent "${size}x${size}" "$out"
       ;;
   esac || { _svg_log_error "rasterize failed ($tool): $in -> $out"; return 1; }
 
