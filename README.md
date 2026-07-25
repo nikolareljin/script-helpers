@@ -135,6 +135,7 @@ Loader and modules
   - `docker.sh` — docker compose detection/wrapper (`docker_compose`, `run_docker_compose_command`), status utility (`docker_status`).
   - `file.sh` — file/dir helpers, checksum verification.
   - `json.sh` — json utilities (`json_escape`, `format_response`, `format_md_response`).
+  - `svg.sh` — rasterize SVG art to PNG (`svg_rasterize <in> <out> [size]`, `svg_rasterize_sizes`) for app logos/launcher icons; prefers Inkscape, falls back to ImageMagick. CLI: `bin/svg-rasterize`.
 - `env.sh` — `.env` loading, `require_env`, project-root detection.
 - `python.sh` — resolve Python 3 executables and ensure local virtualenvs.
 - `version.sh` — semantic version helpers (`version_bump`, `version_compare`).
