@@ -4,6 +4,10 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-07-25
+
+- Added: `svg` module (`lib/svg.sh`) to rasterize SVG art to PNG for app logos and launcher icons. `svg_rasterize <in.svg> <out.png> [size]` renders a square PNG (default 1024px), preferring Inkscape and falling back to ImageMagick (`magick`/`convert`); `svg_rasterize_sizes` emits one PNG per size for icon sets; `svg_rasterizer` reports the available tool. Plus a CLI wrapper `bin/svg-rasterize` and a `tests/svg_test.sh` smoke test (auto-picked up by `make test`). Extracted from the AppealShield (`denial-shield-pro`) icon-generation flow so every mobile repo can share one rasterizer.
+
 ## [0.17.0] - 2026-07-21
 
 - Added: `serve` module (`lib/serve.sh`) with `serve_static_site <dir> [port]` to preview a static/GitHub-Pages directory locally — auto-picks a free port (default `8000`), prefers `python3 -m http.server`, falls back to `python` (`http.server` on Python 3 or `SimpleHTTPServer` on Python 2) then `npx http-server`. Plus a CLI wrapper `bin/serve-pages` and a `tests/serve_test.sh` smoke test (also runnable via new `make test` target).
