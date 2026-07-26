@@ -21,6 +21,11 @@ The export plist path is relative to `--workdir`. The runner exits `3` when the
 Apple toolchain is unavailable, `1` for invalid arguments or a missing Flutter
 executable, and otherwise propagates failures from Flutter build/test commands.
 
+Unlike the Docker-based `ci_*.sh` wrappers (which refuse to run under `CI=true`
+because they are local-only helpers), `ci_ios.sh` has no such guard: Apple's
+toolchain is macOS-only, so it is meant to run both locally and in CI on a macOS
+runner.
+
 Requirements
 ------------
 
