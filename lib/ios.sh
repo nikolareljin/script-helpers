@@ -69,7 +69,7 @@ ios_boot_simulator() {
 # Usage: ios_shutdown_simulators; shuts down all booted simulators.
 ios_shutdown_simulators() {
   ios_available || return 1
-  xcrun simctl shutdown all 2>/dev/null || true
+  xcrun simctl shutdown all
 }
 
 # --- install / launch ------------------------------------------------------

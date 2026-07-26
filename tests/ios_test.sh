@@ -1,14 +1,23 @@
 #!/usr/bin/env bash
+# SCRIPT: ios_test.sh
+# DESCRIPTION: Regression tests for the iOS helper module.
+# USAGE: ./tests/ios_test.sh
+# PARAMETERS: No required parameters.
+# EXAMPLE: bash tests/ios_test.sh
+# ----------------------------------------------------
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
 # shellcheck source=/dev/null
-source "$ROOT_DIR/lib/ios.sh"
+source ./helpers.sh
+shlib_import ios
 
 OSTYPE=darwin
 boot_calls=0
 simctl_output=""
 boot_status=0
+shutdown_status=0
 devicectl_available=false
 
 xcrun() {
@@ -19,6 +28,9 @@ xcrun() {
   if [[ "$1 $2" == "simctl boot" ]]; then
     boot_calls=$((boot_calls + 1))
     return "$boot_status"
+  fi
+  if [[ "$1 $2 ${3:-}" == "simctl shutdown all" ]]; then
+    return "$shutdown_status"
   fi
   if [[ "$1 $2" == "devicectl --version" ]]; then
     "$devicectl_available"
@@ -51,6 +63,12 @@ if ios_boot_simulator "missing-simulator"; then
   exit 1
 fi
 [[ "$boot_calls" -eq 2 ]] || { echo "expected two simctl boot attempts" >&2; exit 1; }
+
+shutdown_status=9
+if ios_shutdown_simulators 2>/dev/null; then
+  echo "simctl shutdown failure was masked" >&2
+  exit 1
+fi
 
 ipa_file="$(mktemp)"
 trap 'rm -f "$ipa_file"' EXIT

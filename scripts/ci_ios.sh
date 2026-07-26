@@ -30,11 +30,15 @@ EXPORT_PLIST=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --workdir) WORKDIR="$2"; shift 2;;
+    --workdir)
+      [[ $# -ge 2 ]] || { echo "--workdir requires a path" >&2; exit 1; }
+      WORKDIR="$2"; shift 2;;
     --skip-analyze) SKIP_ANALYZE=true; shift;;
     --skip-test) SKIP_TEST=true; shift;;
     --skip-build) SKIP_BUILD=true; shift;;
-    --export-plist) EXPORT_PLIST="$2"; shift 2;;
+    --export-plist)
+      [[ $# -ge 2 ]] || { echo "--export-plist requires a path" >&2; exit 1; }
+      EXPORT_PLIST="$2"; shift 2;;
     -h|--help) show_help "${BASH_SOURCE[0]}"; exit 0;;
     *) echo "Unknown arg: $1" >&2; exit 1;;
   esac
