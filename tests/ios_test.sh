@@ -35,12 +35,16 @@ output="$(ios_booted_simulators)"
 ios_boot_simulator "iPhone 15"
 [[ "$boot_calls" -eq 0 ]] || { echo "already-booted simulator was booted again" >&2; exit 1; }
 
+boot_status=0
+ios_boot_simulator "iPhone 15 Pro Max"
+[[ "$boot_calls" -eq 1 ]] || { echo "partial simulator name incorrectly matched" >&2; exit 1; }
+
 simctl_output=""
 boot_status=7
 if ios_boot_simulator "missing-simulator"; then
   echo "simctl boot failure was masked" >&2
   exit 1
 fi
-[[ "$boot_calls" -eq 1 ]] || { echo "expected one simctl boot attempt" >&2; exit 1; }
+[[ "$boot_calls" -eq 2 ]] || { echo "expected two simctl boot attempts" >&2; exit 1; }
 
 echo "ios tests passed"

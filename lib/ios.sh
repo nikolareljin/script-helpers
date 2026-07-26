@@ -51,7 +51,16 @@ ios_boot_simulator() {
   # Avoid masking genuine simctl failures while keeping an already-booted
   # simulator idempotent.
   if xcrun simctl list devices booted 2>/dev/null \
-    | awk -v id="$id" 'index($0, id) { found=1 } END { exit !found }'; then
+    | awk -v id="$id" '
+        match($0, /\([0-9A-Fa-f-]{8,}\)/) {
+          udid = substr($0, RSTART + 1, RLENGTH - 2)
+          name = substr($0, 1, RSTART - 1)
+          sub(/^[[:space:]]+/, "", name)
+          sub(/[[:space:]]+$/, "", name)
+          if (id == name || id == udid) found=1
+        }
+        END { exit !found }
+      '; then
     return 0
   fi
   xcrun simctl boot "$id"
