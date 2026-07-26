@@ -7,11 +7,19 @@ artifacts, launch apps, and build a release app or IPA with Flutter.
 
 **macOS only.** Every function requires Apple's command-line tools (`xcrun`,
 `simctl`, `xctrace`), which exist only on macOS with Xcode installed. On any
-other host each function no-ops — the Bash functions return non-zero / print
-nothing — so callers degrade cleanly (the same contract the `adb` module uses
-when `adb` is missing).
+other host each function returns non-zero without stdout output, so callers
+degrade cleanly. Prerequisite errors may still be written to stderr.
 
 Provided as Bash (`lib/ios.sh`). A CI/build runner lives at `scripts/ci_ios.sh`.
+
+CI runner
+---------
+
+Run `scripts/ci_ios.sh [--workdir <path>] [--skip-analyze] [--skip-test]
+[--skip-build] [--export-plist <path>]` on a macOS host with Xcode and Flutter.
+The export plist path is relative to `--workdir`. The runner exits `3` when the
+Apple toolchain is unavailable, `1` for invalid arguments or a missing Flutter
+executable, and otherwise propagates failures from Flutter build/test commands.
 
 Requirements
 ------------

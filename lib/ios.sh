@@ -5,8 +5,8 @@
 #
 # macOS ONLY: every function requires Apple's command-line tools (`xcrun`,
 # `simctl`, `xctrace`), which exist only on macOS with Xcode. On other hosts
-# each function no-ops (returns non-zero / prints nothing) so callers degrade
-# cleanly — mirror the way the `adb` module behaves when `adb` is missing.
+# each function returns non-zero without stdout output so callers degrade
+# cleanly; prerequisite errors may still be written to stderr.
 
 # --- discovery -------------------------------------------------------------
 
@@ -78,9 +78,13 @@ ios_shutdown_simulators() {
 # simulator (.app) or an attached device (.ipa, via devicectl when available).
 ios_install() {
   ios_available || return 1
-  local id="$1" artifact="$2"
+  local id="${1:-}" artifact="${2:-}"
   [[ -n "$id" && -e "$artifact" ]] || return 1
-  if [[ "$artifact" == *.ipa ]] && xcrun devicectl --version >/dev/null 2>&1; then
+  if [[ "$artifact" == *.ipa ]]; then
+    if ! xcrun devicectl --version >/dev/null 2>&1; then
+      echo "ios_install: installing an IPA requires Xcode 15 or newer with devicectl" >&2
+      return 1
+    fi
     xcrun devicectl device install app --device "$id" "$artifact"
   else
     xcrun simctl install "$id" "$artifact"
