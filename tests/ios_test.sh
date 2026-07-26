@@ -94,10 +94,10 @@ if ios_shutdown_simulators 2>/dev/null; then
   exit 1
 fi
 
-ipa_file="$(mktemp)"
-trap 'rm -f "$ipa_file"' EXIT
-mv "$ipa_file" "${ipa_file}.ipa"
-ipa_file="${ipa_file}.ipa"
+ipa_dir="$(mktemp -d)"
+trap 'rm -rf "$ipa_dir"' EXIT
+ipa_file="$ipa_dir/app.ipa"
+: > "$ipa_file"
 if ios_install "device-id" "$ipa_file" 2>/dev/null; then
   echo "IPA installation succeeded without devicectl" >&2
   exit 1
