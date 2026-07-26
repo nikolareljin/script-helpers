@@ -43,7 +43,7 @@ An empty device list is a successful empty result.
 
 ### `ios_list_simulators`
 
-Lists available simulators as `<name> (<udid>) <state>`. It takes no arguments,
+Lists available simulators as `<name> (<udid>) (<state>)`. It takes no arguments,
 requires `xcrun simctl`, and returns the command status. An empty list succeeds.
 
 ### `ios_booted_simulators`

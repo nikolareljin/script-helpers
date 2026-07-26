@@ -42,7 +42,7 @@ ios_list_devices() {
       '
 }
 
-# Usage: ios_list_simulators; prints available simulators ("<name> (<udid>) <state>").
+# Usage: ios_list_simulators; prints available simulators ("<name> (<udid>) (<state>)").
 ios_list_simulators() {
   ios_available || return 1
   local out
