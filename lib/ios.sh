@@ -21,9 +21,22 @@ ios_available() {
 ios_list_devices() {
   ios_available || return 1
   # xctrace enumerates real + simulated devices; keep only physical iPhone/iPad
-  # entries (they carry a UDID and are not marked "Simulator").
+  # entries and normalize away the OS-version field.
   xcrun xctrace list devices 2>/dev/null \
-    | awk '/^== Devices ==/{d=1;next} /^== /{d=0} d && /\(([0-9A-Fa-f-]{8,})\)/ && !/Simulator/ {print}'
+    | awk '
+        /^== Devices ==/ { devices=1; next }
+        /^== / { devices=0 }
+        devices && /(iPhone|iPad)/ && match($0, /\([0-9A-Fa-f-]{8,}\)[[:space:]]*$/) {
+          udid = substr($0, RSTART + 1, RLENGTH - 2)
+          sub(/[[:space:]]+$/, "", udid)
+          sub(/\)$/, "", udid)
+          name = substr($0, 1, RSTART - 1)
+          sub(/^[[:space:]]+/, "", name)
+          sub(/[[:space:]]+\([^()]*\)[[:space:]]*$/, "", name)
+          sub(/[[:space:]]+$/, "", name)
+          print name " (" udid ")"
+        }
+      '
 }
 
 # Usage: ios_list_simulators; prints available simulators ("<name> (<udid>) <state>").
@@ -94,7 +107,7 @@ ios_install() {
 # Usage: ios_launch <udid> <bundle_id>; launches an installed app on a simulator.
 ios_launch() {
   ios_available || return 1
-  local id="$1" bundle_id="$2"
+  local id="${1:-}" bundle_id="${2:-}"
   [[ -n "$id" && -n "$bundle_id" ]] || return 1
   xcrun simctl launch "$id" "$bundle_id"
 }

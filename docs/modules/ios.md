@@ -30,26 +30,56 @@ Requirements
 Functions
 ---------
 
-Discovery
-- `ios_available` — 0 only on macOS with `xcrun` on `PATH`.
-- `ios_list_devices` — attached physical iOS devices, one per line (`<name> (<udid>)`).
-- `ios_list_simulators` — available simulators (`<name> (<udid>) <state>`).
-- `ios_booted_simulators` — udids of currently booted simulators.
+### `ios_available`
 
-Simulator control
-- `ios_boot_simulator <udid|name>` — boot a simulator (no-op if already booted).
-- `ios_shutdown_simulators` — shut down all booted simulators.
+Checks for macOS and `xcrun`. It takes no arguments and returns `0` when the
+Apple command-line tools are available, otherwise `1`. It produces no output.
 
-Install / launch
-- `ios_install <udid> <path.app|path.ipa>` — install onto a booted simulator
-  (`.app`) or an attached device (`.ipa`, via `devicectl` when available).
-- `ios_launch <udid> <bundle_id>` — launch an installed app on a simulator.
+### `ios_list_devices`
 
-Build
-- `ios_build_release <flutter_project_dir> [export_options_plist]` — build a
-  Flutter release. With an export-options plist (resolved relative to the
-  project directory), it produces a signed IPA; without one, it produces an
-  unsigned iOS app build rather than an IPA.
+Lists attached physical iPhones and iPads as `<name> (<udid>)`, one per line.
+It takes no arguments, requires `xcrun xctrace`, and returns the command status.
+An empty device list is a successful empty result.
+
+### `ios_list_simulators`
+
+Lists available simulators as `<name> (<udid>) <state>`. It takes no arguments,
+requires `xcrun simctl`, and returns the command status. An empty list succeeds.
+
+### `ios_booted_simulators`
+
+Prints one UDID per booted simulator. It takes no arguments, requires `xcrun
+simctl`, and returns the command status. No booted simulators is a successful
+empty result.
+
+### `ios_boot_simulator <udid|name>`
+
+Boots the named simulator or UDID. It returns `0` when already booted or after a
+successful boot, and non-zero for missing arguments or `simctl` failures.
+
+### `ios_shutdown_simulators`
+
+Shuts down all booted simulators using `xcrun simctl shutdown all`. It takes no
+arguments and propagates the `simctl` exit status.
+
+### `ios_install <udid> <path.app|path.ipa>`
+
+Installs an `.app` on a booted simulator using `simctl`, or an `.ipa` on an
+attached physical device using `devicectl`. IPA installation requires Xcode 15
+or newer. Missing arguments/artifacts and unavailable `devicectl` return `1`;
+tool installation failures are propagated.
+
+### `ios_launch <udid> <bundle_id>`
+
+Launches an installed simulator app using `xcrun simctl launch`. Missing
+arguments return `1`; otherwise the `simctl` status is returned.
+
+### `ios_build_release <flutter_project_dir> [export_options_plist]`
+
+Runs `flutter pub get`, then builds a signed IPA when an export-options plist is
+provided, or an unsigned iOS app otherwise. The optional plist is resolved
+relative to the project directory. It requires Flutter, macOS, and Xcode and
+returns non-zero for missing prerequisites, paths, or failed Flutter commands.
 
 Example
 -------

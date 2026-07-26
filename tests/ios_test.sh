@@ -19,8 +19,13 @@ simctl_output=""
 boot_status=0
 shutdown_status=0
 devicectl_available=false
+xctrace_output=""
 
 xcrun() {
+  if [[ "$1 $2 ${3:-}" == "xctrace list devices" ]]; then
+    printf '%s' "$xctrace_output"
+    return 0
+  fi
   if [[ "$1 $2 ${3:-}" == "simctl list devices" ]]; then
     printf '%s' "$simctl_output"
     return 0
@@ -38,6 +43,25 @@ xcrun() {
   fi
   return 1
 }
+
+xctrace_output='== Devices ==
+Nikos iPhone (18.5) (00008110-001234567890001E)
+Office iPad (17.7.8) (00008101-00ABCDEF1234001E)
+Apple Watch (11.5) (00008120-00FEDCBA4321001E)
+== Simulators ==
+iPhone 15 Simulator (18.5) (AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE)'
+output="$(ios_list_devices)"
+expected='Nikos iPhone (00008110-001234567890001E)
+Office iPad (00008101-00ABCDEF1234001E)'
+[[ "$output" == "$expected" ]] || {
+  echo "unexpected physical device list: $output" >&2
+  exit 1
+}
+
+if ios_launch "simulator-id"; then
+  echo "ios_launch accepted a missing bundle id" >&2
+  exit 1
+fi
 
 output="$(ios_booted_simulators)"
 [[ -z "$output" ]] || { echo "expected no booted simulator output" >&2; exit 1; }
