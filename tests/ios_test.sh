@@ -103,4 +103,19 @@ if ios_install "device-id" "$ipa_file" 2>/dev/null; then
   exit 1
 fi
 
+# ios_list_simulators keeps only lines carrying a UDID and strips the leading
+# indentation from `simctl list devices available` (headers are dropped).
+simctl_output='== Devices ==
+-- iOS 18.5 --
+    iPhone 15 (AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE) (Shutdown)
+    iPhone 15 Pro (11111111-2222-3333-4444-555555555555) (Booted)
+-- Unavailable --'
+output="$(ios_list_simulators)"
+expected='iPhone 15 (AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE) (Shutdown)
+iPhone 15 Pro (11111111-2222-3333-4444-555555555555) (Booted)'
+[[ "$output" == "$expected" ]] || {
+  echo "unexpected simulator list: $output" >&2
+  exit 1
+}
+
 echo "ios tests passed"
