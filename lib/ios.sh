@@ -37,7 +37,7 @@ ios_list_simulators() {
 ios_booted_simulators() {
   ios_available || return 1
   xcrun simctl list devices booted 2>/dev/null \
-    | grep -oE '\(([0-9A-Fa-f-]{8,})\)' | tr -d '()'
+    | awk 'match($0, /\([0-9A-Fa-f-]{8,}\)/) { print substr($0, RSTART + 1, RLENGTH - 2) }'
 }
 
 # --- simulator control -----------------------------------------------------
@@ -45,8 +45,16 @@ ios_booted_simulators() {
 # Usage: ios_boot_simulator <udid|name>; boots a simulator (no-op if already booted).
 ios_boot_simulator() {
   ios_available || return 1
-  local id="$1"; [[ -n "$id" ]] || return 1
-  xcrun simctl boot "$id" 2>/dev/null || true
+  local id="${1:-}"
+  [[ -n "$id" ]] || return 1
+
+  # Avoid masking genuine simctl failures while keeping an already-booted
+  # simulator idempotent.
+  if xcrun simctl list devices booted 2>/dev/null \
+    | awk -v id="$id" 'index($0, id) { found=1 } END { exit !found }'; then
+    return 0
+  fi
+  xcrun simctl boot "$id"
 }
 
 # Usage: ios_shutdown_simulators; shuts down all booted simulators.
@@ -80,15 +88,15 @@ ios_launch() {
 
 # --- build -----------------------------------------------------------------
 
-# Usage: ios_build_ipa <flutter_project_dir> [export_options_plist]; builds a
-# release .ipa with Flutter. With an export-options plist it produces a signed,
-# exportable archive; without one it falls back to an unsigned build.
-ios_build_ipa() {
-  ios_available || { echo "ios_build_ipa: requires macOS with Xcode" >&2; return 1; }
-  command -v flutter >/dev/null 2>&1 || { echo "ios_build_ipa: flutter not on PATH" >&2; return 1; }
+# Usage: ios_build_release <flutter_project_dir> [export_options_plist]; builds
+# a signed IPA when a plist is provided, or an unsigned iOS app otherwise.
+ios_build_release() {
+  ios_available || { echo "ios_build_release: requires macOS with Xcode" >&2; return 1; }
+  command -v flutter >/dev/null 2>&1 || { echo "ios_build_release: flutter not on PATH" >&2; return 1; }
   local dir="${1:-.}" plist="${2:-}"
   ( cd "$dir" && flutter pub get && \
-    if [[ -n "$plist" && -f "$plist" ]]; then
+    if [[ -n "$plist" ]]; then
+      [[ -f "$plist" ]] || { echo "ios_build_release: export options plist not found: $plist" >&2; exit 1; }
       flutter build ipa --release --export-options-plist "$plist"
     else
       flutter build ios --release --no-codesign

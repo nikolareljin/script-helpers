@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # SCRIPT: ci_ios.sh
-# DESCRIPTION: Run iOS Flutter CI steps (analyze, test, build ipa) on a macOS host.
+# DESCRIPTION: Run iOS Flutter CI steps (analyze, test, release build) on a macOS host.
 # USAGE: scripts/ci_ios.sh [--workdir <path>] [--skip-analyze] [--skip-test] [--skip-build] [--export-plist <path>]
 # PARAMETERS:
 #   --workdir <path>       Working directory for flutter commands (default: current dir).
 #   --skip-analyze         Skip flutter analyze.
 #   --skip-test            Skip flutter test.
 #   --skip-build           Skip the iOS build step.
-#   --export-plist <path>  ExportOptions.plist for a signed IPA (default: unsigned build).
+#   --export-plist <path>  ExportOptions.plist, relative to --workdir, for a signed IPA
+#                          (default: build an unsigned iOS app).
 #   -h, --help             Show this help message.
 # NOTE: Apple's toolchain runs only on macOS, so unlike the Docker-based ci_*.sh
 #       helpers this runs on the host with no image. It exits early elsewhere.
@@ -65,7 +66,7 @@ fi
 if [[ "$SKIP_BUILD" != true ]]; then
   log_info "building iOS release"
   # Reuse the module helper: signed when an export plist is given, else unsigned.
-  ios_build_ipa "." "$EXPORT_PLIST"
+  ios_build_release "." "$EXPORT_PLIST"
 fi
 
 print_success "iOS CI steps complete."

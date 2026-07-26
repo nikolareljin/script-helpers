@@ -3,7 +3,7 @@
 A general toolkit for **inspecting iOS devices and simulators and installing
 builds** — the iOS counterpart to the [`adb`](./adb.md) module. List attached
 devices and available simulators, boot/shut down simulators, install `.app`/`.ipa`
-artifacts, launch apps, and build a release IPA with Flutter.
+artifacts, launch apps, and build a release app or IPA with Flutter.
 
 **macOS only.** Every function requires Apple's command-line tools (`xcrun`,
 `simctl`, `xctrace`), which exist only on macOS with Xcode installed. On any
@@ -17,7 +17,7 @@ Requirements
 ------------
 
 - macOS with Xcode and the command-line tools (`xcrun`, `simctl`).
-- `flutter` on `PATH` for `ios_build_ipa`.
+- `flutter` on `PATH` for `ios_build_release`.
 
 Functions
 ---------
@@ -38,9 +38,10 @@ Install / launch
 - `ios_launch <udid> <bundle_id>` — launch an installed app on a simulator.
 
 Build
-- `ios_build_ipa <flutter_project_dir> [export_options_plist]` — build a release
-  IPA with Flutter. With an export-options plist the archive is signed and
-  exportable; without one it falls back to an unsigned build.
+- `ios_build_release <flutter_project_dir> [export_options_plist]` — build a
+  Flutter release. With an export-options plist (resolved relative to the
+  project directory), it produces a signed IPA; without one, it produces an
+  unsigned iOS app build rather than an IPA.
 
 Example
 -------
@@ -52,5 +53,5 @@ shlib_import ios
 ios_available || { echo "not on macOS"; exit 0; }
 ios_list_simulators
 ios_boot_simulator "iPhone 15"
-ios_build_ipa ./mobile ./mobile/ios/ExportOptions.plist
+ios_build_release ./mobile ios/ExportOptions.plist
 ```
