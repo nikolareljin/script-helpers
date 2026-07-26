@@ -29,7 +29,7 @@ runner.
 Requirements
 ------------
 
-- macOS with Xcode and the command-line tools (`xcrun`, `simctl`).
+- macOS with Xcode and the command-line tools (`xcrun`, `simctl`, `xctrace`).
 - `flutter` on `PATH` for `ios_build_release`.
 
 Functions
