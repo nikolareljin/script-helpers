@@ -4,6 +4,10 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-07-26
+
+- Added: `ios` module (`lib/ios.sh`) — an iOS device/simulator toolkit, the counterpart to `adb`. Discover hardware and simulators (`ios_list_devices`, `ios_list_simulators`, `ios_booted_simulators`), control simulators (`ios_boot_simulator`, `ios_shutdown_simulators`), install and launch builds (`ios_install` for `.app`/`.ipa`, `ios_launch`), and build a release IPA with Flutter (`ios_build_ipa`, signed when given an ExportOptions plist, otherwise unsigned). macOS-only: every function no-ops on other hosts (`ios_available` gate) so callers degrade cleanly. Plus `scripts/ci_ios.sh`, a host-based analyze/test/build runner (Apple's toolchain runs only on macOS, so unlike the Docker-based `ci_*.sh` helpers it has no image and exits early elsewhere).
+
 ## [0.18.0] - 2026-07-25
 
 - Added: `svg` module (`lib/svg.sh`) to rasterize SVG art to PNG for app logos and launcher icons. `svg_rasterize <in.svg> <out.png> [size]` renders a square PNG (default 1024px), preferring Inkscape and falling back to ImageMagick (`magick`/`convert`); `svg_rasterize_sizes` emits one PNG per size for icon sets; `svg_rasterizer` reports the available tool. Plus a CLI wrapper `bin/svg-rasterize` and a `tests/svg_test.sh` smoke test (auto-picked up by `make test`). Extracted from the AppealShield (`denial-shield-pro`) icon-generation flow so every mobile repo can share one rasterizer.
