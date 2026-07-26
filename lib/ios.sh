@@ -21,8 +21,11 @@ ios_available() {
 ios_list_devices() {
   ios_available || return 1
   # xctrace enumerates real + simulated devices; keep only physical iPhone/iPad
-  # entries and normalize away the OS-version field.
-  xcrun xctrace list devices 2>/dev/null \
+  # entries and normalize away the OS-version field. Capture first so an xcrun
+  # failure surfaces as a non-zero return instead of empty-but-successful output.
+  local out
+  out=$(xcrun xctrace list devices 2>/dev/null) || return 1
+  printf '%s\n' "$out" \
     | awk '
         /^== Devices ==/ { devices=1; next }
         /^== / { devices=0 }
@@ -42,14 +45,18 @@ ios_list_devices() {
 # Usage: ios_list_simulators; prints available simulators ("<name> (<udid>) <state>").
 ios_list_simulators() {
   ios_available || return 1
-  xcrun simctl list devices available 2>/dev/null \
+  local out
+  out=$(xcrun simctl list devices available 2>/dev/null) || return 1
+  printf '%s\n' "$out" \
     | awk '/\(([0-9A-Fa-f-]{8,})\)/ {sub(/^[[:space:]]+/,""); print}'
 }
 
 # Usage: ios_booted_simulators; prints the udid of each currently booted simulator.
 ios_booted_simulators() {
   ios_available || return 1
-  xcrun simctl list devices booted 2>/dev/null \
+  local out
+  out=$(xcrun simctl list devices booted 2>/dev/null) || return 1
+  printf '%s\n' "$out" \
     | awk 'match($0, /\([0-9A-Fa-f-]{8,}\)/) { print substr($0, RSTART + 1, RLENGTH - 2) }'
 }
 
@@ -62,8 +69,10 @@ ios_boot_simulator() {
   [[ -n "$id" ]] || return 1
 
   # Avoid masking genuine simctl failures while keeping an already-booted
-  # simulator idempotent.
-  if xcrun simctl list devices booted 2>/dev/null \
+  # simulator idempotent. Capture first so a simctl failure is not hidden by awk.
+  local booted
+  booted=$(xcrun simctl list devices booted 2>/dev/null) || return 1
+  if printf '%s\n' "$booted" \
     | awk -v id="$id" '
         match($0, /\([0-9A-Fa-f-]{8,}\)/) {
           udid = substr($0, RSTART + 1, RLENGTH - 2)
