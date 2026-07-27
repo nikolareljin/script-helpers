@@ -15,6 +15,7 @@ shlib_import ios
 
 OSTYPE=darwin
 boot_calls=0
+install_calls=0
 simctl_output=""
 boot_status=0
 shutdown_status=0
@@ -40,6 +41,10 @@ xcrun() {
   if [[ "$1 $2" == "devicectl --version" ]]; then
     "$devicectl_available"
     return
+  fi
+  if [[ "$1 $2" == "simctl install" ]]; then
+    install_calls=$((install_calls + 1))
+    return 0
   fi
   return 1
 }
@@ -102,6 +107,31 @@ if ios_install "device-id" "$ipa_file" 2>/dev/null; then
   echo "IPA installation succeeded without devicectl" >&2
   exit 1
 fi
+
+unsupported_file="$ipa_dir/app.zip"
+: > "$unsupported_file"
+if ios_install "simulator-id" "$unsupported_file" 2>/dev/null; then
+  echo "unsupported artifact was accepted" >&2
+  exit 1
+fi
+
+invalid_app="$ipa_dir/not-a-directory.app"
+: > "$invalid_app"
+if ios_install "simulator-id" "$invalid_app" 2>/dev/null; then
+  echo ".app file was accepted instead of requiring a directory" >&2
+  exit 1
+fi
+
+invalid_ipa="$ipa_dir/not-a-file.ipa"
+mkdir "$invalid_ipa"
+if ios_install "device-id" "$invalid_ipa" 2>/dev/null; then
+  echo ".ipa directory was accepted instead of requiring a file" >&2
+  exit 1
+fi
+[[ "$install_calls" -eq 0 ]] || {
+  echo "invalid artifact reached simctl" >&2
+  exit 1
+}
 
 # ios_list_simulators keeps only lines carrying a UDID and strips the leading
 # indentation from `simctl list devices available` (headers are dropped).

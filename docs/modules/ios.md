@@ -71,8 +71,9 @@ arguments and propagates the `simctl` exit status.
 
 Installs an `.app` on a booted simulator using `simctl`, or an `.ipa` on an
 attached physical device using `devicectl`. IPA installation requires Xcode 15
-or newer. Missing arguments/artifacts and unavailable `devicectl` return `1`;
-tool installation failures are propagated.
+or newer. The `.app` artifact must be a directory and the `.ipa` artifact must
+be a file; other extensions are rejected. Missing or invalid artifacts and
+unavailable `devicectl` return `1`; tool installation failures are propagated.
 
 ### `ios_launch <udid> <bundle_id>`
 

@@ -101,15 +101,27 @@ ios_shutdown_simulators() {
 ios_install() {
   ios_available || return 1
   local id="${1:-}" artifact="${2:-}"
-  [[ -n "$id" && -e "$artifact" ]] || return 1
+  [[ -n "$id" && -n "$artifact" ]] || return 1
+
   if [[ "$artifact" == *.ipa ]]; then
+    if [[ ! -f "$artifact" ]]; then
+      echo "ios_install: IPA artifact must be a file: $artifact" >&2
+      return 1
+    fi
     if ! xcrun devicectl --version >/dev/null 2>&1; then
       echo "ios_install: installing an IPA requires Xcode 15 or newer with devicectl" >&2
       return 1
     fi
     xcrun devicectl device install app --device "$id" "$artifact"
-  else
+  elif [[ "$artifact" == *.app ]]; then
+    if [[ ! -d "$artifact" ]]; then
+      echo "ios_install: app artifact must be a directory: $artifact" >&2
+      return 1
+    fi
     xcrun simctl install "$id" "$artifact"
+  else
+    echo "ios_install: unsupported artifact (expected .app or .ipa): $artifact" >&2
+    return 1
   fi
 }
 
