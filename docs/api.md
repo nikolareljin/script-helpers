@@ -11,6 +11,7 @@ This index lists all modules and their functions. See the linked module pages fo
 - file — ./modules/file.md
 - dialog — ./modules/dialog.md
 - docker — ./modules/docker.md
+- docker_install — ./modules/docker_install.md
 - json — ./modules/json.md
 - svg — ./modules/svg.md
 - python — ./modules/python.md
