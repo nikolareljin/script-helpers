@@ -124,6 +124,41 @@ bin/install-docker -n         # dry run
 bin/install-docker -y         # unattended
 ```
 
+PowerShell
+----------
+
+`ps/lib/docker_install.ps1` is the native Windows counterpart — no WSL or Git Bash needed. Function names mirror the Bash module, so everything above applies.
+
+```powershell
+. .\ps\helpers.ps1
+Import-ScriptHelpers logging os docker_install
+
+if ((ensure_docker -Yes) -ne 0) { throw "Docker required" }
+```
+
+Switch parameters replace the Bash flags: `-Yes`, `-DryRun`, `-NoStart`, `-TimeoutSec`. Exit codes are identical.
+
+`ps/scripts/install_docker.ps1` is the CLI wrapper, matching `bin/install-docker`:
+
+```powershell
+.\ps\scripts\install_docker.ps1 -Check     # 0 = usable, 1 = not
+.\ps\scripts\install_docker.ps1 -DryRun
+.\ps\scripts\install_docker.ps1 -Yes
+```
+
+Platform coverage differs from the Bash module, deliberately:
+
+| Platform | PowerShell module | Notes |
+| --- | --- | --- |
+| **Windows** | Full support | The primary target. `winget` → Chocolatey → official installer. Warns when not elevated rather than failing opaquely on a UAC error |
+| **macOS** | Homebrew cask only | PowerShell 7 runs here, but the `.dmg` path needs `hdiutil` and a privileged helper — use the Bash module for a machine without Homebrew |
+| **Linux** | Defers to Bash | Returns an error naming the Bash entry point. Package-manager detection and the `docker` group belong in the Bash module; duplicating them in PowerShell would be two implementations to keep correct |
+
+Two Windows-specific details worth knowing:
+
+- The installer download sets TLS 1.2 explicitly. Windows PowerShell 5.1 does not negotiate it by default and the download fails outright without this.
+- `$ProgressPreference` is silenced around `Invoke-WebRequest`; the progress bar makes a large download roughly an order of magnitude slower.
+
 Example: project bootstrap
 --------------------------
 

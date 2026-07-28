@@ -37,7 +37,7 @@ Modules overview
 - file — file/dir checks, download with optional dialog gauge, ISO/checksum helpers.
 - dialog — `dialog` sizing, input, and a rich download progress gauge.
 - docker — docker compose detection/wrapper, service wait, status inspection.
-- docker_install — install Docker Engine (Linux) / Docker Desktop (macOS, Windows); idempotent `ensure_docker` guard.
+- docker_install — install Docker Engine (Linux) / Docker Desktop (macOS, Windows); idempotent `ensure_docker` guard. Bash + PowerShell + `bin/install-docker` / `ps/scripts/install_docker.ps1`.
 - deps — install utilities and AI Runner tooling profile.
 - json — escape strings, extract fields, markdown-friendly formatting.
 - svg — rasterize SVG artwork to square PNGs and icon-size sets.
