@@ -203,6 +203,18 @@ _screencap__record_android() {
   local serial="$1" out="$2" seconds="$3" size="${4:-}" bitrate="${5:-}"
   local remote="/sdcard/screencap-$$.mp4" rc=0
   local -a flags=()
+
+  # A screen that is off records a single frame of nothing, and screenrecord
+  # still exits 0 — so the caller gets a non-empty file that is unusable, and
+  # any downstream GIF conversion fails with an ffmpeg error that says nothing
+  # about the real cause. Say it up front.
+  if declare -f adb_screen_on >/dev/null 2>&1; then
+    adb_screen_on "$serial" >/dev/null 2>&1
+    if [[ $? -eq 1 ]]; then
+      log_warn "screencap: the screen on $serial is off — the recording will be blank."
+      log_warn "Wake it first: adb -s $serial shell input keyevent KEYCODE_WAKEUP"
+    fi
+  fi
   [[ -n "$size" ]] && flags+=(--size "$size")
   [[ -n "$bitrate" ]] && flags+=(--bit-rate "$bitrate")
 
@@ -317,6 +329,20 @@ screencap_gif() {
   [[ -f "$video" ]] || { log_error "screencap_gif: not found: $video"; return 2; }
   command -v ffmpeg >/dev/null 2>&1 || { log_error "screencap_gif: ffmpeg is not installed"; return 3; }
   mkdir -p "$(dirname "$out")" || return 1
+
+  # A recording made with the screen off is a single frame with zero duration.
+  # palettegen then encodes nothing and ffmpeg fails with a message about -ss
+  # and -t, which points nowhere near the real cause. Check first and say it.
+  if command -v ffprobe >/dev/null 2>&1; then
+    local frames
+    frames="$(ffprobe -v error -select_streams v:0 -count_packets \
+                -show_entries stream=nb_read_packets -of csv=p=0 "$video" 2>/dev/null | head -n1)"
+    if [[ "$frames" =~ ^[0-9]+$ && "$frames" -lt 2 ]]; then
+      log_error "screencap_gif: $video has $frames frame(s) — there is nothing to animate."
+      log_error "A recording made with the device screen off looks like this. Wake the screen and record again."
+      return 1
+    fi
+  fi
 
   palette="$(mktemp --suffix=.png 2>/dev/null || mktemp)" || return 1
   ffmpeg -y -i "$video" \
