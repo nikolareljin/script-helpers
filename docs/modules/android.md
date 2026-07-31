@@ -33,7 +33,8 @@ Functions
   - Returns: 3 when `sdkmanager` is not installed, since bootstrapping the bootstrapper is a deliberate human step; otherwise `sdkmanager`'s status.
 
 - `android_gradlew <dir> <task...>`
-  - Purpose: Run Gradle tasks in an Android project. A named alias for `gradle_run`, so Android callers read as Android callers.
+  - Purpose: Run Gradle tasks in an Android project with `ANDROID_HOME` and `ANDROID_SDK_ROOT` exported for the build.
+  - The export is the point. The Android Gradle plugin resolves the SDK from those variables or from a `local.properties` `sdk.dir`, and neither is reliably set in a plain shell — so a build that works in an IDE fails from a script with `SDK location not found`, which reads as a project fault rather than an environment one. An already-set value is respected.
 
 - `android_build [dir=.] [debug|release] [apk|aab]`
   - Purpose: Assemble an APK or bundle an AAB. This is the one spelling of the debug/release toggle.

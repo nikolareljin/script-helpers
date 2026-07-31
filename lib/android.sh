@@ -95,9 +95,29 @@ android_ensure_sdk() {
 
 # --- build -----------------------------------------------------------------
 
-# Usage: android_gradlew <dir> <task...>; run Gradle tasks in an Android project.
-# A named alias for gradle_run, so Android callers read as Android callers.
-android_gradlew() { gradle_run "$@"; }
+# Usage: android_gradlew <dir> <task...>; run Gradle tasks in an Android project
+# with ANDROID_HOME and ANDROID_SDK_ROOT exported for the build.
+#
+# The export is the point. The Android Gradle plugin resolves the SDK from those
+# variables or from a local.properties `sdk.dir`, and neither is reliably set in
+# a plain shell — so a build that works in an IDE fails from a script with
+# "SDK location not found", which reads as a project fault rather than an
+# environment one. This module can already locate the SDK; passing that on is the
+# difference between the shared verb working from a clean clone and not.
+#
+# An existing value is respected, so a caller targeting a second SDK is not
+# overridden.
+android_gradlew() {
+  local root
+  if root="$(android_sdk_root 2>/dev/null)"; then
+    ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$root}" \
+    ANDROID_HOME="${ANDROID_HOME:-$root}" \
+    gradle_run "$@"
+    return $?
+  fi
+  # No SDK found. Let Gradle emit its own diagnostic rather than guessing.
+  gradle_run "$@"
+}
 
 # Usage: android_build [dir=.] [debug|release] [apk|aab]; assemble an APK or
 # bundle an AAB. This is the one spelling of the debug/release toggle — the
@@ -115,7 +135,8 @@ android_build() {
   esac
   # Gradle capitalizes the variant in the task name: assembleDebug, bundleRelease.
   task+="$(tr '[:lower:]' '[:upper:]' <<<"${variant:0:1}")${variant:1}"
-  gradle_run "$dir" "$task"
+  # Via android_gradlew, so the SDK location reaches the build.
+  android_gradlew "$dir" "$task"
 }
 
 # Usage: android_artifact [dir=.] [debug|release] [apk|aab]; prints the path to
