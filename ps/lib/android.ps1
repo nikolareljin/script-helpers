@@ -129,6 +129,28 @@ function android_artifact {
     return $null
 }
 
+# The application id. Read from the built artifact with aapt/aapt2 when one is
+# available, since that is the only source that accounts for applicationIdSuffix
+# and flavors; otherwise parsed out of the Gradle build file. $null when neither
+# works — a caller that needs a package name should say so rather than guess.
+function android_package_name {
+    param([string]$Dir = '.', [string]$Artifact)
+    if ($Artifact -and (Test-Path $Artifact -PathType Leaf)) {
+        $aapt = android_sdk_tool 'aapt2'
+        if (-not $aapt) { $aapt = android_sdk_tool 'aapt' }
+        if ($aapt) {
+            $line = (& $aapt dump badging $Artifact 2>$null | Select-String -Pattern '^package:' | Select-Object -First 1)
+            if ($line -and "$line" -match "name='([^']+)'") { return $Matches[1] }
+        }
+    }
+    # applicationIdSuffix is not accounted for here; that is why the artifact is
+    # preferred above.
+    $hit = Get-ChildItem -Path $Dir -Recurse -Depth 3 -Include 'build.gradle','build.gradle.kts' -ErrorAction SilentlyContinue |
+           Select-String -Pattern 'applicationId\s*=?\s*"([^"]+)"' | Select-Object -First 1
+    if ($hit -and "$hit" -match 'applicationId\s*=?\s*"([^"]+)"') { return $Matches[1] }
+    return $null
+}
+
 # --- signing ---------------------------------------------------------------
 
 # Sign an APK or AAB with apksigner (preferred) or jarsigner. The keystore comes

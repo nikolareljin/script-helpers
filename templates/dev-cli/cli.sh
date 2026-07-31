@@ -42,6 +42,9 @@ DEV_TARGET=""
 DEV_DEVICE="${DEV_DEVICE:-}"
 DEV_RELEASE=false
 DEV_VERBOSE=false
+# Android user to install into. 0 is the device owner. See the note in
+# verb_deploy for why this is pinned rather than left to adb's default.
+DEV_USER="${DEV_USER:-0}"
 declare -a DEV_ARGS=()
 
 parse_dev_options() {
@@ -50,11 +53,13 @@ parse_dev_options() {
       android|ios|host|backend|frontend|linux|web|macos|windows)
         DEV_TARGET="$1"; shift ;;
       --device) DEV_DEVICE="${2:-}"; shift 2 ;;
+      --user) DEV_USER="${2:-}"; shift 2 ;;
       --release) DEV_RELEASE=true; shift ;;
       --verbose) DEV_VERBOSE=true; shift ;;
       *) DEV_ARGS+=("$1"); shift ;;
     esac
   done
+  [[ "$DEV_USER" =~ ^[0-9]+$ ]] || { log_error "--user must be a number, got '${DEV_USER:-<empty>}'"; exit 2; }
   [[ "$DEV_VERBOSE" == "true" ]] && set -x
   return 0
 }
@@ -170,11 +175,25 @@ verb_deploy() {
     android_build "$(dev_stack_dir gradle || echo .)" "$mode" apk
   fi
 
-  artifact="$(android_artifact "$(dev_stack_dir gradle || echo .)" "$mode" apk)" || {
+  local gdir; gdir="$(dev_stack_dir gradle || echo .)"
+  artifact="$(android_artifact "$gdir" "$mode" apk)" || {
     log_error "deploy: no APK found for variant $mode"
     exit 1
   }
-  adb_install "$serial" "$artifact"
+
+  # Install into an explicit user, then confirm the package is actually visible
+  # there. `adb install` can report Success into a work profile or Secure Folder
+  # the shell cannot read back, leaving the app absent from the launcher while
+  # every signal says the install worked. Verifying is what turns that from an
+  # hour of debugging into one line of output.
+  local pkg
+  if pkg="$(android_package_name "$gdir" "$artifact" 2>/dev/null)" && [[ -n "$pkg" ]]; then
+    adb_install_verified "$serial" "$artifact" "$pkg" --user "$DEV_USER"
+  else
+    log_warn "deploy: could not determine the package name — installing without the post-install check."
+    log_warn "deploy: confirm by hand with: adb -s $serial shell pm list packages --user $DEV_USER"
+    adb_install "$serial" "$artifact" --user "$DEV_USER"
+  fi
 }
 
 verb_devices() {
@@ -286,7 +305,13 @@ Mobile
   release       Bump the version across manifests and open a CHANGELOG section.
 
 Targets   android ios host backend frontend linux web macos windows
-Options   --device <id>  --release  --verbose
+Options   --device <id>  --user <id>  --release  --verbose
+
+--user is the Android profile to install into, default 0 (the device owner).
+deploy verifies the package is visible there afterwards: an unqualified install
+can succeed into a work profile or Secure Folder the shell cannot read back,
+leaving the app absent from the launcher while adb reports Success.
+List profiles with: adb shell pm list users
 
 Captured media defaults to docs/screenshots/. Override with $SCREENCAP_DIR.
 EOF

@@ -28,12 +28,16 @@ Set-Location $DEV_REPO_ROOT
 $DEV_TARGET  = ''
 $DEV_DEVICE  = ''
 $DEV_RELEASE = $false
+# Android profile to install into. 0 is the device owner. See Verb-Deploy for
+# why this is pinned rather than left to adb's default.
+$DEV_USER    = 0
 $DEV_ARGS    = @()
 
 $targets = @('android','ios','host','backend','frontend','linux','web','macos','windows')
 for ($i = 0; $i -lt $Rest.Count; $i++) {
     switch -Regex ($Rest[$i]) {
         '^--device$'  { $DEV_DEVICE = $Rest[++$i]; continue }
+        '^--user$'    { $DEV_USER = [int]$Rest[++$i]; continue }
         '^--release$' { $DEV_RELEASE = $true; continue }
         '^--verbose$' { $VerbosePreference = 'Continue'; continue }
         default {
@@ -170,7 +174,19 @@ function Verb-Deploy {
     }
     $artifact = android_artifact -Dir $d -Variant $mode -Format apk
     if (-not $artifact) { log_error "deploy: no APK found for variant $mode"; exit 1 }
-    adb_install $serial $artifact
+
+    # Install into an explicit user, then confirm the package is actually visible
+    # there. `adb install` can report Success into a work profile or Secure Folder
+    # the shell cannot read back, leaving the app absent from the launcher while
+    # every signal says the install worked.
+    $pkg = android_package_name -Dir $d -Artifact $artifact
+    if ($pkg) {
+        if (-not (adb_install_verified -Serial $serial -Apk $artifact -Package $pkg -User $DEV_USER)) { exit 1 }
+    } else {
+        log_warn 'deploy: could not determine the package name — installing without the post-install check.'
+        log_warn "deploy: confirm by hand with: adb -s $serial shell pm list packages --user $DEV_USER"
+        if (-not (adb_install -Serial $serial -Apk $artifact -User $DEV_USER)) { exit 1 }
+    }
 }
 
 function Verb-Devices {
@@ -287,7 +303,13 @@ Mobile
   release       Bump the version across manifests and open a CHANGELOG section.
 
 Targets   android ios host backend frontend linux web macos windows
-Options   --device <id>  --release  --verbose
+Options   --device <id>  --user <id>  --release  --verbose
+
+--user is the Android profile to install into, default 0 (the device owner).
+deploy verifies the package is visible there afterwards: an unqualified install
+can succeed into a work profile or Secure Folder the shell cannot read back,
+leaving the app absent from the launcher while adb reports Success.
+List profiles with: adb shell pm list users
 
 Captured media defaults to docs/screenshots/. Override with $env:SCREENCAP_DIR.
 '@

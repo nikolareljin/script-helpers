@@ -137,6 +137,30 @@ android_artifact() {
   printf '%s\n' "$found"
 }
 
+# Usage: android_package_name [dir=.] [artifact]; print the application id.
+# Reads it from the built artifact with aapt/aapt2 when one is available, since
+# that is the only source that accounts for applicationIdSuffix and flavors.
+# Falls back to parsing `applicationId` out of the Gradle build file. Returns 1
+# when neither works — a caller that needs a package name should say so rather
+# than guessing one.
+android_package_name() {
+  local dir="${1:-.}" artifact="${2:-}" aapt out pkg=""
+  if [[ -n "$artifact" && -f "$artifact" ]]; then
+    if aapt="$(android_sdk_tool aapt2 2>/dev/null)" || aapt="$(android_sdk_tool aapt 2>/dev/null)"; then
+      out="$("$aapt" dump badging "$artifact" 2>/dev/null | grep -m1 '^package:')" || out=""
+      pkg="$(sed -n "s/.*name='\([^']*\)'.*/\1/p" <<<"$out")"
+      [[ -n "$pkg" ]] && { printf '%s\n' "$pkg"; return 0; }
+    fi
+  fi
+  # applicationIdSuffix is not accounted for here; that is why the artifact is
+  # preferred above.
+  pkg="$(grep -rhoE 'applicationId[[:space:]]*=?[[:space:]]*"[^"]+"' \
+          "$dir" --include='build.gradle' --include='build.gradle.kts' 2>/dev/null \
+        | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')"
+  [[ -n "$pkg" ]] || return 1
+  printf '%s\n' "$pkg"
+}
+
 # --- signing ---------------------------------------------------------------
 
 # Usage: android_sign <artifact> [--keystore <path>] [--base64-env <VAR>]

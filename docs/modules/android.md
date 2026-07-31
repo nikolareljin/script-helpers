@@ -44,6 +44,11 @@ Functions
   - Purpose: Print the path to the most recently built artifact for that variant.
   - Returns: 0 and the path; 1 when none exists, so a caller can tell "not built yet" from "built and here it is".
 
+- `android_package_name [dir=.] [artifact]`
+  - Purpose: Print the application id. Read from the built artifact with `aapt2`/`aapt` when one is available, since that is the only source that accounts for `applicationIdSuffix` and product flavors; otherwise parsed out of the Gradle build file.
+  - Returns: 0 and the package name; 1 when neither source works — a caller that needs a package name should say so rather than guess one.
+  - Used by the `deploy` verb to feed `adb_install_verified`, which is what turns a silent work-profile install into one line of output.
+
 - `android_sign <artifact> [--keystore <path>] [--base64-env <VAR>] [--storepass <pw>] [--alias <name>] [--keypass <pw>] [--allow-unsigned]`
   - Purpose: Sign an APK or AAB with `apksigner` when available, otherwise `jarsigner`. The keystore comes from a file, or is base64-decoded out of the named environment variable into a temp file that is removed on return.
   - Args:
