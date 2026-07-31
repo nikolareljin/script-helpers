@@ -49,6 +49,33 @@ if [[ -z "$PYTHON" ]]; then
   exit 1
 fi
 
+# A project with no venv falls back to the system interpreter, and on a modern
+# Debian or Ubuntu that interpreter is PEP 668 "externally managed": installing
+# into it is refused by design. Rather than pass --break-system-packages, which
+# is what the error message tempts you into and which can damage the OS Python,
+# create a project-local venv and use that. Reuses lib/python.sh's helper rather
+# than repeating the logic.
+if [[ "$PYTHON" == "python3" || "$PYTHON" == "python" ]] \
+   && [[ -f requirements.txt || -f pyproject.toml ]] \
+   && "$PYTHON" -c 'import os,sys,sysconfig; sys.exit(0 if os.path.exists(os.path.join(sysconfig.get_path("stdlib"),"EXTERNALLY-MANAGED")) else 1)' 2>/dev/null; then
+  _sh_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  if [[ -f "$_sh_dir/helpers.sh" ]]; then
+    # shellcheck source=/dev/null
+    source "$_sh_dir/helpers.sh"
+    shlib_import python >/dev/null 2>&1 || true
+  fi
+  echo "[local-test-python] system Python is externally managed (PEP 668); using a project venv at .venv"
+  if declare -f python_ensure_venv >/dev/null 2>&1 && python_ensure_venv "$PYTHON" ".venv" >/dev/null 2>&1 \
+     && [[ -x .venv/bin/python ]]; then
+    PYTHON=".venv/bin/python"
+  elif "$PYTHON" -m venv .venv >/dev/null 2>&1 && [[ -x .venv/bin/python ]]; then
+    PYTHON=".venv/bin/python"
+  else
+    echo "[local-test-python] Could not create .venv. Install python3-venv, or create a venv yourself." >&2
+    exit 1
+  fi
+fi
+
 if [[ "$QUICK" == "false" ]]; then
   if [[ -f requirements.txt ]]; then
     if ! "$PYTHON" -m pip --version &>/dev/null; then
@@ -60,6 +87,16 @@ if [[ "$QUICK" == "false" ]]; then
     "$PYTHON" -m pip install -r requirements.txt --quiet
   elif [[ -f pyproject.toml ]]; then
     echo "[local-test-python] pyproject.toml found without requirements.txt; using the selected Python environment."
+  fi
+
+  # requirements.txt is runtime dependencies; the test tools usually are not in
+  # it. A project that declares a `dev` extra is stating where they live, so
+  # honour it rather than making the caller install pytest by hand. This is the
+  # same shape ci-helpers' documented install_command uses.
+  if [[ -f pyproject.toml ]] && grep -qE '^\s*dev\s*=' pyproject.toml; then
+    echo "[local-test-python] $PYTHON -m pip install -e '.[dev]'"
+    "$PYTHON" -m pip install -e '.[dev]' --quiet \
+      || echo "[local-test-python] the dev extra did not install; continuing" >&2
   fi
 fi
 
