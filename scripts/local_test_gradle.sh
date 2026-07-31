@@ -44,7 +44,7 @@ fi
 cd "$repo_root/$GRADLE_DIR"
 
 if [[ ! -x ./gradlew ]]; then
-  echo "[local-test-gradle] No executable ./gradlew in $GRADLE_DIR." >&2
+  echo "[local-test-gradle] No executable ./gradlew in $GRADLE_DIR (looked in $PWD)." >&2
   echo "[local-test-gradle] A system gradle would use a different version than the project pins." >&2
   exit 1
 fi

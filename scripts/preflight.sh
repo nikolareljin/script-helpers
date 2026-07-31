@@ -262,9 +262,12 @@ skip_step() {
 
 helper_script() { printf '%s/scripts/%s\n' "$SCRIPT_HELPERS_DIR" "$1"; }
 
-# in_dir <dir> <command...>; run a check from inside its project directory.
-# Several local_test_*.sh runners take no --dir, so cd is the uniform way to
-# point all of them at a subproject.
+# in_dir <dir> <command...>; run a command from inside its project directory.
+# Used only for tools invoked directly (a raw `flutter build`); the
+# local_test_*.sh runners take --dir instead, because each of them resolves its
+# directory against the repository root rather than the current one — cd alone
+# silently ran them against the wrong tree, and a runner that finds nothing
+# reports success.
 # Invoked indirectly, as the command argument to run_step.
 # shellcheck disable=SC2329
 in_dir() {
@@ -296,7 +299,7 @@ check_flutter() {
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name analyze + test" in_dir "$dir" bash "$(helper_script local_test_flutter.sh)" "${args[@]}"
+  run_step "$name analyze + test" bash "$(helper_script local_test_flutter.sh)" --dir "$dir" "${args[@]}"
   if [[ "$QUICK" == "false" ]]; then
     run_step "$name build apk --debug" in_dir "$dir" flutter build apk --debug
   fi
@@ -316,7 +319,7 @@ check_gradle() {
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name lint + test + assemble" in_dir "$dir" bash "$(helper_script local_test_gradle.sh)" "${args[@]}"
+  run_step "$name lint + test + assemble" bash "$(helper_script local_test_gradle.sh)" --dir "$dir" "${args[@]}"
 }
 
 check_node() {
@@ -327,7 +330,7 @@ check_node() {
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name lint + test" in_dir "$dir" bash "$(helper_script local_test_node.sh)" "${args[@]}"
+  run_step "$name lint + test" bash "$(helper_script local_test_node.sh)" --dir "$dir" "${args[@]}"
 }
 
 check_python() {
@@ -338,7 +341,7 @@ check_python() {
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name lint + test" in_dir "$dir" bash "$(helper_script local_test_python.sh)" "${args[@]}"
+  run_step "$name lint + test" bash "$(helper_script local_test_python.sh)" --dir "$dir" "${args[@]}"
 }
 
 check_go() {
@@ -349,7 +352,7 @@ check_go() {
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name vet + test" in_dir "$dir" bash "$(helper_script local_test_go.sh)" "${args[@]}"
+  run_step "$name vet + test" bash "$(helper_script local_test_go.sh)" --dir "$dir" "${args[@]}"
 }
 
 check_rust() {
@@ -360,7 +363,7 @@ check_rust() {
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name clippy + test" in_dir "$dir" bash "$(helper_script local_test_rust.sh)" "${args[@]}"
+  run_step "$name clippy + test" bash "$(helper_script local_test_rust.sh)" --dir "$dir" "${args[@]}"
 }
 
 check_php() {
@@ -371,7 +374,7 @@ check_php() {
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name lint + test" in_dir "$dir" bash "$(helper_script local_test_php.sh)" "${args[@]}"
+  run_step "$name lint + test" bash "$(helper_script local_test_php.sh)" --dir "$dir" "${args[@]}"
 }
 
 check_security() {
