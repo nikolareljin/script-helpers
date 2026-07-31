@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # SCRIPT: local_test_python.sh
-# DESCRIPTION: Use a local virtualenv when available and run pytest.
+# DESCRIPTION: Use a local virtualenv when available, run ruff (when the project
+#   configures it) and then pytest.
 # USAGE: bash scripts/local_test_python.sh [--quick] [--dir <path>]
 #
 # PARAMETERS:
-#   --quick   Skip install; run tests against the current environment.
+#   --quick   Skip install; run lint and tests against the current environment.
 #   --dir     Subdirectory containing pyproject.toml/requirements.txt (default: .).
 # ----------------------------------------------------
 set -euo pipefail
@@ -98,6 +99,37 @@ if [[ "$QUICK" == "false" ]]; then
     "$PYTHON" -m pip install -e '.[dev]' --quiet \
       || echo "[local-test-python] the dev extra did not install; continuing" >&2
   fi
+fi
+
+# Lint, when the project configures a linter. preflight labels this step
+# "lint + test"; running only pytest made that label a lie, and a repo that had
+# moved its CI here would lose the lint gate without a word about it.
+ruff_configured() {
+  [[ -f ruff.toml || -f .ruff.toml ]] && return 0
+  [[ -f pyproject.toml ]] && grep -q '^\[tool\.ruff' pyproject.toml
+}
+
+if ruff_configured; then
+  declare -a RUFF=()
+  if "$PYTHON" -m ruff --version &>/dev/null; then
+    RUFF=("$PYTHON" -m ruff)
+  elif command -v ruff &>/dev/null; then
+    RUFF=(ruff)
+  fi
+  if [[ ${#RUFF[@]} -eq 0 && "$QUICK" == "false" ]]; then
+    echo "[local-test-python] $PYTHON -m pip install ruff"
+    "$PYTHON" -m pip install ruff --quiet || true
+    "$PYTHON" -m ruff --version &>/dev/null && RUFF=("$PYTHON" -m ruff)
+  fi
+  if [[ ${#RUFF[@]} -eq 0 ]]; then
+    # Configured but absent is a missing gate, not a clean run. Say so and stop,
+    # rather than reporting success for a check that never executed.
+    echo "[local-test-python] ruff is configured for this project but is not installed." >&2
+    echo "[local-test-python] Install it with: $PYTHON -m pip install ruff   (or run a full preflight once)" >&2
+    exit 1
+  fi
+  echo "[local-test-python] ${RUFF[*]} check ."
+  "${RUFF[@]}" check .
 fi
 
 if ! "$PYTHON" -m pytest --version &>/dev/null; then

@@ -52,8 +52,15 @@ parse_dev_options() {
     case "$1" in
       android|ios|host|backend|frontend|linux|web|macos|windows)
         DEV_TARGET="$1"; shift ;;
-      --device) DEV_DEVICE="${2:-}"; shift 2 ;;
-      --user) DEV_USER="${2:-}"; shift 2 ;;
+      # Checked before shifting: `shift 2` with one argument left returns
+      # non-zero, and set -e would kill the process before the validation below
+      # could name what was missing.
+      --device)
+        [[ $# -ge 2 ]] || { log_error "--device needs a serial, e.g. --device R5CRC2WANMT"; exit 2; }
+        DEV_DEVICE="$2"; shift 2 ;;
+      --user)
+        [[ $# -ge 2 ]] || { log_error "--user needs a profile id, e.g. --user 0"; exit 2; }
+        DEV_USER="$2"; shift 2 ;;
       --release) DEV_RELEASE=true; shift ;;
       --verbose) DEV_VERBOSE=true; shift ;;
       *) DEV_ARGS+=("$1"); shift ;;
@@ -82,27 +89,83 @@ dev_projects() {
 }
 
 dev_has_stack() { dev_projects | grep -q "^$1	"; }
-dev_stack_dir() { dev_projects | awk -F'\t' -v s="$1" '$1==s {print $2; exit}'; }
+
+# Returns 1 when the stack is absent so callers can fall back. awk exits 0 when
+# it matches nothing, so `dev_stack_dir x || echo .` would otherwise be dead
+# code and the caller would receive an empty directory.
+dev_stack_dir() {
+  local dir
+  dir="$(dev_projects | awk -F'\t' -v s="$1" '$1==s {print $2; exit}')"
+  [[ -n "$dir" ]] || return 1
+  printf '%s\n' "$dir"
+}
 
 dev_is_flutter() { [[ -f pubspec.yaml ]] || dev_has_stack flutter; }
 dev_is_android() { dev_has_stack gradle || [[ -d android ]]; }
 
 # --- verbs -----------------------------------------------------------------
 
+# Point git at the shared hooks. In a repo that has deleted its build workflows
+# the pre-push hook is the only remaining gate, and core.hooksPath lives in
+# .git/config — untracked, so a fresh clone has no gate until something sets it.
+# That something is install.
+dev_install_hooks() {
+  local setup="$SCRIPT_HELPERS_DIR/scripts/setup-hooks.sh"
+  [[ -f "$setup" ]] || { log_warn "install: setup-hooks.sh not found — git hooks not configured"; return 0; }
+  bash "$setup" || log_warn "install: could not configure git hooks — pushes will not be gated"
+}
+
+# Install Python dependencies without writing into an externally managed
+# interpreter. On a PEP 668 host (modern Debian/Ubuntu) `pip install` into the
+# system Python is refused by design, so use the same project-local .venv that
+# local_test_python.sh resolves — one environment, not two.
+dev_python_install() {
+  local d="$1" py=python3
+  command -v python3 >/dev/null 2>&1 || py=python
+  command -v "$py" >/dev/null 2>&1 || { log_warn "install: no python interpreter — skipping $d"; return 0; }
+
+  if [[ -x "$d/.venv/bin/python" ]]; then
+    py="$d/.venv/bin/python"
+  elif [[ -x "$d/venv/bin/python" ]]; then
+    py="$d/venv/bin/python"
+  elif "$py" -c 'import os,sys,sysconfig; sys.exit(0 if os.path.exists(os.path.join(sysconfig.get_path("stdlib"),"EXTERNALLY-MANAGED")) else 1)' 2>/dev/null; then
+    log_info "install: system Python is externally managed (PEP 668); using $d/.venv"
+    shlib_import python
+    python_ensure_venv "$py" "$d/.venv" >/dev/null || {
+      log_error "install: could not create $d/.venv — install python3-venv"
+      return 1
+    }
+    py="$d/.venv/bin/python"
+  fi
+
+  if [[ -f "$d/requirements.txt" ]]; then
+    log_info "install: $py -m pip install -r $d/requirements.txt"
+    "$py" -m pip install -r "$d/requirements.txt" --quiet
+  fi
+  # The dev extra is where a project declares its test and lint tools. Preflight
+  # needs them, so install owes them too.
+  if [[ -f "$d/pyproject.toml" ]] && grep -qE '^\s*dev\s*=' "$d/pyproject.toml"; then
+    log_info "install: $py -m pip install -e '$d[dev]'"
+    ( cd "$d" && "$py" -m pip install -e '.[dev]' --quiet ) \
+      || log_warn "install: the dev extra did not install; continuing"
+  fi
+}
+
 verb_install() {
   declare -f project_install >/dev/null && { project_install; return; }
   log_info "install: submodules"
   git submodule update --init --recursive
+  dev_install_hooks
   if dev_is_flutter; then
     shlib_import flutter
     flutter_pub_get "$(dev_stack_dir flutter || echo .)"
   fi
   if dev_has_stack python; then
-    local d; d="$(dev_stack_dir python)"
-    [[ -f "$d/requirements.txt" ]] && { log_info "install: pip install -r $d/requirements.txt"; python3 -m pip install -r "$d/requirements.txt"; }
+    local d; d="$(dev_stack_dir python || echo .)"
+    dev_python_install "$d"
   fi
   if dev_has_stack node; then
-    local d; d="$(dev_stack_dir node)"
+    local d; d="$(dev_stack_dir node || echo .)"
     log_info "install: npm ci in $d"
     ( cd "$d" && npm ci )
   fi

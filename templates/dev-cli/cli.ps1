@@ -33,11 +33,21 @@ $DEV_RELEASE = $false
 $DEV_USER    = 0
 $DEV_ARGS    = @()
 
+# $Rest is $null — not an empty array — when no remaining arguments are bound,
+# and StrictMode makes $null.Count a terminating error. Normalise once.
+$Rest = @($Rest)
+
 $targets = @('android','ios','host','backend','frontend','linux','web','macos','windows')
 for ($i = 0; $i -lt $Rest.Count; $i++) {
     switch -Regex ($Rest[$i]) {
-        '^--device$'  { $DEV_DEVICE = $Rest[++$i]; continue }
-        '^--user$'    { $DEV_USER = [int]$Rest[++$i]; continue }
+        '^--device$'  {
+            if ($i + 1 -ge $Rest.Count) { log_error '--device needs a serial, e.g. --device R5CRC2WANMT'; exit 2 }
+            $DEV_DEVICE = $Rest[++$i]; continue
+        }
+        '^--user$'    {
+            if ($i + 1 -ge $Rest.Count) { log_error '--user needs a profile id, e.g. --user 0'; exit 2 }
+            $DEV_USER = [int]$Rest[++$i]; continue
+        }
         '^--release$' { $DEV_RELEASE = $true; continue }
         '^--verbose$' { $VerbosePreference = 'Continue'; continue }
         default {
@@ -97,14 +107,86 @@ function Test-IsAndroid { return ((Get-StackDir 'gradle') -or (Test-Path 'androi
 
 # --- verbs -----------------------------------------------------------------
 
+# Point git at the shared hooks. In a repo that has deleted its build workflows
+# the pre-push hook is the only remaining gate, and core.hooksPath lives in
+# .git/config — untracked, so a fresh clone has no gate until install sets it.
+# setup-hooks.sh is bash; on Windows it ships with Git for Windows.
+function Install-DevHooks {
+    $setup = Join-Path $env:SCRIPT_HELPERS_DIR 'scripts/setup-hooks.sh'
+    if (-not (Test-Path $setup)) {
+        log_warn 'install: setup-hooks.sh not found — git hooks not configured'
+        return
+    }
+    $bash = Get-Command bash -ErrorAction SilentlyContinue
+    if (-not $bash) {
+        log_warn 'install: bash not found — run "git config core.hooksPath scripts/script-helpers/scripts/git-hooks" by hand'
+        return
+    }
+    & $bash.Source $setup
+    if ($LASTEXITCODE -ne 0) { log_warn 'install: could not configure git hooks — pushes will not be gated' }
+}
+
+# Install Python dependencies without writing into an externally managed
+# interpreter. Mirrors dev_python_install in cli.sh: one project-local .venv,
+# the same one local_test_python.sh resolves.
+function Install-DevPython {
+    param([string]$Dir)
+    $py = if (Get-Command python3 -ErrorAction SilentlyContinue) { 'python3' }
+          elseif (Get-Command python -ErrorAction SilentlyContinue) { 'python' }
+          else { $null }
+    if (-not $py) { log_warn "install: no python interpreter — skipping $Dir"; return }
+
+    foreach ($v in @('.venv','venv')) {
+        foreach ($rel in @("$v/bin/python", "$v/Scripts/python.exe")) {
+            $candidate = Join-Path $Dir $rel
+            if (Test-Path $candidate) { $py = $candidate; break }
+        }
+        if ($py -ne 'python3' -and $py -ne 'python') { break }
+    }
+
+    if ($py -eq 'python3' -or $py -eq 'python') {
+        & $py -c 'import os,sys,sysconfig; sys.exit(0 if os.path.exists(os.path.join(sysconfig.get_path("stdlib"),"EXTERNALLY-MANAGED")) else 1)' 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            log_info "install: system Python is externally managed (PEP 668); using $Dir/.venv"
+            & $py -m venv (Join-Path $Dir '.venv')
+            $venvPy = @("$Dir/.venv/bin/python", "$Dir/.venv/Scripts/python.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+            if (-not $venvPy) { log_error "install: could not create $Dir/.venv"; exit 1 }
+            $py = $venvPy
+        }
+    }
+
+    $req = Join-Path $Dir 'requirements.txt'
+    if (Test-Path $req) {
+        log_info "install: $py -m pip install -r $req"
+        & $py -m pip install -r $req --quiet
+    }
+    $proj = Join-Path $Dir 'pyproject.toml'
+    if ((Test-Path $proj) -and (Select-String -Path $proj -Pattern '^\s*dev\s*=' -Quiet)) {
+        log_info "install: $py -m pip install -e '$Dir[dev]'"
+        Push-Location $Dir
+        try { & $py -m pip install -e '.[dev]' --quiet }
+        finally { Pop-Location }
+        if ($LASTEXITCODE -ne 0) { log_warn 'install: the dev extra did not install; continuing' }
+    }
+}
+
 function Verb-Install {
     if (Get-Command Project-Install -ErrorAction SilentlyContinue) { Project-Install; return }
     log_info 'install: submodules'
     & git submodule update --init --recursive
+    Install-DevHooks
     if (Test-IsFlutter) {
         Import-ScriptHelpers flutter
         $d = Get-StackDir 'flutter'; if (-not $d) { $d = '.' }
         flutter_pub_get $d | Out-Null
+    }
+    $pyDir = Get-StackDir 'python'
+    if ($pyDir) { Install-DevPython $pyDir }
+    $nodeDir = Get-StackDir 'node'
+    if ($nodeDir) {
+        log_info "install: npm ci in $nodeDir"
+        Push-Location $nodeDir
+        try { & npm ci } finally { Pop-Location }
     }
 }
 
@@ -197,12 +279,23 @@ function Verb-Devices {
     Write-Host 'Android AVDs:'
     $avds = @(android_avd_list)
     if ($avds.Count -eq 0) { Write-Host '  (none, or no SDK)' } else { $avds | ForEach-Object { Write-Host "  $_" } }
-    if ($IsMacOS) {
-        Import-ScriptHelpers ios
+    # $IsMacOS does not exist in Windows PowerShell 5.1, and StrictMode makes a
+    # bare reference to it a terminating error. There is also no ps/lib/ios.ps1
+    # yet, so the listing is conditional on the helper actually being loadable.
+    $onMac = [bool](Get-Variable IsMacOS -ValueOnly -ErrorAction SilentlyContinue)
+    if ($onMac) {
+        # Import-ScriptHelpers throws on an unknown module and takes no
+        # -ErrorAction (it is a plain function, and ValueFromRemainingArguments
+        # would swallow the flag as a module name).
+        try { Import-ScriptHelpers ios } catch { }
         Write-Host ''
         Write-Host 'iOS simulators (booted):'
-        $sims = @(ios_booted_simulators)
-        if ($sims.Count -eq 0) { Write-Host '  (none)' } else { $sims | ForEach-Object { Write-Host "  $_" } }
+        if (Get-Command ios_booted_simulators -ErrorAction SilentlyContinue) {
+            $sims = @(ios_booted_simulators)
+            if ($sims.Count -eq 0) { Write-Host '  (none)' } else { $sims | ForEach-Object { Write-Host "  $_" } }
+        } else {
+            Write-Host '  (no PowerShell ios module — use ./dev devices from bash)'
+        }
     }
 }
 
