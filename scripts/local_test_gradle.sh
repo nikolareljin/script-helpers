@@ -62,6 +62,24 @@ if [[ -z "$ANDROID" ]]; then
   fi
 fi
 
+# An Android build needs the SDK location, and neither ANDROID_HOME nor a
+# local.properties `sdk.dir` is reliably set in a plain shell — so a project that
+# builds in an IDE fails here with "SDK location not found", which reads as a
+# project fault rather than an environment one. Reuse the android module's lookup
+# rather than repeating it; an already-set value wins.
+if [[ "$ANDROID" == "true" ]]; then
+  _sh_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  if [[ -f "$_sh_dir/helpers.sh" ]]; then
+    # shellcheck source=/dev/null
+    source "$_sh_dir/helpers.sh"
+    shlib_import android >/dev/null 2>&1 || true
+    if declare -f android_sdk_root >/dev/null 2>&1 && _sdk="$(android_sdk_root 2>/dev/null)"; then
+      export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$_sdk}"
+      export ANDROID_HOME="${ANDROID_HOME:-$_sdk}"
+    fi
+  fi
+fi
+
 if [[ "$ANDROID" == "true" ]]; then
   LINT_TASK="lintDebug"; TEST_TASK="testDebugUnitTest"; BUILD_TASK="assembleDebug"
 else
