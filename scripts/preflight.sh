@@ -299,7 +299,8 @@ check_flutter() {
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name analyze + test" bash "$(helper_script local_test_flutter.sh)" --dir "$dir" "${args[@]}"
+  local what="analyze + test"; [[ "$QUICK" == "true" ]] && what="test"
+  run_step "$name $what" bash "$(helper_script local_test_flutter.sh)" --dir "$dir" "${args[@]}"
   if [[ "$QUICK" == "false" ]]; then
     run_step "$name build apk --debug" in_dir "$dir" flutter build apk --debug
   fi
@@ -319,7 +320,8 @@ check_gradle() {
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name lint + test + assemble" bash "$(helper_script local_test_gradle.sh)" --dir "$dir" "${args[@]}"
+  local what="lint + test + assemble"; [[ "$QUICK" == "true" ]] && what="test"
+  run_step "$name $what" bash "$(helper_script local_test_gradle.sh)" --dir "$dir" "${args[@]}"
 }
 
 check_node() {
