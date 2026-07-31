@@ -143,7 +143,14 @@ changelog_new_section() {
     log_error "changelog_new_section: rewriting $file produced an empty file — refusing to replace it"
     return 1
   fi
-  cat "$tmp" > "$file" && rm -f "$tmp" || { rm -f "$tmp"; return 1; }
+  # Not `cat && rm || return 1`: that reports failure when the write succeeded
+  # and only the cleanup failed.
+  if ! cat "$tmp" > "$file"; then
+    rm -f "$tmp"
+    log_error "changelog_new_section: could not write $file"
+    return 1
+  fi
+  rm -f "$tmp"
   log_info "changelog: added section $date — v$bare to $file"
 }
 

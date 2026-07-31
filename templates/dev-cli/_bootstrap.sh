@@ -80,6 +80,8 @@ If this repo has never had the submodule:
   git submodule add -b production \
     https://github.com/nikolareljin/script-helpers.git scripts/script-helpers
 EOF
+    # Sourced normally, but exit covers the case where a caller runs it directly.
+    # shellcheck disable=SC2317
     return 1 2>/dev/null || exit 1
   fi
 fi

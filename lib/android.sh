@@ -64,7 +64,10 @@ android_sdk_tool() {
     do
       [[ -x "$candidate" ]] && { printf '%s\n' "$candidate"; return 0; }
     done
-    # build-tools are versioned; take the highest that has the tool.
+    # build-tools are versioned; take the highest that has the tool. `ls | sort -V`
+    # rather than find, because the ordering is the point and these are SDK
+    # directory names, which are always plain semver.
+    # shellcheck disable=SC2012
     for candidate in $(ls -1d "$root"/build-tools/*/ 2>/dev/null | sort -Vr); do
       [[ -x "$candidate$name" ]] && { printf '%s\n' "$candidate$name"; return 0; }
     done
@@ -126,8 +129,9 @@ android_artifact() {
   else
     globs=("$dir"/*/build/outputs/apk/"$variant"/*.apk "$dir"/build/outputs/apk/"$variant"/*.apk)
   fi
-  # -print0 would be safer, but these are build outputs under a path the caller
-  # already controls; keep it readable and take the newest match.
+  # `ls -t` rather than find, because newest-first is the point. These are build
+  # outputs under a path the caller already controls.
+  # shellcheck disable=SC2012
   found="$(ls -1t "${globs[@]}" 2>/dev/null | head -n1)"
   [[ -n "$found" ]] || return 1
   printf '%s\n' "$found"

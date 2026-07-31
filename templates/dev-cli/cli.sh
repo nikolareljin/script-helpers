@@ -34,7 +34,7 @@ shlib_import logging help manifest changelog
 # shellcheck source=/dev/null
 [[ -f "$SCRIPT_DIR/project.sh" ]] && source "$SCRIPT_DIR/project.sh"
 
-cd "$DEV_REPO_ROOT"
+cd "$DEV_REPO_ROOT" || exit 1
 
 # --- shared options --------------------------------------------------------
 
@@ -85,7 +85,7 @@ dev_is_android() { dev_has_stack gradle || [[ -d android ]]; }
 # --- verbs -----------------------------------------------------------------
 
 verb_install() {
-  declare -f project_install >/dev/null && { project_install "$@"; return; }
+  declare -f project_install >/dev/null && { project_install; return; }
   log_info "install: submodules"
   git submodule update --init --recursive
   if dev_is_flutter; then
@@ -104,7 +104,7 @@ verb_install() {
 }
 
 verb_build() {
-  declare -f project_build >/dev/null && { project_build "$@"; return; }
+  declare -f project_build >/dev/null && { project_build; return; }
   local mode=debug; [[ "$DEV_RELEASE" == "true" ]] && mode=release
   if dev_is_flutter; then
     shlib_import flutter
@@ -125,7 +125,7 @@ verb_build() {
 }
 
 verb_run() {
-  declare -f project_run >/dev/null && { project_run "$@"; return; }
+  declare -f project_run >/dev/null && { project_run; return; }
   if dev_is_flutter; then
     shlib_import flutter
     local d dev_id
@@ -138,17 +138,17 @@ verb_run() {
 }
 
 verb_test() {
-  declare -f project_test >/dev/null && { project_test "$@"; return; }
+  declare -f project_test >/dev/null && { project_test; return; }
   bash "$SCRIPT_HELPERS_DIR/scripts/preflight.sh" --quick --skip-security
 }
 
 verb_preflight() {
-  declare -f project_preflight >/dev/null && { project_preflight "$@"; return; }
+  declare -f project_preflight >/dev/null && { project_preflight; return; }
   bash "$SCRIPT_HELPERS_DIR/scripts/preflight.sh" "${DEV_ARGS[@]+"${DEV_ARGS[@]}"}"
 }
 
 verb_deploy() {
-  declare -f project_deploy >/dev/null && { project_deploy "$@"; return; }
+  declare -f project_deploy >/dev/null && { project_deploy; return; }
   shlib_import adb android
   local mode=debug; [[ "$DEV_RELEASE" == "true" ]] && mode=release
   local serial="$DEV_DEVICE" artifact
@@ -178,7 +178,7 @@ verb_deploy() {
 }
 
 verb_devices() {
-  declare -f project_devices >/dev/null && { project_devices "$@"; return; }
+  declare -f project_devices >/dev/null && { project_devices; return; }
   shlib_import adb android
   echo "Android devices:"
   adb_list_devices || true
@@ -194,7 +194,7 @@ verb_devices() {
 }
 
 verb_screenshot() {
-  declare -f project_screenshot >/dev/null && { project_screenshot "$@"; return; }
+  declare -f project_screenshot >/dev/null && { project_screenshot; return; }
   shlib_import screencap
   local -a args=()
   [[ -n "$DEV_DEVICE" ]] && args+=(--device "$DEV_DEVICE")
@@ -203,7 +203,7 @@ verb_screenshot() {
 }
 
 verb_record() {
-  declare -f project_record >/dev/null && { project_record "$@"; return; }
+  declare -f project_record >/dev/null && { project_record; return; }
   shlib_import screencap
   local -a args=()
   [[ -n "$DEV_DEVICE" ]] && args+=(--device "$DEV_DEVICE")
@@ -212,7 +212,7 @@ verb_record() {
 }
 
 verb_logs() {
-  declare -f project_logs >/dev/null && { project_logs "$@"; return; }
+  declare -f project_logs >/dev/null && { project_logs; return; }
   shlib_import adb
   local serial="$DEV_DEVICE"
   if [[ -z "$serial" ]]; then
@@ -225,7 +225,7 @@ verb_logs() {
 }
 
 verb_clean() {
-  declare -f project_clean >/dev/null && { project_clean "$@"; return; }
+  declare -f project_clean >/dev/null && { project_clean; return; }
   if dev_is_flutter; then
     shlib_import flutter
     flutter_run_cmd "$(dev_stack_dir flutter || echo .)" clean || true
@@ -238,7 +238,7 @@ verb_clean() {
 }
 
 verb_update() {
-  declare -f project_update >/dev/null && { project_update "$@"; return; }
+  declare -f project_update >/dev/null && { project_update; return; }
   log_info "update: syncing submodules to their tracked branches"
   git submodule sync --recursive
   git submodule update --init --remote --recursive || {
@@ -252,7 +252,7 @@ verb_update() {
 }
 
 verb_release() {
-  declare -f project_release >/dev/null && { project_release "$@"; return; }
+  declare -f project_release >/dev/null && { project_release; return; }
   local version="${DEV_ARGS[0]:-}"
   [[ -n "$version" ]] || { log_error "release: need a version, e.g. ./dev release 1.4.0"; exit 2; }
   manifest_sync_version . "$version"

@@ -77,7 +77,7 @@ if [[ -z "$PROJECT_DIR" ]]; then
   PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 fi
 [[ -d "$PROJECT_DIR" ]] || { log_error "preflight: not a directory: $PROJECT_DIR"; exit 2; }
-cd "$PROJECT_DIR"
+cd "$PROJECT_DIR" || exit 2
 
 KNOWN_STACKS="flutter gradle node python go rust php"
 for s in "${WANTED_STACKS[@]}"; do
@@ -265,6 +265,8 @@ helper_script() { printf '%s/scripts/%s\n' "$SCRIPT_HELPERS_DIR" "$1"; }
 # in_dir <dir> <command...>; run a check from inside its project directory.
 # Several local_test_*.sh runners take no --dir, so cd is the uniform way to
 # point all of them at a subproject.
+# Invoked indirectly, as the command argument to run_step.
+# shellcheck disable=SC2329
 in_dir() {
   local dir="$1"; shift
   ( cd "$PROJECT_DIR/$dir" && "$@" )

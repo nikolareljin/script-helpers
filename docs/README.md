@@ -56,5 +56,11 @@ Modules overview
 - adb — Android Debug Bridge toolkit: list/inspect devices (model, Android OS, API level, IP), install apps, copy files to/from, and debug (shell/logcat/status); multi-device safe; Bash + PowerShell + `scripts/adb_tool.sh` CLI.
 - ios — iOS device and simulator toolkit: discover, boot, install, launch, and build Flutter release apps or signed IPAs; macOS/Xcode only.
 - serve — serve a static site directory locally for preview (auto-picks a free port; prefers `python3 -m http.server`); CLI wrapper `bin/serve-pages`.
+- gradle — wrapper resolution and task invocation; prefers the project's `./gradlew` over a system `gradle`; Bash + PowerShell.
+- android — Android build side: SDK resolution and bootstrap, one debug/release build toggle, artifact lookup, APK/AAB signing with a base64-keystore path and a debug-signed fallback, AVDs, emulator start/stop; Bash + PowerShell.
+- flutter — Flutter SDK resolution across the install locations a non-interactive shell misses, analyze/format/test/build, device listing and resolution; Bash + PowerShell.
+- screencap — screenshots and screen video from a device, emulator or simulator, plus ffmpeg frame extraction and GIF conversion; chunks past `screenrecord`'s 180s cap; Bash + PowerShell.
+- manifest — read and write the project version across pubspec, Gradle, VERSION, package.json and pyproject, with the Play Store versionCode derived from semver; Bash + PowerShell.
+- changelog — check, extract and generate the CHANGELOG release-header format that `ci-helpers` builds release notes from; Bash + PowerShell.
 
 If you add a new module or function, update ./docs/api.md and the relevant ./docs/modules/*.md file. See AGENTS.md for the process and checklist.
