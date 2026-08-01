@@ -118,6 +118,10 @@ _shlib_docker_distro_field() {
 # Polls `docker info` until it answers. Returns 1 on timeout.
 wait_for_docker_daemon() {
   local timeout="${1:-$_shlib_docker_timeout}" waited=0
+  if [[ ! "$timeout" =~ ^[1-9][0-9]*$ ]]; then
+    log_error "wait_for_docker_daemon: timeout must be a positive integer."
+    return 2
+  fi
   [[ "$_shlib_docker_dry_run" == true ]] && return 0
   log_info "Waiting for the Docker daemon (up to ${timeout}s)…"
   while (( waited < timeout )); do
@@ -346,7 +350,7 @@ _shlib_docker_install_mac() {
       mnt="$(mktemp -d)"
       hdiutil attach "$dmg" -mountpoint "$mnt" -nobrowse -quiet || return 1
       # Docker's own installer sets up the app bundle and privileged helper.
-      sudo "$mnt/Docker.app/Contents/MacOS/install" --accept-license || {
+      _shlib_docker_sudo "$mnt/Docker.app/Contents/MacOS/install" --accept-license || {
         hdiutil detach "$mnt" -quiet || true
         return 1
       }
@@ -447,7 +451,14 @@ install_docker() {
       -n|--dry-run) _shlib_docker_dry_run=true; shift ;;
       --no-start)   _shlib_docker_do_start=false; shift ;;
       --no-group)   _shlib_docker_add_group=false; shift ;;
-      --timeout)    _shlib_docker_timeout="${2:-120}"; shift 2 ;;
+      --timeout)
+        if [[ $# -lt 2 || ! "$2" =~ ^[1-9][0-9]*$ ]]; then
+          log_error "install_docker: --timeout requires a positive integer."
+          return 2
+        fi
+        _shlib_docker_timeout="$2"
+        shift 2
+        ;;
       *) log_error "install_docker: unknown option '$1'"; return 2 ;;
     esac
   done

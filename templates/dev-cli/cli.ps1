@@ -32,6 +32,7 @@ $DEV_RELEASE = $false
 # why this is pinned rather than left to adb's default.
 $DEV_USER    = 0
 $DEV_ARGS    = @()
+$DEV_WANTS_HELP = $false
 
 # $Rest is $null — not an empty array — when no remaining arguments are bound,
 # and StrictMode makes $null.Count a terminating error. Normalise once.
@@ -50,6 +51,9 @@ for ($i = 0; $i -lt $Rest.Count; $i++) {
         }
         '^--release$' { $DEV_RELEASE = $true; continue }
         '^--verbose$' { $VerbosePreference = 'Continue'; continue }
+        # Asking a verb for help must not run the verb. Without this,
+        # `./dev.ps1 deploy --help` builds and installs on a device.
+        '^(-h|--help)$' { $script:DEV_WANTS_HELP = $true; continue }
         default {
             if ($targets -contains $Rest[$i]) { $DEV_TARGET = $Rest[$i] }
             else { $DEV_ARGS += $Rest[$i] }
@@ -161,11 +165,11 @@ function Install-DevPython {
         & $py -m pip install -r $req --quiet
     }
     $proj = Join-Path $Dir 'pyproject.toml'
+    # Installed by path rather than by Push-Location: $py may be relative to the
+    # repo root, and changing directory would break it.
     if ((Test-Path $proj) -and (Select-String -Path $proj -Pattern '^\s*dev\s*=' -Quiet)) {
         log_info "install: $py -m pip install -e '$Dir[dev]'"
-        Push-Location $Dir
-        try { & $py -m pip install -e '.[dev]' --quiet }
-        finally { Pop-Location }
+        & $py -m pip install -e "$Dir[dev]" --quiet
         if ($LASTEXITCODE -ne 0) { log_warn 'install: the dev extra did not install; continuing' }
     }
 }
@@ -407,6 +411,8 @@ List profiles with: adb shell pm list users
 Captured media defaults to docs/screenshots/. Override with $env:SCREENCAP_DIR.
 '@
 }
+
+if ($DEV_WANTS_HELP) { Show-Usage; exit 0 }
 
 switch ($Verb) {
     ''           { Show-Usage; exit 0 }

@@ -64,7 +64,7 @@ Functions
     - `-n`, `--dry-run` — print every command that would run, change nothing.
     - `--no-start` — install but do not start the daemon or launch Desktop.
     - `--no-group` — Linux only: skip adding the user to the `docker` group.
-    - `--timeout N` — seconds to wait for the daemon. Default 120.
+    - `--timeout N` — positive integer seconds to wait for the daemon. Default 120.
   - Returns: `0` ready · `1` failed or declined · `2` bad usage or unsupported platform · `3` installed but the daemon did not come up in time.
 
 - ensure_docker [install_docker options...]
@@ -84,7 +84,7 @@ Functions
 
 - wait_for_docker_daemon [timeout_seconds]
   - Purpose: poll `docker info` until it answers.
-  - Returns: non-zero on timeout. Default timeout 120s.
+  - Returns: `0` when ready, `1` on timeout, or `2` when the timeout is not a positive integer. Default timeout 120s.
 
 Exit code 3 and what to do about it
 -----------------------------------

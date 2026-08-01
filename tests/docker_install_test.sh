@@ -71,7 +71,27 @@ else
   note "SKIP ensure_docker no-op check — Docker is not usable on this host"
 fi
 
-# 7) dry-run changes nothing. On a ready host install_docker short-circuits
+# 7) timeout values are validated before arithmetic or installation begins
+for args in "--timeout" "--timeout nope" "--timeout 0"; do
+  rc=0
+  # Deliberately split the fixed test cases into arguments.
+  # shellcheck disable=SC2086
+  install_docker $args >/dev/null 2>&1 || rc=$?
+  if [[ "$rc" -eq 2 ]]; then
+    note "install_docker rejects '$args' with exit 2"
+  else
+    error "install_docker '$args' returned $rc, expected 2"
+  fi
+done
+
+rc=0; wait_for_docker_daemon nope >/dev/null 2>&1 || rc=$?
+if [[ "$rc" -eq 2 ]]; then
+  note "wait_for_docker_daemon rejects a non-numeric timeout with exit 2"
+else
+  error "wait_for_docker_daemon with a bad timeout returned $rc, expected 2"
+fi
+
+# 8) dry-run changes nothing. On a ready host install_docker short-circuits
 #    before the dry-run path, so only assert it stays silent about mutating.
 rc=0; out="$(install_docker --dry-run --yes 2>&1)" || rc=$?
 if [[ "$rc" -eq 0 || "$rc" -eq 1 || "$rc" -eq 2 ]]; then

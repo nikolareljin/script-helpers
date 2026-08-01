@@ -63,6 +63,9 @@ parse_dev_options() {
         DEV_USER="$2"; shift 2 ;;
       --release) DEV_RELEASE=true; shift ;;
       --verbose) DEV_VERBOSE=true; shift ;;
+      # Asking a verb for help must not run the verb. Without this, `./dev
+      # deploy --help` builds and installs on a device.
+      -h|--help) usage; exit 0 ;;
       *) DEV_ARGS+=("$1"); shift ;;
     esac
   done
@@ -143,10 +146,11 @@ dev_python_install() {
     "$py" -m pip install -r "$d/requirements.txt" --quiet
   fi
   # The dev extra is where a project declares its test and lint tools. Preflight
-  # needs them, so install owes them too.
+  # needs them, so install owes them too. Installed by path rather than by
+  # cd-ing: $py is relative to the repo root, and a cd would break it.
   if [[ -f "$d/pyproject.toml" ]] && grep -qE '^\s*dev\s*=' "$d/pyproject.toml"; then
     log_info "install: $py -m pip install -e '$d[dev]'"
-    ( cd "$d" && "$py" -m pip install -e '.[dev]' --quiet ) \
+    "$py" -m pip install -e "$d[dev]" --quiet \
       || log_warn "install: the dev extra did not install; continuing"
   fi
 }
