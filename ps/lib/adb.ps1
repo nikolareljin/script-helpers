@@ -110,16 +110,73 @@ function adb_pull {
 
 # --- apps ------------------------------------------------------------------
 
+# -User defaults to 0, the device owner, and is passed through to adb. This is
+# not a cosmetic default. An unqualified `adb install` can land the package in a
+# profile the shell cannot subsequently read — on a device with a work profile or
+# Samsung Secure Folder the install prints Success and exits 0 while
+# `pm list packages` fails with "SecurityException: Shell does not have
+# permission to access user <id>". The app is then absent from the launcher and
+# unstartable, with every signal saying the install worked.
 function adb_install {
     param(
         [string]$Serial, [string]$Apk,
+        [int]$User = 0,
         [Parameter(ValueFromRemainingArguments = $true)][string[]]$ExtraArgs
     )
     if (-not (adb_available)) { return }
     if (-not $Serial -or -not $Apk) { log_error 'adb_install: need <serial> <apk>'; return }
     if (-not (Test-Path $Apk)) { log_error "adb_install: APK not found: $Apk"; return }
-    log_info "install $Apk -> $Serial"
-    & adb -s $Serial install -r @ExtraArgs $Apk
+    log_info "install $Apk -> $Serial (user $User)"
+    & adb -s $Serial install -r --user $User @ExtraArgs $Apk
+    return ($LASTEXITCODE -eq 0)
+}
+
+# True when the package is visible to that user. $null when the shell is not
+# permitted to query the user at all — which is itself the answer, because a
+# package the shell cannot see is a package the launcher will not show.
+#
+# Call this after adb_install. An installer's exit code asserts that adb accepted
+# the command, not that the app is usable.
+function adb_installed_for_user {
+    param([string]$Serial, [string]$Package, [int]$User = 0)
+    if (-not (adb_available)) { return $null }
+    if (-not $Serial -or -not $Package) { log_error 'adb_installed_for_user: need <serial> <package> [user]'; return $null }
+    $out = (& adb -s $Serial shell pm list packages --user $User 2>&1 | Out-String)
+    if ($out -match 'SecurityException') {
+        log_error "adb_installed_for_user: the shell cannot read user $User on $Serial."
+        log_error 'A package installed there will not appear in the launcher. Available users:'
+        & adb -s $Serial shell pm list users 2>$null | Write-Host
+        return $null
+    }
+    return ($out -split "`r?`n" | Where-Object { $_.Trim() -eq "package:$Package" }).Count -gt 0
+}
+
+# Install, then confirm the package is actually visible to that user. This is
+# what a deploy path should call: adb_install alone reports what adb accepted,
+# not what the device will show.
+function adb_install_verified {
+    param(
+        [string]$Serial, [string]$Apk, [string]$Package,
+        [int]$User = 0,
+        [Parameter(ValueFromRemainingArguments = $true)][string[]]$ExtraArgs
+    )
+    if (-not $Serial -or -not $Apk -or -not $Package) {
+        log_error 'adb_install_verified: need <serial> <apk> <package>'
+        return $false
+    }
+    if (-not (adb_install -Serial $Serial -Apk $Apk -User $User @ExtraArgs)) { return $false }
+
+    $seen = adb_installed_for_user -Serial $Serial -Package $Package -User $User
+    if ($seen -eq $true) {
+        log_info "verified: $Package is present for user $User on $Serial"
+        return $true
+    }
+    log_error "adb_install_verified: '$Package' installed without error but is NOT visible to user $User."
+    log_error 'This is what a work profile or Secure Folder install looks like: adb reports Success,'
+    log_error "the launcher shows nothing, and 'am start' cannot find it."
+    log_error 'Pick the right profile with -User <id>. Available users:'
+    & adb -s $Serial shell pm list users 2>$null | Write-Host
+    return $false
 }
 
 function adb_install_all {

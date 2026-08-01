@@ -47,10 +47,41 @@ File transfer
 - `adb_pull <serial> <remote> [local=.]` — copy a file/dir **from** the device.
 
 Apps
-- `adb_install <serial> <apk> [adb install args...]` — (re)install an APK (`-r`).
+- `adb_install <serial> <apk> [--user <id>] [adb install args...]` — (re)install
+  an APK (`-r`). `--user` defaults to `0`, the device owner, and is passed
+  through to adb. Returns 2 when it is not a number.
+- `adb_installed_for_user <serial> <package> [user=0]` — is the package visible
+  to that user? Returns 0 yes, 1 no, 3 when the shell may not query that user at
+  all, printing `pm list users` to stderr.
+- `adb_install_verified <serial> <apk> <package> [--user <id>] [args...]` —
+  install, then confirm it landed. Returns 0 only when both hold; 4 when the
+  install reported success but the package is not visible to the target user.
 - `adb_install_all <apk> [adb install args...]` — install to **every** ready
   device; continues past failures, returns non-zero if any failed.
 - `adb_uninstall <serial> <package>` — uninstall an app package.
+
+### Why `--user` is pinned, and why the check exists
+
+An unqualified `adb install` can land a package in a profile the shell cannot
+subsequently read. On a device with a work profile or Samsung Secure Folder:
+
+```
+$ adb install -r app-debug.apk
+Success
+$ adb shell pm list packages | grep myapp
+Error: java.lang.SecurityException: Shell does not have permission to
+access user 150
+```
+
+The app is then absent from the launcher, cannot be started by `am start`, and
+`pm list packages --user 0` does not list it — while the deploy script has
+already reported success and exited zero. Every signal says the install worked,
+so the symptom reads as an app fault rather than a deploy fault.
+
+Pinning `--user` prevents the common case. Verifying afterwards prevents the
+class, which is why `adb_install_verified` exists and why a deploy path should
+call it rather than `adb_install`. An installer's exit code asserts that adb
+accepted the command, not that the app is usable.
 
 Status
 - `adb_battery_level <serial>` — battery percent (0–100).

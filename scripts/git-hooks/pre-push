@@ -26,6 +26,29 @@ fi
 
 _ran_tests=false
 
+# preflight.sh, when the submodule is new enough, runs every check the repo's CI
+# would have run and knows about stacks this hook's own chain does not — Gradle
+# and Android among them. In a repo that has deleted its build workflows this
+# hook is the only remaining gate, so prefer the thorough runner and fall back
+# to the per-language chain below only when it is absent.
+# Returns 127 when preflight is not installed — distinct from any status
+# preflight itself can return, so "not available" can never be confused with
+# "checks failed". Confusing the two would let a failing push through.
+run_preflight() {
+  local preflight=""
+  if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/preflight.sh" ]]; then
+    preflight="$_scripts_dir/preflight.sh"
+  else
+    return 127
+  fi
+  echo "[pre-push] preflight --quick"
+  bash "$preflight" --quick
+  # 3 = no stack detected. Not a failure; let the chain below try instead.
+  local rc=$?
+  [[ "$rc" -eq 3 ]] && return 127
+  return "$rc"
+}
+
 # Inline Go runner used when local_test_go.sh is not available.
 run_go_tests_inline() {
   local gomod module_dir
@@ -149,6 +172,25 @@ run_tests() {
     fi
   fi
 
+  # Gradle / Android — checked before Flutter, because a Flutter repo's android/
+  # subdirectory is built by `flutter build` and must not match here, while a
+  # native Android or plain JVM repo has no pubspec.yaml to fall through to.
+  if [[ ! -f pubspec.yaml ]] && { [[ -x ./gradlew ]] || [[ -f settings.gradle ]] || [[ -f settings.gradle.kts ]]; }; then
+    if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_gradle.sh" ]]; then
+      echo "[pre-push] local_test_gradle.sh --quick"
+      bash "$_scripts_dir/local_test_gradle.sh" --quick
+      _ran_tests=true
+      return 0
+    elif [[ -x ./gradlew ]]; then
+      echo "[pre-push] ./gradlew test"
+      ./gradlew --no-daemon test
+      _ran_tests=true
+      return 0
+    fi
+    # settings.gradle but no wrapper — fall through rather than invoking a
+    # system gradle at a version the project did not pin.
+  fi
+
   # Rust
   if [[ -f Cargo.toml ]] && command -v cargo &>/dev/null; then
     if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_rust.sh" ]]; then
@@ -177,6 +219,17 @@ run_tests() {
 
   echo "[pre-push] No test runner detected — skipping. Run tests manually before pushing."
 }
+
+_preflight_rc=0
+run_preflight || _preflight_rc=$?
+if [[ "$_preflight_rc" -eq 0 ]]; then
+  echo "[pre-push] All checks passed."
+  exit 0
+elif [[ "$_preflight_rc" -ne 127 ]]; then
+  echo "[pre-push] preflight failed — push refused." >&2
+  echo "[pre-push] Fix the failures above, or use 'git push --no-verify' if you know why." >&2
+  exit "$_preflight_rc"
+fi
 
 run_tests
 if [[ "$_ran_tests" == "true" ]]; then

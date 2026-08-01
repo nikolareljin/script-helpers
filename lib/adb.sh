@@ -136,15 +136,107 @@ adb_pull() {
 
 # --- apps ------------------------------------------------------------------
 
-# Usage: adb_install <serial> <apk> [extra adb install args...]; (re)install an
-# APK to one device (-r keeps app data). Returns adb's exit status.
+# Usage: adb_install <serial> <apk> [--user <id>] [extra adb install args...];
+# (re)install an APK to one device (-r keeps app data). Returns adb's exit status.
+#
+# --user defaults to 0, the device owner, and is passed through to adb. This is
+# not a cosmetic default. An unqualified `adb install` can land the package in a
+# profile the shell cannot subsequently read — on a device with a work profile or
+# Samsung Secure Folder, the install prints Success and exits 0 while
+# `pm list packages` fails with "SecurityException: Shell does not have
+# permission to access user <id>". The app is then absent from the launcher and
+# unstartable, with every signal saying the install worked. Pass an explicit
+# --user to target a profile deliberately; see adb_installed_for_user to confirm
+# it landed.
 adb_install() {
-  local serial="$1" apk="$2"; shift 2 || true   # drop serial+apk; rest = adb flags
+  # ${1:-} rather than $1: a caller running with `set -u` would otherwise get a
+  # fatal unbound-variable error instead of the documented exit 2.
+  local serial="${1:-}" apk="${2:-}"; shift 2 2>/dev/null || true   # drop serial+apk; rest = adb flags
+  local user="0"
+  local -a extra=()
   adb_available || return 1
   [[ -n "$serial" && -n "$apk" ]] || { log_error "adb_install: need <serial> <apk>"; return 2; }
   [[ -f "$apk" ]] || { log_error "adb_install: APK not found: $apk"; return 2; }
-  log_info "install $apk -> $serial"
-  adb -s "$serial" install -r "$@" "$apk"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --user)
+        user="${2:-}"
+        [[ "$user" =~ ^[0-9]+$ ]] || { log_error "adb_install: --user must be a number, got '${user:-<empty>}'"; return 2; }
+        shift 2 ;;
+      *) extra+=("$1"); shift ;;
+    esac
+  done
+  log_info "install $apk -> $serial (user $user)"
+  adb -s "$serial" install -r --user "$user" "${extra[@]+"${extra[@]}"}" "$apk"
+}
+
+# Usage: adb_installed_for_user <serial> <package> [user=0]; returns 0 when the
+# package is visible to that user, 1 when it is not, and 3 when the shell is not
+# permitted to query the user at all — which is itself the answer, because a
+# package the shell cannot see is a package the launcher will not show.
+#
+# Call this after adb_install. An installer's exit code asserts that adb accepted
+# the command, not that the app is usable.
+adb_installed_for_user() {
+  local serial="${1:-}" pkg="${2:-}" user="${3:-0}" out
+  adb_available || return 1
+  [[ -n "$serial" && -n "$pkg" ]] || { log_error "adb_installed_for_user: need <serial> <package> [user]"; return 2; }
+  [[ "$user" =~ ^[0-9]+$ ]] || { log_error "adb_installed_for_user: user must be a number, got '$user'"; return 2; }
+  # `adb shell` frequently exits 0 even when the command inside it failed, so the
+  # output is checked before the status. Observed on a Galaxy S21 FE (Android 16):
+  # `pm list packages --user 150` prints "SecurityException: Shell does not have
+  # permission to access user 150" and still exits 0. Reading the status alone
+  # would classify that as "package absent" — the same trusting-an-exit-code
+  # mistake this function exists to catch.
+  out="$(adb -s "$serial" shell pm list packages --user "$user" 2>&1)" || true
+  out="${out//$'\r'/}"
+  if grep -q 'SecurityException\|Error: could not access user\|Bad user number' <<<"$out"; then
+    log_error "adb_installed_for_user: the shell cannot read user $user on $serial."
+    log_error "A package installed there will not appear in the launcher. Available users:"
+    adb -s "$serial" shell pm list users 2>/dev/null >&2 || true
+    return 3
+  fi
+  grep -qx "package:$pkg" <<<"$out"
+}
+
+# Usage: adb_install_verified <serial> <apk> <package> [--user <id>] [extra args...];
+# install, then confirm the package is actually visible to that user. This is the
+# function a deploy path should call: adb_install alone reports what adb accepted,
+# not what the device will show.
+#
+# Returns adb's status on an install failure, 4 when the install reported success
+# but the package is not visible to the target user, and 0 only when both hold.
+adb_install_verified() {
+  local serial="${1:-}" apk="${2:-}" pkg="${3:-}"; shift 3 2>/dev/null || true
+  local user="0" rc=0
+  local -a passthru=()
+  [[ -n "$serial" && -n "$apk" && -n "$pkg" ]] \
+    || { log_error "adb_install_verified: need <serial> <apk> <package>"; return 2; }
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --user) user="${2:-}"; passthru+=(--user "$user"); shift 2 ;;
+      *) passthru+=("$1"); shift ;;
+    esac
+  done
+
+  adb_install "$serial" "$apk" "${passthru[@]+"${passthru[@]}"}" || return $?
+
+  # Capture the status directly. After a failed `if` with no `else`, `$?` is the
+  # status of the `if` statement itself — zero — so reading it afterwards loses
+  # the distinction between "not installed" and "cannot read that profile".
+  rc=0
+  adb_installed_for_user "$serial" "$pkg" "$user" || rc=$?
+  if [[ "$rc" -eq 0 ]]; then
+    log_info "verified: $pkg is present for user $user on $serial"
+    return 0
+  fi
+  log_error "adb_install_verified: '$pkg' installed without error but is NOT visible to user $user."
+  log_error "This is what a work profile or Secure Folder install looks like: adb reports Success,"
+  log_error "the launcher shows nothing, and 'am start' cannot find it."
+  log_error "Pick the right profile with --user <id>. Available users:"
+  adb -s "$serial" shell pm list users 2>/dev/null >&2 || true
+  [[ "$rc" -eq 3 ]] && return 3
+  return 4
 }
 
 # Usage: adb_install_all <apk> [extra adb install args...]; install the APK to
