@@ -4,6 +4,15 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ## [Unreleased]
 
+- Changed: comments and examples now describe what a helper does rather than
+  naming the project a convention was taken from. Several compatibility
+  shims were labelled with the name of the codebase whose call shape they
+  match, and one example invocation and one changelog line named specific
+  projects. None of it was load-bearing -- no code read those names -- and a
+  reader of this repository learns more from "takes a single combined command
+  string" than from the name of a codebase they cannot see. This library is
+  meant to be self-contained and readable on its own terms.
+
 ## [0.20.0] - 2026-07-31
 
 - Fixed: `local_test_python.sh` ran only pytest, while `preflight` labelled the step "lint + test". A repo that moved its CI local therefore lost its Python lint gate without a word about it — the shape of failure this family exists to prevent. It now runs `ruff check .` whenever the project configures ruff (`[tool.ruff]` in `pyproject.toml`, or `ruff.toml`/`.ruff.toml`), and treats configured-but-not-installed as a failure rather than a skip: a gate the project declared and that never ran must not report green. A full (non-`--quick`) run installs ruff first.
@@ -40,7 +49,7 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ## [0.18.0] - 2026-07-25
 
-- Added: `svg` module (`lib/svg.sh`) to rasterize SVG art to PNG for app logos and launcher icons. `svg_rasterize <in.svg> <out.png> [size]` renders a square PNG (default 1024px), preferring Inkscape and falling back to ImageMagick (`magick`/`convert`); `svg_rasterize_sizes` emits one PNG per size for icon sets; `svg_rasterizer` reports the available tool. Plus a CLI wrapper `bin/svg-rasterize` and a `tests/svg_test.sh` smoke test (auto-picked up by `make test`). Extracted from the AppealShield (`denial-shield-pro`) icon-generation flow so every mobile repo can share one rasterizer.
+- Added: `svg` module (`lib/svg.sh`) to rasterize SVG art to PNG for app logos and launcher icons. `svg_rasterize <in.svg> <out.png> [size]` renders a square PNG (default 1024px), preferring Inkscape and falling back to ImageMagick (`magick`/`convert`); `svg_rasterize_sizes` emits one PNG per size for icon sets; `svg_rasterizer` reports the available tool. Plus a CLI wrapper `bin/svg-rasterize` and a `tests/svg_test.sh` smoke test (auto-picked up by `make test`). Extracted from an application's icon-generation flow so the rasterizing step is defined once here rather than per project.
 
 ## [0.17.0] - 2026-07-21
 
