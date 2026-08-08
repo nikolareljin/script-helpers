@@ -8,7 +8,7 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   naming the project a convention was taken from. Several compatibility
   shims were labelled with the name of the codebase whose call shape they
   match, and one example invocation and one changelog line named specific
-  projects. None of it was load-bearing -- no code read those names -- and a
+  projects. None of it was load-bearing — no code read those names — and a
   reader of this repository learns more from "takes a single combined command
   string" than from the name of a codebase they cannot see. This library is
   meant to be self-contained and readable on its own terms.

@@ -25,7 +25,8 @@ docker_compose() {
 # Compatibility: takes the same argument list as `docker compose` itself.
 run_docker_compose() { docker_compose "$@"; }
 
-# Compatibility: takes a single combined command string rather than a list.
+# Compatibility: accepts one whitespace-separated command string. Quotes and
+# escapes in that string are not parsed; pass separate arguments when needed.
 run_docker_compose_command() {
   local cmd; cmd=$(get_docker_compose_cmd) || return 1
   if [[ $# -eq 1 ]]; then
