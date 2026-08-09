@@ -127,3 +127,49 @@ Import-ScriptHelpers adb
 adb_list_devices | Format-Table -AutoSize
 adb_device_status (adb_ready_serials | Select-Object -First 1)
 ```
+
+## Wireless adb (adb over Wi-Fi)
+
+Address comes from `ANDROID_DEVICE_IP` / `ANDROID_DEVICE_PORT`, which `load_env`
+(`lib/env.sh`) puts in scope from a project's gitignored `.env`.
+
+```bash
+shlib_import adb env
+load_env .env
+
+# Attach before an Android command. Safe to call every time — it returns 0 when
+# the device is already attached.
+adb_wireless_connect || adb_wireless_recovery_hint
+
+adb_wireless_addr            # -> 203.0.113.10:5555
+adb_wireless_attached "$(adb_wireless_addr)"
+adb_wireless_disconnect
+```
+
+First-time handover, with the phone on USB. `adb_wireless_setup` reads the
+device's Wi-Fi address, switches it to tcpip, connects, and prints the address
+so it can be stored:
+
+```bash
+addr="$(adb_wireless_setup)" \
+  && adb_wireless_write_env .env "${addr%:*}" "${addr##*:}"
+```
+
+| function | notes |
+|---|---|
+| `adb_wireless_addr` | `ip:port` from the environment; port defaults to `5555` |
+| `adb_wireless_attached <addr>` | state column must be exactly `device` — `offline` and `unauthorized` are not attached |
+| `adb_wireless_connect [addr]` | confirms against `adb devices`; `adb connect` exits 0 on a bare TCP handshake and cannot be trusted |
+| `adb_wireless_disconnect [addr]` | always returns 0 |
+| `adb_wireless_enable <serial> [port]` | `adb tcpip` on a USB device — the step that needs the cable |
+| `adb_wireless_setup [serial] [port] [iface]` | discover + enable + connect; prints `ip:port` |
+| `adb_wireless_write_env <file> <ip> [port]` | upserts the two keys, leaving the rest of the file alone |
+| `adb_wireless_recovery_hint [port]` | what to do after a reboot drops tcpip mode |
+
+**tcpip mode does not survive a reboot**, and Android 11+ "Wireless debugging"
+uses a **random port per session**. Both failures look like a wrong address, so
+`adb_wireless_recovery_hint` exists to say so at the point of failure.
+
+**Keep the address out of tracked files.** `scripts/check_no_private_ips.sh`
+fails on any RFC 1918 literal in the git index; run it from a project's own test
+gate.

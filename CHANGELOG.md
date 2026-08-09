@@ -4,6 +4,32 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ## [Unreleased]
 
+## 2026-08-09 — v0.22.0
+
+- Added: wireless-adb helpers in `lib/adb.sh`. A phone on the desk is not always
+  a phone on a cable, and `adb connect` has three sharp edges that every project
+  rediscovers separately — tcpip mode is lost on reboot and the failure looks
+  identical to a wrong address; Android 11+ "Wireless debugging" allocates a
+  random port per session so a hard-coded 5555 quietly stops working; and
+  `adb connect` exits 0 on a bare TCP handshake, so success is not evidence a
+  device is usable.
+  `adb_wireless_addr`, `adb_wireless_attached`, `adb_wireless_connect`,
+  `adb_wireless_disconnect`, `adb_wireless_enable`, `adb_wireless_setup`,
+  `adb_wireless_write_env` and `adb_wireless_recovery_hint`.
+  `adb_wireless_connect` confirms against `adb devices` rather than trusting the
+  exit status, and treats `offline` / `unauthorized` as not attached.
+  `adb_wireless_setup` does the whole cable-to-wireless handover in one call and
+  prints the address for a caller to store; `adb_wireless_write_env` upserts it
+  into a gitignored env file without disturbing anything else in that file.
+- Added: `scripts/check_no_private_ips.sh`. Wireless adb makes a device's LAN
+  address part of daily work, and it then wants to end up in a README, a test
+  fixture or a CI file. This fails on any RFC 1918 literal in a **tracked** file.
+  It scans `git ls-files`, not the working tree, so the gitignored env file the
+  address is supposed to live in is never flagged — a gate that fired there
+  would only teach people to skip it. RFC 5737 documentation ranges, loopback
+  and `.local` names are allowed, because those are what a tracked example
+  should use.
+
 ## 2026-08-09 — v0.21.0
 
 - Fixed: `CHANGELOG.md`'s release headers did not match the format this library
