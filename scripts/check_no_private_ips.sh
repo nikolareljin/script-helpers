@@ -60,12 +60,48 @@ done
 # line is taken as evidence.
 PATTERN='(^|[^0-9.])(192\.168\.[0-9]{1,3}\.[0-9]{1,3}|10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]{1,3}\.[0-9]{1,3})([^0-9.]|$)'
 
+# "Checked nothing" must be a hard failure, never a pass.
+#
+# The dangerous version of this script is the one that suppresses its own
+# errors: run outside a git repo, or pointed at a directory that does not
+# exist, it finds no matches and reports success — and a green security gate is
+# read as evidence that the tree is clean. Every path below that cannot scan
+# exits non-zero and says why.
+#
+# grep's exit codes are load-bearing here: 0 = matched, 1 = no match (the good
+# case), 2+ = it failed. Collapsing those with `|| true` is exactly how a gate
+# stops checking without anyone noticing.
 hits=""
+status=0
 if [[ -n "$SCAN_PATH" ]]; then
-  hits="$(grep -rnEI "$PATTERN" "$SCAN_PATH" 2>/dev/null || true)"
+  [[ -d "$SCAN_PATH" ]] || {
+    log_error "--path is not a directory: $SCAN_PATH"
+    exit 2
+  }
+  hits="$(grep -rnEI "$PATTERN" "$SCAN_PATH")" || status=$?
+  if (( status > 1 )); then
+    log_error "grep failed while scanning $SCAN_PATH (exit $status)"
+    exit 2
+  fi
 else
   cd "${REPO:-.}" || { log_error "No such directory: ${REPO:-.}"; exit 2; }
-  hits="$(git ls-files -z 2>/dev/null | xargs -0 grep -nEI "$PATTERN" 2>/dev/null || true)"
+
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+    log_error "Not a git repository: $PWD"
+    log_error "This gate scans the git index; with no index it would check"
+    log_error "nothing and report success. Use --path to scan a directory."
+    exit 2
+  }
+
+  # `git grep`, not `git ls-files | xargs grep`. It searches tracked files
+  # natively and, unlike xargs, does not hand grep a submodule directory and get
+  # "Is a directory" back — noise that the old `2>/dev/null` swallowed, which is
+  # the same habit that lets a gate stop working without anyone noticing.
+  hits="$(git grep -nIE "$PATTERN" -- .)" || status=$?
+  if (( status > 1 )); then
+    log_error "git grep failed while scanning the index (exit $status)"
+    exit 2
+  fi
 fi
 
 if [[ -n "$hits" ]]; then

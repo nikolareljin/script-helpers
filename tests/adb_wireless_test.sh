@@ -286,6 +286,48 @@ if bash "$gate" --path "$clean" >/dev/null 2>&1; then
 else
   error "false positive: $(bash "$gate" --path "$clean" 2>&1)"
 fi
+# "Checked nothing" must never be a pass. A gate that suppresses its own errors
+# reports success when run outside a git repo or pointed at a missing directory,
+# and a green security gate is read as evidence the tree is clean.
+# `|| rc=$?`, not a bare call then `$?`. Under `set -e` a command that exits
+# non-zero aborts the script before the next line runs — and these commands are
+# SUPPOSED to fail, so the naive form killed the suite silently right here.
+notgit="$(mktemp -d)"
+rc=0
+bash "$gate" --repo "$notgit" >/dev/null 2>&1 || rc=$?
+if (( rc == 2 )); then
+  ok "gate fails (2) outside a git repository"
+else
+  error "gate returned $rc outside a git repo; must be 2"
+fi
+rm -rf "$notgit"
+
+rc=0
+bash "$gate" --path /no/such/directory/here >/dev/null 2>&1 || rc=$?
+if (( rc == 2 )); then
+  ok "gate fails (2) on a missing --path"
+else
+  error "gate returned $rc for a missing path; must be 2"
+fi
+
+# And the three outcomes stay distinguishable: 0 clean, 1 violation, 2 unable.
+# Explicit ifs: `A && B || C` is not if-then-else, and C runs when B fails.
+rc=0
+bash "$gate" --path "$clean" >/dev/null 2>&1 || rc=$?
+if (( rc == 0 )); then
+  ok "a clean scan exits 0"
+else
+  error "clean scan exited $rc"
+fi
+
+rc=0
+bash "$gate" --path "$fixture" >/dev/null 2>&1 || rc=$?
+if (( rc == 1 )); then
+  ok "a violation exits 1, distinct from 'could not check'"
+else
+  error "violation exited $rc, expected 1"
+fi
+
 rm -rf "$fixture" "$clean"
 
 if (( failures )); then
