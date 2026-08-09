@@ -170,13 +170,46 @@ else
   error "clobbered unrelated content: $(cat "$envfile")"
 fi
 
-missing="$(mktemp -u)"
+# Created then removed, rather than `mktemp -u`: -u returns a path without
+# reserving it, so another process can win the race and create it first.
+missing="$(mktemp)"
+rm -f "$missing"
 adb_wireless_write_env "$missing" "203.0.113.9"
 if grep -q '^DEV_DEVICE=203.0.113.9:5555$' "$missing"; then
   ok "a missing env file is created with the port defaulted"
 else
   error "file not created properly: $(cat "$missing" 2>/dev/null)"
 fi
+# Permissions must survive the rewrite. An env file holding local config is
+# often 0600, and `mv` from a temp file on another filesystem would replace it
+# with one at the default mode — a quiet widening of a file people are told to
+# keep private. This is why the writer uses `cat >` rather than `mv`.
+# A symlinked env file must be written THROUGH, not replaced. `mv` swaps the
+# symlink for a regular file and leaves the real target stale, so the write
+# looks like it worked and changes nothing anyone reads. Measured, not assumed.
+linkdir="$(mktemp -d)"
+printf 'DEV_DEVICE=198.51.100.1:5555\n' >"$linkdir/real.env"
+ln -s real.env "$linkdir/link.env"
+adb_wireless_write_env "$linkdir/link.env" "203.0.113.6" 5555
+if [[ -L "$linkdir/link.env" ]] && grep -q '^DEV_DEVICE=203.0.113.6:5555$' "$linkdir/real.env"; then
+  ok "a symlinked env file is written through, not replaced"
+else
+  error "symlink handling wrong: link=$(test -L "$linkdir/link.env" && echo symlink || echo regular), target=$(cat "$linkdir/real.env")"
+fi
+rm -rf "$linkdir"
+
+perms="$(mktemp)"
+printf 'DEV_DEVICE=198.51.100.1:5555\n' >"$perms"
+chmod 600 "$perms"
+adb_wireless_write_env "$perms" "203.0.113.5" 5555
+mode="$(stat -c '%a' "$perms" 2>/dev/null || stat -f '%Lp' "$perms")"
+if [[ "$mode" == "600" ]]; then
+  ok "the rewrite preserves file permissions"
+else
+  error "permissions changed to $mode (expected 600)"
+fi
+rm -f "$perms"
+
 rm -f "$envfile" "$missing"
 
 # --- the env file is SOURCED, so what goes into it is executed ---------------

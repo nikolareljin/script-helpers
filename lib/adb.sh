@@ -472,7 +472,17 @@ adb_wireless_write_env() {
     END { if (!seen) print "DEV_DEVICE=" addr }
   ' "$file" >"$tmp" || { rm -f "$tmp"; return 1; }
 
-  mv "$tmp" "$file" || { rm -f "$tmp"; return 1; }
+  # Rewrite in place rather than `mv`, matching lib/changelog.sh and
+  # lib/manifest.sh.
+  #
+  # `mv` replaces the file, it does not write to it. Measured difference: when
+  # the env file is a SYMLINK -- a dotfile-managed or shared config, which is a
+  # normal setup -- mv silently replaces the symlink with a regular file and the
+  # real target keeps its old contents, so the write appears to succeed and
+  # changes nothing anyone reads. `cat >` follows the link. It also keeps the
+  # inode, and with it ownership, ACLs and any open handles.
+  cat "$tmp" >"$file" || { rm -f "$tmp"; return 1; }
+  rm -f "$tmp"
   return 0
 }
 

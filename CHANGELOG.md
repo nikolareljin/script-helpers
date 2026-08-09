@@ -39,6 +39,9 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Added: `scripts/check_no_private_ips.sh`. Wireless adb makes a device's LAN
   address part of daily work, and it then wants to end up in a README, a test
   fixture or a CI file. This fails on any RFC 1918 literal in a **tracked** file.
+  Boundaries are spelled `(^|[^0-9.])` rather than `\b`, which is a GNU/PCRE
+  extension and not POSIX ERE — under BSD grep the pattern would quietly match
+  nothing and the gate would report success while checking for nothing at all.
   It scans `git ls-files`, not the working tree, so the gitignored env file the
   address is supposed to live in is never flagged — a gate that fired there
   would only teach people to skip it. RFC 5737 documentation ranges, loopback

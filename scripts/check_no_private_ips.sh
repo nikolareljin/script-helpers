@@ -51,7 +51,14 @@ done
 
 # Full dotted quads only. Requiring four octets keeps version strings such as
 # "10.0.2" or "flutter 3.44.7" out of the results.
-PATTERN='\b(192\.168\.[0-9]{1,3}\.[0-9]{1,3}|10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]{1,3}\.[0-9]{1,3})\b'
+#
+# Boundaries are spelled out as `(^|[^0-9.])` / `([^0-9.]|$)` rather than `\b`.
+# `\b` is a GNU/PCRE extension, NOT part of POSIX ERE: under BSD grep (macOS)
+# it does not mean word-boundary, so the pattern would quietly match nothing and
+# this gate would report success while checking for nothing at all. A security
+# check that silently stops checking is worse than no check, because the green
+# line is taken as evidence.
+PATTERN='(^|[^0-9.])(192\.168\.[0-9]{1,3}\.[0-9]{1,3}|10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]{1,3}\.[0-9]{1,3})([^0-9.]|$)'
 
 hits=""
 if [[ -n "$SCAN_PATH" ]]; then

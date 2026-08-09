@@ -170,6 +170,15 @@ addr="$(adb_wireless_setup)" \
 | `adb_wireless_setup [serial] [port] [iface]` | discover + enable + connect; prints `ip:port` |
 | `adb_wireless_write_env <file> <ip> [port]` | upserts `DEV_DEVICE`, leaving the rest of the file alone |
 | `adb_wireless_recovery_hint [port]` | what to do after a reboot drops tcpip mode |
+| `adb_wireless_valid_host <value>` | true for an IPv4 address or hostname |
+| `adb_wireless_valid_port <value>` | true for 1–65535 |
+
+`adb_wireless_write_env` validates with `adb_wireless_valid_host` and
+`adb_wireless_valid_port` before writing, and both are public so a caller can
+fail earlier with its own message. This is a security boundary: an env file is
+**sourced** by whatever reads it, so a newline in the value injects an extra
+line that then executes. The value is not always hand-typed — `adb_wireless_setup`
+takes it from `adb shell ip ...`, i.e. from whatever the attached device prints.
 
 **tcpip mode does not survive a reboot**, and Android 11+ "Wireless debugging"
 uses a **random port per session**. Both failures look like a wrong address, so
