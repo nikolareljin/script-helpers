@@ -4,8 +4,28 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ## [Unreleased]
 
-## [0.20.0] - 2026-07-31
+## 2026-08-09 — v0.21.0
 
+- Fixed: `CHANGELOG.md`'s release headers did not match the format this library
+  itself defines and checks. `lib/changelog.sh` exists because `ci-helpers`
+  extracts release notes by finding a `## YYYY-MM-DD — vX.Y.Z` heading and
+  silently falls back to an auto-generated commit list when it cannot — and
+  every heading in this file was `## [X.Y.Z] - YYYY-MM-DD`, so every release
+  published here has been getting the fallback. The twenty existing headings
+  are converted and `make lint-docs` now runs `changelog_check_header`, since
+  nothing ran it, which is how a checker shipped by this repository came to be
+  failing on this repository.
+
+- Changed: comments and examples now describe what a helper does rather than
+  naming the project a convention was taken from. Several compatibility
+  shims were labelled with the name of the codebase whose call shape they
+  match, and one example invocation and one changelog line named specific
+  projects. None of it was load-bearing — no code read those names — and a
+  reader of this repository learns more from "takes a single combined command
+  string" than from the name of a codebase they cannot see. This library is
+  meant to be self-contained and readable on its own terms.
+
+## 2026-07-31 — v0.20.0
 - Fixed: `local_test_python.sh` ran only pytest, while `preflight` labelled the step "lint + test". A repo that moved its CI local therefore lost its Python lint gate without a word about it — the shape of failure this family exists to prevent. It now runs `ruff check .` whenever the project configures ruff (`[tool.ruff]` in `pyproject.toml`, or `ruff.toml`/`.ruff.toml`), and treats configured-but-not-installed as a failure rather than a skip: a gate the project declared and that never ran must not report green. A full (non-`--quick`) run installs ruff first.
 - Fixed: `templates/dev-cli/cli.sh` `verb_install` did not configure git hooks. In a repo that has deleted its build workflows the `pre-push` hook is the only remaining gate, and `core.hooksPath` lives in the untracked `.git/config` — so every clone but the one the migration was done on had no gate at all. `install` now runs `setup-hooks.sh`, in both shells.
 - Fixed: `templates/dev-cli/cli.sh` `verb_install` ran `python3 -m pip install -r requirements.txt` against the system interpreter, which a PEP 668 host refuses outright, aborting `./dev install`. It now resolves the same project-local `.venv` that `local_test_python.sh` uses, and installs the `dev` extra so preflight's tools are present.
@@ -34,16 +54,13 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Changed: `scripts/git-hooks/pre-push` now detects Gradle and Android projects — whose absence previously produced "No test runner detected" and a green push — and delegates to `preflight --quick` when it is available. It distinguishes "preflight is not installed" from "preflight failed", so a failing check can never fall through to a weaker one and let the push pass.
 - Added: PowerShell companions for every new module (`ps/lib/{android,flutter,gradle,screencap,manifest,changelog}.ps1`) plus `ps/scripts/preflight.ps1` and `ps/scripts/local_test_gradle.ps1`. The PowerShell preflight is native rather than shelling out, so the same verbs work in Windows PowerShell with no Git Bash present.
 
-## [0.19.0] - 2026-07-26
-
+## 2026-07-26 — v0.19.0
 - Added: `ios` module (`lib/ios.sh`) — an iOS device/simulator toolkit, the counterpart to `adb`. Discover hardware and simulators (`ios_list_devices`, `ios_list_simulators`, `ios_booted_simulators`), control simulators (`ios_boot_simulator`, `ios_shutdown_simulators`), install and launch builds (`ios_install` for `.app`/`.ipa`, `ios_launch`), and build a Flutter release (`ios_build_release`: a signed IPA with an ExportOptions plist, otherwise an unsigned iOS app). macOS-only: every function no-ops on other hosts (`ios_available` gate) so callers degrade cleanly. Plus `scripts/ci_ios.sh`, a host-based analyze/test/build runner (Apple's toolchain runs only on macOS, so unlike the Docker-based `ci_*.sh` helpers it has no image and exits early elsewhere).
 
-## [0.18.0] - 2026-07-25
+## 2026-07-25 — v0.18.0
+- Added: `svg` module (`lib/svg.sh`) to rasterize SVG art to PNG for app logos and launcher icons. `svg_rasterize <in.svg> <out.png> [size]` renders a square PNG (default 1024px), preferring Inkscape and falling back to ImageMagick (`magick`/`convert`); `svg_rasterize_sizes` emits one PNG per size for icon sets; `svg_rasterizer` reports the available tool. Plus a CLI wrapper `bin/svg-rasterize` and a `tests/svg_test.sh` smoke test (auto-picked up by `make test`). Extracted from an application's icon-generation flow so the rasterizing step is defined once here rather than per project.
 
-- Added: `svg` module (`lib/svg.sh`) to rasterize SVG art to PNG for app logos and launcher icons. `svg_rasterize <in.svg> <out.png> [size]` renders a square PNG (default 1024px), preferring Inkscape and falling back to ImageMagick (`magick`/`convert`); `svg_rasterize_sizes` emits one PNG per size for icon sets; `svg_rasterizer` reports the available tool. Plus a CLI wrapper `bin/svg-rasterize` and a `tests/svg_test.sh` smoke test (auto-picked up by `make test`). Extracted from the AppealShield (`denial-shield-pro`) icon-generation flow so every mobile repo can share one rasterizer.
-
-## [0.17.0] - 2026-07-21
-
+## 2026-07-21 — v0.17.0
 - Added: `serve` module (`lib/serve.sh`) with `serve_static_site <dir> [port]` to preview a static/GitHub-Pages directory locally — auto-picks a free port (default `8000`), prefers `python3 -m http.server`, falls back to `python` (`http.server` on Python 3 or `SimpleHTTPServer` on Python 2) then `npx http-server`. Plus a CLI wrapper `bin/serve-pages` and a `tests/serve_test.sh` smoke test (also runnable via new `make test` target).
 - Added: PHP/Laravel support for the local test runner and `pre-push` hook. New `scripts/local_test_php.sh` runs `composer install` (skipped with `--quick`), Laravel Pint style checks when available, and the suite via `php artisan test` (falling back to `vendor/bin/phpunit`); `SKIP_PHP_TESTS=1` gives a style-only run for pre-push without a local database. In the `pre-push` hook, `composer.json` is authoritative so Laravel apps that also ship a `package.json` for Vite run their PHP suite instead of falling through to the Node runner.
 - Changed: release automation now reuses the shared ci-helpers reusable workflows instead of hand-rolled logic. `auto-tag-release.yml` (on merge of a `release/X.Y.Z` PR to `main`) calls `ci-helpers/auto-tag-release.yml@production` to detect+tag the version, `create-github-release.yml@production` to publish the Release in the same run, and moves the `production` branch. Removes the bespoke `release-tag.yml` and `auto-tag.yml`.
@@ -53,8 +70,7 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Added: `scripts/check_release_version.sh` to verify release versions before tagging or publishing.
 - Added: `--version` and `--image` parameters to all `ci_*.sh` scripts for Docker image tag and full image override.
 
-## [0.14.0] - 2026-06-12
-
+## 2026-06-12 — v0.14.0
 - Fixed: `ps/helpers.ps1` — `Import-ScriptHelpers` now always loads `logging` first unconditionally; previously it skipped the pre-load when `logging` appeared anywhere in the caller's list, leaving other modules without logging if they were listed before it.
 - Fixed: `ps/lib/help.ps1` — `get_script_metadata` and `_Help_Render` now guard against empty/null `$ScriptFile` (interactive use with no `SHLIB_CALLER_SCRIPT`) instead of throwing on `Test-Path` and `Path::GetFileName(null)`.
 - Fixed: `ps/lib/traps.ps1` — `enable_strict_mode` uses `Set-Variable -Scope 1` to write `ErrorActionPreference` into the immediate caller's scope rather than `$Global:`, so it no longer leaks strict mode into the wider PowerShell session.
@@ -131,8 +147,7 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Fixed: `ps/scripts/bump_version.ps1` — missing `BumpType` now exits with code 1 (usage error) instead of 0.
 - Added: `ps/lib/packaging.ps1` — `pkg_*` functions mirroring the Bash `packaging.sh` public API: `pkg_load_metadata`, `pkg_require_vars`, `pkg_trim`, `pkg_join_list`, `pkg_quote_list`, `pkg_render_lines`, `pkg_classify_name`, `pkg_guess_version`.
 
-## [0.13.0] - 2026-05-21
-
+## 2026-05-21 — v0.13.0
 - Changed: `scripts/git-hooks/pre-commit` — hardened for universal use across all repos:
   - Blocks accidental `.env` / `.env.*` file commits.
   - Docs lint (`lint_docs.sh`) skipped gracefully when the script is absent.
@@ -145,15 +160,13 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Added: `scripts/local_test_rust.sh` — `cargo check` + `cargo clippy` + `cargo test` (`--quick`, `--manifest`).
 - Added: `scripts/local_test_flutter.sh` — `flutter analyze` + `flutter test` (`--quick`, `--dir`).
 
-## [0.12.2] - 2026-04-11
-
+## 2026-04-11 — v0.12.2
 - Added: `scripts/check_release_tag.sh` so reusable workflows can perform release-tag checks via shared shell logic.
 - Added: `scripts/ci_pimcore_bundle_check.sh` for reusable Pimcore bundle CI orchestration.
 - Added: `scripts/ci_wp_plugin_check.sh` for reusable WordPress plugin-check CI orchestration.
 - Added: `scripts/ci_gitleaks_report.sh` to normalize and evaluate Gitleaks SARIF output in reusable workflows.
 
-## [0.12.1] - 2026-03-20
-
+## 2026-03-20 — v0.12.1
 - Changed: Ollama model selection now uses a `dialog --menu` browser instead of the older radiolist/manual-entry flow.
 - Changed: Ollama model browsers now default to official un-namespaced library models, sorted alphabetically, with a reusable parsed menu cache valid for 30 minutes.
 - Changed: `ollama_dialog_select_size` now returns a distinct cancel status so callers can return to model selection instead of implicitly reusing an old size.
@@ -163,16 +176,14 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Added: dialog-based Ollama pull progress UI for runtime pulls, including model/layer/progress/speed/ETA parsing.
 - Fixed: Dialog pull progress now cleans up background pulls on cancel and bounds progress-log parsing to the recent tail of the log file.
 
-## [0.12.0] - 2026-02-13
-
+## 2026-02-13 — v0.12.0
 - Added: Ollama runtime helpers in `lib/ollama.sh` for local/docker execution (`ollama_runtime_*`) and shared model ref builder (`ollama_model_ref`).
 - Added: `is_wsl` helper in `lib/os.sh` for reusable WSL/WSL2 detection.
 - Added: `DIALOG_DOWNLOAD_SHOW_ERROR_DIALOG` support in `lib/dialog.sh` to optionally suppress popup error dialogs from `dialog_download_file`.
 - Docs: Updated README and module docs for Ollama runtime helpers, WSL detection, and dialog error-popup controls.
 - Docs: Added missing `ollama_model_ref_safe` API entry in `docs/modules/ollama.md` to match exported helper aliases.
 
-## [0.11.1] - 2026-02-01
-
+## 2026-02-01 — v0.11.1
 - Changed: Ollama model index preparation now reuses an existing JSON when present and resolves Python 3 via `python3` or `python` (3.x). Adds apt-based installs for `python3-bs4`/`python3-requests` with a non-fatal `apt-get update` fallback.
 - Docs: Updated Ollama module docs and README to cover Python resolution and dependency handling.
 - Fixed: Skip `pip` requirement when `apt-get` can install Python deps.
@@ -197,16 +208,14 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Docs: Clarified that `check_release_version.sh` works in both local hooks and CI pipelines.
 - Docs: Added `--version`, `--image`, and `--digest` examples to usage guide.
 
-## [0.10.0] - 2026-01-11
-
+## 2026-01-11 — v0.10.0
 - Added: Cross-distro packaging scaffolds (Debian, RPM, Arch, Homebrew) with shared metadata templates.
 - Added: Packaging helper module and scripts to render templates and build RPM/Arch artifacts.
 - Added: Packaging docs covering structure, build commands, signing notes, and install commands.
 - Changed: Auto-tag workflow now opens a PR for VERSION bumps instead of pushing directly to protected `main`.
 - Changed: Tag existence checks now verify exact refs to avoid false matches (e.g., `0.10.0` vs `0.1.0`).
 
-## [0.9.1] - 2026-01-08
-
+## 2026-01-08 — v0.9.1
 - Added: `lib/package_publish.sh` for shared Debian/PPA publishing helpers.
 - Added: package publish example script.
 - Changed: packaging scripts now use shared helpers via `shlib_import`.
@@ -214,41 +223,34 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Added: Debian packaging helpers (`scripts/build_deb_artifacts.sh`, `scripts/ppa_upload.sh`).
 - Added: Homebrew packaging helpers (`scripts/build_brew_tarball.sh`, `scripts/gen_brew_formula.sh`, `scripts/publish_homebrew.sh`).
 
-## [0.9.0] - 2025-12-26
-
+## 2025-12-26 — v0.9.0
 - Changed: Unified script help rendering across `display_help`, `print_help`, and `show_help` with a shared renderer.
 - Changed: `-h/--help` now prefers script-level header help when the caller script is known.
 - Fixed: Header parsing now only reads the top comment block and captures parameter lines reliably without pulling unrelated script comments.
 
-## [0.8.0] - 2025-12-20
-
+## 2025-12-20 — v0.8.0
 - Added: `version` module (`version_bump`, `version_compare`) with support for optional version file paths and preserving prefixes/suffixes.
 - Changed: `scripts/bump_version.sh` now delegates to `version_bump` and accepts `-f/--file`.
 - Changed: `version_compare` now returns -1/0/1 (surfaced as 255/0/1 in shells) and keeps higher codes for errors (2 missing args, 3 invalid format).
 - Docs: Added module docs and usage examples for version helpers.
 
-## [0.7.0] - 2025-12-16
-
+## 2025-12-16 — v0.7.0
 - Changed: Docker checks now distinguish missing CLI, stopped daemon, and permission errors for clearer guidance (2025-12-16).
 
-## [0.6.0] - 2025-12-16
-
+## 2025-12-16 — v0.6.0
 - Changed: `init_include` now finds the caller project root reliably and keeps debug logging safe under `set -e` (2025-12-16).
 
-## [0.5.0] - 2025-11-27
-
+## 2025-11-27 — v0.5.0
 - Added: `docker_status` in `lib/docker.sh` to show running containers and cross-check services from the current directory's `docker-compose.yml`, marking statuses with glyphs (✅ running, 💥 failed, ✖️ not running). Includes example `scripts/example_docker_status.sh` and updates to README/Makefile (2025-11-27).
 - Changed: Tweak download notification messages for clarity in the dialog gauge (2025-11-05).
 
-## [0.3.0] - 2025-11-03
-
+## 2025-11-03 — v0.3.0
 - Added: Dialog-based download progress gauge via `dialog_download_file`, showing percent, size, speed, and ETA. Integrated into `file.sh::download_file` with automatic fallback to `curl`/`wget` when needed (2025-11-03).
 - Added: Example scripts for downloads, dialog input, logging, env, Docker Compose, and JSON helpers; `make examples` target to run demos (2025-11-03).
 - Changed: On download failures, display a `dialog` error with exit code and recent output before falling back to non-interactive download (2025-11-03).
 - Docs: Expanded README with usage, compatibility notes, and `DOWNLOAD_USE_DIALOG` behavior (2025-11-03).
 
-## [0.2.0] - 2025-10-22
-
+## 2025-10-22 — v0.2.0
 - Added: Ollama helpers (`lib/ollama.sh`) and model installer script (`scripts/install_ollama_model.sh`) to install and manage models via dialog selection or CLI (2025-10-18).
 - Added: `CHANGELOG.md` to document notable changes (2025-10-17).
 - Added: `scripts/bump_version.sh` to bump semantic version string in `VERSION` (2025-10-22).
@@ -256,8 +258,7 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Maintenance: Purged `RELEASE_CHECKLIST.md` from history; updated version metadata (2025-10-17, 2025-10-22).
 - Docs: Unified script help headers across `scripts/*` for consistent usage output (2025-10-22).
 
-## [0.1.0] - 2025-10-17
-
+## 2025-10-17 — v0.1.0
 - Initial release: Bootstrapped reusable Bash helpers with loader `helpers.sh` and core modules: `logging.sh`, `dialog.sh`, `os.sh`, `deps.sh`, `docker.sh`, `file.sh`, `json.sh`, `env.sh`, `ports.sh`, `browser.sh`, `traps.sh`, `certs.sh`, `hosts.sh`, `clipboard.sh`, and `help.sh` (2025-10-17).
 - Added: Tag and release automation (`scripts/tag_release.sh`) (2025-10-17).
 

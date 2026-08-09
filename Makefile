@@ -72,6 +72,11 @@ example_package_publish:
 
 lint-docs:
 	@bash scripts/lint_docs.sh
+	@# The changelog header is load-bearing: ci-helpers extracts release notes
+	@# by finding it, and silently falls back to an auto-generated commit list
+	@# when the shape is wrong. This repository shipped the checker and never
+	@# ran it, so its own headers had drifted for twenty releases.
+	@bash -c 'source helpers.sh && shlib_import logging changelog && changelog_check_header CHANGELOG.md'
 
 test:
 	@for f in tests/*_test.sh; do \

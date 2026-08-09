@@ -73,7 +73,8 @@ print_warning() { print_color "$YELLOW"  "[Warning!]: $*"; echo -e "\a"; }
 # Usage: print_line; prints a horizontal divider.
 print_line()    { echo "----------------------------------------"; }
 
-# Compatibility with network-scan logging style
+# Bracketed, coloured, stderr-only levels: [INFO], [WARN], [ERROR], [DEBUG].
+# Kept for callers written against that older shape.
 # Usage: log_info <message...>; stderr info log.
 log_info()  { echo -e "${GREEN}[INFO]${NC} $*" >&2; }
 # Usage: log_warn <message...>; stderr warning log.

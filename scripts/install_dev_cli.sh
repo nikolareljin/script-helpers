@@ -20,7 +20,7 @@
 #   2  Bad arguments.
 #
 # EXAMPLE:
-#   bash scripts/install_dev_cli.sh --repo ../roadward --shims build,test,update
+#   bash scripts/install_dev_cli.sh --repo ../my-project --shims build,test,update
 # ----------------------------------------------------
 set -euo pipefail
 
