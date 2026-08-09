@@ -328,8 +328,24 @@ adb_device_status() {
 # `load_env` (lib/env.sh) puts in scope from a project's .env.
 
 # Usage: adb_wireless_addr; prints "ip:port" from the environment, or returns
-# non-zero when ANDROID_DEVICE_IP is unset. Port defaults to 5555.
+# non-zero when nothing is configured.
+#
+# DEV_DEVICE first: that is the dev-cli convention (templates/dev-cli) for
+# "which device", it is what --device sets, and for a wireless device the device
+# id IS "ip:port". One variable rather than two spellings of the same fact.
+#
+# A DEV_DEVICE holding a USB serial is correctly ignored here — a serial has no
+# colon, so it is not something to `adb connect`, and the split form below (or
+# nothing) applies instead.
+#
+# ANDROID_DEVICE_IP / ANDROID_DEVICE_PORT remain supported as an explicit split
+# form. Port defaults to 5555.
 adb_wireless_addr() {
+  local dev="${DEV_DEVICE:-}"
+  if [[ "$dev" == *:* ]]; then
+    printf '%s\n' "$dev"
+    return 0
+  fi
   [[ -n "${ANDROID_DEVICE_IP:-}" ]] || return 1
   printf '%s:%s\n' "$ANDROID_DEVICE_IP" "${ANDROID_DEVICE_PORT:-5555}"
 }
@@ -408,9 +424,10 @@ adb_wireless_setup() {
 
 # Usage: adb_wireless_write_env <env_file> <ip> [port=5555]
 #
-# Upserts ANDROID_DEVICE_IP / ANDROID_DEVICE_PORT in an env file, creating it if
-# absent and leaving every other line untouched. Rewriting the file wholesale
-# would discard whatever else the project keeps there.
+# Upserts DEV_DEVICE=<ip>:<port> in an env file, creating it if absent and
+# leaving every other line untouched. Rewriting the file wholesale would discard
+# whatever else the project keeps there, and appending would leave two DEV_DEVICE
+# lines with the stale one winning or losing depending on who reads it.
 #
 # The caller is responsible for that file being gitignored. A LAN address in a
 # tracked file is a permanent disclosure about someone's network.
@@ -423,14 +440,10 @@ adb_wireless_write_env() {
   fi
 
   tmp="$(mktemp)" || return 1
-  awk -v ip="$ip" -v port="$port" '
-    /^[[:space:]]*ANDROID_DEVICE_IP=/   { print "ANDROID_DEVICE_IP=" ip;    seen_ip=1;   next }
-    /^[[:space:]]*ANDROID_DEVICE_PORT=/ { print "ANDROID_DEVICE_PORT=" port; seen_port=1; next }
+  awk -v addr="$ip:$port" '
+    /^[[:space:]]*DEV_DEVICE=/ { print "DEV_DEVICE=" addr; seen=1; next }
     { print }
-    END {
-      if (!seen_ip)   print "ANDROID_DEVICE_IP=" ip
-      if (!seen_port) print "ANDROID_DEVICE_PORT=" port
-    }
+    END { if (!seen) print "DEV_DEVICE=" addr }
   ' "$file" >"$tmp" || { rm -f "$tmp"; return 1; }
 
   mv "$tmp" "$file" || { rm -f "$tmp"; return 1; }

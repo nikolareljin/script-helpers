@@ -13,6 +13,11 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   random port per session so a hard-coded 5555 quietly stops working; and
   `adb connect` exits 0 on a bare TCP handshake, so success is not evidence a
   device is usable.
+  The address comes from `DEV_DEVICE` — the existing dev-cli convention for
+  which device, and what `--device` sets, so one variable covers both which
+  device and where to connect; a USB serial there has no colon and is correctly
+  not treated as an address. `ANDROID_DEVICE_IP` / `_PORT` stay supported as an
+  explicit split form.
   `adb_wireless_addr`, `adb_wireless_attached`, `adb_wireless_connect`,
   `adb_wireless_disconnect`, `adb_wireless_enable`, `adb_wireless_setup`,
   `adb_wireless_write_env` and `adb_wireless_recovery_hint`.
@@ -20,7 +25,8 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   exit status, and treats `offline` / `unauthorized` as not attached.
   `adb_wireless_setup` does the whole cable-to-wireless handover in one call and
   prints the address for a caller to store; `adb_wireless_write_env` upserts it
-  into a gitignored env file without disturbing anything else in that file.
+  into a gitignored env file as `DEV_DEVICE` without disturbing anything else
+  in that file.
 - Added: `scripts/check_no_private_ips.sh`. Wireless adb makes a device's LAN
   address part of daily work, and it then wants to end up in a README, a test
   fixture or a CI file. This fails on any RFC 1918 literal in a **tracked** file.

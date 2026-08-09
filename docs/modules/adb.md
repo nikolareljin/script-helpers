@@ -130,8 +130,13 @@ adb_device_status (adb_ready_serials | Select-Object -First 1)
 
 ## Wireless adb (adb over Wi-Fi)
 
-Address comes from `ANDROID_DEVICE_IP` / `ANDROID_DEVICE_PORT`, which `load_env`
-(`lib/env.sh`) puts in scope from a project's gitignored `.env`.
+Address comes from **`DEV_DEVICE`** — the dev-cli convention (`templates/dev-cli`)
+for which device, and what `--device` sets. For a wireless device the id *is*
+`ip:port`, so one variable covers both "which device" and "where to connect".
+A USB serial there has no colon and is correctly not treated as an address.
+`ANDROID_DEVICE_IP` / `ANDROID_DEVICE_PORT` remain supported as an explicit split
+form. `load_env` (`lib/env.sh`) puts them in scope from a project's gitignored
+`.env`.
 
 ```bash
 shlib_import adb env
@@ -157,13 +162,13 @@ addr="$(adb_wireless_setup)" \
 
 | function | notes |
 |---|---|
-| `adb_wireless_addr` | `ip:port` from the environment; port defaults to `5555` |
+| `adb_wireless_addr` | `DEV_DEVICE` first, else `ANDROID_DEVICE_IP`/`_PORT`; port defaults to `5555` |
 | `adb_wireless_attached <addr>` | state column must be exactly `device` — `offline` and `unauthorized` are not attached |
 | `adb_wireless_connect [addr]` | confirms against `adb devices`; `adb connect` exits 0 on a bare TCP handshake and cannot be trusted |
 | `adb_wireless_disconnect [addr]` | always returns 0 |
 | `adb_wireless_enable <serial> [port]` | `adb tcpip` on a USB device — the step that needs the cable |
 | `adb_wireless_setup [serial] [port] [iface]` | discover + enable + connect; prints `ip:port` |
-| `adb_wireless_write_env <file> <ip> [port]` | upserts the two keys, leaving the rest of the file alone |
+| `adb_wireless_write_env <file> <ip> [port]` | upserts `DEV_DEVICE`, leaving the rest of the file alone |
 | `adb_wireless_recovery_hint [port]` | what to do after a reboot drops tcpip mode |
 
 **tcpip mode does not survive a reboot**, and Android 11+ "Wireless debugging"

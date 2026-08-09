@@ -32,6 +32,25 @@ source ./helpers.sh
 shlib_import adb
 
 # --- address from the environment -------------------------------------------
+export DEV_DEVICE="203.0.113.55:41234"
+if [[ "$(adb_wireless_addr)" == "203.0.113.55:41234" ]]; then
+  ok "DEV_DEVICE wins — it is the dev-cli convention for which device"
+else
+  error "DEV_DEVICE not preferred: '$(adb_wireless_addr)'"
+fi
+
+# A USB serial in DEV_DEVICE has no colon and is not something to `adb connect`,
+# so it must NOT be treated as an address.
+export DEV_DEVICE="R5CRC2WANMT"
+export ANDROID_DEVICE_IP="203.0.113.10"
+export ANDROID_DEVICE_PORT="5555"
+if [[ "$(adb_wireless_addr)" == "203.0.113.10:5555" ]]; then
+  ok "a USB serial in DEV_DEVICE falls through to the split form"
+else
+  error "serial mishandled: '$(adb_wireless_addr)'"
+fi
+unset DEV_DEVICE
+
 export ANDROID_DEVICE_IP="203.0.113.10"
 export ANDROID_DEVICE_PORT="5555"
 if [[ "$(adb_wireless_addr)" == "203.0.113.10:5555" ]]; then
@@ -130,25 +149,20 @@ envfile="$(mktemp)"
 cat >"$envfile" <<'EOF'
 # a comment
 SOME_OTHER_KEY=keep-me
-ANDROID_DEVICE_IP=198.51.100.1
+DEV_DEVICE=198.51.100.1:5555
 EOF
 
 adb_wireless_write_env "$envfile" "203.0.113.77" "41234"
 
-if grep -q '^ANDROID_DEVICE_IP=203.0.113.77$' "$envfile"; then
-  ok "existing ANDROID_DEVICE_IP is replaced, not duplicated"
+if grep -q '^DEV_DEVICE=203.0.113.77:41234$' "$envfile"; then
+  ok "existing DEV_DEVICE is replaced"
 else
-  error "ip not replaced: $(cat "$envfile")"
+  error "not replaced: $(cat "$envfile")"
 fi
-if [[ "$(grep -c '^ANDROID_DEVICE_IP=' "$envfile")" == "1" ]]; then
-  ok "exactly one ANDROID_DEVICE_IP line"
+if [[ "$(grep -c '^DEV_DEVICE=' "$envfile")" == "1" ]]; then
+  ok "exactly one DEV_DEVICE line"
 else
-  error "duplicate ip lines: $(cat "$envfile")"
-fi
-if grep -q '^ANDROID_DEVICE_PORT=41234$' "$envfile"; then
-  ok "a missing ANDROID_DEVICE_PORT is appended"
-else
-  error "port not appended: $(cat "$envfile")"
+  error "duplicate lines: $(cat "$envfile")"
 fi
 if grep -q '^SOME_OTHER_KEY=keep-me$' "$envfile" && grep -q '^# a comment$' "$envfile"; then
   ok "unrelated keys and comments survive"
@@ -158,9 +172,8 @@ fi
 
 missing="$(mktemp -u)"
 adb_wireless_write_env "$missing" "203.0.113.9"
-if grep -q '^ANDROID_DEVICE_IP=203.0.113.9$' "$missing" \
-  && grep -q '^ANDROID_DEVICE_PORT=5555$' "$missing"; then
-  ok "a missing env file is created with both keys"
+if grep -q '^DEV_DEVICE=203.0.113.9:5555$' "$missing"; then
+  ok "a missing env file is created with the port defaulted"
 else
   error "file not created properly: $(cat "$missing" 2>/dev/null)"
 fi
