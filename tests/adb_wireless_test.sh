@@ -179,6 +179,53 @@ else
 fi
 rm -f "$envfile" "$missing"
 
+# --- the env file is SOURCED, so what goes into it is executed ---------------
+inj="$(mktemp)"
+: >"$inj"
+# Single quotes deliberate: the payload must reach the function unexpanded, which
+# is the whole point — expanding it here would test nothing.
+# shellcheck disable=SC2016
+if adb_wireless_write_env "$inj" "$(printf '203.0.113.1\nINJECTED=$(echo pwned)')" 2>/dev/null; then
+  error "write_env accepted a newline in the address"
+elif grep -q 'INJECTED' "$inj"; then
+  error "write_env rejected but still wrote the injected line"
+else
+  ok "write_env refuses a newline in the address"
+fi
+
+# Single quotes deliberate: these are the literal strings being rejected.
+# shellcheck disable=SC2016
+for hostile in 'a;id' 'a$(id)' 'a b' '' ; do
+  : >"$inj"
+  adb_wireless_write_env "$inj" "$hostile" 2>/dev/null || true
+  if grep -q '^DEV_DEVICE=' "$inj"; then
+    error "write_env accepted hostile host '$hostile'"
+  else
+    ok "write_env rejects host '$hostile'"
+  fi
+done
+
+for badport in 0 99999 abc '5555; id'; do
+  : >"$inj"
+  adb_wireless_write_env "$inj" "203.0.113.1" "$badport" 2>/dev/null || true
+  if grep -q '^DEV_DEVICE=' "$inj"; then
+    error "write_env accepted bad port '$badport'"
+  else
+    ok "write_env rejects port '$badport'"
+  fi
+done
+
+for good in "203.0.113.10" "phone.local"; do
+  : >"$inj"
+  adb_wireless_write_env "$inj" "$good" 41234
+  if grep -q "^DEV_DEVICE=$good:41234$" "$inj"; then
+    ok "write_env accepts '$good'"
+  else
+    error "write_env rejected legitimate host '$good'"
+  fi
+done
+rm -f "$inj"
+
 # --- the private-IP gate ------------------------------------------------------
 gate="./scripts/check_no_private_ips.sh"
 fixture="$(mktemp -d)"

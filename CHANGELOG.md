@@ -27,6 +27,15 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   prints the address for a caller to store; `adb_wireless_write_env` upserts it
   into a gitignored env file as `DEV_DEVICE` without disturbing anything else
   in that file.
+- Security: `adb_wireless_write_env` validates the host and port before writing.
+  An env file is SOURCED by the shell that reads it, so whatever lands in it is
+  executed. A newline in the value injected an extra line —
+  `adb_wireless_write_env .env "$(printf '203.0.113.1\nFOO=$(id)')"` wrote a
+  literal `FOO=$(id)` line, and sourcing ran it. The value is not always
+  hand-typed: `adb_wireless_setup` takes it from `adb shell ip ...`, i.e. from
+  whatever the attached device prints. Validation is at the sink, so every
+  caller is covered. `adb_wireless_valid_host` / `adb_wireless_valid_port` are
+  exported for callers that want to check earlier.
 - Added: `scripts/check_no_private_ips.sh`. Wireless adb makes a device's LAN
   address part of daily work, and it then wants to end up in a README, a test
   fixture or a CI file. This fails on any RFC 1918 literal in a **tracked** file.

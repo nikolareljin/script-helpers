@@ -431,9 +431,35 @@ adb_wireless_setup() {
 #
 # The caller is responsible for that file being gitignored. A LAN address in a
 # tracked file is a permanent disclosure about someone's network.
+# Usage: adb_wireless_valid_host <value>; returns 0 for an IPv4 address or a
+# hostname, non-zero for anything else.
+#
+# A SECURITY boundary, not tidiness. An env file is SOURCED by the shell that
+# reads it, so whatever is written there is executed. A newline in the value
+# injects an extra line:
+#
+#   adb_wireless_write_env .env "$(printf '203.0.113.1\nFOO=$(id)')"
+#
+# wrote a literal `FOO=$(id)` line, and sourcing ran it. The value is not always
+# hand-typed either — adb_wireless_setup takes it from `adb shell ip ...`, which
+# is whatever the attached device chose to print.
+adb_wireless_valid_host() {
+  [[ "${1:-}" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,252}[A-Za-z0-9])?$ ]]
+}
+
+# Usage: adb_wireless_valid_port <value>; returns 0 for 1-65535.
+adb_wireless_valid_port() {
+  [[ "${1:-}" =~ ^[0-9]{1,5}$ ]] && (( 10#$1 >= 1 && 10#$1 <= 65535 ))
+}
+
 adb_wireless_write_env() {
   local file="${1:-}" ip="${2:-}" port="${3:-5555}" tmp=""
   [[ -n "$file" && -n "$ip" ]] || return 1
+
+  # Validated at the sink, so every caller is covered rather than each one
+  # having to remember.
+  adb_wireless_valid_host "$ip" || return 1
+  adb_wireless_valid_port "$port" || return 1
 
   if [[ ! -f "$file" ]]; then
     printf '# Local environment. Gitignored — do not commit.\n\n' >"$file" || return 1
