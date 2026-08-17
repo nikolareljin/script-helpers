@@ -127,3 +127,64 @@ Import-ScriptHelpers adb
 adb_list_devices | Format-Table -AutoSize
 adb_device_status (adb_ready_serials | Select-Object -First 1)
 ```
+
+## Wireless adb (adb over Wi-Fi)
+
+Address comes from **`DEV_DEVICE`** — the dev-cli convention (`templates/dev-cli`)
+for which device, and what `--device` sets. For a wireless device the id *is*
+`ip:port`, so one variable covers both "which device" and "where to connect".
+A USB serial there has no colon and is correctly not treated as an address.
+`ANDROID_DEVICE_IP` / `ANDROID_DEVICE_PORT` remain supported as an explicit split
+form. `load_env` (`lib/env.sh`) puts them in scope from a project's gitignored
+`.env`.
+
+```bash
+shlib_import adb env
+load_env .env
+
+# Attach before an Android command. Safe to call every time — it returns 0 when
+# the device is already attached. If it cannot connect, show the recovery hint
+# and preserve the failure for callers running with `set -e`.
+adb_wireless_connect || { adb_wireless_recovery_hint; exit 1; }
+
+adb_wireless_addr            # -> 203.0.113.10:5555
+adb_wireless_attached "$(adb_wireless_addr)"
+adb_wireless_disconnect
+```
+
+First-time handover, with the phone on USB. `adb_wireless_setup` reads the
+device's Wi-Fi address, switches it to tcpip, connects, and prints the address
+so it can be stored:
+
+```bash
+addr="$(adb_wireless_setup)" \
+  && adb_wireless_write_env .env "${addr%:*}" "${addr##*:}"
+```
+
+| function | notes |
+|---|---|
+| `adb_wireless_addr` | `DEV_DEVICE` first, else `ANDROID_DEVICE_IP`/`_PORT`; port defaults to `5555` |
+| `adb_wireless_attached <addr>` | state column must be exactly `device` — `offline` and `unauthorized` are not attached |
+| `adb_wireless_connect [addr]` | confirms against `adb devices`; `adb connect` exits 0 on a bare TCP handshake and cannot be trusted |
+| `adb_wireless_disconnect [addr]` | always returns 0 |
+| `adb_wireless_enable <serial> [port]` | `adb tcpip` on a USB device — the step that needs the cable |
+| `adb_wireless_setup [serial] [port] [iface]` | discover + enable + connect; prints `ip:port` |
+| `adb_wireless_write_env <file> <ip> [port]` | upserts `DEV_DEVICE`, leaving the rest of the file alone |
+| `adb_wireless_recovery_hint [port]` | what to do after a reboot drops tcpip mode |
+| `adb_wireless_valid_host <value>` | true for an IPv4 address or hostname |
+| `adb_wireless_valid_port <value>` | true for 1–65535 |
+
+`adb_wireless_write_env` validates with `adb_wireless_valid_host` and
+`adb_wireless_valid_port` before writing, and both are public so a caller can
+fail earlier with its own message. This is a security boundary: an env file is
+**sourced** by whatever reads it, so a newline in the value injects an extra
+line that then executes. The value is not always hand-typed — `adb_wireless_setup`
+takes it from `adb shell ip ...`, i.e. from whatever the attached device prints.
+
+**tcpip mode does not survive a reboot**, and Android 11+ "Wireless debugging"
+uses a **random port per session**. Both failures look like a wrong address, so
+`adb_wireless_recovery_hint` exists to say so at the point of failure.
+
+**Keep the address out of tracked files.** `scripts/check_no_private_ips.sh`
+fails on any RFC 1918 literal in the git index; run it from a project's own test
+gate.

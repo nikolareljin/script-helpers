@@ -311,3 +311,193 @@ adb_device_status() {
   printf 'screen:  %s\n' "$screen"
   printf 'wifi_ip: %s\n' "$(adb_device_ip "$serial" 2>/dev/null || echo '-')"
 }
+
+# --- wireless (adb over Wi-Fi) ---------------------------------------------
+#
+# A phone on the desk is not always a phone on a cable. These wrap the parts of
+# `adb connect` that are easy to get wrong:
+#
+#  - tcpip mode is LOST ON REBOOT, and the failure looks identical to a wrong
+#    address, so the recovery (one USB cable, once) has to be spelled out;
+#  - Android 11+ "Wireless debugging" allocates a RANDOM port per session, so a
+#    hard-coded 5555 silently stops working;
+#  - the device's address belongs in a gitignored env file, never in a tracked
+#    one — see `check_no_private_ips` in scripts/.
+#
+# Address is taken from ANDROID_DEVICE_IP / ANDROID_DEVICE_PORT, which
+# `load_env` (lib/env.sh) puts in scope from a project's .env.
+
+# Usage: adb_wireless_addr; prints "ip:port" from the environment, or returns
+# non-zero when nothing is configured.
+#
+# DEV_DEVICE first: that is the dev-cli convention (templates/dev-cli) for
+# "which device", it is what --device sets, and for a wireless device the device
+# id IS "ip:port". One variable rather than two spellings of the same fact.
+#
+# A DEV_DEVICE holding a USB serial is correctly ignored here — a serial has no
+# colon, so it is not something to `adb connect`, and the split form below (or
+# nothing) applies instead.
+#
+# ANDROID_DEVICE_IP / ANDROID_DEVICE_PORT remain supported as an explicit split
+# form. Port defaults to 5555.
+adb_wireless_addr() {
+  local dev="${DEV_DEVICE:-}"
+  if [[ "$dev" == *:* ]]; then
+    printf '%s\n' "$dev"
+    return 0
+  fi
+  [[ -n "${ANDROID_DEVICE_IP:-}" ]] || return 1
+  printf '%s:%s\n' "$ANDROID_DEVICE_IP" "${ANDROID_DEVICE_PORT:-5555}"
+}
+
+# Usage: adb_wireless_attached <addr>; returns 0 when that exact address is
+# attached AND ready. Checks the state column, so an "offline" or
+# "unauthorized" entry correctly counts as not attached.
+adb_wireless_attached() {
+  local addr="${1:-}" found=""
+  [[ -n "$addr" ]] || return 1
+  adb_available || return 1
+  found="$(adb devices 2>/dev/null | awk -v a="$addr" 'NR>1 && $1==a && $2=="device"')"
+  [[ -n "$found" ]]
+}
+
+# Usage: adb_wireless_connect [addr]; attaches the device, defaulting to
+# adb_wireless_addr. Returns 0 if it ends up attached — including when it
+# already was, so this is safe to call before every command.
+#
+# `adb connect` reports success on a bare TCP handshake even when the far end is
+# not a usable adb daemon, so the result is confirmed against `adb devices`
+# rather than trusted.
+adb_wireless_connect() {
+  local addr="${1:-$(adb_wireless_addr 2>/dev/null || true)}"
+  [[ -n "$addr" ]] || return 1
+  adb_available || return 1
+  adb_wireless_attached "$addr" && return 0
+  adb connect "$addr" >/dev/null 2>&1 || true
+  adb_wireless_attached "$addr"
+}
+
+# Usage: adb_wireless_disconnect [addr]; detaches. Always returns 0 — detaching
+# something already detached is not an error worth propagating.
+adb_wireless_disconnect() {
+  local addr="${1:-$(adb_wireless_addr 2>/dev/null || true)}"
+  adb_available || return 0
+  [[ -n "$addr" ]] || return 0
+  adb disconnect "$addr" >/dev/null 2>&1 || true
+  return 0
+}
+
+# Usage: adb_wireless_enable <serial> [port=5555]; puts a USB-attached device
+# into tcpip mode. This is the step that needs the cable, and the step that is
+# undone by a reboot.
+adb_wireless_enable() {
+  local serial="${1:-}" port="${2:-5555}"
+  adb_available || return 1
+  [[ -n "$serial" ]] || return 1
+  adb -s "$serial" tcpip "$port" >/dev/null 2>&1 || return 1
+  # The daemon restarts on the device; connecting immediately races it.
+  sleep 2
+  return 0
+}
+
+# Usage: adb_wireless_setup [serial] [port=5555] [iface=wlan0]
+#
+# The whole cable-to-wireless handover in one call: find the device's Wi-Fi
+# address, switch it to tcpip, connect, and print the resulting "ip:port" for a
+# caller to store. Returns non-zero without printing if any step fails.
+#
+# With no serial it uses the first ready device, which is the common case (one
+# phone, just plugged in).
+adb_wireless_setup() {
+  local serial="${1:-}" port="${2:-5555}" iface="${3:-wlan0}" ip="" addr=""
+  adb_available || return 1
+  [[ -n "$serial" ]] || serial="$(adb_ready_serials | head -n1)"
+  [[ -n "$serial" ]] || return 1
+
+  ip="$(adb_device_ip "$serial" "$iface")" || return 1
+  adb_wireless_enable "$serial" "$port" || return 1
+
+  addr="$ip:$port"
+  adb_wireless_connect "$addr" || return 1
+  printf '%s\n' "$addr"
+}
+
+# Usage: adb_wireless_write_env <env_file> <ip> [port=5555]
+#
+# Upserts DEV_DEVICE=<ip>:<port> in an env file, creating it if absent and
+# leaving every other line untouched. Rewriting the file wholesale would discard
+# whatever else the project keeps there, and appending would leave two DEV_DEVICE
+# lines with the stale one winning or losing depending on who reads it.
+#
+# The caller is responsible for that file being gitignored. A LAN address in a
+# tracked file is a permanent disclosure about someone's network.
+# Usage: adb_wireless_valid_host <value>; returns 0 for an IPv4 address or a
+# hostname, non-zero for anything else.
+#
+# A SECURITY boundary, not tidiness. An env file is SOURCED by the shell that
+# reads it, so whatever is written there is executed. A newline in the value
+# injects an extra line:
+#
+#   adb_wireless_write_env .env "$(printf '203.0.113.1\nFOO=$(id)')"
+#
+# wrote a literal `FOO=$(id)` line, and sourcing ran it. The value is not always
+# hand-typed either — adb_wireless_setup takes it from `adb shell ip ...`, which
+# is whatever the attached device chose to print.
+adb_wireless_valid_host() {
+  [[ "${1:-}" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,252}[A-Za-z0-9])?$ ]]
+}
+
+# Usage: adb_wireless_valid_port <value>; returns 0 for 1-65535.
+adb_wireless_valid_port() {
+  [[ "${1:-}" =~ ^[0-9]{1,5}$ ]] && (( 10#$1 >= 1 && 10#$1 <= 65535 ))
+}
+
+adb_wireless_write_env() {
+  local file="${1:-}" ip="${2:-}" port="${3:-5555}" tmp=""
+  [[ -n "$file" && -n "$ip" ]] || return 1
+
+  # Validated at the sink, so every caller is covered rather than each one
+  # having to remember.
+  adb_wireless_valid_host "$ip" || return 1
+  adb_wireless_valid_port "$port" || return 1
+
+  if [[ ! -f "$file" ]]; then
+    printf '# Local environment. Gitignored — do not commit.\n\n' >"$file" || return 1
+  fi
+
+  tmp="$(mktemp)" || return 1
+  awk -v addr="$ip:$port" '
+    /^[[:space:]]*DEV_DEVICE=/ { print "DEV_DEVICE=" addr; seen=1; next }
+    { print }
+    END { if (!seen) print "DEV_DEVICE=" addr }
+  ' "$file" >"$tmp" || { rm -f "$tmp"; return 1; }
+
+  # Rewrite in place rather than `mv`, matching lib/changelog.sh and
+  # lib/manifest.sh.
+  #
+  # `mv` replaces the file, it does not write to it. Measured difference: when
+  # the env file is a SYMLINK -- a dotfile-managed or shared config, which is a
+  # normal setup -- mv silently replaces the symlink with a regular file and the
+  # real target keeps its old contents, so the write appears to succeed and
+  # changes nothing anyone reads. `cat >` follows the link. It also keeps the
+  # inode, and with it ownership, ACLs and any open handles.
+  cat "$tmp" >"$file" || { rm -f "$tmp"; return 1; }
+  rm -f "$tmp"
+  return 0
+}
+
+# Usage: adb_wireless_recovery_hint [port=5555]; prints what to do when a
+# wireless device will not attach. Worth a function rather than a comment: the
+# reboot case is indistinguishable from a wrong address at the point of failure,
+# and without the hint the natural response is to retry forever.
+adb_wireless_recovery_hint() {
+  local port="${1:-${ANDROID_DEVICE_PORT:-5555}}"
+  cat <<EOF
+adb's tcpip mode does not survive a device reboot. To restore it:
+  1. connect the device by USB
+  2. adb tcpip $port      (or: adb_wireless_setup, which also stores the address)
+  3. unplug, then reconnect
+On Android 11+ "Wireless debugging" the port is RANDOM per session — read it
+from Developer options -> Wireless debugging and update ANDROID_DEVICE_PORT.
+EOF
+}
