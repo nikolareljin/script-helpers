@@ -3,8 +3,8 @@
 # DESCRIPTION: Fail when an RFC 1918 private-range IP literal appears in a tracked file.
 # USAGE: scripts/check_no_private_ips.sh [--repo <path>] [--path <dir>] [-h]
 # PARAMETERS:
-#   --repo <path>   Repository to scan (default: cwd). Scans `git ls-files`.
-#   --path <dir>    Scan a directory instead of the git index. For exercising
+#   --repo <path>   Repository to scan (default: cwd). Scans tracked files.
+#   --path <dir>    Scan a directory instead of tracked files. For exercising
 #                   the check against a known-bad fixture.
 #   -h, --help      Show this help message.
 # ----------------------------------------------------
@@ -19,9 +19,9 @@
 # lives there for years. It also blocks a repo from being opened up without an
 # audit first.
 #
-# Scans the git index, NOT the working tree. Untracked and ignored files are
-# exactly where a real address is supposed to live, so scanning the tree would
-# flag `.env` itself and teach everyone to skip the check.
+# Scans tracked files, intentionally ignoring untracked and ignored files.
+# Those are exactly where a real address is supposed to live, so scanning every
+# file would flag `.env` itself and teach everyone to skip the check.
 #
 # Ranges are RFC 1918: 10/8, 172.16/12, 192.168/16. Loopback and the RFC 5737
 # documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24) are
@@ -88,7 +88,7 @@ else
 
   git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
     log_error "Not a git repository: $PWD"
-    log_error "This gate scans the git index; with no index it would check"
+    log_error "This gate scans tracked files; without a repository it would check"
     log_error "nothing and report success. Use --path to scan a directory."
     exit 2
   }
@@ -99,7 +99,7 @@ else
   # the same habit that lets a gate stop working without anyone noticing.
   hits="$(git grep -nIE "$PATTERN" -- .)" || status=$?
   if (( status > 1 )); then
-    log_error "git grep failed while scanning the index (exit $status)"
+    log_error "git grep failed while scanning tracked files (exit $status)"
     exit 2
   fi
 fi

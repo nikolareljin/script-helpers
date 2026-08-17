@@ -143,8 +143,9 @@ shlib_import adb env
 load_env .env
 
 # Attach before an Android command. Safe to call every time — it returns 0 when
-# the device is already attached.
-adb_wireless_connect || adb_wireless_recovery_hint
+# the device is already attached. If it cannot connect, show the recovery hint
+# and preserve the failure for callers running with `set -e`.
+adb_wireless_connect || { adb_wireless_recovery_hint; exit 1; }
 
 adb_wireless_addr            # -> 203.0.113.10:5555
 adb_wireless_attached "$(adb_wireless_addr)"

@@ -42,11 +42,11 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   Boundaries are spelled `(^|[^0-9.])` rather than `\b`, which is a GNU/PCRE
   extension and not POSIX ERE — under BSD grep the pattern would quietly match
   nothing and the gate would report success while checking for nothing at all.
-  It scans `git ls-files`, not the working tree, so the gitignored env file the
-  address is supposed to live in is never flagged — a gate that fired there
-  would only teach people to skip it. RFC 5737 documentation ranges, loopback
-  and `.local` names are allowed, because those are what a tracked example
-  should use.
+  It scans tracked files and ignores untracked and gitignored files, so the env
+  file the address is supposed to live in is never flagged — a gate that fired
+  there would only teach people to skip it. RFC 5737 documentation ranges,
+  loopback and `.local` names are allowed, because those are what a tracked
+  example should use.
 
 ## 2026-08-09 — v0.21.0
 
