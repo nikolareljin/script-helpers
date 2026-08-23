@@ -252,6 +252,9 @@ if grep -q "docker compose" "$clone_dir/calls.log" 2>/dev/null; then error "boot
 if HUB_UI=none hub_bootstrap "$clone_dir" "$tmp/origin" >"$tmp/out.txt" 2>&1; then ok "bootstrap with a present clone succeeds"; else error "second bootstrap failed: $(cat "$tmp/out.txt")"; fi
 if grep -q '^install-service --dry-run$' "$clone_dir/calls.log" && ! grep -q 'configure-superuser' "$clone_dir/calls.log"; then ok "a present clone is only dry-run checked"; else error "present clone touched: $(cat "$clone_dir/calls.log")"; fi
 if hub_bootstrap "$tmp/clients/other" "" 2>/dev/null; then error "bootstrap without a clone URL must fail"; else ok "no URL, no clone"; fi
+# A repo URL starting with a dash must reach git as a URL, never as an option.
+if hub_bootstrap "$tmp/clients/inj" "--upload-pack=/bin/true" 2>/dev/null; then error "a dashed repo URL must not be treated as a git option"; else ok "dashed repo URL refused as a URL, not an option"; fi
+if [[ ! -d "$tmp/clients/inj" ]]; then ok "no clone directory from the dashed URL"; else error "dashed URL produced a clone directory"; fi
 
 # --- hub_latest_tag ---------------------------------------------------------------
 note "hub_latest_tag"
@@ -268,6 +271,8 @@ start_hub "0.1.0"
 url="http://127.0.0.1:$port"
 : >"$clone_dir/calls.log"
 HUB_UI=none hub_offer_update "$url" "$clone_dir" >"$tmp/out.txt" 2>&1 || error "offer_update (none) returned non-zero"
+rc=0; HUB_UI=bogus hub_offer_update "$url" "$clone_dir" >/dev/null 2>&1 || rc=$?
+if [[ "$rc" != "0" ]]; then ok "an invalid HUB_UI surfaces instead of acting as none"; else error "invalid HUB_UI silently treated as none"; fi
 if grep -q "0.11.0" "$tmp/out.txt" && ! grep -q '^update' "$clone_dir/calls.log"; then ok "no TTY: prints the newer version and runs nothing"; else error "none mode: out=$(cat "$tmp/out.txt") calls=$(cat "$clone_dir/calls.log")"; fi
 : >"$clone_dir/calls.log"
 printf 'n\n' | HUB_UI=plain hub_offer_update "$url" "$clone_dir" >"$tmp/out.txt" 2>&1 || error "offer_update (plain, no) returned non-zero"

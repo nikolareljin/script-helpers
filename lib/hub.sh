@@ -11,8 +11,9 @@
 # The rules this implements are the fleet's ADR-0013 (the hub is a service; a
 # client never runs its compose or stops it), ADR-0015 (a client may install
 # the hub once and may offer, to a person, to update it) and the corpus-client
-# convention, all recorded in the contracts repository. In short: no compose, ever; nothing without a person when a
-# person is needed; no prompt at all when stdin is not a terminal.
+# convention, all recorded in the contracts repository. In short: no compose,
+# ever; nothing without a person when a person is needed; no prompt at all
+# when stdin or stdout is not a terminal.
 #
 # Requires: curl, git. Uses python3 for JSON when present, a sed fallback when
 # not. Uses lib/logging.sh, lib/env.sh (resolve_env_value), lib/version.sh
@@ -319,7 +320,7 @@ hub_bootstrap() {
   if [[ ! -d "$dir" ]]; then
     [[ -n "$repo_url" ]] || { log_error "hub_bootstrap: $dir is absent and no repository URL was given (HUB_REPO_URL)"; return 1; }
     log_info "Cloning the corpus hub into $dir"
-    git clone --quiet "$repo_url" "$dir" || { log_error "git clone failed"; return 1; }
+    git clone --quiet -- "$repo_url" "$dir" || { log_error "git clone failed"; return 1; }
     [[ -x "$dir/start" && -x "$dir/install-service" ]] || { log_error "$dir does not look like the hub: no executable start and install-service"; return 1; }
     log_info "Configuring the hub (the hub's own ./start --configure-superuser)"
     (cd "$dir" && ./start --configure-superuser) || { log_error "the hub's ./start --configure-superuser failed"; return 1; }
@@ -340,7 +341,8 @@ hub_bootstrap() {
 # clone. Behind, and a person is present: ask, and on yes exec the hub's own
 # ./update. Otherwise print one line. In remote mode (HUB_MODE=remote) only
 # print -- a remote hub is somebody else's to update. Always returns 0 unless
-# the arguments are wrong; a declined or impossible offer is not a failure.
+# the arguments or HUB_UI are wrong; a declined or impossible offer is not a
+# failure.
 hub_offer_update() {
   local url="${1:-}" dir="${2:-}"
   [[ -n "$url" && -n "$dir" ]] || { log_error "hub_offer_update: URL and CLONE_DIR required"; return 1; }
@@ -361,7 +363,8 @@ hub_offer_update() {
     log_info "Remote hub at $url runs $running; $latest is available. It is updated where it runs, not from here."
     return 0
   fi
-  local mode; mode="$(hub_ui_mode 2>/dev/null || echo none)"
+  # An invalid HUB_UI is a misconfiguration to surface, not a silent "none".
+  local mode; mode="$(hub_ui_mode)" || return 1
   if [[ "$mode" == "none" ]]; then
     log_info "Hub $running is running; $latest is available: cd $dir && ./update"
     return 0

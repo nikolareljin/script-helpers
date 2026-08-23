@@ -7,10 +7,11 @@ the hub's **own** scripts, and offer -- to a person -- to run the hub's own
 convention (recorded in the contracts repository): never compose, never stop the hub, never a prompt without a
 terminal.
 
-Three renderers behind one set of prompts: `dialog` when installed and stdin
-is a terminal, plain `read -p` otherwise, and **no prompts at all** when stdin
-is not a terminal -- then every value must already be in the environment or
-the env file, and the failure names the variable it wanted.
+Three renderers behind one set of prompts: `dialog` when installed and both
+stdin and stdout are terminals, plain `read -p` otherwise, and **no prompts at
+all** when stdin or stdout is not a terminal -- then every value must already
+be in the environment or the env file, and the failure names the variable it
+wanted.
 
 Functions
 ---------
