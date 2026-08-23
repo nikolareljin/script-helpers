@@ -197,7 +197,9 @@ hub_probe() {
 # Usage: hub_probe_field BODY KEY; prints a top-level string field, or nothing.
 hub_probe_field() {
   local body="${1:-}" key="${2:-}"
-  [[ -n "$key" ]] || return 1
+  # A word, nothing else: the fallback interpolates the key into a grep
+  # pattern, and a JSON field name here is never more than [A-Za-z0-9_].
+  [[ "$key" =~ ^[A-Za-z0-9_]+$ ]] || return 1
   if command -v python3 >/dev/null 2>&1; then
     printf '%s' "$body" | python3 -c '
 import json, sys
@@ -257,7 +259,9 @@ hub_write_env() {
   local file="${1:-}" key="${2:-}" value="${3:-}" tmp=""
   [[ -n "$file" && -n "$key" ]] || { log_error "hub_write_env: FILE and KEY required"; return 1; }
   [[ "$key" =~ ^[A-Z_][A-Z0-9_]*$ ]] || { log_error "hub_write_env: '$key' is not an environment variable name"; return 1; }
-  [[ "$value" != *$'\n'* ]] || { log_error "hub_write_env: a value cannot contain a newline"; return 1; }
+  case "$value" in
+    *$'\n'*|*$'\r'*) log_error "hub_write_env: a value cannot contain a newline or carriage return"; return 1 ;;
+  esac
   if [[ ! -e "$file" ]]; then
     mkdir -p "$(dirname "$file")" || return 1
     printf '# Local environment. Gitignored -- do not commit.\n\n' >"$file" || return 1
@@ -286,7 +290,11 @@ hub_latest_tag() {
 # Internal: is URL http(s)://host[:port] with nothing after? An IPv6 host
 # is legal only in brackets (http://[::1]:8000), as curl requires.
 _hub__url_ok() {
-  [[ "${1:-}" =~ ^https?://(\[[0-9A-Fa-f:]+\]|[A-Za-z0-9._-]+)(:[0-9]{1,5})?/?$ ]]
+  [[ "${1:-}" =~ ^https?://(\[[0-9A-Fa-f:]+\]|[A-Za-z0-9._-]+)(:([0-9]{1,5}))?/?$ ]] || return 1
+  local port="${BASH_REMATCH[3]:-}"
+  # 10# so a leading zero is not read as octal. :0 and :99999 fail here
+  # rather than later, inside curl, with a worse message.
+  [[ -z "$port" ]] || (( 10#$port >= 1 && 10#$port <= 65535 ))
 }
 
 # Internal: is the host part loopback? A bracketed IPv6 host keeps its

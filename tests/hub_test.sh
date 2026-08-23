@@ -132,6 +132,7 @@ inode_after="$(stat -c %i "$real" 2>/dev/null || stat -f %i "$real")"
 if [[ -L "$tmp/link.env" && "$inode_after" == "$inode_before" && "$(grep -c '^HUB_API_KEY=abc$' "$real")" == "1" ]]; then ok "writes through a symlink, keeps the inode"; else error "symlink replaced or target untouched"; fi
 if hub_write_env "$env_file" "hub-url" "x" 2>/dev/null; then error "a lowercase/dashed key must be refused"; else ok "bad key name refused"; fi
 if hub_write_env "$env_file" HUB_URL $'a\nb' 2>/dev/null; then error "a value with a newline must be refused"; else ok "newline in value refused"; fi
+if hub_write_env "$env_file" HUB_URL $'a\rb' 2>/dev/null; then error "a value with a carriage return must be refused"; else ok "carriage return in value refused"; fi
 if hub_write_env "" HUB_URL x 2>/dev/null; then error "empty path must fail"; else ok "empty path refused"; fi
 
 # --- hub_probe / hub_probe_field / hub_check_key ----------------------------------
@@ -155,6 +156,7 @@ if [[ "$(probe_field_no_py "$pretty" version)" == "0.1.0" ]]; then ok "fallback 
 if [[ "$(probe_field_no_py "$pretty" api_version)" == "9.9.9" ]]; then ok "fallback keeps api_version and version apart"; else error "fallback key confusion: $(probe_field_no_py "$pretty" api_version)"; fi
 rc=0; probe_field_no_py "$pretty" nonexistent >/dev/null 2>&1 || rc=$?
 if [[ "$rc" == "0" ]]; then ok "fallback missing field is exit 0 (pipefail-safe)"; else error "fallback missing field exited $rc"; fi
+if hub_probe_field "$body" 'ver.*' >/dev/null 2>&1; then error "a key with regex metacharacters must be refused"; else ok "regex metacharacters in key refused"; fi
 if hub_check_key "$url" good-key; then ok "the right key is accepted"; else error "good key rejected"; fi
 rc=0; hub_check_key "$url" wrong-key 2>/dev/null || rc=$?
 if [[ "$rc" == "2" ]]; then ok "a wrong key is exit 2, distinct from an unreachable hub"; else error "wrong key returned $rc"; fi
@@ -175,6 +177,11 @@ if _hub__url_ok "http://::1:8000"; then error "unbracketed IPv6 must be refused 
 if _hub__url_is_loopback "http://[::1]:8000"; then ok "[::1] is loopback"; else error "[::1] not seen as loopback"; fi
 if _hub__url_is_loopback "http://[2001:db8::7]:8000"; then error "a non-loopback IPv6 host read as loopback"; else ok "non-loopback IPv6 is not loopback"; fi
 if _hub__url_is_loopback "http://localhost:8000"; then ok "localhost is loopback"; else error "localhost not seen as loopback"; fi
+if _hub__url_ok "http://localhost:0"; then error "port 0 must be refused"; else ok "port 0 refused"; fi
+if _hub__url_ok "http://localhost:99999"; then error "port 99999 must be refused"; else ok "port 99999 refused"; fi
+if _hub__url_ok "http://localhost:08000"; then ok "a leading-zero port is not read as octal"; else error "leading-zero port broke validation"; fi
+if _hub__url_ok "http://localhost:65535"; then ok "port 65535 accepted"; else error "port 65535 refused"; fi
+if _hub__url_ok "http://localhost"; then ok "a URL without a port is accepted"; else error "portless URL refused"; fi
 
 # --- hub_setup_dialog, remote, no TTY --------------------------------------------
 note "hub_setup_dialog remote (no TTY)"
