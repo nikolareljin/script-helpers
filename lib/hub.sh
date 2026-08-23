@@ -8,10 +8,10 @@
 # repository: the clone URL is an argument, and the hub's scripts are invoked
 # by path in the clone the caller names.
 #
-# The rules this implements are keystone's ADR-0013 (the hub is a service; a
+# The rules this implements are the fleet's ADR-0013 (the hub is a service; a
 # client never runs its compose or stops it), ADR-0015 (a client may install
 # the hub once and may offer, to a person, to update it) and the corpus-client
-# convention. In short: no compose, ever; nothing without a person when a
+# convention, all recorded in the contracts repository. In short: no compose, ever; nothing without a person when a
 # person is needed; no prompt at all when stdin is not a terminal.
 #
 # Requires: curl, git. Uses python3 for JSON when present, a sed fallback when
@@ -399,7 +399,7 @@ hub_setup_dialog() {
       log_error "No terminal and no HUB_MODE: set HUB_MODE=local or HUB_MODE=remote (in $env_file or the environment), or pass --mode."
       return 1
     fi
-    mode="$(_hub__ui_menu "Corpus hub" "Where does document-tracker, the corpus hub, run?" local \
+    mode="$(_hub__ui_menu "Corpus hub" "Where does the corpus hub run?" local \
       local "Install it as a service on this computer" \
       remote "Connect to one running on another computer")" || { log_error "No hub mode chosen."; return 1; }
   fi
@@ -411,14 +411,17 @@ hub_setup_dialog() {
   # --- local: make the hub exist --------------------------------------------------
   if [[ "$mode" == "local" ]]; then
     [[ -n "$hub_dir" ]] || hub_dir="$(resolve_env_value HUB_DIR "" "$env_file")"
-    [[ -n "$hub_dir" ]] || hub_dir="$(cd "$(dirname "$env_file")" && cd .. 2>/dev/null && pwd)/document-tracker"
+    # Beside the client's own checkout, under the name the caller gives
+    # (HUB_CLONE_NAME) -- the library does not know what the hub's repository
+    # is called, and must not.
+    [[ -n "$hub_dir" ]] || hub_dir="$(cd "$(dirname "$env_file")" && cd .. 2>/dev/null && pwd)/${HUB_CLONE_NAME:-hub}"
     [[ -n "$repo_url" ]] || repo_url="$(resolve_env_value HUB_REPO_URL "" "$env_file")"
     if [[ ! -d "$hub_dir" && -z "$repo_url" ]]; then
       if [[ "$ui" == "none" ]]; then
         log_error "No hub at $hub_dir and no HUB_REPO_URL to clone it from: set HUB_REPO_URL (or pass --repo-url), or HUB_DIR to an existing clone."
         return 1
       fi
-      repo_url="$(_hub__ui_input "Corpus hub" "No hub at $hub_dir. Git URL to clone document-tracker from" "")" || return 1
+      repo_url="$(_hub__ui_input "Corpus hub" "No hub at $hub_dir. Git URL to clone the corpus hub from" "")" || return 1
       [[ -n "$repo_url" ]] || { log_error "A repository URL is needed to clone the hub."; return 1; }
     fi
     hub_bootstrap "$hub_dir" "$repo_url" || return 1

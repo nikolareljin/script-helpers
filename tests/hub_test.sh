@@ -63,7 +63,7 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0]
         if path == "/v1/service":
-            self._send(200, {"name": "document-tracker", "version": VERSION,
+            self._send(200, {"name": "corpus-hub", "version": VERSION,
                              "api_version": "v1",
                              "instance_id": "6f1d2c3b-4a5e-4f60-9a8b-7c6d5e4f3a2b",
                              "schema_versions": {"document": "1"}})
@@ -212,7 +212,7 @@ EOS
   git -C "$src" tag 0.1.0
 }
 make_fake_hub_repo "$tmp/origin"
-clone_dir="$tmp/clients/document-tracker"
+clone_dir="$tmp/clients/hub"
 if HUB_UI=none hub_bootstrap "$clone_dir" "$tmp/origin" >"$tmp/out.txt" 2>&1; then ok "bootstrap clones an absent hub"; else error "bootstrap failed: $(cat "$tmp/out.txt")"; fi
 if [[ -x "$clone_dir/start" ]]; then ok "clone landed at the given directory"; else error "no clone at $clone_dir"; fi
 if grep -q '^start --configure-superuser$' "$clone_dir/calls.log" && grep -q '^install-service$' "$clone_dir/calls.log"; then ok "ran the hub's own start --configure-superuser and install-service"; else error "wrong calls: $(cat "$clone_dir/calls.log" 2>/dev/null)"; fi
@@ -258,12 +258,12 @@ if ! grep -q '^update' "$clone_dir/calls.log" && ! grep -qi "available" "$tmp/ou
 
 # --- hub_setup_dialog, local, no TTY ----------------------------------------------
 note "hub_setup_dialog local (no TTY)"
-local_dir="$tmp/clients2/document-tracker"
+local_dir="$tmp/clients2/hub"
 env_file="$tmp/local.env"; rm -f "$env_file"
 # The fake hub answers on $port; tell the dialog that is where localhost's hub is.
 if HUB_UI=none hub_setup_dialog "$env_file" --mode local --hub-dir "$local_dir" --repo-url "$tmp/origin" --url "$url" --key good-key --client test-client >"$tmp/out.txt" 2>&1; then ok "local mode with flags bootstraps and records"; else error "local setup failed: $(cat "$tmp/out.txt")"; fi
 if [[ -x "$local_dir/install-service" ]] && grep -q '^HUB_MODE=local$' "$env_file" && grep -q '^HUB_INSTANCE_ID=' "$env_file"; then ok "clone made, .env written"; else error "local outcome wrong: $(cat "$env_file" 2>/dev/null)"; fi
-rc=0; HUB_UI=none hub_setup_dialog "$tmp/local2.env" --mode local --hub-dir "$tmp/clients3/document-tracker" >"$tmp/out.txt" 2>&1 || rc=$?
+rc=0; HUB_UI=none hub_setup_dialog "$tmp/local2.env" --mode local --hub-dir "$tmp/clients3/hub" >"$tmp/out.txt" 2>&1 || rc=$?
 if [[ "$rc" != "0" ]] && grep -q "HUB_REPO_URL" "$tmp/out.txt"; then ok "local mode with no clone and no URL fails naming HUB_REPO_URL"; else error "local no-url: rc=$rc $(cat "$tmp/out.txt")"; fi
 stop_hub
 

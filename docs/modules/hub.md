@@ -3,8 +3,8 @@
 Corpus-hub helpers for capture clients: ask whether the hub is local or
 remote, prove the answer, write it to `.env`, bootstrap a local hub through
 the hub's **own** scripts, and offer -- to a person -- to run the hub's own
-`./update`. Implements keystone ADR-0013, ADR-0015 and the corpus-client
-convention: never compose, never stop the hub, never a prompt without a
+`./update`. Implements the fleet's ADR-0013, ADR-0015 and the corpus-client
+convention (recorded in the contracts repository): never compose, never stop the hub, never a prompt without a
 terminal.
 
 Three renderers behind one set of prompts: `dialog` when installed and stdin
@@ -83,7 +83,7 @@ Functions
       offers another) -> writes `HUB_MODE`, `HUB_URL`, `HUB_API_KEY`,
       `HUB_INSTANCE_ID`.
     - **local**: `hub_bootstrap` (clone dir defaults to
-      `../document-tracker` beside the env file's directory; the clone URL
+      `../$HUB_CLONE_NAME` (default `../hub`) beside the env file's directory; the clone URL
       must be given when the clone is absent) -> URL defaults to
       `http://localhost:<BACKEND_PORT>` from the hub's `.env` or
       `env.example` -> the same probe and key steps; when no key is known it
@@ -105,6 +105,8 @@ Environment
   four are what `hub_setup_dialog` writes.
 - `HUB_CLIENT_NAME` -- default for `--client`, used in the `issue_api_key`
   hint.
+- `HUB_CLONE_NAME` -- directory name of a local hub clone beside the client
+  (default `hub`), when `--hub-dir` / `HUB_DIR` is not given.
 
 Examples
 --------
@@ -113,7 +115,7 @@ Examples
 shlib_import hub
 
 # Install time: ask, prove, record. Re-runnable.
-hub_setup_dialog .env --client "document-scanner"
+HUB_CLONE_NAME=my-hub hub_setup_dialog .env --client "my-scanner" --repo-url "$HUB_REPO_URL"
 
 # CI or a unit: no terminal, so everything comes from the environment.
 HUB_MODE=remote HUB_URL=http://203.0.113.7:8000 HUB_API_KEY="$KEY" hub_setup_dialog .env
@@ -121,6 +123,6 @@ HUB_MODE=remote HUB_URL=http://203.0.113.7:8000 HUB_API_KEY="$KEY" hub_setup_dia
 # Start time, local mode: offer the hub's own ./update when it is behind.
 load_env .env
 if [[ "${HUB_MODE:-}" == "local" ]]; then
-  hub_offer_update "$HUB_URL" "${HUB_DIR:-../document-tracker}"
+  hub_offer_update "$HUB_URL" "${HUB_DIR:-../my-hub}"
 fi
 ```
