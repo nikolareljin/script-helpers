@@ -4,7 +4,28 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ## [Unreleased]
 
-## 2026-08-09 — v0.22.0
+## 2026-08-22 — v0.23.0
+
+- Added: `lib/hub.sh`, corpus-hub setup for capture clients. Every client of
+  the corpus hub was told to reach it at a typed `HUB_URL` and nothing
+  checked the key, told anyone the hub was behind, or made a hub exist on a
+  fresh machine beyond printing "clone the other repository". One module
+  both clients import: `hub_setup_dialog` asks whether the hub is **local**
+  (clone it when absent and run the hub's own `./start --configure-superuser`
+  and `./install-service` -- never compose) or **remote** (URL and key),
+  proves the answer (`hub_probe` on `/v1/service`; `hub_check_key` on an
+  authenticated read, where a 401 is reported as a wrong key and not as a
+  missing hub), and writes `HUB_MODE`, `HUB_URL`, `HUB_API_KEY` and the hub's
+  `HUB_INSTANCE_ID` with an in-place, symlink-safe `hub_write_env`.
+  `hub_offer_update` compares the running version with the newest tag and,
+  to a person and in local mode only, offers to exec the hub's own
+  `./update`. Three renderers behind one set of prompts: `dialog` when
+  installed on a terminal, plain `read -p` otherwise, and no prompt at all
+  without a terminal -- a systemd unit or CI run fails naming the variable it
+  wanted instead of waiting on a read forever. The clone URL is an argument;
+  the library names no repository. `tests/hub_test.sh` runs it against a
+  fake hub and stubbed hub scripts.
+
 
 - Added: wireless-adb helpers in `lib/adb.sh`. A phone on the desk is not always
   a phone on a cable, and `adb connect` has three sharp edges that every project

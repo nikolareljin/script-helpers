@@ -143,6 +143,7 @@ Loader and modules
 - `env.sh` — `.env` loading, `require_env`, project-root detection.
 - `python.sh` — resolve Python 3 executables and ensure local virtualenvs.
 - `version.sh` — semantic version helpers (`version_bump`, `version_compare`).
+- `hub.sh` — corpus-hub setup for capture clients: local-or-remote dialog with a plain and a no-terminal fallback, probe, key check, `.env` writer, bootstrap through the hub's own scripts, and an offer to run the hub's own `./update` (`hub_setup_dialog`, `hub_probe`, `hub_check_key`, `hub_write_env`, `hub_bootstrap`, `hub_offer_update`, `hub_latest_tag`, `hub_ui_mode`).
 - `ports.sh` — port usage/availability helpers.
 - `browser.sh` — `open_url`, `open_frontend_when_ready`.
 - `traps.sh` — cleanup and signal traps.
