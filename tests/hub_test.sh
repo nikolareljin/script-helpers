@@ -126,9 +126,10 @@ hub_write_env "$env_file" HUB_URL "http://203.0.113.7:8000"
 if [[ "$(grep -c '^HUB_URL=' "$env_file")" == "1" && "$(grep '^HUB_URL=' "$env_file")" == "HUB_URL=http://203.0.113.7:8000" ]]; then ok "upserts in place, once"; else error "upsert wrong: $(cat "$env_file")"; fi
 if grep -q '^OTHER=keep$' "$env_file" && grep -q '^# comment$' "$env_file"; then ok "keeps every other line"; else error "other lines lost"; fi
 real="$tmp/real.env"; printf 'A=1\n' >"$real"; ln -s "$real" "$tmp/link.env"
-inode_before="$(stat -c %i "$real")"
+inode_before="$(stat -c %i "$real" 2>/dev/null || stat -f %i "$real")"
 hub_write_env "$tmp/link.env" HUB_API_KEY "abc"
-if [[ -L "$tmp/link.env" && "$(stat -c %i "$real")" == "$inode_before" && "$(grep -c '^HUB_API_KEY=abc$' "$real")" == "1" ]]; then ok "writes through a symlink, keeps the inode"; else error "symlink replaced or target untouched"; fi
+inode_after="$(stat -c %i "$real" 2>/dev/null || stat -f %i "$real")"
+if [[ -L "$tmp/link.env" && "$inode_after" == "$inode_before" && "$(grep -c '^HUB_API_KEY=abc$' "$real")" == "1" ]]; then ok "writes through a symlink, keeps the inode"; else error "symlink replaced or target untouched"; fi
 if hub_write_env "$env_file" "hub-url" "x" 2>/dev/null; then error "a lowercase/dashed key must be refused"; else ok "bad key name refused"; fi
 if hub_write_env "$env_file" HUB_URL $'a\nb' 2>/dev/null; then error "a value with a newline must be refused"; else ok "newline in value refused"; fi
 if hub_write_env "" HUB_URL x 2>/dev/null; then error "empty path must fail"; else ok "empty path refused"; fi
@@ -150,6 +151,17 @@ dead_port="$(pick_port)"
 if hub_probe "http://127.0.0.1:$dead_port" 1 >/dev/null 2>&1; then error "probe of a closed port must fail"; else ok "closed port fails"; fi
 rc=0; hub_check_key "http://127.0.0.1:$dead_port" good-key 2>/dev/null || rc=$?
 if [[ "$rc" == "1" ]]; then ok "an unreachable hub is exit 1 on the key check"; else error "unreachable key check returned $rc"; fi
+# A key with a CR or LF would be header injection; it must never reach curl.
+if hub_check_key "$url" $'good\nkey' 2>/dev/null; then error "a key with LF must be refused"; else ok "LF in key refused"; fi
+if hub_check_key "$url" $'good\rkey' 2>/dev/null; then error "a key with CR must be refused"; else ok "CR in key refused"; fi
+
+# --- URL validation ---------------------------------------------------------------
+note "url validation"
+if _hub__url_ok "http://[::1]:8000"; then ok "bracketed IPv6 URL accepted"; else error "http://[::1]:8000 rejected"; fi
+if _hub__url_ok "http://::1:8000"; then error "unbracketed IPv6 must be refused (curl needs brackets)"; else ok "unbracketed IPv6 refused"; fi
+if _hub__url_is_loopback "http://[::1]:8000"; then ok "[::1] is loopback"; else error "[::1] not seen as loopback"; fi
+if _hub__url_is_loopback "http://[2001:db8::7]:8000"; then error "a non-loopback IPv6 host read as loopback"; else ok "non-loopback IPv6 is not loopback"; fi
+if _hub__url_is_loopback "http://localhost:8000"; then ok "localhost is loopback"; else error "localhost not seen as loopback"; fi
 
 # --- hub_setup_dialog, remote, no TTY --------------------------------------------
 note "hub_setup_dialog remote (no TTY)"
@@ -175,6 +187,11 @@ if HUB_UI=none hub_setup_dialog "$tmp/prefilled.env" >"$tmp/out.txt" 2>&1 && gre
 # A URL that is not a URL.
 rc=0; HUB_UI=none hub_setup_dialog "$tmp/badurl.env" --mode remote --url "localhost:8000" --key good-key >"$tmp/out.txt" 2>&1 || rc=$?
 if [[ "$rc" != "0" ]] && grep -qi "http" "$tmp/out.txt"; then ok "a URL without a scheme is refused"; else error "bad URL accepted: rc=$rc"; fi
+# A flag with no value must fail loudly, not misparse.
+rc=0; HUB_UI=none hub_setup_dialog "$tmp/noval.env" --mode remote --url >"$tmp/out.txt" 2>&1 || rc=$?
+if [[ "$rc" == "2" ]] && grep -q -- "--url requires a value" "$tmp/out.txt"; then ok "a trailing valueless flag is refused"; else error "valueless flag: rc=$rc out=$(cat "$tmp/out.txt")"; fi
+rc=0; HUB_UI=none hub_setup_dialog "$tmp/noval.env" --url --key good-key >"$tmp/out.txt" 2>&1 || rc=$?
+if [[ "$rc" == "2" ]] && grep -q -- "--url requires a value" "$tmp/out.txt"; then ok "a flag followed by a flag is refused"; else error "flag-as-value: rc=$rc out=$(cat "$tmp/out.txt")"; fi
 
 # --- hub_setup_dialog, remote, plain prompts on stdin ----------------------------
 note "hub_setup_dialog remote (plain)"

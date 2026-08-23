@@ -26,6 +26,7 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   the library names no repository. `tests/hub_test.sh` runs it against a
   fake hub and stubbed hub scripts.
 
+## 2026-08-09 — v0.22.0
 
 - Added: wireless-adb helpers in `lib/adb.sh`. A phone on the desk is not always
   a phone on a cable, and `adb connect` has three sharp edges that every project

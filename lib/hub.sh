@@ -227,6 +227,10 @@ if v is not None and not isinstance(v, (dict, list)):
 hub_check_key() {
   local url="${1:-}" key="${2:-}"
   [[ -n "$url" && -n "$key" ]] || { log_error "hub_check_key: URL and KEY required"; return 1; }
+  # The key becomes an HTTP header; a CR or LF inside it is header injection.
+  case "$key" in
+    *$'\r'*|*$'\n'*) log_error "hub_check_key: KEY must not contain CR or LF"; return 1 ;;
+  esac
   url="${url%/}"
   local code
   code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 \
@@ -275,14 +279,21 @@ hub_latest_tag() {
   git -C "$dir" tag --list 2>/dev/null | sed 's/^[vV]//' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1
 }
 
-# Internal: is URL http(s)://host[:port] with nothing after?
+# Internal: is URL http(s)://host[:port] with nothing after? An IPv6 host
+# is legal only in brackets (http://[::1]:8000), as curl requires.
 _hub__url_ok() {
-  [[ "${1:-}" =~ ^https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?/?$ ]]
+  [[ "${1:-}" =~ ^https?://(\[[0-9A-Fa-f:]+\]|[A-Za-z0-9._-]+)(:[0-9]{1,5})?/?$ ]]
 }
 
-# Internal: is the host part loopback?
+# Internal: is the host part loopback? A bracketed IPv6 host keeps its
+# colons, so the port strip must not run on it.
 _hub__url_is_loopback() {
-  local host="${1#*://}"; host="${host%%/*}"; host="${host%%:*}"
+  local host="${1#*://}"; host="${host%%/*}"
+  if [[ "$host" == \[* ]]; then
+    host="${host#\[}"; host="${host%%\]*}"
+  else
+    host="${host%%:*}"
+  fi
   [[ "$host" == "localhost" || "$host" == "127.0.0.1" || "$host" == "::1" ]]
 }
 
@@ -373,18 +384,28 @@ hub_setup_dialog() {
   local mode="" url="" key="" hub_dir="" repo_url="" client="${HUB_CLIENT_NAME:-capture-client}"
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --mode) mode="${2:-}"; shift ;;
       --mode=*) mode="${1#--mode=}" ;;
-      --url) url="${2:-}"; shift ;;
       --url=*) url="${1#--url=}" ;;
-      --key) key="${2:-}"; shift ;;
       --key=*) key="${1#--key=}" ;;
-      --hub-dir) hub_dir="${2:-}"; shift ;;
       --hub-dir=*) hub_dir="${1#--hub-dir=}" ;;
-      --repo-url) repo_url="${2:-}"; shift ;;
       --repo-url=*) repo_url="${1#--repo-url=}" ;;
-      --client) client="${2:-}"; shift ;;
       --client=*) client="${1#--client=}" ;;
+      --mode|--url|--key|--hub-dir|--repo-url|--client)
+        # A flag at the end, or followed by another flag, has no value; the
+        # silent alternative leaves the field empty or set to the next flag.
+        if [[ $# -lt 2 || "$2" == --* ]]; then
+          log_error "hub_setup_dialog: $1 requires a value"
+          return 2
+        fi
+        case "$1" in
+          --mode) mode="$2" ;;
+          --url) url="$2" ;;
+          --key) key="$2" ;;
+          --hub-dir) hub_dir="$2" ;;
+          --repo-url) repo_url="$2" ;;
+          --client) client="$2" ;;
+        esac
+        shift ;;
       *) log_error "hub_setup_dialog: unknown option $1"; return 2 ;;
     esac
     shift

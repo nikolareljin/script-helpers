@@ -90,7 +90,8 @@ Functions
       prints the hub's `./manage issue_api_key` command and asks for the
       result -> also writes `HUB_DIR`.
   - Returns: 0 with the hub answering and the key accepted; 1 otherwise
-    (nothing is written before the key is accepted); 2 on an unknown option.
+    (nothing is written before the key is accepted); 2 on an unknown option
+    or a flag missing its value.
   - Dependencies: curl, git; `env` (`resolve_env_value`), `version`
     (`version_compare`), `dialog` (`dialog_init`) -- sourced automatically
     when not already imported.
