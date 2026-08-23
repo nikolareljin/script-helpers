@@ -211,9 +211,12 @@ if v is not None and not isinstance(v, (dict, list)):
 ' "$key"
     return 0
   fi
-  # No python3: a string field out of compact or pretty JSON. The leading
-  # { or , keeps "api_version" from matching "version".
-  printf '%s' "$body" | grep -o "[{,][[:space:]]*\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -n 1 | sed 's/.*:[[:space:]]*"\([^"]*\)"/\1/'
+  # No python3: a string field out of compact or pretty JSON. The quoted key
+  # keeps "api_version" from matching "version". A missing field prints
+  # nothing and still exits 0: grep's miss must not surface through a
+  # caller's set -o pipefail.
+  printf '%s' "$body" | grep -o "\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -n 1 | sed 's/.*:[[:space:]]*"\([^"]*\)"/\1/' || true
+  return 0
 }
 
 # Usage: hub_check_key URL KEY
@@ -343,8 +346,10 @@ hub_offer_update() {
   [[ -n "$url" && -n "$dir" ]] || { log_error "hub_offer_update: URL and CLONE_DIR required"; return 1; }
   local body running latest
   body="$(hub_probe "$url" 5)" || { log_warn "hub at $url is not answering; nothing to compare"; return 0; }
-  running="$(hub_probe_field "$body" version)"
-  latest="$(hub_latest_tag "$dir")"
+  # Guarded: under a caller's set -e an unreadable clone would end the whole
+  # script, when the contract is "nothing to offer, return 0".
+  running="$(hub_probe_field "$body" version)" || running=""
+  latest="$(hub_latest_tag "$dir")" || latest=""
   if [[ -z "$running" || -z "$latest" ]]; then
     return 0
   fi

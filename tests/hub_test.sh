@@ -142,6 +142,19 @@ body="$(hub_probe "$url" 3)" || error "hub_probe failed against a serving hub"
 if [[ "$(hub_probe_field "$body" version)" == "0.1.0" ]]; then ok "hub_probe_field reads version"; else error "version not read: $(hub_probe_field "$body" version)"; fi
 if [[ "$(hub_probe_field "$body" instance_id)" == "6f1d2c3b-4a5e-4f60-9a8b-7c6d5e4f3a2b" ]]; then ok "hub_probe_field reads instance_id"; else error "instance_id not read"; fi
 if [[ -z "$(hub_probe_field "$body" nonexistent)" ]]; then ok "a missing field is empty, not an error string"; else error "missing field produced output"; fi
+# The no-python3 fallback: same contract, forced by shadowing `command -v`.
+# Invoked only inside the subshell below, so shellcheck reads it as unreachable.
+# shellcheck disable=SC2317
+probe_field_no_py() (
+  command() { if [[ "${1:-}" == "-v" && "${2:-}" == "python3" ]]; then return 1; fi; builtin command "$@"; }
+  hub_probe_field "$@"
+)
+pretty="$(printf '{\n  "api_version": "9.9.9",\n  "version": "0.1.0"\n}\n')"
+if [[ "$(probe_field_no_py "$body" version)" == "0.1.0" ]]; then ok "fallback reads compact JSON"; else error "fallback compact read: $(probe_field_no_py "$body" version)"; fi
+if [[ "$(probe_field_no_py "$pretty" version)" == "0.1.0" ]]; then ok "fallback reads pretty-printed JSON"; else error "fallback pretty read: $(probe_field_no_py "$pretty" version)"; fi
+if [[ "$(probe_field_no_py "$pretty" api_version)" == "9.9.9" ]]; then ok "fallback keeps api_version and version apart"; else error "fallback key confusion: $(probe_field_no_py "$pretty" api_version)"; fi
+rc=0; probe_field_no_py "$pretty" nonexistent >/dev/null 2>&1 || rc=$?
+if [[ "$rc" == "0" ]]; then ok "fallback missing field is exit 0 (pipefail-safe)"; else error "fallback missing field exited $rc"; fi
 if hub_check_key "$url" good-key; then ok "the right key is accepted"; else error "good key rejected"; fi
 rc=0; hub_check_key "$url" wrong-key 2>/dev/null || rc=$?
 if [[ "$rc" == "2" ]]; then ok "a wrong key is exit 2, distinct from an unreachable hub"; else error "wrong key returned $rc"; fi
@@ -272,6 +285,11 @@ url="http://127.0.0.1:$port"
 : >"$clone_dir/calls.log"
 ( printf 'y\n' | HUB_UI=plain hub_offer_update "$url" "$clone_dir" >"$tmp/out.txt" 2>&1 ) || true
 if ! grep -q '^update' "$clone_dir/calls.log" && ! grep -qi "available" "$tmp/out.txt"; then ok "an up-to-date hub gets no offer"; else error "offered an update to a current hub: $(cat "$tmp/out.txt")"; fi
+# A clone that is not a clone must be "nothing to offer", not a set -e death.
+# `bash -e` because set -e is suppressed inside any || context, which would
+# hide exactly the failure this pins.
+rc=0; bash -ec 'source ./helpers.sh >/dev/null; shlib_import hub; HUB_UI=none hub_offer_update "$1" "$2" >/dev/null 2>&1' _ "$url" "$tmp/no-such-clone" || rc=$?
+if [[ "$rc" == "0" ]]; then ok "a missing clone under set -e is not a failure"; else error "offer_update with a bad clone exited $rc under set -e"; fi
 
 # --- hub_setup_dialog, local, no TTY ----------------------------------------------
 note "hub_setup_dialog local (no TTY)"
