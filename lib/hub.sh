@@ -470,7 +470,7 @@ hub_setup_dialog() {
   fi
   url="${url%/}"
   if ! _hub__url_ok "$url"; then
-    log_error "HUB_URL must look like http://host:port (got '$url')"
+    log_error "HUB_URL must look like http(s)://host[:port] (got '$url')"
     return 1
   fi
   if [[ "$url" == http://* ]] && ! _hub__url_is_loopback "$url"; then
@@ -515,7 +515,7 @@ hub_setup_dialog() {
     case "$rc" in
       0) break ;;
       2)
-        log_error "The hub at $url refused that API key (401)."
+        log_error "The hub at $url refused that API key (HTTP 401 or 403)."
         if [[ "$ui" == "none" ]] || ! _hub__ui_yesno "Corpus hub" "The hub refused that key. Enter another?"; then
           return 1
         fi
