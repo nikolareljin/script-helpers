@@ -16,6 +16,7 @@ This index lists all modules and their functions. See the linked module pages fo
 - svg — ./modules/svg.md
 - python — ./modules/python.md
 - ports — ./modules/ports.md
+- hub — ./modules/hub.md
 - version — ./modules/version.md
 - browser — ./modules/browser.md
 - certs — ./modules/certs.md
