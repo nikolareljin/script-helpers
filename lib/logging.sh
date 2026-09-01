@@ -89,7 +89,7 @@ log_debug() {
   return 0
 }
 
-# Compatibility wrapper for burn-iso `print` function
+# Compatibility wrapper for the iso-forge `print` function
 print() {
   local color="$1"; shift
   local message="$*"
