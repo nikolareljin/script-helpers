@@ -5,8 +5,8 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 ## [Unreleased]
 
 ### Changed
-- Comments and module docs name `iso-forge` rather than `burn-iso`. The repository
-  those helpers were first written for was renamed; no behavior changed.
+- Comments and module docs name `iso-forge` rather than `burn-iso`, following the
+  rename of the repository these helpers were first written for. No behavior changed.
 
 
 ## 2026-08-22 — v0.23.0
