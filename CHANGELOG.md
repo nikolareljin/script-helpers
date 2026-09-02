@@ -4,7 +4,33 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ## [Unreleased]
 
+## 2026-09-02 — v0.24.0
+
+### Added
+- `lib/git_branches.sh` and `scripts/prune_branches.sh`: branch maintenance any
+  repository vendoring these helpers can run. `git branch --merged` only sees
+  merges that produced a merge commit, so a repository that squash-merges
+  accumulates branches it will never list and people delete by hand. The
+  squash case is detected by rebuilding the commit a squash merge would have
+  produced and asking `git cherry` whether that patch is already upstream.
+
+  The costly mistake is the other one: a branch whose work landed and which
+  then received new commits still has something to lose. Both tests look at
+  the branch tip as it stands, so a commit added after the merge fails both —
+  the protection falls out of the check rather than being a rule to remember.
+  It is a dry run by default, refuses the base branch, the current branch, a
+  branch checked out in another worktree, protected names including
+  `release/*`, and anything holding commits its upstream does not.
+- `tests/git_branches_test.sh`: a fixture repository covering merge-commit,
+  squash, never-merged and unrelated histories — and the case the file exists
+  for, a branch squash-merged and then committed to again, which must survive.
+
 ### Changed
+- `scripts/git-hooks/pre-push` returns immediately when a push contains only
+  ref deletions. There are no new commits for a test suite to have an opinion
+  about, and running one is the kind of latency that teaches people to reach
+  for `--no-verify` — pruning three merged branches otherwise ran the full
+  gate three times. Skipped only when every ref in the push is a deletion.
 - Comments and module docs name `iso-forge` rather than `burn-iso`, following the
   rename of the repository these helpers were first written for. No behavior changed.
 
