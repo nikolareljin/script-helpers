@@ -112,6 +112,25 @@ if [[ -z "$BASE" ]]; then
   }
 fi
 
+# Reduce the base to a plain branch name before anything compares against it.
+#
+# `--base` is a human-facing flag and people pass what they see: `main`,
+# `origin/main`, `refs/heads/main`, `refs/remotes/origin/main`. All four mean
+# the same branch, but the guard that keeps the base alive compares branch
+# names -- so an un-normalised `origin/main` matches no local branch, the base
+# stops being recognised as the base, and it classifies as merged against
+# itself. That is the bug this guard exists to prevent, arriving through the
+# flag instead.
+#
+# Every configured remote is stripped, not just the selected one, because
+# `--base upstream/main` is a reasonable thing to type.
+BASE="${BASE#refs/heads/}"
+BASE="${BASE#refs/remotes/}"
+while IFS= read -r _remote; do
+  [[ -n "$_remote" ]] || continue
+  BASE="${BASE#"${_remote}/"}"
+done < <(git remote 2>/dev/null)
+
 # Compare against the remote's copy of the base when there is one. The local
 # copy can be behind by exactly the merge that makes a branch disposable, and
 # then nothing is ever prunable.

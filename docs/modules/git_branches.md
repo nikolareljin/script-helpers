@@ -81,6 +81,17 @@ True for `main`, `master`, `trunk`, `develop`, `production`, `release/*`,
 `hotfix/*`, and any extra glob passed in. `release/*` is protected because in
 this fleet those branches are what release tags are cut from.
 
+## `--base` spellings
+
+`--base` accepts `main`, `origin/main`, `refs/heads/main` and
+`refs/remotes/origin/main`, and reduces all of them to a bare branch name
+before anything compares against it. That normalisation is load-bearing rather
+than a convenience: the guard that keeps the base alive compares branch names,
+so an un-normalised `origin/main` matches no local branch, the base stops being
+recognised as the base, and it is deleted as merged against itself. Every
+configured remote is stripped, not only the selected one, because
+`--base upstream/main` is a reasonable thing to type.
+
 ## What `prune_branches.sh` never touches
 
 The base branch, the branch checked out here, a branch checked out in another

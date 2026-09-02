@@ -50,48 +50,45 @@ ok "protected-name matching"
 # one: configuring a name and address, even in a throwaway repo, is how a
 # commit ends up attributed to something nobody chose. Without an identity the
 # fixture is skipped and says so, rather than inventing one.
-# git needs BOTH a name and an email, for the author and the committer alike;
-# checking only one lets the fixture past this guard and then fail further down
-# with "Please tell me who you are", which reads as a broken test rather than a
-# missing prerequisite.
-_have_identity() {
-  { git config --get user.name  >/dev/null 2>&1 || [[ -n "${GIT_AUTHOR_NAME:-}"  ]]; } &&
-  { git config --get user.email >/dev/null 2>&1 || [[ -n "${GIT_AUTHOR_EMAIL:-}" ]]; } &&
-  { git config --get user.name  >/dev/null 2>&1 || [[ -n "${GIT_COMMITTER_NAME:-}"  ]]; } &&
-  { git config --get user.email >/dev/null 2>&1 || [[ -n "${GIT_COMMITTER_EMAIL:-}" ]]; }
-}
-if ! _have_identity; then
-  note "SKIP: no complete git identity (name and email); the fixture cannot commit"
-  exit "$(( failures > 0 ? 1 : 0 ))"
-fi
-
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 cd "$tmp"
 
+# The fixture supplies its own identity per invocation with `git -c`, the same
+# way tests/hub_test.sh already does. Two reasons it is not `git config`:
+# nothing is written to any repository's configuration, and the identity cannot
+# outlive the command it is passed to.
+#
+# It is passed rather than required because the previous version skipped when
+# the environment had no identity -- and CI has none, so every fixture check
+# below, including the base-branch regression, never ran there while the run
+# reported success. A check that reads as a pass when it did not execute is
+# worse than no check.
+git_t() { git -c user.name='script-helpers tests' -c user.email='tests@localhost' "$@"; }
+
 git init --quiet -b main .
-commit() { echo "$2" > "$1"; git add "$1"; git commit --quiet -m "$2"; }
+commit() { echo "$2" > "$1"; git add "$1"; git_t commit --quiet -m "$2"; }
 commit base.txt "base"
 
 # 1) merged by a merge commit
 git checkout --quiet -b merged-by-merge
 commit a.txt "a"
 git checkout --quiet main
-git merge --quiet --no-ff -m "merge a" merged-by-merge
+git_t merge --quiet --no-ff -m "merge a" merged-by-merge
 
 # 2) squash-merged: the change is in main under a different sha
 git checkout --quiet -b squashed-clean main
 commit b.txt "b"
 git checkout --quiet main
 git merge --quiet --squash squashed-clean
-git commit --quiet -m "squashed b"
+git_t commit --quiet -m "squashed b"
 
 # 3) THE CASE: squash-merged, then a new commit on the branch afterwards
 git checkout --quiet -b squashed-then-more main
 commit c.txt "c"
 git checkout --quiet main
 git merge --quiet --squash squashed-then-more
-git commit --quiet -m "squashed c"
+git_t commit --quiet -m "squashed c"
 git checkout --quiet squashed-then-more
 commit c2.txt "c2 — added after the merge"
 
@@ -162,7 +159,7 @@ commit base.txt "base"
 git checkout --quiet -b landed
 commit e.txt "e"
 git checkout --quiet staging
-git merge --quiet --no-ff -m "merge e" landed
+git_t merge --quiet --no-ff -m "merge e" landed
 # Stand somewhere else, so the current-branch rule cannot mask a missing base
 # guard the way it does when you happen to be on the base.
 git checkout --quiet -b parked staging
@@ -180,6 +177,31 @@ if git show-ref --verify --quiet refs/heads/landed; then
 else
   ok "the branch merged into that base was deleted"
 fi
+
+# The same guard, reached through the flag. `--base` is human-facing and people
+# type what they see: origin/main, refs/heads/main, refs/remotes/origin/main.
+# Un-normalised, none of those match a local branch name, so the base stops
+# being recognised as the base and is deleted as merged against itself.
+git remote add origin . 2>/dev/null || true
+i=0
+for spec in refs/heads/staging origin/staging refs/remotes/origin/staging; do
+  i=$((i + 1))
+  git checkout --quiet -b "landed${i}" staging
+  commit "f${i}.txt" "f${i}"
+  git checkout --quiet staging
+  git_t merge --quiet --no-ff -m "merge f${i}" "landed${i}"
+  git checkout --quiet parked
+
+  bash "$root_dir/scripts/prune_branches.sh" --no-fetch --base "$spec" --apply >/dev/null 2>&1 || \
+    error "prune_branches.sh failed with --base $spec"
+
+  if git show-ref --verify --quiet refs/heads/staging; then
+    ok "--base $spec keeps the base branch"
+  else
+    error "--base $spec DELETED the base branch"
+    git checkout --quiet -b staging "$(git rev-parse parked)" 2>/dev/null || true
+  fi
+done
 
 cd "$root_dir"
 if [[ "$failures" -gt 0 ]]; then
