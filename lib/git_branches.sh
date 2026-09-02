@@ -107,7 +107,10 @@ git_branches_has_unpushed() {
   [[ -n "$branch" ]] || return 2
   upstream="$(git rev-parse --abbrev-ref --symbolic-full-name "${branch}@{upstream}" 2>/dev/null)" || return 1
   [[ -n "$upstream" ]] || return 1
-  [[ -n "$(git rev-list "${upstream}..${branch}" 2>/dev/null)" ]]
+  # --max-count=1: the question is "are there any", not "how many". A
+  # long-lived branch can be thousands of commits ahead, and listing all of
+  # them to test a string for emptiness is work nobody asked for.
+  [[ -n "$(git rev-list --max-count=1 "${upstream}..${branch}" 2>/dev/null)" ]]
 }
 
 # Print the worktree a branch is checked out in, or nothing.

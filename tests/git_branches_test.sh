@@ -50,8 +50,18 @@ ok "protected-name matching"
 # one: configuring a name and address, even in a throwaway repo, is how a
 # commit ends up attributed to something nobody chose. Without an identity the
 # fixture is skipped and says so, rather than inventing one.
-if ! git config --get user.email >/dev/null 2>&1 && [[ -z "${GIT_AUTHOR_EMAIL:-}" ]]; then
-  note "SKIP: no git identity configured; fixture tests need one to commit"
+# git needs BOTH a name and an email, for the author and the committer alike;
+# checking only one lets the fixture past this guard and then fail further down
+# with "Please tell me who you are", which reads as a broken test rather than a
+# missing prerequisite.
+_have_identity() {
+  { git config --get user.name  >/dev/null 2>&1 || [[ -n "${GIT_AUTHOR_NAME:-}"  ]]; } &&
+  { git config --get user.email >/dev/null 2>&1 || [[ -n "${GIT_AUTHOR_EMAIL:-}" ]]; } &&
+  { git config --get user.name  >/dev/null 2>&1 || [[ -n "${GIT_COMMITTER_NAME:-}"  ]]; } &&
+  { git config --get user.email >/dev/null 2>&1 || [[ -n "${GIT_COMMITTER_EMAIL:-}" ]]; }
+}
+if ! _have_identity; then
+  note "SKIP: no complete git identity (name and email); the fixture cannot commit"
   exit "$(( failures > 0 ? 1 : 0 ))"
 fi
 
@@ -138,6 +148,38 @@ before="$(git for-each-ref --format='%(refname:short)' refs/heads/ | sort)"
 bash "$root_dir/scripts/prune_branches.sh" --no-fetch --base main >/dev/null 2>&1
 after="$(git for-each-ref --format='%(refname:short)' refs/heads/ | sort)"
 if [[ "$before" == "$after" ]]; then ok "a dry run deletes nothing"; else error "the dry run deleted something"; fi
+
+# A base branch with a name none of the protected patterns covers, which is not
+# the branch currently checked out. Every branch is an ancestor of itself, so
+# the base classifies as `merged` against itself; without an explicit guard the
+# pruner deletes the branch everything else merges into. Found in review of the
+# first version of this script, where exactly that guard was missing on the
+# local path.
+cd "$tmp"
+rm -rf base_guard && mkdir base_guard && cd base_guard
+git init --quiet -b staging .
+commit base.txt "base"
+git checkout --quiet -b landed
+commit e.txt "e"
+git checkout --quiet staging
+git merge --quiet --no-ff -m "merge e" landed
+# Stand somewhere else, so the current-branch rule cannot mask a missing base
+# guard the way it does when you happen to be on the base.
+git checkout --quiet -b parked staging
+
+bash "$root_dir/scripts/prune_branches.sh" --no-fetch --base staging --apply >/dev/null 2>&1 || \
+  error "prune_branches.sh failed on the non-standard base fixture"
+
+if git show-ref --verify --quiet refs/heads/staging; then
+  ok "a base branch with a non-standard name survives --apply"
+else
+  error "the base branch 'staging' was DELETED"
+fi
+if git show-ref --verify --quiet refs/heads/landed; then
+  error "the landed branch was not deleted"
+else
+  ok "the branch merged into that base was deleted"
+fi
 
 cd "$root_dir"
 if [[ "$failures" -gt 0 ]]; then

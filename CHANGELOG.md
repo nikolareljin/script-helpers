@@ -7,8 +7,8 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 ## 2026-09-02 — v0.24.0
 
 ### Added
-- `lib/git_branches.sh` and `scripts/prune_branches.sh`: branch maintenance any
-  repository vendoring these helpers can run. `git branch --merged` only sees
+- `lib/git_branches.sh` and `scripts/prune_branches.sh`: branch maintenance that
+  any repository vendoring these helpers can run. `git branch --merged` only sees
   merges that produced a merge commit, so a repository that squash-merges
   accumulates branches it will never list and people delete by hand. The
   squash case is detected by rebuilding the commit a squash merge would have

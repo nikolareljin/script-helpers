@@ -135,11 +135,23 @@ deletable_local=()
 deletable_remote=()
 kept=0
 
-# Decide one branch. Prints its row and, when it is disposable, echoes the
-# branch name on fd 3 for the caller to collect -- so the reporting and the
-# collecting cannot disagree about what was decided.
+# Decide one branch: print its row, and return 0 only when it is disposable.
+# The caller collects on that return code, so the row a person reads and the
+# list the script acts on come from the same decision and cannot disagree.
 classify_row() {
   local branch="$1" scope="$2" ref="$3" state reason worktree
+
+  # The base first, before anything else and for both scopes.
+  #
+  # Every branch is an ancestor of itself, so the base classifies as `merged`
+  # against itself and a pruner that forgets this deletes it. The protected
+  # names below do not save a repository whose base is called `staging` or
+  # `trunk-2`, and neither does the current-branch check, because the base is
+  # usually not the branch you are standing on when you prune.
+  if [[ "$branch" == "$BASE" ]]; then
+    printf '%-42s %-10s %s\n' "$branch" "-" "keep: this is the base branch"
+    return 1
+  fi
 
   if git_branches_is_protected "$branch" ${KEEP[@]+"${KEEP[@]}"}; then
     printf '%-42s %-10s %s\n' "$branch" "-" "keep: protected name"
@@ -189,7 +201,6 @@ if [[ "$DO_REMOTE" == "true" ]]; then
     [[ -n "$ref" ]] || continue
     branch="${ref#"${REMOTE_NAME}/"}"
     [[ "$branch" == "HEAD" ]] && continue
-    [[ "$branch" == "$BASE" ]] && continue
     if classify_row "$branch" remote "refs/remotes/$ref"; then
       deletable_remote+=("$branch")
     else
