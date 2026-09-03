@@ -79,6 +79,14 @@ Bundled CLIs
   `uninstall <serial> <package>`. Run `scripts/adb_tool.sh --help` for details.
   See [`modules/adb.md`](modules/adb.md).
 
+- `scripts/prune_branches.sh` — removes branches whose work has already landed,
+  including the squash and rebase merges `git branch --merged` cannot see, and
+  only when the branch gained nothing afterwards. A dry run by default; `--apply`
+  to act and `--remote` before a remote branch is considered at all. Options:
+  `--repo`, `--base`, `--remote-name`, `--keep <glob>`, `--no-fetch`. Run
+  `scripts/prune_branches.sh --help` for details.
+  See [`modules/git_branches.md`](modules/git_branches.md).
+
 Shared include and dependency check
 -----------------------------------
 

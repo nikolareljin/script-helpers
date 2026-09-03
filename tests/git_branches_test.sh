@@ -46,10 +46,13 @@ git_branches_is_protected feature/x && error "feature/x should not be protected 
 git_branches_is_protected feature/x 'feature/*' || error "feature/x should be protected by an extra pattern"
 ok "protected-name matching"
 
-# The fixture commits, so it needs an identity. This deliberately does not set
-# one: configuring a name and address, even in a throwaway repo, is how a
-# commit ends up attributed to something nobody chose. Without an identity the
-# fixture is skipped and says so, rather than inventing one.
+# The fixture commits, so it needs an identity, and it supplies its own with
+# `git -c` per command (see git_t below). Nothing is written to any
+# repository's configuration and the identity cannot outlive the command it is
+# passed to, so no commit is ever attributed to something nobody chose.
+#
+# It is injected rather than required, so the fixture always runs -- including
+# in CI, which has no identity of its own.
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 cd "$tmp"
