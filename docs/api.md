@@ -33,6 +33,7 @@ This index lists all modules and their functions. See the linked module pages fo
 - gradle — ./modules/gradle.md
 - android — ./modules/android.md
 - flutter — ./modules/flutter.md
+- git_branches — ./modules/git_branches.md
 - screencap — ./modules/screencap.md
 - manifest — ./modules/manifest.md
 - changelog — ./modules/changelog.md

@@ -16,6 +16,33 @@ if [[ -f .githooks/pre-push ]] && ! [[ .githooks/pre-push -ef "$0" ]]; then
   exec bash .githooks/pre-push "$@"
 fi
 
+# A push that only deletes refs adds no commits, so there is nothing for a test
+# suite to have an opinion about. Running one is pure latency, and it is the
+# kind of latency that teaches people to reach for --no-verify: pruning three
+# merged branches otherwise runs the full gate three times, once per deletion.
+#
+# Deliberately conservative. The gate is skipped only when EVERY ref in this
+# push is a deletion; one added ref alongside them and the checks run as usual.
+# Zeroes are matched as a pattern rather than compared with a 40-character
+# constant, because a SHA-256 repository writes 64 of them.
+_push_is_deletions_only() {
+  local lref lsha rref rsha saw_ref=false
+  # git feeds four fields per ref. Three are unread, but all four must be
+  # consumed positionally or the shas land in the wrong variables.
+  # shellcheck disable=SC2034
+  while read -r lref lsha rref rsha; do
+    [[ -n "${lsha:-}" ]] || continue
+    saw_ref=true
+    [[ "$lsha" =~ ^0+$ ]] || return 1
+  done
+  [[ "$saw_ref" == "true" ]]
+}
+
+if _push_is_deletions_only; then
+  echo "[pre-push] deletions only — no new commits to check."
+  exit 0
+fi
+
 # Resolve local_test_*.sh scripts directory; submodule path takes priority.
 _scripts_dir=""
 if [[ -d "$repo_root/scripts/script-helpers/scripts" ]]; then
