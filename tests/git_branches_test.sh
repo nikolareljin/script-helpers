@@ -125,6 +125,31 @@ else
   error "unexpected self-classification"
 fi
 
+# The squash probe must work where there is no git identity at all.
+#
+# `git commit-tree` refuses to run without an author and a committer, and CI
+# has neither. Before this was fixed the probe failed, the error was swallowed,
+# and every squash-merged branch came back `unmerged` -- so the check that
+# justifies this whole module reported a confident wrong answer, and only in
+# the environment nobody watches. This test failed in CI while passing on a
+# developer machine, which is the failure mode it now guards.
+#
+# GIT_CONFIG_GLOBAL and GIT_CONFIG_SYSTEM are pointed at /dev/null rather than
+# relying on HOME, so no configuration file anywhere can supply an identity.
+# shellcheck disable=SC2016  # $1 is for the inner bash -c, not this shell
+no_identity_state="$(
+  env -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL \
+      -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL \
+      GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+      bash -c 'source "$1"/helpers.sh; shlib_import git_branches; git_branches_merge_state main squashed-clean' \
+      _ "$root_dir"
+)"
+if [[ "$no_identity_state" == "squashed" ]]; then
+  ok "squash detection works with no git identity available"
+else
+  error "with no git identity, squashed-clean came back '$no_identity_state' (expected squashed)"
+fi
+
 # End to end: the script must delete exactly the two landed branches.
 out="$(bash "$root_dir/scripts/prune_branches.sh" --no-fetch --base main --apply 2>&1)" || {
   echo "$out"; error "prune_branches.sh --apply failed"

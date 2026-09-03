@@ -20,7 +20,14 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   the protection falls out of the check rather than being a rule to remember.
   It is a dry run by default, refuses the base branch, the current branch, a
   branch checked out in another worktree, protected names including
-  `release/*`, and anything holding commits its upstream does not.
+  `release/*`, and anything holding commits its upstream does not. `--base`
+  accepts `main`, `origin/main` or a full ref and normalises before comparing,
+  because an un-normalised base matches no local branch and stops being
+  recognised as the base. The squash probe carries its own throwaway identity:
+  `git commit-tree` refuses to run without one, and where there is none the
+  probe would fail silently and report every squash-merged branch as unmerged.
+  A probe that cannot run now reports `unknown` rather than `unmerged` — both
+  keep the branch, but only one of them means the question was answered.
 - `tests/git_branches_test.sh`: a fixture repository covering merge-commit,
   squash, never-merged and unrelated histories — and the case the file exists
   for, a branch squash-merged and then committed to again, which must survive.

@@ -54,6 +54,9 @@ git_branches_default_branch() {
 #              is already in base -- a squash or rebase merge, or a cherry-pick
 #   unmerged   the branch carries work base does not have
 #   unrelated  the two share no history at all
+#   unknown    the squash probe could not be built, so the question was not
+#              answered. Deliberately distinct from `unmerged`: both keep the
+#              branch, but only one of them means "I checked".
 #
 # Returns 2 on bad arguments. Prints to stdout and nothing else, so it can be
 # used in a command substitution without a subshell swallowing a diagnostic.
@@ -85,12 +88,36 @@ git_branches_merge_state() {
   # author, date or message.
   #
   # The commit is dangling and unreferenced; git will garbage-collect it.
+  # The probe carries its own identity.
+  #
+  # `git commit-tree` refuses to run without an author and a committer, and an
+  # environment with no git identity -- CI, a fresh container, a cron user --
+  # is exactly where this runs unattended. Without this, the probe fails, the
+  # error is swallowed, and every squash-merged branch is reported `unmerged`:
+  # the tool silently stops doing the one thing it exists for, while still
+  # printing a confident answer.
+  #
+  # Passed as environment rather than written with `git config`, because the
+  # commit is a throwaway that is never referenced and nothing should outlive
+  # it. A real identity is never appropriate here -- this object is a probe,
+  # not a contribution.
+  #
+  # A failure now reports `unknown` rather than `unmerged`. Both keep the
+  # branch, but only one of them means the question was answered.
   local tree synth
-  tree="$(git rev-parse "${branch}^{tree}" 2>/dev/null)" || { printf 'unmerged\n'; return 0; }
-  synth="$(git commit-tree "$tree" -p "$mb" -m 'prune-branches probe' 2>/dev/null)" \
-    || { printf 'unmerged\n'; return 0; }
+  tree="$(git rev-parse "${branch}^{tree}" 2>/dev/null)" || { printf 'unknown\n'; return 0; }
+  synth="$(
+    GIT_AUTHOR_NAME='prune-branches probe'  GIT_AUTHOR_EMAIL='probe@localhost' \
+    GIT_COMMITTER_NAME='prune-branches probe' GIT_COMMITTER_EMAIL='probe@localhost' \
+    git commit-tree "$tree" -p "$mb" -m 'prune-branches probe' 2>/dev/null
+  )" || { printf 'unknown\n'; return 0; }
+  [[ -n "$synth" ]] || { printf 'unknown\n'; return 0; }
 
-  if git cherry "$base" "$synth" 2>/dev/null | grep -q '^-'; then
+  local cherry
+  cherry="$(git cherry "$base" "$synth" 2>/dev/null)" || { printf 'unknown\n'; return 0; }
+  [[ -n "$cherry" ]] || { printf 'unknown\n'; return 0; }
+
+  if printf '%s\n' "$cherry" | grep -q '^-'; then
     printf 'squashed\n'
   else
     printf 'unmerged\n'

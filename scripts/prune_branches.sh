@@ -198,6 +198,7 @@ classify_row() {
     squashed) reason="delete: squash-merged (content already in base)" ;;
     unmerged) reason="keep: carries work the base does not have" ;;
     unrelated) reason="keep: shares no history with the base" ;;
+    unknown)  reason="keep: could not determine whether it landed" ;;
     *)        reason="keep: could not classify" ;;
   esac
   printf '%-42s %-10s %s\n' "$branch" "$state" "$reason"
