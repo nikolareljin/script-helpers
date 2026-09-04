@@ -1,6 +1,6 @@
-SHELL := /bin/bash
+SHELL := $(shell command -v bash)
 
-.PHONY: help examples example_logging example_env example_json example_dialog_input example_download example_docker example_package_publish lint-docs install-git-hooks test
+.PHONY: help examples example_logging example_env example_json example_dialog_input example_download example_docker example_package_publish lint-docs install-git-hooks test test-bash32
 
 help:
 	@echo "Available targets:"
@@ -9,6 +9,7 @@ help:
 	@echo "  make examples RUN_INTERACTIVE=1  # Include interactive dialog example"
 	@echo "  make lint-docs                # Verify docs cover modules and functions"
 	@echo "  make test                     # Run tests under tests/"
+	@echo "  make test-bash32              # Run tests under bash 3.2 (macOS's shell)"
 	@echo "  make install-git-hooks        # Install pre-commit hook to run lint-docs"
 	@echo "  make example_<name>           # Run a specific example"
 
@@ -77,6 +78,9 @@ lint-docs:
 	@# when the shape is wrong. This repository shipped the checker and never
 	@# ran it, so its own headers had drifted for twenty releases.
 	@bash -c 'source helpers.sh && shlib_import logging changelog && changelog_check_header CHANGELOG.md'
+
+test-bash32:
+	@bash scripts/local_test_bash32.sh
 
 test:
 	@for f in tests/*_test.sh; do \

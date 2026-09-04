@@ -107,7 +107,8 @@ list_port_listener_pids() {
 port_in_use_by() {
   local port="$1"
   local -a details=()
-  mapfile -t details < <(list_port_usage_details "$port" 2>/dev/null || true)
+  details=()
+  while IFS= read -r _sh_line; do details+=("$_sh_line"); done < <(list_port_usage_details "$port" 2>/dev/null || true)
   if [[ ${#details[@]} -gt 0 ]]; then
     printf '%s\n' "${details[@]}"
     return 0
@@ -139,7 +140,10 @@ check_required_ports_available() {
   REQUIRED_PORT_CONFLICTS_JSON="[]"
 
   local entry var default port
-  declare -A port_to_vars=()
+  # Indexed, not associative: every key here is a port number, so an indexed
+  # array indexes identically on bash 3.2 and 5.x while an associative one
+  # silently degrades on 3.2 into exactly this with no guarantee about it.
+  declare -a port_to_vars=()
 
   for entry in "${REQUIRED_PORT_DEFAULTS[@]}"; do
     var="${entry%%:*}"; default="${entry#*:}"
@@ -150,6 +154,9 @@ check_required_ports_available() {
       REQUIRED_PORT_CONFLICT_SUMMARIES+=("Invalid port for ${var}: $port")
       continue
     fi
+    # Normalise before subscripting: an array subscript is an arithmetic
+    # context, where a leading zero would be read as octal.
+    port=$((10#$port))
     if [[ -n "${port_to_vars[$port]:-}" ]]; then
       port_to_vars[$port]="${port_to_vars[$port]},$var"
     else
@@ -160,7 +167,8 @@ check_required_ports_available() {
   local -a json_entries=()
   local conflict_found=0
   for port in "${!port_to_vars[@]}"; do
-    mapfile -t details < <(list_port_usage_details "$port" 2>/dev/null || true)
+    details=()
+    while IFS= read -r _sh_line; do details+=("$_sh_line"); done < <(list_port_usage_details "$port" 2>/dev/null || true)
     if [[ ${#details[@]} -gt 0 ]]; then
       conflict_found=1
       IFS=',' read -ra vars_for_port <<< "${port_to_vars[$port]}"

@@ -148,7 +148,7 @@ dev_python_install() {
   # The dev extra is where a project declares its test and lint tools. Preflight
   # needs them, so install owes them too. Installed by path rather than by
   # cd-ing: $py is relative to the repo root, and a cd would break it.
-  if [[ -f "$d/pyproject.toml" ]] && grep -qE '^\s*dev\s*=' "$d/pyproject.toml"; then
+  if [[ -f "$d/pyproject.toml" ]] && grep -qE '^[[:space:]]*dev[[:space:]]*=' "$d/pyproject.toml"; then
     log_info "install: $py -m pip install -e '$d[dev]'"
     "$py" -m pip install -e "$d[dev]" --quiet \
       || log_warn "install: the dev extra did not install; continuing"
@@ -183,7 +183,17 @@ verb_build() {
     local d; d="$(dev_stack_dir flutter || echo .)"
     case "${DEV_TARGET:-android}" in
       android) flutter_build apk "$d" "--$mode" ;;
-      ios)     flutter_build ios "$d" "--$mode" ;;
+      ios)
+        shlib_import ios
+        ios_available || not_applicable "build ios" "iOS builds need macOS with Xcode"
+        if [[ "$mode" == "release" ]]; then
+          # ios_build_release owns the ExportOptions plist and the --no-codesign
+          # fallback; flutter_build reaches neither.
+          ios_build_release "$d" "${IOS_EXPORT_OPTIONS_PLIST:-}"
+        else
+          flutter_build ios "$d" "--$mode" --simulator
+        fi
+        ;;
       *)       flutter_build "${DEV_TARGET}" "$d" "--$mode" ;;
     esac
     return
@@ -202,7 +212,15 @@ verb_run() {
     shlib_import flutter
     local d dev_id
     d="$(dev_stack_dir flutter || echo .)"
-    dev_id="$(flutter_resolve_device "$DEV_DEVICE" "$d")" || exit 1
+    if [[ "${DEV_TARGET:-}" == "ios" ]]; then
+      # Resolve against booted simulators rather than `flutter devices`, so the
+      # error when none is booted names the actual problem.
+      shlib_import ios
+      ios_available || not_applicable "run ios" "iOS needs macOS with Xcode"
+      dev_id="$(ios_resolve_device "$DEV_DEVICE")" || exit 1
+    else
+      dev_id="$(flutter_resolve_device "$DEV_DEVICE" "$d")" || exit 1
+    fi
     flutter_run_cmd "$d" run -d "$dev_id"
     return
   fi
@@ -219,14 +237,55 @@ verb_preflight() {
   bash "$SCRIPT_HELPERS_DIR/scripts/preflight.sh" "${DEV_ARGS[@]+"${DEV_ARGS[@]}"}"
 }
 
-verb_deploy() {
-  declare -f project_deploy >/dev/null && { project_deploy; return; }
+# Deploy to a booted simulator. Kept separate from the Android path because the
+# two share no step: different build flag, different resolver, different
+# installer. `./dev deploy ios` used to fall through to adb and install an APK.
+_deploy_ios() {
+  shlib_import ios flutter
+  ios_available || not_applicable "deploy ios" "iOS needs macOS with Xcode"
+  dev_is_flutter || { log_error "deploy ios: no Flutter project detected"; exit 1; }
+
+  local d mode=debug udid artifact bundle
+  d="$(dev_stack_dir flutter || echo .)"
+  [[ "$DEV_RELEASE" == "true" ]] && mode=release
+
+  udid="$(ios_resolve_device "$DEV_DEVICE")" || exit 1
+
+  if [[ "$mode" == "release" ]]; then
+    ios_build_release "$d" "${IOS_EXPORT_OPTIONS_PLIST:-}" || exit 1
+    artifact="$(ios_artifact "$d" ipa)" || {
+      log_error "deploy ios: no IPA under $d/build/ios/ipa"
+      exit 1
+    }
+  else
+    # `flutter build ios` targets a physical device; the .app it produces cannot
+    # be installed on a simulator.
+    flutter_build ios "$d" --debug --simulator || exit 1
+    artifact="$(ios_artifact "$d" simulator)" || {
+      log_error "deploy ios: no .app under $d/build/ios/iphonesimulator"
+      exit 1
+    }
+  fi
+
+  ios_install "$udid" "$artifact" || exit 1
+
+  if [[ "$artifact" == *.app ]]; then
+    if bundle="$(ios_bundle_id "$artifact")" && [[ -n "$bundle" ]]; then
+      ios_launch "$udid" "$bundle"
+    else
+      log_warn "deploy ios: installed, but the bundle id could not be read — launch it by hand."
+    fi
+  fi
+}
+
+_deploy_android() {
   shlib_import adb android
   local mode=debug; [[ "$DEV_RELEASE" == "true" ]] && mode=release
   local serial="$DEV_DEVICE" artifact
 
   if [[ -z "$serial" ]]; then
-    mapfile -t _serials < <(adb_ready_serials)
+    _serials=()
+    while IFS= read -r _sh_line; do _serials+=("$_sh_line"); done < <(adb_ready_serials)
     [[ ${#_serials[@]} -eq 1 ]] || {
       log_error "deploy: ${#_serials[@]} devices ready — pass --device <serial>"
       adb_list_devices
@@ -261,6 +320,15 @@ verb_deploy() {
     log_warn "deploy: confirm by hand with: adb -s $serial shell pm list packages --user $DEV_USER"
     adb_install "$serial" "$artifact" --user "$DEV_USER"
   fi
+}
+
+verb_deploy() {
+  declare -f project_deploy >/dev/null && { project_deploy; return; }
+  case "${DEV_TARGET:-android}" in
+    android) _deploy_android ;;
+    ios)     _deploy_ios ;;
+    *) not_applicable "deploy ${DEV_TARGET}" "deploy installs on a device; targets are android and ios" ;;
+  esac
 }
 
 verb_devices() {
@@ -302,7 +370,8 @@ verb_logs() {
   shlib_import adb
   local serial="$DEV_DEVICE"
   if [[ -z "$serial" ]]; then
-    mapfile -t _serials < <(adb_ready_serials)
+    _serials=()
+    while IFS= read -r _sh_line; do _serials+=("$_sh_line"); done < <(adb_ready_serials)
     [[ ${#_serials[@]} -ge 1 ]] || { log_error "logs: no device ready"; exit 1; }
     serial="${_serials[0]}"
   fi

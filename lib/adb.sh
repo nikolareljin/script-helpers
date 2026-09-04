@@ -62,7 +62,8 @@ adb_list_devices() {
     log_warn "adb not found. Install the Android platform-tools and put adb on PATH."
     return 1
   fi
-  mapfile -t serials < <(adb_ready_serials)
+  serials=()
+  while IFS= read -r _sh_line; do serials+=("$_sh_line"); done < <(adb_ready_serials)
   if [[ ${#serials[@]} -eq 0 ]]; then
     log_warn "No ready devices. Check the USB cable and 'adb devices' — authorize the on-phone prompt if it shows 'unauthorized'."
     return 0
@@ -247,7 +248,8 @@ adb_install_all() {
   local -a serials=()
   adb_available || return 1
   [[ -n "$apk" && -f "$apk" ]] || { log_error "adb_install_all: APK not found: ${apk:-<none>}"; return 2; }
-  mapfile -t serials < <(adb_ready_serials)
+  serials=()
+  while IFS= read -r _sh_line; do serials+=("$_sh_line"); done < <(adb_ready_serials)
   [[ ${#serials[@]} -gt 0 ]] || { log_warn "No ready devices to install to."; return 0; }
   for s in "${serials[@]}"; do
     if adb_install "$s" "$apk" "$@" >/dev/null 2>&1; then

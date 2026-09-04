@@ -148,4 +148,94 @@ iPhone 15 Pro (11111111-2222-3333-4444-555555555555) (Booted)'
   exit 1
 }
 
+# --- ios_resolve_device ----------------------------------------------------
+#
+# The wiring of `./dev deploy ios` hangs off this: an ambiguous or absent
+# simulator has to be an error naming the fix, not a guess. Before this the verb
+# ignored its target word entirely and installed an APK over adb.
+
+ios_booted_simulators() { printf '%s\n' $booted_fixture; }
+
+booted_fixture="11111111-2222-3333-4444-555555555555"
+got="$(ios_resolve_device 2>/dev/null)" || got="FAILED"
+[[ "$got" == "11111111-2222-3333-4444-555555555555" ]] || {
+  echo "one booted simulator should resolve to it, got: $got" >&2
+  exit 1
+}
+
+booted_fixture=""
+if ios_resolve_device >/dev/null 2>&1; then
+  echo "no booted simulator should not resolve" >&2
+  exit 1
+fi
+msg="$(ios_resolve_device 2>&1)" || true
+case "$msg" in
+  *"no booted simulator"*) ;;
+  *) echo "the no-simulator error should say so: $msg" >&2; exit 1 ;;
+esac
+
+booted_fixture="AAAAAAAA-1111-2222-3333-444444444444 BBBBBBBB-1111-2222-3333-444444444444"
+if ios_resolve_device >/dev/null 2>&1; then
+  echo "two booted simulators should be ambiguous" >&2
+  exit 1
+fi
+msg="$(ios_resolve_device 2>&1)" || true
+case "$msg" in
+  *"--device"*) ;;
+  *) echo "the ambiguity error should name --device: $msg" >&2; exit 1 ;;
+esac
+
+# An explicitly requested simulator that is booted is honoured.
+got="$(ios_resolve_device AAAAAAAA-1111-2222-3333-444444444444 2>/dev/null)" || got="FAILED"
+[[ "$got" == "AAAAAAAA-1111-2222-3333-444444444444" ]] || {
+  echo "an explicit booted udid should be honoured, got: $got" >&2
+  exit 1
+}
+
+# --- ios_artifact ----------------------------------------------------------
+art_tmp="$(mktemp -d)"
+trap 'rm -rf "$art_tmp"' EXIT
+
+if ios_artifact "$art_tmp" simulator >/dev/null 2>&1; then
+  echo "ios_artifact should fail when nothing is built" >&2
+  exit 1
+fi
+
+mkdir -p "$art_tmp/build/ios/iphonesimulator/Runner.app"
+got="$(ios_artifact "$art_tmp" simulator)" || got="FAILED"
+[[ "$got" == "$art_tmp/build/ios/iphonesimulator/Runner.app" ]] || {
+  echo "simulator artifact not found: $got" >&2
+  exit 1
+}
+
+mkdir -p "$art_tmp/build/ios/ipa"
+: > "$art_tmp/build/ios/ipa/Runner.ipa"
+got="$(ios_artifact "$art_tmp" ipa)" || got="FAILED"
+[[ "$got" == "$art_tmp/build/ios/ipa/Runner.ipa" ]] || {
+  echo "ipa artifact not found: $got" >&2
+  exit 1
+}
+
+# Captured rather than tested through $?: this file runs under `set -e`, which
+# would abort on the deliberate failure before the assertion could read it.
+art_rc=0
+ios_artifact "$art_tmp" nonsense >/dev/null 2>&1 || art_rc=$?
+[[ "$art_rc" -eq 2 ]] || {
+  echo "an unknown artifact mode should exit 2, got $art_rc" >&2
+  exit 1
+}
+
+# --- ios_bundle_id ---------------------------------------------------------
+# PlistBuddy and plutil are macOS-only and are called by absolute path, so only
+# the argument handling is assertable off a Mac. The happy path is covered by
+# the manual macOS checklist.
+if ios_bundle_id "$art_tmp/nope.app" >/dev/null 2>&1; then
+  echo "ios_bundle_id should reject a missing .app" >&2
+  exit 1
+fi
+if ios_bundle_id "$art_tmp/build/ios/iphonesimulator/Runner.app" >/dev/null 2>&1; then
+  echo "ios_bundle_id should reject an .app with no Info.plist" >&2
+  exit 1
+fi
+
 echo "ios tests passed"
