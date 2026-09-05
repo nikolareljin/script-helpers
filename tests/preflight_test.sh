@@ -21,7 +21,15 @@ run_list() { CI="" bash "$PF" --dir "$1" --list 2>/dev/null; }
 
 has_pair() {
   # has_pair <output> <stack> <dir>
-  printf '%s\n' "$1" | grep -q "^$2	$3$"
+  #
+  # Fixed-string, not grep: preflight --list emits a literal "<stack><TAB><dir>"
+  # line, and the dir for a root project is ".", which as a regex matches any
+  # character. A regex here would pass on output it should reject.
+  local want="$2	$3"
+  case $'\n'"$1"$'\n' in
+    *$'\n'"$want"$'\n'*) return 0 ;;
+  esac
+  return 1
 }
 
 # --- a Flutter app at the repo root ----------------------------------------

@@ -1,4 +1,9 @@
-SHELL := $(shell command -v bash)
+# `command -v bash` comes back empty when bash is not on PATH, and Make then
+# silently falls back to /bin/sh, where every [[ ... ]] in these recipes breaks.
+# Fall back to /bin/bash explicitly: on macOS that is bash 3.2, which this
+# library supports, so the recipes still run.
+BASH_BIN := $(shell command -v bash 2>/dev/null)
+SHELL := $(if $(BASH_BIN),$(BASH_BIN),/bin/bash)
 
 .PHONY: help examples example_logging example_env example_json example_dialog_input example_download example_docker example_package_publish lint-docs install-git-hooks test test-bash32
 
