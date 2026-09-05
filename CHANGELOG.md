@@ -73,8 +73,11 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   resolves a booted simulator, builds, installs and launches; `build ios
   --release` goes through `ios_build_release`, so the signed-IPA path is
   reachable from `./dev` for the first time. New: `ios_resolve_device`,
-  `ios_bundle_id` and `ios_artifact` — the last two are what `ios_install` and
-  `ios_launch` needed to be callable at all. `flutter_build` gained
+  `ios_resolve_physical_device`, `ios_bundle_id` and `ios_artifact` — the last
+  two are what `ios_install` and `ios_launch` needed to be callable at all, and
+  the two resolvers exist separately because a debug deploy installs a simulator
+  `.app` through simctl while a release deploy installs a signed `.ipa` through
+  devicectl onto real hardware. Resolving a simulator for the latter cannot work. `flutter_build` gained
   `--simulator`, because `flutter build ios` targets a physical device and the
   `.app` it produces cannot be installed on a simulator.
 

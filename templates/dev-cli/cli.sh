@@ -237,9 +237,16 @@ verb_preflight() {
   bash "$SCRIPT_HELPERS_DIR/scripts/preflight.sh" "${DEV_ARGS[@]+"${DEV_ARGS[@]}"}"
 }
 
-# Deploy to a booted simulator. Kept separate from the Android path because the
-# two share no step: different build flag, different resolver, different
-# installer. `./dev deploy ios` used to fall through to adb and install an APK.
+# Deploy to a booted simulator (debug) or an attached device (release).
+#
+# Kept separate from the Android path because the two share no step: different
+# build flag, different resolver, different installer. `./dev deploy ios` used
+# to fall through to adb and install an APK.
+#
+# The two iOS modes are not interchangeable either. A debug build produces a
+# simulator .app that installs through simctl; a release build produces a signed
+# .ipa that installs through devicectl onto real hardware. Resolving a simulator
+# UDID for an .ipa cannot work, so each mode resolves its own kind of device.
 _deploy_ios() {
   shlib_import ios flutter
   ios_available || not_applicable "deploy ios" "iOS needs macOS with Xcode"
@@ -249,15 +256,18 @@ _deploy_ios() {
   d="$(dev_stack_dir flutter || echo .)"
   [[ "$DEV_RELEASE" == "true" ]] && mode=release
 
-  udid="$(ios_resolve_device "$DEV_DEVICE")" || exit 1
-
   if [[ "$mode" == "release" ]]; then
+    # Resolved before building: a signed build is slow, and "no device attached"
+    # is worth hearing before it rather than after.
+    udid="$(ios_resolve_physical_device "$DEV_DEVICE")" || exit 1
     ios_build_release "$d" "${IOS_EXPORT_OPTIONS_PLIST:-}" || exit 1
     artifact="$(ios_artifact "$d" ipa)" || {
       log_error "deploy ios: no IPA under $d/build/ios/ipa"
+      log_error "deploy ios: a release deploy installs a signed .ipa on an attached device; set IOS_EXPORT_OPTIONS_PLIST"
       exit 1
     }
   else
+    udid="$(ios_resolve_device "$DEV_DEVICE")" || exit 1
     # `flutter build ios` targets a physical device; the .app it produces cannot
     # be installed on a simulator.
     flutter_build ios "$d" --debug --simulator || exit 1
@@ -269,12 +279,17 @@ _deploy_ios() {
 
   ios_install "$udid" "$artifact" || exit 1
 
+  # Only the simulator can be launched from here: simctl launch has no devicectl
+  # equivalent that works without a debug session, so a device install stops at
+  # installed.
   if [[ "$artifact" == *.app ]]; then
     if bundle="$(ios_bundle_id "$artifact")" && [[ -n "$bundle" ]]; then
       ios_launch "$udid" "$bundle"
     else
       log_warn "deploy ios: installed, but the bundle id could not be read — launch it by hand."
     fi
+  else
+    log_info "deploy ios: installed on $udid — open it on the device."
   fi
 }
 

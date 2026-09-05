@@ -211,6 +211,59 @@ got="$(ios_resolve_device "iPhone 99" 2>/dev/null)" && {
   exit 1
 }
 
+# --- ios_resolve_physical_device -------------------------------------------
+#
+# A release deploy installs a signed .ipa, which devicectl puts on real
+# hardware. Resolving a simulator UDID for it could never work, so this is a
+# separate resolver with the same none/one/many discipline.
+
+xctrace_output='== Devices ==
+Nikos iPhone (18.5) (00008110-001234567890001E)
+== Simulators ==
+iPhone 15 Simulator (18.5) (AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE)'
+got="$(ios_resolve_physical_device 2>/dev/null)" || got="FAILED"
+[[ "$got" == "00008110-001234567890001E" ]] || {
+  echo "one attached device should resolve to it, got: $got" >&2
+  exit 1
+}
+
+# A name is accepted and still comes back as a UDID.
+got="$(ios_resolve_physical_device "Nikos iPhone" 2>/dev/null)" || got="FAILED"
+[[ "$got" == "00008110-001234567890001E" ]] || {
+  echo "a device name should resolve to its UDID, got: $got" >&2
+  exit 1
+}
+
+# A simulator is not a device: its UDID must not resolve here.
+if ios_resolve_physical_device "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE" >/dev/null 2>&1; then
+  echo "a simulator UDID resolved as a physical device" >&2
+  exit 1
+fi
+
+xctrace_output='== Devices =='
+if ios_resolve_physical_device >/dev/null 2>&1; then
+  echo "no attached device should not resolve" >&2
+  exit 1
+fi
+msg="$(ios_resolve_physical_device 2>&1)" || true
+case "$msg" in
+  *"no iPhone or iPad attached"*) ;;
+  *) echo "the no-device error should say so: $msg" >&2; exit 1 ;;
+esac
+
+xctrace_output='== Devices ==
+Nikos iPhone (18.5) (00008110-001234567890001E)
+Office iPad (17.7.8) (00008101-00ABCDEF1234001E)'
+if ios_resolve_physical_device >/dev/null 2>&1; then
+  echo "two attached devices should be ambiguous" >&2
+  exit 1
+fi
+msg="$(ios_resolve_physical_device 2>&1)" || true
+case "$msg" in
+  *"--device"*) ;;
+  *) echo "the ambiguity error should name --device: $msg" >&2; exit 1 ;;
+esac
+
 # --- ios_artifact ----------------------------------------------------------
 art_tmp="$(mktemp -d)"
 # One trap covering both temp directories: `trap ... EXIT` replaces the handler

@@ -98,6 +98,15 @@ when no simulator is booted or when more than one is — an ambiguous device is 
 question for the caller rather than something to guess at, the same contract as
 `flutter_resolve_device`.
 
+### `ios_resolve_physical_device [preferred]`
+
+Prints the UDID of an attached iPhone or iPad, accepting a UDID or a device
+name and always returning a UDID. Same none/one/many discipline as
+`ios_resolve_device`, but for real hardware — a signed `.ipa` installs through
+`devicectl` onto a device and can never be installed on a simulator, so the two
+need separate resolvers. Returns `1` when nothing is attached, when the choice
+is ambiguous, or when `preferred` matches no attached device.
+
 ### `ios_bundle_id <path.app>`
 
 Prints the `CFBundleIdentifier` of a built `.app`, read from its `Info.plist`

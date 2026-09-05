@@ -116,7 +116,7 @@ if [[ -n "$SHIMS" ]]; then
     cat > "$dest" <<EOF
 #!/usr/bin/env bash
 # Compatibility shim. Use ./dev $name — this is removed one minor version on.
-exec "\$(dirname "\$0")/dev" $name "\$@"
+exec "\$(dirname "\$0")/dev" "$name" "\$@"
 EOF
     chmod 755 "$dest"
   done

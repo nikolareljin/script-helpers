@@ -498,10 +498,17 @@ only for iOS work is not asked for the Android toolchain.
 ./dev build ios --release          # signed IPA via ios_build_release
 ```
 
-`deploy ios` builds with `flutter build ios --simulator`; a plain
+A debug `deploy ios` builds with `flutter build ios --simulator`; a plain
 `flutter build ios` targets a physical device and produces an `.app` that
 `simctl install` cannot use. With no simulator booted, or with more than one and
 no `--device`, it fails with a message naming the fix rather than guessing.
+
+The two modes are not interchangeable. `--release` builds a signed `.ipa` and
+installs it through `devicectl` onto an **attached device**, so it resolves an
+attached device rather than a simulator, and stops at installed — `simctl
+launch` has no devicectl equivalent that works without a debug session. A debug
+deploy targets a booted **simulator**. Set `IOS_EXPORT_OPTIONS_PLIST` for the
+signed build.
 
 Set `IOS_EXPORT_OPTIONS_PLIST` for a signed release build, and `IOS_DEVICE` to
 pin a simulator without passing `--device` each time.

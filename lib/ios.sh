@@ -215,6 +215,43 @@ ios_resolve_device() {
   printf '%s\n' "${booted[0]}"
 }
 
+# Usage: ios_resolve_physical_device [preferred]; prints the UDID of an attached
+# iPhone or iPad. The same none/one/many discipline as ios_resolve_device, but
+# for real hardware: an .ipa installs through devicectl onto a device and can
+# never be installed on a simulator, so the two need separate resolvers.
+ios_resolve_physical_device() {
+  ios_available || return 1
+  local preferred="${1:-${IOS_DEVICE:-}}" line name udid
+  local -a udids=() labels=()
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    # ios_list_devices prints "<name> (<udid>)".
+    udid="${line##*(}"; udid="${udid%)}"
+    name="${line% (*}"
+    [[ -n "$udid" ]] || continue
+    udids+=("$udid"); labels+=("$line")
+    if [[ -n "$preferred" && ( "$preferred" == "$udid" || "$preferred" == "$name" ) ]]; then
+      printf '%s\n' "$udid"
+      return 0
+    fi
+  done < <(ios_list_devices 2>/dev/null)
+
+  if [[ -n "$preferred" ]]; then
+    echo "ios_resolve_physical_device: '$preferred' is not an attached device" >&2
+    return 1
+  fi
+  if [[ ${#udids[@]} -eq 0 ]]; then
+    echo "ios_resolve_physical_device: no iPhone or iPad attached (trust the Mac on the device, or pass --device)" >&2
+    return 1
+  fi
+  if [[ ${#udids[@]} -gt 1 ]]; then
+    echo "ios_resolve_physical_device: ${#udids[@]} devices attached -- pass --device" >&2
+    printf '  %s\n' "${labels[@]}" >&2
+    return 1
+  fi
+  printf '%s\n' "${udids[0]}"
+}
+
 # Usage: ios_bundle_id <path.app>; prints the CFBundleIdentifier of a built app.
 # ios_launch needs a bundle id rather than a path, and reading it from the
 # artifact is the only source that reflects the flavor actually built.
