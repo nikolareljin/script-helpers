@@ -152,6 +152,7 @@ flutter_devices() {
 # is ambiguous — an ambiguous device is a question for the caller, not a guess.
 flutter_resolve_device() {
   local preferred="${1:-${FLUTTER_DEVICE:-}}" dir="${2:-.}" ids
+  local _sh_line
   local -a devices=()
   devices=()
   while IFS= read -r _sh_line; do devices+=("$_sh_line"); done < <(flutter_devices "$dir" 2>/dev/null)

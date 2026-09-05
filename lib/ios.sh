@@ -178,7 +178,7 @@ _ios__booted_udid_for() {
 
 ios_resolve_device() {
   ios_available || return 1
-  local preferred="${1:-${IOS_DEVICE:-}}" udid
+  local preferred="${1:-${IOS_DEVICE:-}}" udid _sh_line
   local -a booted=()
   while IFS= read -r _sh_line; do
     [[ -n "$_sh_line" ]] && booted+=("$_sh_line")

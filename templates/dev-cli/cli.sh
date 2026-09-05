@@ -296,7 +296,8 @@ _deploy_ios() {
 _deploy_android() {
   shlib_import adb android
   local mode=debug; [[ "$DEV_RELEASE" == "true" ]] && mode=release
-  local serial="$DEV_DEVICE" artifact
+  local serial="$DEV_DEVICE" artifact _sh_line
+  local -a _serials=()
 
   if [[ -z "$serial" ]]; then
     _serials=()
@@ -383,7 +384,8 @@ verb_record() {
 verb_logs() {
   declare -f project_logs >/dev/null && { project_logs; return; }
   shlib_import adb
-  local serial="$DEV_DEVICE"
+  local serial="$DEV_DEVICE" _sh_line
+  local -a _serials=()
   if [[ -z "$serial" ]]; then
     _serials=()
     while IFS= read -r _sh_line; do _serials+=("$_sh_line"); done < <(adb_ready_serials)

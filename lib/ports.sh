@@ -5,7 +5,7 @@ PORT_DETECTION_ALLOW_SUDO=${PORT_DETECTION_ALLOW_SUDO:-false}
 
 # Usage: list_port_usage_details <port>; prints process/user details for listeners.
 list_port_usage_details() {
-  local port="$1"
+  local port="$1" line
   local -a details=()
   local allow_sudo="$PORT_DETECTION_ALLOW_SUDO"
 
@@ -105,9 +105,8 @@ list_port_listener_pids() {
 
 # Usage: port_in_use_by <port>; prints process details or nothing if unused.
 port_in_use_by() {
-  local port="$1"
+  local port="$1" _sh_line
   local -a details=()
-  details=()
   while IFS= read -r _sh_line; do details+=("$_sh_line"); done < <(list_port_usage_details "$port" 2>/dev/null || true)
   if [[ ${#details[@]} -gt 0 ]]; then
     printf '%s\n' "${details[@]}"
@@ -164,8 +163,8 @@ check_required_ports_available() {
     fi
   done
 
-  local -a json_entries=()
-  local conflict_found=0
+  local -a json_entries=() details=() vars_for_port=()
+  local conflict_found=0 _sh_line
   for port in "${!port_to_vars[@]}"; do
     details=()
     while IFS= read -r _sh_line; do details+=("$_sh_line"); done < <(list_port_usage_details "$port" 2>/dev/null || true)

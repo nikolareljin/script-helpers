@@ -93,6 +93,12 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   "zero or more" operator, so `${line##*(}` parses differently in a caller that
   ran `shopt -s extglob` and returns the wrong text with no error to notice.
 
+- `tests/scope_test.sh`: these helpers are sourced into other people's scripts,
+  so an undeclared loop variable becomes a global in the caller. The while-read
+  loops that replaced `mapfile` introduced exactly that across five modules;
+  every affected variable is now declared, and the test asserts a call leaves no
+  trace behind.
+
 - `tests/dev_shim_test.sh`, covering which bash the shim selects: it prefers 4+,
   accepts 3.2, and refuses 3.0 and 3.1 rather than committing to an interpreter
   helpers.sh will reject a moment later. The rule is impossible to exercise from

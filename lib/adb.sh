@@ -57,6 +57,7 @@ adb_device_ip() {
 # devices attached. Returns 1 when adb is missing; 0 (empty table) when none.
 adb_list_devices() {
   local iface="${1:-wlan0}" s
+  local _sh_line
   local -a serials=()
   if ! adb_available; then
     log_warn "adb not found. Install the Android platform-tools and put adb on PATH."
@@ -245,6 +246,7 @@ adb_install_verified() {
 adb_install_all() {
   local apk="$1"; shift || true   # drop the apk; rest = extra adb install flags
   local s rc=0 ok=0 fail=0
+  local _sh_line
   local -a serials=()
   adb_available || return 1
   [[ -n "$apk" && -f "$apk" ]] || { log_error "adb_install_all: APK not found: ${apk:-<none>}"; return 2; }

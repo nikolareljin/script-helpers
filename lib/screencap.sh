@@ -50,6 +50,7 @@ screencap_available() {
 # more than one device is connected.
 _screencap__resolve() {
   local platform="${1:-}" device="${2:-}"
+  local _sh_line
   local -a serials=() sims=()
 
   if [[ -n "$device" && -z "$platform" ]]; then
