@@ -157,6 +157,25 @@ ios_build_release() {
 # simulator. Returns 1 with a listing on stderr when the choice is ambiguous --
 # the iOS counterpart of flutter_resolve_device, and ambiguity is a question for
 # the caller rather than something to guess at.
+# Usage: _ios__booted_udid_for <name|udid>; prints the UDID of the matching
+# booted simulator, or nothing. Internal: ios_resolve_device needs a name-to-UDID
+# step because a name is not something simctl install or launch accepts.
+_ios__booted_udid_for() {
+  local want="${1:-}" out
+  [[ -n "$want" ]] || return 1
+  out=$(xcrun simctl list devices booted 2>/dev/null) || return 1
+  printf '%s\n' "$out" \
+    | awk -v want="$want" '
+        match($0, /\([0-9A-Fa-f-]{8,}\)/) {
+          udid = substr($0, RSTART + 1, RLENGTH - 2)
+          name = substr($0, 1, RSTART - 1)
+          sub(/^[[:space:]]+/, "", name)
+          sub(/[[:space:]]+$/, "", name)
+          if (want == name || want == udid) { print udid; exit }
+        }
+      '
+}
+
 ios_resolve_device() {
   ios_available || return 1
   local preferred="${1:-${IOS_DEVICE:-}}" udid
@@ -169,10 +188,16 @@ ios_resolve_device() {
     for udid in "${booted[@]+"${booted[@]}"}"; do
       [[ "$udid" == "$preferred" ]] && { printf '%s\n' "$preferred"; return 0; }
     done
-    # Not booted, but it may still be a known simulator the caller wants started.
+    # Not booted, but it may still be a known simulator the caller wants
+    # started. Resolve the result back to a UDID: `preferred` may be a display
+    # name, and simctl install/launch take a UDID (or the literal "booted"),
+    # so echoing the name back would hand the caller something unusable.
     if ios_boot_simulator "$preferred" >/dev/null 2>&1; then
-      printf '%s\n' "$preferred"
-      return 0
+      udid="$(_ios__booted_udid_for "$preferred")"
+      if [[ -n "$udid" ]]; then
+        printf '%s\n' "$udid"
+        return 0
+      fi
     fi
     echo "ios_resolve_device: '$preferred' is not a booted simulator" >&2
     return 1

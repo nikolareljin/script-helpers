@@ -90,8 +90,10 @@ returns non-zero for missing prerequisites, paths, or failed Flutter commands.
 ### `ios_resolve_device [preferred]`
 
 Prints the simulator UDID to act on. Uses `preferred` when it is booted, else
-`IOS_DEVICE`, else the only booted simulator. When `preferred` names a simulator
-that is not booted, it is booted first. Returns `1` with a listing on stderr
+`IOS_DEVICE`, else the only booted simulator. `preferred` may be a UDID or a
+display name; a simulator that is not booted is booted first, and the result is
+always resolved back to a **UDID** — `simctl install` and `simctl launch` take a
+UDID (or the literal `booted`), never a display name. Returns `1` with a listing on stderr
 when no simulator is booted or when more than one is — an ambiguous device is a
 question for the caller rather than something to guess at, the same contract as
 `flutter_resolve_device`.

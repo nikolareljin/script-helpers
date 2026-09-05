@@ -192,9 +192,31 @@ got="$(ios_resolve_device AAAAAAAA-1111-2222-3333-444444444444 2>/dev/null)" || 
   exit 1
 }
 
+# A simulator named rather than identified must come back as a UDID: simctl
+# install and launch do not accept a display name, so returning the name would
+# fail at the point of use rather than here.
+booted_fixture=""
+simctl_output='== Devices ==
+-- iOS 18.5 --
+    iPhone 15 Pro (CCCCCCCC-1111-2222-3333-444444444444) (Booted)'
+got="$(ios_resolve_device "iPhone 15 Pro" 2>/dev/null)" || got="FAILED"
+[[ "$got" == "CCCCCCCC-1111-2222-3333-444444444444" ]] || {
+  echo "a simulator name should resolve to its UDID, got: $got" >&2
+  exit 1
+}
+
+# A name that matches no booted simulator stays an error rather than echoing back.
+got="$(ios_resolve_device "iPhone 99" 2>/dev/null)" && {
+  echo "an unknown simulator name should not resolve, got: $got" >&2
+  exit 1
+}
+
 # --- ios_artifact ----------------------------------------------------------
 art_tmp="$(mktemp -d)"
-trap 'rm -rf "$art_tmp"' EXIT
+# One trap covering both temp directories: `trap ... EXIT` replaces the handler
+# rather than adding to it, so a second trap here would have silently orphaned
+# $ipa_dir on every run.
+trap 'rm -rf "$ipa_dir" "$art_tmp"' EXIT
 
 if ios_artifact "$art_tmp" simulator >/dev/null 2>&1; then
   echo "ios_artifact should fail when nothing is built" >&2
