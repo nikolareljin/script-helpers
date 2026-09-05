@@ -13,7 +13,8 @@ Functions
   - Env:
     - `HOSTS_FILE` — the file to edit, default `/etc/hosts`. Provided so the
       "already present" test is verifiable without touching the real file.
-  - Returns: `0` when the entry was added or already present.
+  - Returns: `0` when the entry was added or already present, `2` when the
+    domain or the IP is missing.
   - Notes: the presence test compares whitespace-separated tokens exactly and
     skips comment lines, rather than interpolating the domain into a `grep`
     pattern. Two bugs made that necessary: GNU `\s` is not POSIX and BSD grep

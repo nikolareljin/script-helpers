@@ -38,7 +38,8 @@ bash_major() { echo "${BASH_VERSINFO[0]:-0}"; }
 # Usage: bash_at_least <major> [minor]; success when the running bash is at
 # least that version.
 bash_at_least() {
-  local want_major="$1" want_minor="${2:-0}"
+  # Defaulted so a caller under `set -u` gets a false rather than an abort.
+  local want_major="${1:-0}" want_minor="${2:-0}"
   local have_major="${BASH_VERSINFO[0]:-0}" have_minor="${BASH_VERSINFO[1]:-0}"
   [[ "$have_major" -gt "$want_major" ]] && return 0
   [[ "$have_major" -lt "$want_major" ]] && return 1

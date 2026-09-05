@@ -96,6 +96,14 @@ else
   error "a host before an inline comment was duplicated"
 fi
 
+# Missing arguments must be an error, not an abort in the caller under set -u.
+out="$(bash -c 'set -u; source ./helpers.sh; shlib_import logging hosts; add_to_etc_hosts; echo "rc=$?"' 2>&1)"
+case "$out" in
+  *"unbound variable"*) error "missing arguments aborted the caller: $out" ;;
+  *rc=2*) note "missing arguments return 2 under set -u" ;;
+  *) error "missing arguments did not return 2: $out" ;;
+esac
+
 if [[ "$failures" -eq 0 ]]; then
   note "ALL PASSED"; exit 0
 fi

@@ -131,7 +131,10 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   Only direct callers of `get_script_metadata` need to move from `${meta[usage]}`
   to `$meta_usage`. It returns `2` when the prefix is missing or is not a valid
   shell variable name, rather than emitting one `printf` error per field and
-  leaving the caller half-populated state to diagnose.
+  leaving the caller half-populated state to diagnose. Its arguments, and
+  `add_to_etc_hosts`', are defaulted rather than bare: under `set -u` a bare
+  `"$2"` aborts the caller on the expansion itself, before the function can
+  return the error code it documents.
 
 - `add_to_etc_hosts` compares whitespace-separated tokens exactly instead of
   interpolating the domain into a `grep` pattern, and skips comment lines. A

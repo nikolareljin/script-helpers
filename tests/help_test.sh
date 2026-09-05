@@ -118,6 +118,22 @@ for bad in "" "a-b" "1abc" "has space" 'x;y'; do
 done
 note "invalid prefixes are refused"
 
+# A *missing* argument, not an empty one: under `set -u` a bare "$2" aborts on
+# the expansion before any validation can run, so the two are not the same test.
+out="$(bash -c 'set -u; source ./helpers.sh; shlib_import logging help; get_script_metadata '"$tmp"'/sample.sh; echo "rc=$?"' 2>&1)"
+case "$out" in
+  *"unbound variable"*) error "a missing prefix aborted the caller under set -u: $out" ;;
+  *rc=2*) note "a missing prefix returns 2 under set -u" ;;
+  *) error "a missing prefix did not return 2: $out" ;;
+esac
+
+out="$(bash -c 'set -u; source ./helpers.sh; shlib_import logging help; get_script_metadata; echo "rc=$?"' 2>&1)"
+case "$out" in
+  *"unbound variable"*) error "no arguments at all aborted the caller: $out" ;;
+  *rc=2*) note "no arguments returns 2 under set -u" ;;
+  *) error "no arguments did not return 2: $out" ;;
+esac
+
 get_script_metadata "$tmp/sample.sh" "" >/dev/null 2>&1
 rc=$?
 expect "an invalid prefix returns 2 (bad arguments)" "2" "$rc"

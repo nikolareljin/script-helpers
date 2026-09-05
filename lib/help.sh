@@ -165,8 +165,10 @@ _help__render() {
 # in this library dead on the bash 3.2 that macOS ships. A name prefix plus
 # `printf -v` needs nothing newer than bash 3.1 and no eval.
 get_script_metadata() {
-  local script_file="$1"
-  local prefix="$2"
+  # Defaulted, not bare: under `set -u` a bare "$2" aborts the caller on the
+  # expansion itself, before this function can return the documented exit 2.
+  local script_file="${1:-}"
+  local prefix="${2:-}"
   local line key current_field="" param_lines="" ref pattern
   local in_header=true saw_header_key=false
 
@@ -174,6 +176,11 @@ get_script_metadata() {
   # every assignment below into a `printf: not a valid identifier` error and
   # leaves the caller with a half-filled set of variables to diagnose. An empty
   # prefix is worse than an error: it silently writes _name, _usage and so on.
+  if [[ -z "$script_file" ]]; then
+    local msg0="get_script_metadata: needs a script file"
+    if declare -F log_error >/dev/null 2>&1; then log_error "$msg0"; else echo "$msg0" >&2; fi
+    return 2
+  fi
   if [[ -z "$prefix" || ! "$prefix" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
     local msg="get_script_metadata: prefix must be a valid shell variable name, got '${prefix}'"
     if declare -F log_error >/dev/null 2>&1; then log_error "$msg"; else echo "$msg" >&2; fi

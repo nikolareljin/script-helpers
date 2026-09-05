@@ -7,7 +7,13 @@
 # test above verifiable: it used to be wrong on macOS and nothing could tell,
 # because the only way to exercise it was to edit the real /etc/hosts as root.
 add_to_etc_hosts() {
-  local domain="$1" ip_address="$2"
+  # Defaulted so a caller under `set -u` gets the error below rather than an
+  # abort on the expansion itself.
+  local domain="${1:-}" ip_address="${2:-}"
+  if [[ -z "$domain" || -z "$ip_address" ]]; then
+    print_error "add_to_etc_hosts: need <domain> <ip>"
+    return 2
+  fi
   local hosts_file="${HOSTS_FILE:-/etc/hosts}"
   # An exact token comparison rather than a grep pattern. Two reasons, and the
   # first one shipped broken: \s is a GNU extension that BSD grep does not
