@@ -9,10 +9,28 @@
 add_to_etc_hosts() {
   local domain="$1" ip_address="$2"
   local hosts_file="${HOSTS_FILE:-/etc/hosts}"
-  # POSIX ERE. \s is a GNU extension that BSD grep does not reject -- it simply
-  # never matches, so on macOS this always concluded "absent" and appended a
-  # duplicate line on every single call.
-  if ! grep -qE "(^|[[:space:]])${domain}([[:space:]]|$)" "$hosts_file" 2>/dev/null; then
+  # An exact token comparison rather than a grep pattern. Two reasons, and the
+  # first one shipped broken: \s is a GNU extension that BSD grep does not
+  # reject -- it simply never matches -- so on macOS this always concluded
+  # "absent" and appended a duplicate line on every single call. And a domain
+  # interpolated into a regex brings its own dots with it, where "." matches any
+  # character: "demo.local" would then be found in a file that only holds
+  # "demoXlocal", and the entry would silently never be added.
+  local line found=0
+  local -a parts=()
+  if [[ -f "$hosts_file" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      case "$line" in ''|'#'*) continue ;; esac
+      # read -a rather than word-splitting $line, which would also glob.
+      read -r -a parts <<< "$line"
+      local tok
+      for tok in "${parts[@]+"${parts[@]}"}"; do
+        [[ "$tok" == "$domain" ]] && { found=1; break 2; }
+      done
+    done < "$hosts_file"
+  fi
+
+  if [[ "$found" -eq 0 ]]; then
     if [[ -w "$hosts_file" ]]; then
       printf '%s    %s\n' "$ip_address" "$domain" >> "$hosts_file"
     else

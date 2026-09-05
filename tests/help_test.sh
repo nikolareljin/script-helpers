@@ -108,6 +108,26 @@ else
   note "display_help fails on a missing file"
 fi
 
+# The prefix becomes half a variable name. An invalid one must be refused up
+# front rather than turning every assignment into a printf error, and an empty
+# one must not silently write _name, _usage and friends.
+for bad in "" "a-b" "1abc" "has space" 'x;y'; do
+  if get_script_metadata "$tmp/sample.sh" "$bad" >/dev/null 2>&1; then
+    error "an invalid prefix '$bad' was accepted"
+  fi
+done
+note "invalid prefixes are refused"
+
+get_script_metadata "$tmp/sample.sh" "" >/dev/null 2>&1
+rc=$?
+expect "an invalid prefix returns 2 (bad arguments)" "2" "$rc"
+
+msg="$(get_script_metadata "$tmp/sample.sh" "a-b" 2>&1)" || true
+case "$msg" in
+  *prefix*) note "the refusal names the prefix" ;;
+  *) error "the refusal did not mention the prefix: $msg" ;;
+esac
+
 if [[ "$failures" -eq 0 ]]; then
   note "ALL PASSED"; exit 0
 fi

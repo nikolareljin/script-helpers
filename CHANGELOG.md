@@ -113,10 +113,16 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   instead of filling `meta[...]` through a nameref. Callers of `show_help`,
   `print_help` and `display_help` are unaffected, and their output is unchanged.
   Only direct callers of `get_script_metadata` need to move from `${meta[usage]}`
-  to `$meta_usage`.
+  to `$meta_usage`. It returns `2` when the prefix is missing or is not a valid
+  shell variable name, rather than emitting one `printf` error per field and
+  leaving the caller half-populated state to diagnose.
 
-- `add_to_etc_hosts` honours `HOSTS_FILE` and writes directly when the file is
-  writable, falling back to `sudo tee`. The presence test was wrong on macOS and
+- `add_to_etc_hosts` compares whitespace-separated tokens exactly instead of
+  interpolating the domain into a `grep` pattern, and skips comment lines. A
+  hostname carries its own dots into a regex, where `.` matches any character,
+  so `demo.local` was "found" in a file holding only `demoXlocal` and the real
+  entry was then never added. It also honours `HOSTS_FILE` and writes directly
+  when the file is writable, falling back to `sudo tee`. The presence test was wrong on macOS and
   nothing could demonstrate it, because exercising it meant editing the real
   `/etc/hosts` as root.
 

@@ -13,9 +13,14 @@ Functions
   - Env:
     - `HOSTS_FILE` — the file to edit, default `/etc/hosts`. Provided so the
       "already present" test is verifiable without touching the real file.
-  - Notes: the presence test uses POSIX `[[:space:]]` rather than GNU `\s`.
-    BSD grep does not reject `\s`, it simply never matches it, so on macOS the
-    check always concluded "absent" and appended a duplicate line on every call.
+  - Returns: `0` when the entry was added or already present.
+  - Notes: the presence test compares whitespace-separated tokens exactly and
+    skips comment lines, rather than interpolating the domain into a `grep`
+    pattern. Two bugs made that necessary: GNU `\s` is not POSIX and BSD grep
+    never matches it, so on macOS the check always concluded "absent" and
+    appended a duplicate line on every call; and a domain carries its own dots
+    into a regex, where `.` matches any character, so `demo.local` was found in
+    a file holding only `demoXlocal` and the real entry was never added.
 
 Dependencies
 ------------

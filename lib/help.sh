@@ -170,6 +170,16 @@ get_script_metadata() {
   local line key current_field="" param_lines="" ref pattern
   local in_header=true saw_header_key=false
 
+  # The prefix becomes half a variable name, so an empty or malformed one turns
+  # every assignment below into a `printf: not a valid identifier` error and
+  # leaves the caller with a half-filled set of variables to diagnose. An empty
+  # prefix is worse than an error: it silently writes _name, _usage and so on.
+  if [[ -z "$prefix" || ! "$prefix" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    local msg="get_script_metadata: prefix must be a valid shell variable name, got '${prefix}'"
+    if declare -F log_error >/dev/null 2>&1; then log_error "$msg"; else echo "$msg" >&2; fi
+    return 2
+  fi
+
   for key in $_HELP_META_FIELDS; do
     printf -v "${prefix}_${key}" '%s' ""
   done

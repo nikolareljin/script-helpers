@@ -30,7 +30,11 @@ Functions
   - Args:
     - script_file — script path to scan.
     - prefix — variable-name prefix to receive the fields.
-  - Returns: 0 on success.
+  - Returns: `0` on success, `2` when `prefix` is missing or is not a valid
+    shell variable name. The prefix becomes half a variable name, so an invalid
+    one would otherwise turn every assignment into a `printf: not a valid
+    identifier` error and leave the caller a half-filled set of variables; an
+    empty one would silently write `_name`, `_usage` and so on.
   - Environment: none.
   - Dependencies: none beyond bash 3.1 (`printf -v`). `log_error` is used by callers, not by this function.
   - Notes: Sets `<prefix>_name`, `<prefix>_description`, `<prefix>_author`,

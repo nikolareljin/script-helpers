@@ -48,6 +48,40 @@ else
   error "demo.local.uk was wrongly treated as already present"
 fi
 
+# A dot in a hostname is a regex metacharacter. Interpolated into a pattern,
+# "demo.local" matches the literal "demoXlocal", so the real entry would be
+# judged already present and silently never added.
+#
+# This needs a file that does NOT already contain demo.local, or the assertion
+# passes either way and proves nothing.
+wildcard="$tmp/hosts_wildcard"
+printf '198.51.100.7\tdemoXlocal\n' > "$wildcard"
+HOSTS_FILE="$wildcard" add_to_etc_hosts demo.local 127.0.0.1 >/dev/null 2>&1
+if grep -q '[[:space:]]demo\.local$' "$wildcard"; then
+  note "a dot is matched literally, not as a wildcard"
+else
+  error "demo.local was treated as present because 'demoXlocal' matched it as a regex"
+fi
+
+# A hostname that is only a substring of a token in the file is not present.
+substr="$tmp/hosts_substr"
+printf '198.51.100.8\tprefix.other.local\n' > "$substr"
+HOSTS_FILE="$substr" add_to_etc_hosts other.local 127.0.0.1 >/dev/null 2>&1
+if grep -q '[[:space:]]other\.local$' "$substr"; then
+  note "a substring match does not count as present"
+else
+  error "other.local was treated as present because it is a substring of prefix.other.local"
+fi
+
+# Commented-out entries are not entries.
+tmp2="$tmp/hosts2"; printf '# 1.2.3.4 commented.local\n' > "$tmp2"
+HOSTS_FILE="$tmp2" add_to_etc_hosts commented.local 127.0.0.1 >/dev/null 2>&1
+if [[ "$(grep -c '^127\.0\.0\.1' "$tmp2")" -eq 1 ]]; then
+  note "a commented-out host does not count as present"
+else
+  error "a commented-out host was treated as already present"
+fi
+
 if [[ "$failures" -eq 0 ]]; then
   note "ALL PASSED"; exit 0
 fi
