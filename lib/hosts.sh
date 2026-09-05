@@ -20,7 +20,11 @@ add_to_etc_hosts() {
   local -a parts=()
   if [[ -f "$hosts_file" ]]; then
     while IFS= read -r line || [[ -n "$line" ]]; do
-      case "$line" in ''|'#'*) continue ;; esac
+      # In /etc/hosts everything from the first # is a comment, wherever it
+      # sits on the line. Stripping it handles an indented comment line and an
+      # inline one alike; a comment-only line simply leaves no tokens.
+      line="${line%%#*}"
+      [[ -n "${line//[[:space:]]/}" ]] || continue
       # read -a rather than word-splitting $line, which would also glob.
       read -r -a parts <<< "$line"
       local tok

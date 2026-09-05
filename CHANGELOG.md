@@ -88,6 +88,11 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   Android SDK it skips that step, so preflight on a Mac stops demanding a
   toolchain the repository never asked for.
 
+- `tests/dev_shim_test.sh`, covering which bash the shim selects: it prefers 4+,
+  accepts 3.2, and refuses 3.0 and 3.1 rather than committing to an interpreter
+  helpers.sh will reject a moment later. The rule is impossible to exercise from
+  Linux by hand, where every candidate is bash 5.
+
 - `tests/portability_test.sh`, a blocking static gate for GNU-only utilities and
   bash-4-only syntax. CI has always run shellcheck with `|| true`, so nothing
   here could fail a build; every rule in this gate was verified to fire by

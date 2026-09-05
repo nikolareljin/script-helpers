@@ -73,13 +73,27 @@ else
   error "other.local was treated as present because it is a substring of prefix.other.local"
 fi
 
-# Commented-out entries are not entries.
-tmp2="$tmp/hosts2"; printf '# 1.2.3.4 commented.local\n' > "$tmp2"
-HOSTS_FILE="$tmp2" add_to_etc_hosts commented.local 127.0.0.1 >/dev/null 2>&1
-if [[ "$(grep -c '^127\.0\.0\.1' "$tmp2")" -eq 1 ]]; then
-  note "a commented-out host does not count as present"
+# Commented-out entries are not entries. In /etc/hosts everything from the
+# first # is a comment, wherever on the line it appears.
+for fixture in '# 1.2.3.4 commented.local' \
+               '   # 1.2.3.4 commented.local' \
+               '198.51.100.9\trealhost # commented.local'; do
+  tmp2="$tmp/hosts_comment"; printf "$fixture\n" > "$tmp2"
+  HOSTS_FILE="$tmp2" add_to_etc_hosts commented.local 127.0.0.1 >/dev/null 2>&1
+  if [[ "$(grep -c '^127\.0\.0\.1' "$tmp2")" -eq 1 ]]; then
+    note "not present in: ${fixture}"
+  else
+    error "treated as already present in: ${fixture}"
+  fi
+done
+
+# A real entry on a line that also carries a comment is still an entry.
+tmp3="$tmp/hosts_inline"; printf '198.51.100.10\tlive.local # a note\n' > "$tmp3"
+HOSTS_FILE="$tmp3" add_to_etc_hosts live.local 127.0.0.1 >/dev/null 2>&1
+if [[ "$(grep -c 'live\.local' "$tmp3")" -eq 1 ]]; then
+  note "a host before an inline comment is still found"
 else
-  error "a commented-out host was treated as already present"
+  error "a host before an inline comment was duplicated"
 fi
 
 if [[ "$failures" -eq 0 ]]; then

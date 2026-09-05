@@ -28,7 +28,11 @@ shell_files() {
   # bash 3.2 container, which has no git.
   _candidates() {
     if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
-      git ls-files '*.sh' 'bin/*' 'scripts/git-hooks/*' 'templates/dev-cli/dev' 2>/dev/null
+      # --others --exclude-standard so a brand-new file is scanned before it is
+      # committed. With plain ls-files a new script passed here and failed only
+      # once staged, which is the wrong moment to find out.
+      git ls-files --cached --others --exclude-standard \
+        '*.sh' 'bin/*' 'scripts/git-hooks/*' 'templates/dev-cli/dev' 2>/dev/null | sort -u
     else
       find . -type d -name .git -prune -o -type f \
         \( -name '*.sh' -o -path './bin/*' -o -path './scripts/git-hooks/*' \
