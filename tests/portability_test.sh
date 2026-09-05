@@ -78,6 +78,11 @@ ban "associative array is bash 4+"        '(declare|local|typeset)[[:space:]]+-[
 ban "nameref is bash 4.3+"                '(declare|local|typeset)[[:space:]]+-[A-Za-z]*n[[:space:]]'
 ban "case modification is bash 4+"        '\$\{[A-Za-z_][A-Za-z0-9_]*(\^\^|,,)'
 ban "globstar is bash 4+"                 'shopt[[:space:]]+-s[[:space:]]+globstar'
+# Not a bash-4 issue, but the same shape of silent wrong answer: `*(` is the
+# extglob "zero or more" operator, so ${x##*(} parses differently in a caller
+# that ran `shopt -s extglob` and returns the wrong text with no error. Escape
+# the paren: ${x##*\(}.
+ban "unescaped *( in a parameter expansion" '\$\{[^}]*#\*\('
 
 # --- GNU-only regex; BSD grep does not error, it silently never matches -----
 ban "GNU \\s/\\b in grep or sed"          '(grep|sed)([^|;]*)(\\s|\\b)'

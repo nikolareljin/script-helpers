@@ -225,8 +225,11 @@ ios_resolve_physical_device() {
   local -a udids=() labels=()
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
-    # ios_list_devices prints "<name> (<udid>)".
-    udid="${line##*(}"; udid="${udid%)}"
+    # ios_list_devices prints "<name> (<udid>)". The paren is escaped because
+    # `*(` is the extglob "zero or more" operator: in a caller that has run
+    # `shopt -s extglob` the unescaped form parses differently and returns the
+    # whole line instead of the UDID, with no error to notice.
+    udid="${line##*\(}"; udid="${udid%)}"
     name="${line% (*}"
     [[ -n "$udid" ]] || continue
     udids+=("$udid"); labels+=("$line")

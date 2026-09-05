@@ -264,6 +264,27 @@ case "$msg" in
   *) echo "the ambiguity error should name --device: $msg" >&2; exit 1 ;;
 esac
 
+# The same, with extglob on. `*(` is the extglob "zero or more" operator, so a
+# pattern written as ${line##*(} parses differently in a caller that enabled it
+# and returns the whole line rather than the UDID -- silently, with no error.
+# Consumer repos do run `shopt -s extglob`, so this is not hypothetical.
+shopt -s extglob
+xctrace_output='== Devices ==
+Nikos iPhone (18.5) (00008110-001234567890001E)'
+got="$(ios_resolve_physical_device 2>/dev/null)" || got="FAILED"
+[[ "$got" == "00008110-001234567890001E" ]] || {
+  echo "under extglob the device UDID parsed wrong: $got" >&2
+  shopt -u extglob
+  exit 1
+}
+got="$(ios_resolve_physical_device "Nikos iPhone" 2>/dev/null)" || got="FAILED"
+[[ "$got" == "00008110-001234567890001E" ]] || {
+  echo "under extglob the device name did not resolve: $got" >&2
+  shopt -u extglob
+  exit 1
+}
+shopt -u extglob
+
 # --- ios_artifact ----------------------------------------------------------
 art_tmp="$(mktemp -d)"
 # One trap covering both temp directories: `trap ... EXIT` replaces the handler

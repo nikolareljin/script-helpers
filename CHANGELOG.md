@@ -88,6 +88,11 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   Android SDK it skips that step, so preflight on a Mac stops demanding a
   toolchain the repository never asked for.
 
+- The portability gate also refuses an unescaped `*(` in a parameter expansion.
+  It is not a bash-4 problem but the same silent shape: `*(` is the extglob
+  "zero or more" operator, so `${line##*(}` parses differently in a caller that
+  ran `shopt -s extglob` and returns the wrong text with no error to notice.
+
 - `tests/dev_shim_test.sh`, covering which bash the shim selects: it prefers 4+,
   accepts 3.2, and refuses 3.0 and 3.1 rather than committing to an interpreter
   helpers.sh will reject a moment later. The rule is impossible to exercise from
