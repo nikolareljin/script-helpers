@@ -110,10 +110,13 @@ if [[ -n "$SHIMS" ]]; then
     fi
     say "shim: ./$name -> ./dev $name"
     [[ "$DRY_RUN" == "true" ]] && continue
+    # Delegates to ./dev rather than re-running scripts/cli.sh directly: ./dev
+    # is what picks a usable bash, and duplicating that resolver into every
+    # consumer repo is how it would drift out of step with this library.
     cat > "$dest" <<EOF
 #!/usr/bin/env bash
 # Compatibility shim. Use ./dev $name — this is removed one minor version on.
-exec bash "\$(dirname "\$0")/scripts/cli.sh" $name "\$@"
+exec "\$(dirname "\$0")/dev" "$name" "\$@"
 EOF
     chmod 755 "$dest"
   done

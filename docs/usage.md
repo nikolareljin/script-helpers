@@ -449,3 +449,66 @@ Render a Homebrew formula with a release tarball SHA:
 ```bash
 ./vendor/script-helpers/scripts/render_brew_formula.sh --repo . --url <tarball_url> --sha256 <sha256>
 ```
+
+macOS, iOS and bash 3.2
+-----------------------
+
+Stock macOS runs bash 3.2 as `/bin/bash`. Every module here works on it; see the
+README for the exceptions and for how `./dev` selects a newer bash when one is
+installed.
+
+### Verifying portability without a Mac
+
+```bash
+make test-bash32                 # whole suite under a real bash 3.2 (Docker)
+bash scripts/local_test_bash32.sh --test tests/help_test.sh
+bash scripts/local_test_bash32.sh --shell   # poke around in bash 3.2
+bash tests/portability_test.sh   # static scan; also runs as part of `make test`
+```
+
+`tests/portability_test.sh` fails the build on GNU-only utilities and bash-4-only
+syntax. The failures it prevents are the silent kind: BSD `grep` does not reject
+`\s`, it just never matches, and an associative array on bash 3.2 becomes an
+indexed one and returns plausible nonsense.
+
+### The `ios` preflight stack
+
+`preflight` detects an `ios` stack for a Flutter project that has an `ios/`
+directory or a `Podfile`, and runs `scripts/ci_ios.sh` against it. The stack
+directory is the Flutter project root, not `ios/`.
+
+```bash
+./dev preflight                  # includes the ios stack on macOS
+bash scripts/preflight.sh --list # show detected "<stack><TAB><dir>" pairs
+bash scripts/preflight.sh --stack ios
+```
+
+Off macOS, or without Xcode, the iOS checks report `SKIP` with a reason rather
+than failing — a skip is reported separately so it cannot be mistaken for a
+pass. The Flutter stack no longer builds an APK unconditionally either: without
+an `android/` directory or an Android SDK it skips that step, so a Mac set up
+only for iOS work is not asked for the Android toolchain.
+
+### Deploying to an iOS simulator
+
+```bash
+./dev deploy ios                   # build for the simulator, install, launch
+./dev deploy ios --device <udid>   # when more than one simulator is booted
+./dev run ios                      # flutter run against a booted simulator
+./dev build ios --release          # signed IPA via ios_build_release
+```
+
+A debug `deploy ios` builds with `flutter build ios --simulator`; a plain
+`flutter build ios` targets a physical device and produces an `.app` that
+`simctl install` cannot use. With no simulator booted, or with more than one and
+no `--device`, it fails with a message naming the fix rather than guessing.
+
+The two modes are not interchangeable. `--release` builds a signed `.ipa` and
+installs it through `devicectl` onto an **attached device**, so it resolves an
+attached device rather than a simulator, and stops at installed — `simctl
+launch` has no devicectl equivalent that works without a debug session. A debug
+deploy targets a booted **simulator**. Set `IOS_EXPORT_OPTIONS_PLIST` for the
+signed build.
+
+Set `IOS_EXPORT_OPTIONS_PLIST` for a signed release build, and `IOS_DEVICE` to
+pin a simulator without passing `--device` each time.
