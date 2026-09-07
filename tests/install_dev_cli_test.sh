@@ -60,7 +60,26 @@ else
   error "second run did not leave a shim at start"
 fi
 
-# 3) --dry-run must not touch anything.
+# 3) A pre-existing .pre-dev-cli next to a file we did not write must not be
+#    treated as our own shim. Deleting $dest there would destroy a real script
+#    while its backup slot is already occupied -- nothing may be touched.
+guard="$tmp_root/guard"
+make_repo "$guard"
+printf '#!/usr/bin/env bash\necho "unrelated pre-existing backup"\n' > "$guard/start.pre-dev-cli"
+bash scripts/install_dev_cli.sh --repo "$guard" --shims start >/dev/null 2>&1 || true
+
+if grep -q "$ORIGINAL" "$guard/start" 2>/dev/null; then
+  note "a real script is left intact when a foreign .pre-dev-cli exists"
+else
+  error "the real script at start was destroyed when a foreign .pre-dev-cli existed"
+fi
+if grep -q 'unrelated pre-existing backup' "$guard/start.pre-dev-cli" 2>/dev/null; then
+  note "the foreign .pre-dev-cli is left intact"
+else
+  error "the foreign .pre-dev-cli was overwritten"
+fi
+
+# 4) --dry-run must not touch anything.
 dry="$tmp_root/dry"
 make_repo "$dry"
 bash scripts/install_dev_cli.sh --repo "$dry" --shims start --dry-run >/dev/null 2>&1 || true
