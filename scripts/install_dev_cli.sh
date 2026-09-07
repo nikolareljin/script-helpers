@@ -105,8 +105,16 @@ if [[ -n "$SHIMS" ]]; then
     [[ -n "$name" ]] || continue
     dest="$REPO/$name"
     if [[ -e "$dest" && "$FORCE" == "false" ]]; then
-      say "back up: $name -> $name.pre-dev-cli"
-      [[ "$DRY_RUN" == "true" ]] || mv "$dest" "$dest.pre-dev-cli"
+      # On a re-run $dest is the shim written last time. Moving that over an
+      # existing backup would replace the caller's original script with our
+      # own generated one -- the only copy of it, gone. Keep the first backup.
+      if [[ -e "$dest.pre-dev-cli" ]]; then
+        say "keep backup: $name.pre-dev-cli already exists"
+        [[ "$DRY_RUN" == "true" ]] || rm -f "$dest"
+      else
+        say "back up: $name -> $name.pre-dev-cli"
+        [[ "$DRY_RUN" == "true" ]] || mv "$dest" "$dest.pre-dev-cli"
+      fi
     fi
     say "shim: ./$name -> ./dev $name"
     [[ "$DRY_RUN" == "true" ]] && continue
