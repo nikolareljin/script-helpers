@@ -17,8 +17,10 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   for some other reason and the root file is a real script, the backup slot
   that would have saved it is already taken, so there is no move that does not
   lose a file -- the shim is skipped with a warning and both files are left
-  alone. Covered by `tests/install_dev_cli_test.sh`, whose cases fail on the
-  respective unfixed code.
+  alone. `rm`, `mv`, `cp` and `chmod` now also pass `--` before the path, so a
+  shim name that begins with a dash cannot be read as an option. Covered by
+  `tests/install_dev_cli_test.sh`, whose cases fail on the respective unfixed
+  code and which asserts the installer's exit status rather than discarding it.
 
 ## 2026-09-02 — v0.24.0
 

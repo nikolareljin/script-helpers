@@ -73,8 +73,8 @@ install_file() {
   say "write: $rel"
   [[ "$DRY_RUN" == "true" ]] && return 0
   mkdir -p "$(dirname "$dest")"
-  cp "$src" "$dest"
-  chmod "$mode" "$dest"
+  cp -- "$src" "$dest"
+  chmod "$mode" -- "$dest"
 }
 
 # --- the entry point -------------------------------------------------------
@@ -114,14 +114,14 @@ if [[ -n "$SHIMS" ]]; then
         # there is no move that does not lose a file: leave both untouched.
         if grep -q '^# Compatibility shim\. Use \./dev ' "$dest" 2>/dev/null; then
           say "keep backup: $name.pre-dev-cli already exists"
-          [[ "$DRY_RUN" == "true" ]] || rm -f "$dest"
+          [[ "$DRY_RUN" == "true" ]] || rm -f -- "$dest"
         else
           log_warn "skip $name: $name.pre-dev-cli exists and ./$name is not a shim we wrote"
           continue
         fi
       else
         say "back up: $name -> $name.pre-dev-cli"
-        [[ "$DRY_RUN" == "true" ]] || mv "$dest" "$dest.pre-dev-cli"
+        [[ "$DRY_RUN" == "true" ]] || mv -- "$dest" "$dest.pre-dev-cli"
       fi
     fi
     say "shim: ./$name -> ./dev $name"
@@ -131,7 +131,7 @@ if [[ -n "$SHIMS" ]]; then
 # Compatibility shim. Use ./dev $name — this is removed one minor version on.
 exec bash "\$(dirname "\$0")/scripts/cli.sh" $name "\$@"
 EOF
-    chmod 755 "$dest"
+    chmod 755 -- "$dest"
   done
 fi
 
