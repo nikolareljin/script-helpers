@@ -4,6 +4,15 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ## [Unreleased]
 
+### Fixed
+- `scripts/install_dev_cli.sh` no longer destroys the original script when
+  `--shims` is run twice. The backup was an unconditional
+  `mv "$dest" "$dest.pre-dev-cli"`, but on a second run `$dest` is the shim the
+  previous run wrote, so the move replaced the caller's original — the only
+  copy of it — with our generated three-line shim. An existing
+  `.pre-dev-cli` backup is now kept and the current file removed instead.
+  Covered by `tests/install_dev_cli_test.sh`, which fails on the old code.
+
 ## 2026-09-02 — v0.24.0
 
 ### Added
