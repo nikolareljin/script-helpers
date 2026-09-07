@@ -11,7 +11,14 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   previous run wrote, so the move replaced the caller's original — the only
   copy of it — with our generated three-line shim. An existing
   `.pre-dev-cli` backup is now kept and the current file removed instead.
-  Covered by `tests/install_dev_cli_test.sh`, which fails on the old code.
+
+  That removal is guarded: only a shim this script wrote is discarded, matched
+  on its `# Compatibility shim. Use ./dev ...` marker. If `.pre-dev-cli` exists
+  for some other reason and the root file is a real script, the backup slot
+  that would have saved it is already taken, so there is no move that does not
+  lose a file -- the shim is skipped with a warning and both files are left
+  alone. Covered by `tests/install_dev_cli_test.sh`, whose cases fail on the
+  respective unfixed code.
 
 ## 2026-09-02 — v0.24.0
 

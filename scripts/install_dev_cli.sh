@@ -109,8 +109,16 @@ if [[ -n "$SHIMS" ]]; then
       # existing backup would replace the caller's original script with our
       # own generated one -- the only copy of it, gone. Keep the first backup.
       if [[ -e "$dest.pre-dev-cli" ]]; then
-        say "keep backup: $name.pre-dev-cli already exists"
-        [[ "$DRY_RUN" == "true" ]] || rm -f "$dest"
+        # Only a shim we wrote is safe to discard. If $dest is anything else
+        # the backup slot that would have saved it is already occupied, so
+        # there is no move that does not lose a file: leave both untouched.
+        if grep -q '^# Compatibility shim\. Use \./dev ' "$dest" 2>/dev/null; then
+          say "keep backup: $name.pre-dev-cli already exists"
+          [[ "$DRY_RUN" == "true" ]] || rm -f "$dest"
+        else
+          log_warn "skip $name: $name.pre-dev-cli exists and ./$name is not a shim we wrote"
+          continue
+        fi
       else
         say "back up: $name -> $name.pre-dev-cli"
         [[ "$DRY_RUN" == "true" ]] || mv "$dest" "$dest.pre-dev-cli"
