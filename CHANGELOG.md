@@ -2,7 +2,7 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
-## [Unreleased]
+## 2026-09-08 — v0.24.1
 
 ### Fixed
 - `scripts/install_dev_cli.sh` no longer destroys the original script when
