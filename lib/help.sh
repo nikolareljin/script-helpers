@@ -169,7 +169,7 @@ get_script_metadata() {
   # expansion itself, before this function can return the documented exit 2.
   local script_file="${1:-}"
   local prefix="${2:-}"
-  local line key current_field="" param_lines="" ref pattern
+  local line="" key current_field="" param_lines="" ref pattern
   local in_header=true saw_header_key=false
 
   # The prefix becomes half a variable name, so an empty or malformed one turns
@@ -184,6 +184,18 @@ get_script_metadata() {
   if [[ -z "$prefix" || ! "$prefix" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
     local msg="get_script_metadata: prefix must be a valid shell variable name, got '${prefix}'"
     if declare -F log_error >/dev/null 2>&1; then log_error "$msg"; else echo "$msg" >&2; fi
+    return 2
+  fi
+  # Checked here rather than left to the redirection on the loop below. An
+  # unreadable path there fails inside this file, so `set -e` aborts the caller
+  # citing lib/help.sh and a line number instead of the path it passed in, and
+  # a directory is worse still: the redirection succeeds, `read` fails without
+  # assigning, and the loop condition then aborts on an unbound variable.
+  # display_help guards this already; get_script_metadata is public API and is
+  # called directly.
+  if [[ ! -f "$script_file" || ! -r "$script_file" ]]; then
+    local msg1="get_script_metadata: cannot read script file: $script_file"
+    if declare -F log_error >/dev/null 2>&1; then log_error "$msg1"; else echo "$msg1" >&2; fi
     return 2
   fi
 

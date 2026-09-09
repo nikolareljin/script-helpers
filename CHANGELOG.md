@@ -89,6 +89,16 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   build and install steps rather than the exit status, since nothing on that
   path ever returned non-zero.
 
+- `get_script_metadata` refuses an unreadable script file up front, returning 2
+  and naming the path. Left to the redirection on its read loop, a missing file
+  failed inside `lib/help.sh`, so a caller under `set -e` was aborted with a
+  raw "No such file or directory" citing this library and a line number rather
+  than the path it passed in. A directory was worse: the redirection succeeds,
+  `read` fails without assigning, and the loop condition then aborted on
+  `line: unbound variable` under `set -u`. `line` is initialised for that
+  reason too. `display_help` already guarded this; `get_script_metadata` is
+  public API and is called directly.
+
 - **iOS is reachable.** `lib/ios.sh` and `scripts/ci_ios.sh` were complete,
   correct and called by nothing: `ios_install` and `ios_launch` had no callers,
   `preflight` had no `ios` stack, and `verb_deploy` was hard-wired to `adb`, so

@@ -30,7 +30,10 @@ Functions
   - Args:
     - script_file — script path to scan.
     - prefix — variable-name prefix to receive the fields.
-  - Returns: `0` on success, `2` when `prefix` is missing or is not a valid
+  - Returns: `0` on success, `2` when `script_file` is missing or unreadable
+    (checked up front, so a caller under `set -e` gets a controlled return and
+    a message naming the path rather than a redirection error citing
+    `lib/help.sh`), and `2` when `prefix` is missing or is not a valid
     shell variable name. The prefix becomes half a variable name, so an invalid
     one would otherwise turn every assignment into a `printf: not a valid
     identifier` error and leave the caller a half-filled set of variables; an

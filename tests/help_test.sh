@@ -134,6 +134,28 @@ case "$out" in
   *) error "no arguments did not return 2: $out" ;;
 esac
 
+# An unreadable script file, from a caller under `set -e`. Left to the
+# redirection on the read loop this aborted the caller with a raw
+# "No such file or directory" citing lib/help.sh and a line number -- not the
+# path the caller passed. A directory was worse: the redirection succeeds, read
+# fails without assigning, and the loop condition aborted on an unbound
+# variable. display_help guards this; get_script_metadata is public API too.
+for bad_path in "$tmp/no-such-file.sh" "$tmp"; do
+  out="$(bash -c 'set -euo pipefail; source ./helpers.sh; shlib_import logging help; get_script_metadata "$1" meta || echo "rc=$?"' _ "$bad_path" 2>&1)"
+  case "$out" in
+    *"unbound variable"*|*"read error"*)
+      error "an unreadable path aborted the caller instead of returning: $out" ;;
+    *"No such file or directory"*)
+      error "an unreadable path failed on the redirection, not the guard: $out" ;;
+    *rc=2*)
+      case "$out" in
+        *"$bad_path"*) note "an unreadable path returns 2 and names the path" ;;
+        *) error "the refusal did not name the path: $out" ;;
+      esac ;;
+    *) error "an unreadable path did not return 2: $out" ;;
+  esac
+done
+
 get_script_metadata "$tmp/sample.sh" "" >/dev/null 2>&1
 rc=$?
 expect "an invalid prefix returns 2 (bad arguments)" "2" "$rc"
