@@ -100,6 +100,17 @@ ban "md5sum/sha256sum are GNU" \
     "lib/file.sh"   # verify_checksum's default; guarded by command_exists and
                     # tracked as a follow-up, not reachable from ./dev.
 
+# --- unguarded $OSTYPE ------------------------------------------------------
+#
+# Same silent shape as the rest of this file, from the other direction: every
+# script here runs under `set -u`, so a bare "$OSTYPE" aborts the whole run for
+# a caller that has unset it, and it aborts on the expansion -- before any
+# branch that would have said what went wrong. lib/os.sh reads it defensively
+# once and everything else asks get_os/is_macos.
+ban "bare \$OSTYPE under set -u; use get_os/is_macos" \
+    '\$OSTYPE|\$\{OSTYPE\}' \
+    "lib/os.sh"     # the one defensive read, ${OSTYPE:-}, that get_os is built on
+
 # --- shebangs ---------------------------------------------------------------
 #
 # Checked directly rather than through ban(), which drops comment lines -- and a

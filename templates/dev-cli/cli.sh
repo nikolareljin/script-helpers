@@ -368,13 +368,17 @@ verb_deploy() {
 
 verb_devices() {
   declare -f project_devices >/dev/null && { project_devices; return; }
-  shlib_import adb android
+  shlib_import adb android os
   echo "Android devices:"
   adb_list_devices || true
   echo
   echo "Android AVDs:"
   android_avd_list 2>/dev/null || echo "  (none, or no SDK)"
-  if [[ "$OSTYPE" == darwin* ]]; then
+  # is_macos, not a bare $OSTYPE read: this file runs under `set -u`, where a
+  # caller that has unset OSTYPE aborts the CLI on the expansion, and lib/os.sh
+  # is the one place that knows how to read it -- including the linux-musl and
+  # linux-android spellings a hand-rolled check here would get wrong next.
+  if is_macos; then
     shlib_import ios
     echo
     echo "iOS simulators (booted):"
