@@ -2,9 +2,7 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
-## [Unreleased]
-
-## 2026-09-04 — v0.25.0
+## 2026-09-09 — v0.25.0
 
 ### Fixed
 - macOS support, which had never worked and which no test could have caught.
@@ -58,6 +56,19 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   (`linux-musl`) and Termux (`linux-android`), sending `docker_install`, `deps`
   and `certs` down their do-nothing branches. It now matches any `linux*`, and
   reads `$OSTYPE` defensively so a caller under `set -u` is not aborted.
+
+- Everything released in 0.24.1 is carried forward here, so 0.25.0 is a
+  superset of it. `scripts/install_dev_cli.sh` no longer destroys the caller's
+  original script when `--shims` runs twice: the backup was an unconditional
+  `mv "$dest" "$dest.pre-dev-cli"`, and on a second run `$dest` is the shim the
+  previous run wrote, so the move replaced the original -- the only copy -- with
+  our generated three-line shim. An existing `.pre-dev-cli` is now kept and the
+  current file removed instead, and that removal is guarded on the
+  `# Compatibility shim. Use ./dev ...` marker so only a shim this script wrote
+  is ever discarded. `rm`, `mv`, `cp` and `chmod` pass `--` before the path, so
+  a shim name beginning with a dash cannot be read as an option. Covered by
+  `tests/install_dev_cli_test.sh`, whose cases fail on the respective unfixed
+  code and which asserts the installer's exit status rather than discarding it.
 
 ### Added
 - `lib/os.sh`: `is_macos`, `is_linux`, `bash_major`, `bash_at_least` and
@@ -152,6 +163,26 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - preflight's "tool is not installed" skips name a platform-appropriate fix, so a
   Mac is no longer told to run `apt install`.
 
+
+## 2026-09-08 — v0.24.1
+
+### Fixed
+- `scripts/install_dev_cli.sh` no longer destroys the original script when
+  `--shims` is run twice. The backup was an unconditional
+  `mv "$dest" "$dest.pre-dev-cli"`, but on a second run `$dest` is the shim the
+  previous run wrote, so the move replaced the caller's original — the only
+  copy of it — with our generated three-line shim. An existing
+  `.pre-dev-cli` backup is now kept and the current file removed instead.
+
+  That removal is guarded: only a shim this script wrote is discarded, matched
+  on its `# Compatibility shim. Use ./dev ...` marker. If `.pre-dev-cli` exists
+  for some other reason and the root file is a real script, the backup slot
+  that would have saved it is already taken, so there is no move that does not
+  lose a file -- the shim is skipped with a warning and both files are left
+  alone. `rm`, `mv`, `cp` and `chmod` now also pass `--` before the path, so a
+  shim name that begins with a dash cannot be read as an option. Covered by
+  `tests/install_dev_cli_test.sh`, whose cases fail on the respective unfixed
+  code and which asserts the installer's exit status rather than discarding it.
 
 ## 2026-09-02 — v0.24.0
 
