@@ -507,8 +507,14 @@ The two modes are not interchangeable. `--release` builds a signed `.ipa` and
 installs it through `devicectl` onto an **attached device**, so it resolves an
 attached device rather than a simulator, and stops at installed — `simctl
 launch` has no devicectl equivalent that works without a debug session. A debug
-deploy targets a booted **simulator**. Set `IOS_EXPORT_OPTIONS_PLIST` for the
-signed build.
+deploy targets a booted **simulator**.
+
+`IOS_EXPORT_OPTIONS_PLIST` is **required** for `deploy ios --release`, and is
+checked before the build starts. Without it `ios_build_release` falls back to
+`flutter build ios --release --no-codesign`, which writes an unsigned `.app`
+and nothing under `build/ios/ipa` -- so the install step would pick up an
+`.ipa` left by an earlier signed build and push that stale binary to the
+device, with every step reporting success.
 
 Set `IOS_EXPORT_OPTIONS_PLIST` for a signed release build, and `IOS_DEVICE` to
 pin a simulator without passing `--device` each time.

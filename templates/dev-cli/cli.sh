@@ -259,13 +259,30 @@ _deploy_ios() {
   [[ "$DEV_RELEASE" == "true" ]] && mode=release
 
   if [[ "$mode" == "release" ]]; then
+    # Demanded before anything else runs, because without it this path installs
+    # the wrong build and calls it a success. `ios_build_release` with no plist
+    # falls back to `flutter build ios --release --no-codesign`, which writes an
+    # unsigned .app under build/ios/iphoneos -- nothing at all under
+    # build/ios/ipa. `ios_artifact ... ipa` then globs that directory newest
+    # first, so an .ipa left by an earlier signed build is picked up and
+    # installed: a stale binary on the device, with every step reporting
+    # success. The .app it did build is no use here either, since ios_install
+    # routes a .app to `simctl install`, which cannot address a physical device.
+    [[ -n "${IOS_EXPORT_OPTIONS_PLIST:-}" ]] || {
+      log_error "deploy ios --release: set IOS_EXPORT_OPTIONS_PLIST to your export options plist"
+      log_error "deploy ios --release: a release deploy installs a signed .ipa on an attached device; without a plist the build is an unsigned .app that only a simulator can take"
+      exit 1
+    }
+    [[ -f "$IOS_EXPORT_OPTIONS_PLIST" ]] || {
+      log_error "deploy ios --release: IOS_EXPORT_OPTIONS_PLIST not found: $IOS_EXPORT_OPTIONS_PLIST"
+      exit 1
+    }
     # Resolved before building: a signed build is slow, and "no device attached"
     # is worth hearing before it rather than after.
     udid="$(ios_resolve_physical_device "$DEV_DEVICE")" || exit 1
-    ios_build_release "$d" "${IOS_EXPORT_OPTIONS_PLIST:-}" || exit 1
+    ios_build_release "$d" "$IOS_EXPORT_OPTIONS_PLIST" || exit 1
     artifact="$(ios_artifact "$d" ipa)" || {
       log_error "deploy ios: no IPA under $d/build/ios/ipa"
-      log_error "deploy ios: a release deploy installs a signed .ipa on an attached device; set IOS_EXPORT_OPTIONS_PLIST"
       exit 1
     }
   else
@@ -502,4 +519,9 @@ main() {
   esac
 }
 
-main "$@"
+# Guarded so the verb functions can be exercised by a test without running the
+# CLI. Under `./dev`, which execs `bash .../scripts/cli.sh`, $0 and BASH_SOURCE
+# are the same path, so this still runs.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

@@ -10,7 +10,7 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   fails loudly: `/bin/bash` on macOS is 3.2, BSD userland is not GNU userland,
   and the iOS half of this library had no callers.
 
-- **bash 3.2.** The library now runs unchanged on the shell macOS ships. The 14
+- **bash 3.2.** The library now runs unchanged on the shell macOS ships. The 13
   `mapfile` calls became the while-read loop already used in `lib/ports.sh`; the
   associative arrays in `lib/ports.sh` and `lib/ollama.sh` became indexed ones,
   which is what they always were in effect; and `get_script_metadata` no longer
@@ -78,6 +78,16 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - `lib/os.sh`: `is_macos`, `is_linux`, `bash_major`, `bash_at_least` and
   `require_bash4`. The library branched on `get_os` in five modules without ever
   having a predicate for it, and had no bash-version guard anywhere at all.
+
+- `./dev deploy ios --release` requires `IOS_EXPORT_OPTIONS_PLIST`, and says so
+  before it starts building. Without a plist `ios_build_release` falls back to
+  `flutter build ios --release --no-codesign`, which writes an unsigned `.app`
+  and nothing at all under `build/ios/ipa`. The install step globs that
+  directory newest-first, so an `.ipa` from an earlier signed build was picked
+  up and pushed to the device -- a stale binary installed with every step
+  reporting success. Gated by `tests/dev_deploy_ios_test.sh`, which watches the
+  build and install steps rather than the exit status, since nothing on that
+  path ever returned non-zero.
 
 - **iOS is reachable.** `lib/ios.sh` and `scripts/ci_ios.sh` were complete,
   correct and called by nothing: `ios_install` and `ios_launch` had no callers,
