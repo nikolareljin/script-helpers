@@ -236,8 +236,12 @@ get_script_metadata() {
     if (( ! matched )); then
       # If inside a multiline field, accumulate lines
       if [[ -n "$current_field" ]]; then
-        if [[ $line =~ ^#( |\t)(.*) ]]; then
-          # Continuation line (starts with # and space/tab)
+        if [[ $line =~ ^#([[:space:]])(.*) ]]; then
+          # Continuation line (starts with # and one space or tab). The class,
+          # not `\t`: bash's ERE has no \t escape, so a tab-indented header
+          # silently lost every continuation line. One character wide, because
+          # the rest of the indentation is rendered as written.
+
           ref="${prefix}_${current_field}"
           printf -v "$ref" '%s' "${!ref}"$'\n'"${BASH_REMATCH[2]}"
         elif [[ $line =~ ^#[-]{3,}$ ]]; then
@@ -251,7 +255,7 @@ get_script_metadata() {
       fi
     fi
     # For param_lines (indented lines under PARAMETERS only)
-    if [[ "$current_field" == "parameters" ]] && [[ $line =~ ^#( |\t)(.*) ]]; then
+    if [[ "$current_field" == "parameters" ]] && [[ $line =~ ^#([[:space:]])(.*) ]]; then
       local param_line="${BASH_REMATCH[2]}"
       if [[ "$param_line" == PARAMETERS:* ]]; then
         continue

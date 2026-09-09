@@ -100,6 +100,15 @@ ban "md5sum/sha256sum are GNU" \
     "lib/file.sh"   # verify_checksum's default; guarded by command_exists and
                     # tracked as a follow-up, not reachable from ./dev.
 
+# --- \t in a bash regex ------------------------------------------------------
+#
+# `[[ $x =~ \t ]]` does not match a tab. Bash's ERE has no \t escape, so this
+# is the \s and \b problem in the other direction: no error, no match, and a
+# tab-indented script header silently lost every continuation line. Use
+# [[:space:]] (one character wide, so indentation past the first column
+# survives).
+ban "\\t is not a tab in a bash regex; use [[:space:]]" '=~[^;]*\\t'
+
 # --- unguarded $OSTYPE ------------------------------------------------------
 #
 # Same silent shape as the rest of this file, from the other direction: every

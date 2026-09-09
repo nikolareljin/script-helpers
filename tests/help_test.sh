@@ -68,6 +68,30 @@ case "$meta_param_lines" in
   *) error "param_lines lost --alpha: $meta_param_lines" ;;
 esac
 
+# Tab-indented continuation lines. `\t` in a bash [[ =~ ]] regex is not a tab,
+# so this header lost its PARAMETERS block entirely and rendered no Parameters
+# section at all -- the same silent shape as the GNU \s and \b this release
+# removed. printf rather than a heredoc so the tabs cannot be reformatted away.
+printf '#!/usr/bin/env bash\n# SCRIPT: tabbed.sh\n# DESCRIPTION: tabbed\n# PARAMETERS:\n#\t--alpha\tthe first\n#\t--beta\tthe second\n# EXIT_CODES: 0 ok\n#\t2 bad arguments\n# ----------------------------------------------------\n' > "$tmp/tabbed.sh"
+get_script_metadata "$tmp/tabbed.sh" tabbed
+case "${tabbed_param_lines}" in
+  *"--alpha"*) case "${tabbed_param_lines}" in
+                 *"--beta"*) note "tab-indented param lines are collected" ;;
+                 *) error "tab-indented param_lines lost --beta: ${tabbed_param_lines}" ;;
+               esac ;;
+  *) error "tab-indented param_lines lost --alpha: ${tabbed_param_lines}" ;;
+esac
+case "${tabbed_exit_codes}" in
+  *"2 bad arguments"*) note "tab-indented continuation lines accumulate" ;;
+  *) error "a tab-indented continuation line was dropped: ${tabbed_exit_codes}" ;;
+esac
+# The indentation of a space-indented block is rendered as written, so the fix
+# must consume exactly one whitespace character, not a greedy run of them.
+case "${meta_param_lines}" in
+  "  --alpha"*) note "space indentation beyond the first column is preserved" ;;
+  *) error "leading indentation was eaten: [${meta_param_lines}]" ;;
+esac
+
 # The prefix is the contract: two prefixes must not collide.
 cat > "$tmp/other.sh" <<'EOF'
 #!/usr/bin/env bash

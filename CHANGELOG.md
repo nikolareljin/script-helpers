@@ -34,6 +34,15 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   *from the caller* — `select_distro`, `select_multiple_distros`, `download_iso`.
   They now say so through `require_bash4` rather than returning wrong values.
 
+  A ninth of the same shape sat in a bash regex rather than in grep:
+  `[[ $line =~ ^#( |\t)(.*) ]]` in `lib/help.sh`. Bash's ERE has no `\t`
+  escape, so a tab-indented script header lost every continuation line and
+  rendered no `Parameters:` block at all -- no error, no match, exactly like the
+  grep patterns. It is `[[:space:]]` now, one character wide, because the rest
+  of a block's indentation is reproduced as written. `portability_test.sh` bans
+  `\t` inside `[[ =~ ]]`, and `help_test.sh` carries a tab-indented fixture
+  written with printf so no reformatting can quietly make it pass.
+
 - **BSD userland.** Eight `grep` patterns used GNU `\s` or `\b`. BSD grep does
   not reject those; it simply never matches them, so each one silently did
   nothing on macOS. `add_to_etc_hosts` therefore concluded "absent" every time
