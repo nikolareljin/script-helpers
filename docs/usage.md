@@ -495,7 +495,8 @@ only for iOS work is not asked for the Android toolchain.
 ./dev deploy ios                   # build for the simulator, install, launch
 ./dev deploy ios --device <udid>   # when more than one simulator is booted
 ./dev run ios                      # flutter run against a booted simulator
-./dev build ios --release          # signed IPA via ios_build_release
+./dev build ios --release          # signed IPA when IOS_EXPORT_OPTIONS_PLIST is
+                                   # set, an unsigned .app when it is not
 ```
 
 A debug `deploy ios` builds with `flutter build ios --simulator`; a plain
@@ -509,12 +510,15 @@ attached device rather than a simulator, and stops at installed — `simctl
 launch` has no devicectl equivalent that works without a debug session. A debug
 deploy targets a booted **simulator**.
 
-`IOS_EXPORT_OPTIONS_PLIST` is **required** for `deploy ios --release`, and is
-checked before the build starts. Without it `ios_build_release` falls back to
-`flutter build ios --release --no-codesign`, which writes an unsigned `.app`
-and nothing under `build/ios/ipa` -- so the install step would pick up an
-`.ipa` left by an earlier signed build and push that stale binary to the
-device, with every step reporting success.
+`build` and `deploy` differ on the plist deliberately. `build ios --release`
+without one is fine: `ios_build_release` falls back to `flutter build ios
+--release --no-codesign`, and an unsigned `.app` is a legitimate build output.
+Installing one is not, so `IOS_EXPORT_OPTIONS_PLIST` is **required** for
+`deploy ios --release`, and is checked before the build starts. Without that
+check the same fallback runs, writing an unsigned `.app` and nothing under
+`build/ios/ipa` -- so the install step picked up an `.ipa` left by an earlier
+signed build and pushed that stale binary to the device, with every step
+reporting success.
 
 Set `IOS_EXPORT_OPTIONS_PLIST` for a signed release build, and `IOS_DEVICE` to
 pin a simulator without passing `--device` each time.
