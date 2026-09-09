@@ -69,6 +69,10 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   a shim name beginning with a dash cannot be read as an option. Covered by
   `tests/install_dev_cli_test.sh`, whose cases fail on the respective unfixed
   code and which asserts the installer's exit status rather than discarding it.
+  That test's shim assertion keys on the `# Compatibility shim. Use ./dev ...`
+  marker the installer's own re-run guard greps for, not on `scripts/cli.sh`:
+  the shim this release writes delegates to `./dev`, so the original assertion
+  passed on 0.24.1 and failed the moment the two changes met.
 
 ### Added
 - `lib/os.sh`: `is_macos`, `is_linux`, `bash_major`, `bash_at_least` and
