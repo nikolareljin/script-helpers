@@ -16,6 +16,17 @@ error() { echo "[install_dev_cli_test][ERROR] $*" >&2; failures=$((failures+1));
 
 ORIGINAL='echo "original script"'
 
+# A shim is recognised the same way the installer recognises its own: by the
+# `# Compatibility shim. Use ./dev ...` marker its re-run guard greps for. The
+# body must also delegate to ./dev, which is what resolves a usable bash --
+# asserting on scripts/cli.sh instead would pass while the shim bypassed that
+# resolver in every consuming repo.
+is_shim() {
+  local f="$1"
+  grep -q '^# Compatibility shim\. Use \./dev ' "$f" 2>/dev/null &&
+    grep -q '/dev" ' "$f" 2>/dev/null
+}
+
 # A throwaway git repo with one root script to shim.
 make_repo() {
   local dir="$1"
@@ -52,7 +63,7 @@ if grep -q "$ORIGINAL" "$repo/start.pre-dev-cli" 2>/dev/null; then
 else
   error "first run did not preserve the original in start.pre-dev-cli"
 fi
-if grep -q 'cli.sh' "$repo/start" 2>/dev/null; then
+if is_shim "$repo/start"; then
   note "first run installs the shim"
 else
   error "first run did not install the shim"
@@ -68,7 +79,7 @@ if grep -q "$ORIGINAL" "$repo/start.pre-dev-cli" 2>/dev/null; then
 else
   error "second run destroyed the original backup (it now holds the shim)"
 fi
-if grep -q 'cli.sh' "$repo/start" 2>/dev/null; then
+if is_shim "$repo/start"; then
   note "second run leaves the shim in place"
 else
   error "second run did not leave a shim at start"

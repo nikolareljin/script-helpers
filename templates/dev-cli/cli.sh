@@ -149,8 +149,10 @@ dev_python_install() {
   # needs them, so install owes them too. Installed by path rather than by
   # cd-ing: $py is relative to the repo root, and a cd would break it.
   if [[ -f "$d/pyproject.toml" ]] && grep -qE '^[[:space:]]*dev[[:space:]]*=' "$d/pyproject.toml"; then
-    log_info "install: $py -m pip install -e '$d[dev]'"
-    "$py" -m pip install -e "$d[dev]" --quiet \
+    # Braced: `$d[dev]` reads as an array subscript to shellcheck (SC1087) and
+    # to anyone maintaining this, where the intent is the path plus a pip extra.
+    log_info "install: $py -m pip install -e '${d}[dev]'"
+    "$py" -m pip install -e "${d}[dev]" --quiet \
       || log_warn "install: the dev extra did not install; continuing"
   fi
 }
