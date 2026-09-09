@@ -72,9 +72,9 @@ install_file() {
   fi
   say "write: $rel"
   [[ "$DRY_RUN" == "true" ]] && return 0
-  mkdir -p "$(dirname "$dest")"
+  mkdir -p -- "$(dirname "$dest")"
   cp -- "$src" "$dest"
-  chmod "$mode" -- "$dest"
+  chmod -- "$mode" "$dest"
 }
 
 # --- the entry point -------------------------------------------------------
@@ -131,7 +131,7 @@ if [[ -n "$SHIMS" ]]; then
 # Compatibility shim. Use ./dev $name — this is removed one minor version on.
 exec bash "\$(dirname "\$0")/scripts/cli.sh" $name "\$@"
 EOF
-    chmod 755 -- "$dest"
+    chmod -- 755 "$dest"
   done
 fi
 
