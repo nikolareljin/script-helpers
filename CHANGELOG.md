@@ -41,6 +41,13 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   exercises the three renderers, not just the collector, which is why the leak
   survived a test written to catch exactly it.
 
+- **`helpers.sh` — the bash-3 advisory told Linux hosts to use Homebrew.** The
+  one-time note printed when the library loads under bash 3.x ended with
+  "On macOS: brew install bash" regardless of where it was running, so a
+  minimal container or an old enterprise Linux with a dated bash was pointed at
+  a tool it does not have. The remedy is chosen by `$OSTYPE` now: Homebrew on
+  macOS, the package manager elsewhere.
+
 - **`scripts/install_dev_cli.sh` — `--shims dev` replaced the entry point with
   a shim that ran itself.** Every compatibility shim delegates to `./dev`, so a
   shim *named* `dev` moved the real entry point to `dev.pre-dev-cli` and wrote
