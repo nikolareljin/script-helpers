@@ -13,9 +13,11 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   the `shebang is not '#!/usr/bin/env bash'` branch could only ever fire on a
   shebang that already said bash. A gate blind to its own subject reports PASS
   for the case it was written for. Files are now classified by shebang, with a
-  `*.sh` name standing in when there is none. The scanned set is unchanged today
-  (114 files) — the defect was latent, and would have been paid by whoever added
-  the first `#!/bin/sh` script.
+  `*.sh` name standing in when there is none. The interpreter is compared by
+  name rather than by a `*sh` suffix, because `pwsh` ends in one and this
+  repository ships a PowerShell library — so do `tclsh` and `wish`. The scanned
+  set is unchanged today (114 files) — the defect was latent, and would have
+  been paid by whoever added the first `#!/bin/sh` script.
 
 - **`lib/help.sh` — rendering help left a dozen variables in the caller.**
   `get_script_metadata` writes its results with `printf -v "${prefix}_${key}"`,

@@ -40,7 +40,7 @@ shell_files() {
         | sed 's|^\./||' | sort
     fi
   }
-  local f first
+  local f first interp rest
   _candidates \
     | while IFS= read -r f; do
         [[ -f "$f" ]] || continue
@@ -52,12 +52,33 @@ shell_files() {
         # catch: `#!/bin/sh`, `#!/bin/zsh` and scripts with no shebang at all
         # never reached it, so that check could only ever fire on a shebang that
         # already said bash. A gate that cannot see its own subject is not a gate.
+        #
+        # The interpreter is compared by name and not by a `*sh` suffix, because
+        # `pwsh` ends in one: this repository ships a PowerShell library, and
+        # matching on the suffix would have run bash-4 and GNU-grep bans over it
+        # and then failed its shebang for not saying bash.
         first="$(head -n1 "$f" 2>/dev/null)"
-        case "$first" in
-          '#!'*sh|'#!'*sh[[:space:]]*) printf '%s\n' "$f" ;;
-          '#!'*) ;;   # a shebang naming something that is not a shell: python, perl, ...
-          *) case "$f" in *.sh) printf '%s\n' "$f" ;; esac ;;
-        esac
+        if [[ "$first" == '#!'* ]]; then
+          interp="${first#\#!}"
+          interp="${interp%%[[:space:]]*}"
+          interp="${interp##*/}"
+          if [[ "$interp" == "env" ]]; then
+            # `#!/usr/bin/env bash`, and the `-S` form that carries flags.
+            rest="${first#*env}"
+            rest="${rest#"${rest%%[![:space:]]*}"}"
+            [[ "$rest" == -S* ]] && { rest="${rest#-S}"; rest="${rest#"${rest%%[![:space:]]*}"}"; }
+            interp="${rest%%[[:space:]]*}"
+            interp="${interp##*/}"
+          fi
+          case "$interp" in
+            sh|bash|dash|ksh|ash|zsh) printf '%s\n' "$f" ;;
+            *) ;;   # python, perl, pwsh, ... not this test's subject
+          esac
+        else
+          # No shebang. A `.sh` name still says what it is, and is still sourced
+          # or run by something that will be bash.
+          case "$f" in *.sh) printf '%s\n' "$f" ;; esac
+        fi
       done
 }
 
