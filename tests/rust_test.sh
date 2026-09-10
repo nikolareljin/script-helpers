@@ -65,10 +65,15 @@ EOF
 chmod +x "$tmp/distro/cargo" "$tmp/rustup-toolchain/cargo" "$tmp/nightly/cargo" "$tmp/bin/rustup"
 
 original_path="$PATH"
+# The stubs are `#!/usr/bin/env bash`, so the restricted PATH each case sets
+# must still contain wherever *this* bash lives: /bin on macOS, /usr/bin on
+# Ubuntu, /usr/local/bin in the bash:3.2 image. Without it the stubs fail to
+# exec and every case that needs one to run reads as "no usable cargo".
+bash_dir="$(dirname "$BASH")"
 
 note "a shadowing distribution cargo is stepped over"
 if (
-  PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin"
+  PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin:$bash_dir"
   rust_toolchain_ci_uses >"$tmp/out" 2>&1
   resolved="$(command -v cargo)"
   [[ "$resolved" == "$tmp/rustup-toolchain/cargo" ]]
@@ -80,7 +85,7 @@ fi
 
 note "it says so, rather than switching silently"
 if (
-  PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin"
+  PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin:$bash_dir"
   rust_toolchain_ci_uses >"$tmp/out" 2>&1
   grep -q "1.96.0" "$tmp/out" && grep -q "1.75.0" "$tmp/out"
 ); then
@@ -91,7 +96,7 @@ fi
 
 note "no message when PATH already offers the right one"
 if (
-  PATH="$tmp/rustup-toolchain:$tmp/bin:/usr/bin:/bin"
+  PATH="$tmp/rustup-toolchain:$tmp/bin:/usr/bin:/bin:$bash_dir"
   rust_toolchain_ci_uses >"$tmp/out" 2>&1
   [[ ! -s "$tmp/out" ]]
 ); then
@@ -102,7 +107,7 @@ fi
 
 note "no rustup is an actionable refusal, not a silent fallback"
 if (
-  PATH="$tmp/distro:/usr/bin:/bin"
+  PATH="$tmp/distro:/usr/bin:/bin:$bash_dir"
   ! rust_toolchain_ci_uses >"$tmp/out" 2>&1
   grep -q "rustup" "$tmp/out"
 ); then
@@ -118,7 +123,7 @@ exit 1
 EOF
 chmod +x "$tmp/bin/rustup"
 if (
-  PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin"
+  PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin:$bash_dir"
   ! rust_toolchain_ci_uses >"$tmp/out" 2>&1
   grep -q "toolchain install stable" "$tmp/out"
 ); then
@@ -141,7 +146,7 @@ fi
 EOF
 chmod +x "$tmp/bin/rustup"
 if (
-  PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin"
+  PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin:$bash_dir"
   rust_toolchain_ci_uses >"$tmp/out" 2>&1
   [[ "$(command -v cargo)" == "$tmp/rustup-toolchain/cargo" ]]
 ); then
@@ -152,7 +157,7 @@ fi
 
 note "a toolchain rustup does not have is refused by name"
 if (
-  PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin"
+  PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin:$bash_dir"
   ! rust_toolchain_ci_uses 1.80.0 >"$tmp/out" 2>&1
   grep -q "toolchain install 1.80.0" "$tmp/out"
 ); then
@@ -163,7 +168,7 @@ fi
 
 note "the report does not change PATH"
 if (
-  PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin"
+  PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin:$bash_dir"
   rust_toolchain_report >"$tmp/out" 2>&1
   [[ "$(command -v cargo)" == "$tmp/distro/cargo" ]]
 ); then
