@@ -17,6 +17,20 @@
 #
 # Written for bash 3.2: no namerefs, no associative arrays, no ${var,,}.
 
+# Usage: _rust_path_prepend <dir>
+#
+# Put <dir> first on PATH unless it already is, and export it. On an empty
+# PATH the result is <dir> alone: a trailing colon would put the working
+# directory on the search path, which is how ./cargo gets run by accident.
+_rust_path_prepend() {
+  local dir="$1"
+  case "$PATH" in
+    "$dir"|"$dir:"*) ;;
+    *) PATH="$dir${PATH:+:$PATH}" ;;
+  esac
+  export PATH
+}
+
 # Usage: rust_toolchain_ci_uses [toolchain]
 #
 # Puts the named rustup toolchain's cargo first on PATH and exports it. The
@@ -60,12 +74,8 @@ rust_toolchain_ci_uses() {
   # distribution cargo that is the whole problem. So the test is "is it the
   # first segment"; only then is there nothing to do. Calling twice is still
   # a no-op, since after the first call it is first.
-  local rustup_dir; rustup_dir="$(dirname "$rustup_cargo")"
-  case "$PATH" in
-    "$rustup_dir"|"$rustup_dir:"*) ;;
-    *) PATH="$rustup_dir:$PATH" ;;
-  esac
-  export PATH
+  # Parameter expansion, not dirname: on an empty PATH there is no dirname.
+  _rust_path_prepend "${rustup_cargo%/*}"
   # A cargo already run in this shell is in the command hash table, and the
   # table wins over PATH. Without this a gate could still execute the old one.
   hash -r

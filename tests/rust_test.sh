@@ -200,6 +200,32 @@ else
   error "expected the rustup cargo to run after the switch, got: $(cargo 2>&1)"
 fi
 
+note "an empty PATH becomes the directory alone, with no trailing colon"
+# shellcheck disable=SC2030,SC2031  # PATH is deliberately set and read inside the subshell
+if (
+  # shellcheck disable=SC2123
+  PATH=""
+  _rust_path_prepend "$tmp/rustup-toolchain"
+  [[ "$PATH" == "$tmp/rustup-toolchain" ]]
+); then
+  ok "no trailing colon, so the working directory never joins PATH"
+else
+  error "expected PATH to be exactly the toolchain dir after prepending to an empty PATH"
+fi
+
+note "prepending to a non-empty PATH keeps the rest, once"
+# shellcheck disable=SC2030,SC2031
+if (
+  PATH="/usr/bin:/bin"
+  _rust_path_prepend "$tmp/rustup-toolchain"
+  _rust_path_prepend "$tmp/rustup-toolchain"
+  [[ "$PATH" == "$tmp/rustup-toolchain:/usr/bin:/bin" ]]
+); then
+  ok "first, then unchanged"
+else
+  error "expected dir:/usr/bin:/bin"
+fi
+
 note "calling it twice does not grow PATH"
 if (
   PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin:$bash_dir"
