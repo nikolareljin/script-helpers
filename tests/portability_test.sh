@@ -63,12 +63,18 @@ shell_files() {
           interp="${interp%%[[:space:]]*}"
           interp="${interp##*/}"
           if [[ "$interp" == "env" ]]; then
-            # `#!/usr/bin/env bash`, and the `-S` form that carries flags.
             rest="${first#*env}"
             rest="${rest#"${rest%%[![:space:]]*}"}"
-            [[ "$rest" == -S* ]] && { rest="${rest#-S}"; rest="${rest#"${rest%%[![:space:]]*}"}"; }
             interp="${rest%%[[:space:]]*}"
             interp="${interp##*/}"
+            # `env` carrying options -- `-S`, `-i`, `--ignore-environment`,
+            # `-u VAR` -- leaves a flag here rather than an interpreter. Guessing
+            # which flags take an argument to find the real one is how this
+            # filter kept growing a new hole; an unclassifiable shebang is left
+            # for the shebang check below to name, since this repository
+            # mandates exactly `#!/usr/bin/env bash` and every one of these
+            # forms is something it should report.
+            [[ "$interp" == -* ]] && interp=""
           fi
           case "$interp" in
             sh|bash|dash|ksh|ash|zsh) printf '%s\n' "$f" ;;

@@ -15,7 +15,12 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   for the case it was written for. Files are now classified by shebang, with a
   `*.sh` name standing in when there is none. The interpreter is compared by
   name rather than by a `*sh` suffix, because `pwsh` ends in one and this
-  repository ships a PowerShell library — so do `tclsh` and `wish`. The scanned
+  repository ships a PowerShell library — so do `tclsh` and `wish`. Anything the
+  classifier cannot resolve to an interpreter — a bare `#!`, `#!/usr/bin/env`
+  with no command, `env` carrying options (`-S`, `-i`, `-u VAR`,
+  `--ignore-environment`) — is *included* rather than dropped, so the shebang
+  check names it. Failing toward inspection is the whole point: every narrower
+  version of this filter opened a new hole somewhere else. The scanned
   set is unchanged today (114 files) — the defect was latent, and would have
   been paid by whoever added the first `#!/bin/sh` script.
 
