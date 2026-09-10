@@ -20,8 +20,16 @@ simctl_output=""
 boot_status=0
 boot_reveal_after=0
 boot_reveals=""
+# `trap ... EXIT` replaces the handler rather than adding to it, and this file
+# creates temporaries in three places -- which is how the last one silently
+# orphaned the ones before it. One handler, one list appended to as each
+# temporary appears, so a new one cannot introduce that bug again.
+_cleanup_paths=()
+_cleanup() { [[ ${#_cleanup_paths[@]} -gt 0 ]] && rm -rf "${_cleanup_paths[@]+"${_cleanup_paths[@]}"}"; return 0; }
+trap _cleanup EXIT
+
 boot_poll_file="$(mktemp)"
-trap 'rm -f "$boot_poll_file"' EXIT
+_cleanup_paths+=("$boot_poll_file")
 shutdown_status=0
 devicectl_available=false
 xctrace_output=""
@@ -139,7 +147,7 @@ if ios_shutdown_simulators 2>/dev/null; then
 fi
 
 ipa_dir="$(mktemp -d)"
-trap 'rm -rf "$ipa_dir"' EXIT
+_cleanup_paths+=("$ipa_dir")
 ipa_file="$ipa_dir/app.ipa"
 : > "$ipa_file"
 if ios_install "device-id" "$ipa_file" 2>/dev/null; then
@@ -326,10 +334,7 @@ shopt -u extglob
 
 # --- ios_artifact ----------------------------------------------------------
 art_tmp="$(mktemp -d)"
-# One trap covering both temp directories: `trap ... EXIT` replaces the handler
-# rather than adding to it, so a second trap here would have silently orphaned
-# $ipa_dir on every run.
-trap 'rm -rf "$ipa_dir" "$art_tmp"' EXIT
+_cleanup_paths+=("$art_tmp")
 
 if ios_artifact "$art_tmp" simulator >/dev/null 2>&1; then
   echo "ios_artifact should fail when nothing is built" >&2
