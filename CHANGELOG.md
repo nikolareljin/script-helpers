@@ -2,6 +2,37 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## 2026-09-09 — v0.26.0
+
+### Added
+- **`lib/rust.sh` — the Rust toolchain a gate compiles with.** CI installs Rust
+  through `dtolnay/rust-toolchain@stable`, which is rustup's stable. A
+  workstation often also carries a distribution cargo that comes first on
+  `PATH` and is years older, and the errors that produces name the lockfile
+  rather than the compiler:
+
+      error: lock file version 4 requires `-Znext-lockfile-bump`
+      feature `edition2024` is required
+
+  So the search goes to the dependency tree while the toolchain is the
+  problem — and a local gate saying "this is what CI would have run" is saying
+  something false, which is worse than having no gate.
+
+  `rust_toolchain_ci_uses` puts rustup's cargo first and **says so when that
+  differs from what `PATH` offered**, naming both versions; it refuses with an
+  actionable message rather than falling back to the older one silently.
+  `rust_toolchain_report` prints the same facts without touching `PATH`.
+
+  Promoted from a consumer that had solved it privately, so every Rust
+  repository can have it. Same shape as a snap Flutter resolving `.dart_tool`
+  for a project the dev SDK was building.
+
+### Changed
+- **`scripts/local_test_rust.sh` resolves the toolchain before it looks for
+  cargo.** It previously took whatever `command -v cargo` returned. New
+  `--any-cargo` opts out for a repository that genuinely targets the system
+  toolchain.
+
 ## 2026-09-09 — v0.25.0
 
 ### Fixed
