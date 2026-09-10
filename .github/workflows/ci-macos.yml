@@ -1,0 +1,120 @@
+name: CI (macOS)
+
+# A separate workflow rather than a job in ci.yml, so the path filter can keep
+# macOS minutes off doc-only changes: GitHub bills macOS runners at a 10x minute
+# multiplier. Without any macOS job at all, though, every fix here would
+# regress unseen — as this library's macOS support did for twenty-three
+# releases, because CI was Linux-only and nobody ran the suite on a Mac.
+on:
+  push:
+    branches: [ "release/*", main ]
+    paths:
+      - '**.sh'
+      - 'bin/**'
+      - 'templates/**'
+      - 'helpers.sh'
+      - 'Makefile'
+      - '.github/workflows/ci-macos.yml'
+  pull_request:
+    paths:
+      - '**.sh'
+      - 'bin/**'
+      - 'templates/**'
+      - 'helpers.sh'
+      - 'Makefile'
+      - '.github/workflows/ci-macos.yml'
+  workflow_dispatch:
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Environment info
+        run: |
+          sw_vers || true
+          printf '/bin/bash : '; /bin/bash --version | head -n1
+          printf 'PATH bash : '; bash --version | head -n1
+          printf 'sed       : '; sed --version 2>/dev/null | head -n1 || echo "BSD sed (no --version)"
+          printf 'grep      : '; grep --version 2>/dev/null | head -n1 || echo "BSD grep (no --version)"
+
+      - name: /bin/bash is the shell this library must support
+        run: |
+          set -euo pipefail
+          major="$(/bin/bash -c 'echo ${BASH_VERSINFO[0]}')"
+          echo "macOS /bin/bash major version: $major"
+          if [ "$major" -ge 4 ]; then
+            echo "::notice::macOS now ships bash $major as /bin/bash; the 3.2 constraint may be relaxable."
+          fi
+
+      # The point of this job. GitHub's macOS runners also carry a modern bash,
+      # so the legacy shell has to be named explicitly or the job proves nothing.
+      - name: Test suite under /bin/bash (bash 3.2)
+        run: |
+          set -uo pipefail
+          failed=0
+          for f in tests/*_test.sh; do
+            [ -f "$f" ] || continue
+            printf '\n--- /bin/bash: %s ---\n' "$f"
+            /bin/bash "$f" || { echo "::error file=$f::failed under macOS /bin/bash"; failed=1; }
+          done
+          exit $failed
+
+      - name: Portability gate under /bin/bash
+        run: /bin/bash tests/portability_test.sh
+
+      # Catches the BSD-userland breakage: the docs linter used GNU \b, which
+      # BSD grep never matches, so this reported every function as undocumented.
+      - name: make lint-docs
+        run: make lint-docs
+
+      - name: make test
+        run: make test
+
+      - name: make examples
+        run: make examples
+
+      - name: The dev shim must find a usable bash
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          mkdir -p "$work/scripts"
+          cp templates/dev-cli/dev "$work/dev"
+          chmod +x "$work/dev"
+          cat > "$work/scripts/cli.sh" <<'EOS'
+          #!/usr/bin/env bash
+          echo "cli ran under bash ${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]} with args: $*"
+          EOS
+          out="$("$work/dev" hello world)"
+          echo "$out"
+          case "$out" in
+            *"args: hello world"*) : ;;
+            *) echo "::error::the dev shim did not pass its arguments through"; exit 1 ;;
+          esac
+
+      - name: preflight detects an iOS project
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          mkdir -p "$work/ios" "$work/android"
+          printf 'name: demo\n' > "$work/pubspec.yaml"
+          printf "platform :ios, '13.0'\n" > "$work/ios/Podfile"
+          out="$(CI= bash scripts/preflight.sh --dir "$work" --list)"
+          echo "$out"
+          printf '%s\n' "$out" | grep -q '^ios	\.$' || {
+            echo "::error::preflight did not detect the ios stack on macOS"; exit 1; }
+
+      - name: preflight --quick runs without demanding the Android SDK
+        run: |
+          set -uo pipefail
+          work="$(mktemp -d)"
+          mkdir -p "$work/ios"
+          printf 'name: demo\n' > "$work/pubspec.yaml"
+          printf "platform :ios\n" > "$work/ios/Podfile"
+          out="$(CI= bash scripts/preflight.sh --dir "$work" --quick --skip-security 2>&1 || true)"
+          echo "$out"
+          case "$out" in
+            *"Android SDK"*) echo "::error::preflight demanded the Android SDK on macOS"; exit 1 ;;
+          esac
