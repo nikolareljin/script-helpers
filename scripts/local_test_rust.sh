@@ -14,7 +14,8 @@
 # usually older, and the errors it produces name the lockfile rather than the
 # toolchain -- so a gate claiming "this is what CI would have run" quietly
 # runs something else. --any-cargo opts out for a repository that genuinely
-# targets the system toolchain.
+# targets the system toolchain. RUST_TOOLCHAIN pins the channel or version
+# resolved (default: stable).
 # ----------------------------------------------------
 set -euo pipefail
 

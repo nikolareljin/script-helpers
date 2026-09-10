@@ -43,11 +43,26 @@ cat > "$tmp/rustup-toolchain/cargo" <<'EOF'
 #!/usr/bin/env bash
 echo "cargo 1.96.0 (rustup)"
 EOF
+# The stub answers only for the named toolchain, and its *default* toolchain
+# is a nightly with its own cargo -- so a resolver that asks a bare
+# `rustup which cargo` gets the nightly, and the test below catches it.
+mkdir -p "$tmp/nightly"
+cat > "$tmp/nightly/cargo" <<'EOF'
+#!/usr/bin/env bash
+echo "cargo 1.99.0-nightly (rustup default)"
+EOF
 cat > "$tmp/bin/rustup" <<EOF
 #!/usr/bin/env bash
-[ "\$1" = "which" ] && echo "$tmp/rustup-toolchain/cargo"
+if [ "\$1" = "which" ] && [ "\$2" = "--toolchain" ]; then
+  case "\$3" in
+    stable) echo "$tmp/rustup-toolchain/cargo" ;;
+    *) exit 1 ;;
+  esac
+elif [ "\$1" = "which" ]; then
+  echo "$tmp/nightly/cargo"
+fi
 EOF
-chmod +x "$tmp/distro/cargo" "$tmp/rustup-toolchain/cargo" "$tmp/bin/rustup"
+chmod +x "$tmp/distro/cargo" "$tmp/rustup-toolchain/cargo" "$tmp/nightly/cargo" "$tmp/bin/rustup"
 
 original_path="$PATH"
 
@@ -112,12 +127,41 @@ else
   error "expected install instructions: $(cat "$tmp/out" 2>/dev/null)"
 fi
 
-note "the report does not change PATH"
+note "a nightly default toolchain does not leak through"
 cat > "$tmp/bin/rustup" <<EOF
 #!/usr/bin/env bash
-[ "\$1" = "which" ] && echo "$tmp/rustup-toolchain/cargo"
+if [ "\$1" = "which" ] && [ "\$2" = "--toolchain" ]; then
+  case "\$3" in
+    stable) echo "$tmp/rustup-toolchain/cargo" ;;
+    *) exit 1 ;;
+  esac
+elif [ "\$1" = "which" ]; then
+  echo "$tmp/nightly/cargo"
+fi
 EOF
 chmod +x "$tmp/bin/rustup"
+if (
+  PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin"
+  rust_toolchain_ci_uses >"$tmp/out" 2>&1
+  [[ "$(command -v cargo)" == "$tmp/rustup-toolchain/cargo" ]]
+); then
+  ok "stable is asked for by name, not whatever rustup defaults to"
+else
+  error "expected stable's cargo, got: $(command -v cargo 2>/dev/null) / $(cat "$tmp/out" 2>/dev/null)"
+fi
+
+note "a toolchain rustup does not have is refused by name"
+if (
+  PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin"
+  ! rust_toolchain_ci_uses 1.80.0 >"$tmp/out" 2>&1
+  grep -q "toolchain install 1.80.0" "$tmp/out"
+); then
+  ok "names the missing toolchain in the fix"
+else
+  error "expected an install hint for 1.80.0: $(cat "$tmp/out" 2>/dev/null)"
+fi
+
+note "the report does not change PATH"
 if (
   PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin"
   rust_toolchain_report >"$tmp/out" 2>&1

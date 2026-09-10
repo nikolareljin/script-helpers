@@ -18,8 +18,10 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   problem — and a local gate saying "this is what CI would have run" is saying
   something false, which is worse than having no gate.
 
-  `rust_toolchain_ci_uses` puts rustup's cargo first and **says so when that
-  differs from what `PATH` offered**, naming both versions; it refuses with an
+  `rust_toolchain_ci_uses [toolchain]` puts that rustup toolchain's cargo first —
+  `stable` by default, asked for **by name** rather than through `rustup which
+  cargo`, which follows a developer's default or override and may be nightly —
+  and **says so when that differs from what `PATH` offered**, naming both versions; it refuses with an
   actionable message rather than falling back to the older one silently.
   `rust_toolchain_report` prints the same facts without touching `PATH`.
 

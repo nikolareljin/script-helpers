@@ -17,29 +17,37 @@
 #
 # Written for bash 3.2: no namerefs, no associative arrays, no ${var,,}.
 
-# Usage: rust_toolchain_ci_uses
+# Usage: rust_toolchain_ci_uses [toolchain]
 #
-# Puts rustup's cargo first on PATH and exports it. Says so when that differs
-# from what PATH offered, because a silent switch is its own surprise. Returns
-# non-zero, with an actionable message, when rustup cannot supply one.
+# Puts the named rustup toolchain's cargo first on PATH and exports it. The
+# toolchain defaults to RUST_TOOLCHAIN, then "stable" -- the channel CI's
+# dtolnay/rust-toolchain@stable installs. It is named on purpose: a bare
+# `rustup which cargo` follows the developer's default or a directory
+# override, which may be nightly, and that reintroduces the gap this exists
+# to close from the other side.
+#
+# Says so when the result differs from what PATH offered, because a silent
+# switch is its own surprise. Returns non-zero, with an actionable message,
+# when rustup cannot supply that toolchain.
 rust_toolchain_ci_uses() {
+  local toolchain="${1:-${RUST_TOOLCHAIN:-stable}}"
   local rustup_cargo on_path
 
   if ! command -v rustup >/dev/null 2>&1; then
-    echo "[rust] rustup is not installed; CI compiles with rustup's stable." >&2
-    echo "[rust] Install it from https://rustup.rs, then: rustup toolchain install stable" >&2
+    echo "[rust] rustup is not installed; CI compiles with rustup's $toolchain." >&2
+    echo "[rust] Install it from https://rustup.rs, then: rustup toolchain install $toolchain" >&2
     return 1
   fi
 
-  rustup_cargo="$(rustup which cargo 2>/dev/null || true)"
+  rustup_cargo="$(rustup which --toolchain "$toolchain" cargo 2>/dev/null || true)"
   if [[ -z "$rustup_cargo" || ! -x "$rustup_cargo" ]]; then
-    echo "[rust] rustup has no usable cargo. Run: rustup toolchain install stable" >&2
+    echo "[rust] rustup has no usable cargo for '$toolchain'. Run: rustup toolchain install $toolchain" >&2
     return 1
   fi
 
   on_path="$(command -v cargo 2>/dev/null || true)"
   if [[ "$on_path" != "$rustup_cargo" ]]; then
-    echo "[rust] using $("$rustup_cargo" --version 2>/dev/null) from rustup"
+    echo "[rust] using $("$rustup_cargo" --version 2>/dev/null) from rustup ($toolchain)"
     if [[ -n "$on_path" ]]; then
       echo "[rust] (PATH offered $("$on_path" --version 2>/dev/null || echo 'an unusable cargo'), which is not what CI compiles with)"
     fi
@@ -49,7 +57,7 @@ rust_toolchain_ci_uses() {
   export PATH
 }
 
-# Usage: rust_toolchain_report
+# Usage: rust_toolchain_report [toolchain]
 #
 # Prints which cargo and rustc would be used, without changing PATH. For a
 # status verb, or a gate that wants to say what it ran with afterwards.
@@ -62,7 +70,8 @@ rust_toolchain_report() {
   fi
   echo "[rust] cargo: $cargo_path ($("$cargo_path" --version 2>/dev/null || echo 'version unavailable'))"
   if command -v rustup >/dev/null 2>&1; then
-    echo "[rust] rustup stable: $(rustup which cargo 2>/dev/null || echo 'none')"
+    local toolchain="${1:-${RUST_TOOLCHAIN:-stable}}"
+    echo "[rust] rustup $toolchain: $(rustup which --toolchain "$toolchain" cargo 2>/dev/null || echo 'not installed')"
   else
     echo "[rust] rustup: not installed"
   fi
