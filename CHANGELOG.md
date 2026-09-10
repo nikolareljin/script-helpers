@@ -29,8 +29,10 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   Fixed by declaring the fixed field set `local` one frame above the call:
   bash locals are dynamically scoped, so the assignments land in that frame and
   disappear on return — no cleanup path to forget, and nothing newer than bash
-  3.2. `tests/scope_test.sh` now exercises the three renderers, not just the
-  collector, which is why the leak survived a test written to catch exactly it.
+  3.2, with the name list built from `_HELP_META_FIELDS` at both ends so a field
+  added later cannot quietly start leaking again. `tests/scope_test.sh` now
+  exercises the three renderers, not just the collector, which is why the leak
+  survived a test written to catch exactly it.
 
 - **`templates/dev-cli/cli.sh` — a relative export-options plist named two
   different files in a nested project.** `./dev deploy ios --release` validates
@@ -57,9 +59,9 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   of `apt-get`, and `--test tests/git_branches_test.sh` failed for want of git
   whenever the bootstrap could not reach the network — reporting a missing tool
   as a bash 3.2 defect, which is what the skip rules exist to prevent. Both
-  paths now share one runner. A missing image is also reported as such, with
-  the pull command, instead of surfacing a registry error that reads like the
-  suite is broken.
+  paths now share one runner. A stopped daemon and a missing image are also
+  reported as themselves -- with the command to run -- instead of surfacing a
+  registry error that reads like the suite is broken.
 
 ## 2026-09-09 — v0.26.0
 

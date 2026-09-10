@@ -64,17 +64,20 @@ fi
 # does not, the affected tests are reported as SKIPPED -- a test that failed for
 # want of git says nothing about bash 3.2, and a gate that cries wolf is a gate
 # people learn to ignore.
-# The image is minimal: no git, no python3. Several tests drive real library
-# code through those, so they are installed when the network allows. When it
-# does not, the affected tests are reported as SKIPPED -- a test that failed for
-# want of git says nothing about bash 3.2, and a gate that cries wolf is a gate
-# people learn to ignore.
 BOOTSTRAP='apk add --no-cache git python3 curl >/dev/null 2>&1 || true'
 
 # Offline, `docker run` on an image that was never pulled fails with a registry
 # error that reads like the gate is broken. Say what actually happened, and use
 # the same "docker is unavailable" exit code, so a machine with no network is
 # told to pull the image once rather than left debugging the suite.
+# An installed docker whose daemon is not running fails every command below,
+# including the pull -- so ask the daemon first. Otherwise a stopped Docker
+# Desktop is reported as an image that could not be fetched, and the reader goes
+# looking at the network.
+if ! docker info >/dev/null 2>&1; then
+  log_error "local_test_bash32: the docker daemon is not reachable — start Docker and retry"
+  exit 3
+fi
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
   if ! docker pull "$IMAGE" >/dev/null 2>&1; then
     log_error "local_test_bash32: $IMAGE is not present locally and could not be pulled"

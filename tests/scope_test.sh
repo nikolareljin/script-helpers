@@ -22,14 +22,14 @@ error() { echo "[scope_test][ERROR] $*" >&2; failures=$((failures+1)); }
 
 # Names the rewrite introduced or relies on. None should exist after a call.
 LEAKY="_sh_line line details serials sims devices vars_for_port _serials booted parts tok"
-# show_help collects a dozen fixed-name fields through get_script_metadata, which
-# writes them with `printf -v` -- a global unless a frame above declares them.
-# Rendering help left every one of these in the caller until 0.27.0.
-LEAKY="$LEAKY _shlib_help_meta_name _shlib_help_meta_description _shlib_help_meta_author"
-LEAKY="$LEAKY _shlib_help_meta_created _shlib_help_meta_version _shlib_help_meta_usage"
-LEAKY="$LEAKY _shlib_help_meta_parameters _shlib_help_meta_example"
-LEAKY="$LEAKY _shlib_help_meta_exit_codes _shlib_help_meta_date _shlib_help_meta_creator"
-LEAKY="$LEAKY _shlib_help_meta_param_lines"
+# show_help collects its fields through get_script_metadata, which writes them
+# with `printf -v` -- a global unless a frame above declares them. Rendering help
+# left every one of these in the caller until 0.27.0. Built from
+# _HELP_META_FIELDS, the same source lib/help.sh declares from, so a new field
+# is covered here the day it is added rather than the day someone remembers.
+for _f in $_HELP_META_FIELDS param_lines; do
+  LEAKY="$LEAKY _shlib_help_meta_$_f"
+done
 
 assert_no_leak() {
   local label="$1" name

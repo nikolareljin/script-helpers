@@ -103,11 +103,13 @@ _help__render() {
   # one frame above the call -- makes those assignments land in this frame and
   # disappear on return. No unset, no cleanup path to forget, and nothing newer
   # than bash 3.2. The list is _HELP_META_FIELDS plus the param_lines accumulator.
-  local _shlib_help_meta_name _shlib_help_meta_description _shlib_help_meta_author
-  local _shlib_help_meta_created _shlib_help_meta_version _shlib_help_meta_usage
-  local _shlib_help_meta_parameters _shlib_help_meta_example
-  local _shlib_help_meta_exit_codes _shlib_help_meta_date _shlib_help_meta_creator
-  local _shlib_help_meta_param_lines
+  # Driven off _HELP_META_FIELDS rather than a list kept by hand, so a field
+  # added there cannot quietly start leaking again. param_lines is the
+  # accumulator get_script_metadata builds alongside the fields.
+  local _hf
+  for _hf in $_HELP_META_FIELDS param_lines; do
+    local "${pfx}_${_hf}"
+  done
   get_script_metadata "$script_file" "$pfx"
 
   local m_name m_description m_usage m_parameters m_param_lines
