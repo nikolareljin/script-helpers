@@ -46,6 +46,13 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   project and signed with that. The path is now made absolute at the point it is
   validated.
 
+- **`scripts/preflight.sh` — `--quick` reported an iOS build that never ran.**
+  `check_ios` already passes `--skip-analyze --skip-test`, because those belong
+  to the flutter check for the same directory, so the build *is* the step. Under
+  `--quick` it added `--skip-build` as well and still called the result a passed
+  "ios build" — `ci_ios.sh` was left running `flutter pub get` and nothing else.
+  `--quick` now skips the step and says why.
+
 - **`scripts/preflight.sh` — a Rust project failed the run on unactionable
   advice.** `check_rust` gated on `cargo` being on `PATH`, but
   `local_test_rust.sh` runs against *rustup's* toolchain, because that is what

@@ -381,9 +381,16 @@ check_ios() {
     return
   fi
   # analyze and test belong to the flutter stack for this same directory;
-  # running them again here would double the slowest part of the run.
+  # running them again here would double the slowest part of the run. The build
+  # is therefore the whole of this step -- so --quick, which skips it, leaves
+  # ci_ios.sh with nothing but `flutter pub get`, and reporting that as a passed
+  # "ios build" claims a build that never ran. The flutter check for this same
+  # directory fetches the dependencies anyway, so there is nothing left to do.
+  if [[ "$QUICK" == "true" ]]; then
+    skip_step "$name" "--quick skips the iOS build, which is all this step does"
+    return
+  fi
   local args=(--workdir "$dir" --skip-analyze --skip-test)
-  [[ "$QUICK" == "true" ]] && args+=(--skip-build)
   run_step "$name build" bash "$(helper_script ci_ios.sh)" "${args[@]+"${args[@]}"}"
 }
 
