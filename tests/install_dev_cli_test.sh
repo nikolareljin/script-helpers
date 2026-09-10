@@ -185,6 +185,30 @@ rc=0; bash scripts/install_dev_cli.sh --repo "$sym" --shims start >/dev/null 2>&
   && note "symlink shim: the link itself is left in place" \
   || error "symlink shim: the link was replaced or removed"
 
+# 8) Three more names the pre-write pass must refuse whole, so that `start`,
+#    listed first, is never shimmed: the reserved backup suffix, an existing
+#    directory (.git here -- which the old code moved to .git.pre-dev-cli and
+#    replaced with a file), and a symlink later in the list.
+for bad in start.pre-dev-cli .git; do
+  r="$tmp_root/bad_$RANDOM"
+  make_repo "$r"
+  rc=0; bash scripts/install_dev_cli.sh --repo "$r" --shims "start,$bad" >/dev/null 2>&1 || rc=$?
+  if [[ $rc -eq 2 && ! -e "$r/dev" && ! -e "$r/start.pre-dev-cli" && -d "$r/.git" && ! -e "$r/.git.pre-dev-cli" ]] && grep -q "$ORIGINAL" "$r/start"; then
+    note "--shims start,$bad: refused with exit 2 and nothing touched"
+  else
+    error "--shims start,$bad: exit $rc; dev=$([[ -e $r/dev ]] && echo yes || echo no) start-backup=$([[ -e $r/start.pre-dev-cli ]] && echo yes || echo no) .git-dir=$([[ -d $r/.git ]] && echo yes || echo no)"
+  fi
+done
+r="$tmp_root/badlink"
+make_repo "$r"
+ln -s "$tmp_root/outside/missing2" "$r/link"
+rc=0; bash scripts/install_dev_cli.sh --repo "$r" --shims start,link >/dev/null 2>&1 || rc=$?
+if [[ $rc -eq 2 && ! -e "$r/dev" && ! -e "$r/start.pre-dev-cli" && ! -e "$tmp_root/outside/missing2" ]] && grep -q "$ORIGINAL" "$r/start"; then
+  note "--shims start,link: a symlink later in the list is refused before start is touched"
+else
+  error "--shims start,link: exit $rc; dev=$([[ -e $r/dev ]] && echo yes || echo no) start-backup=$([[ -e $r/start.pre-dev-cli ]] && echo yes || echo no) escaped=$([[ -e $tmp_root/outside/missing2 ]] && echo yes || echo no)"
+fi
+
 if [[ $failures -gt 0 ]]; then
   echo "[install_dev_cli_test] FAILED ($failures)" >&2
   exit 1

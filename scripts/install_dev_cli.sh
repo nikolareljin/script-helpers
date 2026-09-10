@@ -104,6 +104,27 @@ if [[ -n "$SHIMS" ]]; then
       log_error "--shims: '$name' is not a plain file name (letters, digits, . _ - only)"
       exit 2
     }
+    # *.pre-dev-cli is where this installer keeps the caller's original. A shim
+    # by that name would move the real backup to x.pre-dev-cli.pre-dev-cli and
+    # put a generated file where the restore path expects the original.
+    case "$name" in *.pre-dev-cli)
+      log_error "--shims: '$name' uses the backup suffix this installer reserves"
+      exit 2 ;;
+    esac
+    # What is at the destination matters as much as the name. A directory --
+    # .git, scripts, docs -- would be moved aside and replaced by a file; a
+    # symlink, dangling or live, would be written through to wherever it
+    # points. Both are checked here, before any write, so a bad entry anywhere
+    # in the list leaves the repository untouched; the per-shim check below
+    # remains for the window between this pass and the write.
+    if [[ -L "$REPO/$name" ]]; then
+      log_error "--shims: $name is a symlink ($(readlink "$REPO/$name")); refusing to write through it"
+      exit 2
+    fi
+    if [[ -d "$REPO/$name" ]]; then
+      log_error "--shims: $name is a directory; refusing to replace it with a shim"
+      exit 2
+    fi
   done
 fi
 
@@ -137,8 +158,10 @@ if [[ -n "$SHIMS" ]]; then
     # dangling one, so the write below would follow it and create the shim
     # wherever it points -- outside the repository, for a link to /outside/x.
     # A live one would be overwritten through, replacing a file elsewhere.
+    # No `--` on readlink: BSD readlink on macOS rejects it, and the target
+    # would be lost from the message on the platform this library supports.
     if [[ -L "$dest" ]]; then
-      log_error "--shims: $name is a symlink ($(readlink -- "$dest")); refusing to write through it"
+      log_error "--shims: $name is a symlink ($(readlink "$dest")); refusing to write through it"
       exit 2
     fi
     if [[ -e "$dest" && "$FORCE" == "false" ]]; then

@@ -22,7 +22,10 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   *included* rather than dropped, so the shebang check names it. A file with no
   shebang is included when its name says `.sh` *or* when it lives where the
   entry points live (`bin/`, the git hooks, `templates/dev-cli/dev`), since
-  those are collected on purpose and were still being dropped. Failing toward inspection is the whole point: every narrower
+  those are collected on purpose and were still being dropped. `rbash` counts
+  as bash; `#! /bin/sh` with a space after the magic is a shebang, not an empty
+  interpreter; and a `.sh` file whose shebang names python or perl is reported
+  rather than dropped, since the name and the shebang disagree. Failing toward inspection is the whole point: every narrower
   version of this filter opened a new hole somewhere else. The scanned
   set is unchanged today (114 files) — the defect was latent, and would have
   been paid by whoever added the first `#!/bin/sh` script.
@@ -61,9 +64,13 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   `dev.ps1`, `scripts`, `.`, `..` and anything with a `/` are refused with exit
   2 — so a rejected invocation leaves the repository exactly as it found it;
   the first version of this check ran after the entry point had already been
-  installed. A shim destination that is a symlink is refused too: `-e` is false
-  for a dangling one, so the write would have followed it and created the shim
-  wherever it pointed, outside the repository included.
+  installed. The pre-write pass also refuses a destination that is a symlink
+  (`-e` is false for a dangling one, so the write would have followed it and
+  created the shim wherever it pointed, outside the repository included), an
+  existing directory (`--shims .git` moved `.git` to `.git.pre-dev-cli` and
+  replaced it with a file), and the reserved `*.pre-dev-cli` suffix (which
+  would have displaced the caller's original backup). The message uses
+  `readlink` without `--`, which BSD `readlink` on macOS rejects.
 
 - **`lib/ios.sh` — a simulator was reported as unbootable moments after being
   booted.** `simctl boot` returns when the boot *starts*; the device then sits
@@ -78,6 +85,9 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   reported as that rather than as a timeout, and it checks once *at* the
   deadline, so a device that boots on the last second counts. `tests/ios_test.sh`
   models the `Booting` window and the broken listing, and fails without either.
+  `IOS_BOOT_TIMEOUT` is validated as a whole number before the loop: `10s` in
+  an arithmetic test errors on every iteration, so the deadline was never
+  reached.
 
 - **`templates/dev-cli/cli.sh` — a relative export-options plist named two
   different files in a nested project.** `./dev deploy ios --release` validates
@@ -94,9 +104,12 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   the directory preflight was pointed at, but the `local_test_*` runners resolve
   `--dir` against `git rev-parse --show-toplevel`, so `preflight --dir sub` in
   a repository reported `Directory not found: <root>/app` for a stack that was
-  at `sub/app`. preflight now hands the runners an absolute path, and the four
-  runners honour one as given; a relative `--dir` still means what it always
-  meant.
+  at `sub/app`. preflight now hands the runners an absolute path, and all seven
+  runners (`flutter`, `gradle`, `node`, `python`, `go`, `rust`, `php`) honour
+  one as given; a relative `--dir` still means what it always meant. The first
+  version of this change updated four of the seven, which would have broken
+  every ordinary Flutter, Gradle and PHP preflight with `<root>/<root>/<stack>`;
+  caught in review, and each runner is now probed with both forms.
 
 - **`scripts/preflight.sh` — `--quick` reported an iOS build that never ran.**
   `check_ios` already passes `--skip-analyze --skip-test`, because those belong
@@ -117,7 +130,9 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   otherwise the precondition is rustup, and either one missing is a skip naming
   both remedies, the way every other absent toolchain here is handled.
   `PREFLIGHT_RUST_ANY_CARGO=true` turns the skip back into a real check against
-  `PATH`'s cargo.
+  `PATH`'s cargo. rustup being installed with no cargo for the selected toolchain
+  (`stable` never added) is the same kind of state and is the same skip, naming
+  the `rustup toolchain install` to run, rather than a failed step.
 
 - **`scripts/local_test_bash32.sh` — `--test` ignored the tool-skip rules the
   suite relies on.** The single-test path ran the file directly rather than

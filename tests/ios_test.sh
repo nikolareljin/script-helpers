@@ -133,6 +133,21 @@ boot_reveal_after=0
 boot_reveals=""
 boot_calls=1
 
+# A malformed timeout is refused before the loop, not fed to it. "10s" in an
+# arithmetic test errors on every iteration, so the deadline was never reached.
+# The stubs are named functions defined outside the substitution: bash 3.2's
+# parser cannot cope with a `case` pattern's `)` inside `$( )`.
+_stub_xcrun_quiet() { return 0; }
+bad_rc=0; out="$( (
+  xcrun() { _stub_xcrun_quiet "$@"; }
+  IOS_BOOT_TIMEOUT=10s ios_boot_simulator "iPhone 15 Pro Max" 2>&1 >/dev/null
+) )" || bad_rc=$?
+if [[ $bad_rc -eq 2 && "$out" == *"whole number of seconds"* ]]; then
+  echo "[ios_test] a malformed IOS_BOOT_TIMEOUT is refused with exit 2"
+else
+  echo "[ios_test] malformed IOS_BOOT_TIMEOUT not refused: rc=$bad_rc out=$out" >&2; exit 1
+fi
+
 # simctl breaking *after* a successful boot command. The polling loop used to
 # embed the listing in [[ -n "$( )" ]], discarding its exit status, so a broken
 # simctl was reported as a 60-second timeout instead of as itself.
@@ -141,14 +156,16 @@ list_status=0
 boot_reveal_after=0
 boot_reveals=""
 simctl_output=""
+_stub_xcrun_listfail() {
+  if [[ "$1 $2 ${3:-}" == "simctl list devices" ]]; then
+    [[ "${4:-}" == booted && -n "${LIST_FAIL_AFTER_BOOT:-}" ]] && return 9
+    printf '%s' "$simctl_output"; return 0
+  fi
+  [[ "$1 $2" == "simctl boot" ]] && LIST_FAIL_AFTER_BOOT=1
+  return 0
+}
 poll_err="$( (
-  xcrun() {
-    case "$1 $2 ${3:-}" in
-      "simctl list devices") [[ "${4:-}" == booted && -n "${LIST_FAIL_AFTER_BOOT:-}" ]] && return 9; printf '%s' "$simctl_output"; return 0 ;;
-      "simctl boot"*) LIST_FAIL_AFTER_BOOT=1; return 0 ;;
-    esac
-    return 0
-  }
+  xcrun() { _stub_xcrun_listfail "$@"; }
   start=$(date +%s)
   IOS_BOOT_TIMEOUT=30 ios_boot_simulator "iPhone 15 Pro Max" 2>&1 >/dev/null
   echo "rc=$? elapsed=$(( $(date +%s) - start ))"

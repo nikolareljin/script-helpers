@@ -504,6 +504,12 @@ pass. The Flutter stack no longer builds an APK unconditionally either: without
 an `android/` directory or an Android SDK it skips that step, so a Mac set up
 only for iOS work is not asked for the Android toolchain.
 
+`--quick` skips the iOS stack entirely, and says so. Its analyze and test steps
+belong to the flutter stack for the same directory, so the build is the whole
+of what the iOS step does — and `--quick` is defined as skipping builds. The
+old behaviour ran `ci_ios.sh` with every step disabled and still reported a
+passed "ios build", which is a claim about a build that never happened.
+
 ### Deploying to an iOS simulator
 
 ```bash

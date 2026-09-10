@@ -37,11 +37,21 @@ while [[ $# -gt 0 ]]; do
 done
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-if [[ ! -d "$repo_root/$GRADLE_DIR" ]]; then
-  echo "[local-test-gradle] Directory not found: $repo_root/$GRADLE_DIR" >&2
+# --dir is documented as relative to the repository root. preflight, which may
+# be pointed at a subdirectory of a repository with --dir, resolves it to an
+# absolute path first; an absolute value is honoured as given. Without this,
+# `preflight --dir sub` in a git repository looked for sub/<stack> under the
+# git root instead of under sub/, and reported the stack's directory missing.
+if [[ "$GRADLE_DIR" == /* ]]; then
+  target="$GRADLE_DIR"
+else
+  target="$repo_root/$GRADLE_DIR"
+fi
+if [[ ! -d "$target" ]]; then
+  echo "[local-test-gradle] Directory not found: $target" >&2
   exit 1
 fi
-cd "$repo_root/$GRADLE_DIR"
+cd "$target"
 
 if [[ ! -x ./gradlew ]]; then
   echo "[local-test-gradle] No executable ./gradlew in $GRADLE_DIR (looked in $PWD)." >&2

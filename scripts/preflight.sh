@@ -471,6 +471,17 @@ check_rust() {
   elif ! command -v rustup >/dev/null 2>&1; then
     skip_step "$name" "rustup is not installed — CI compiles with rustup's ${RUST_TOOLCHAIN:-stable}; install it from https://rustup.rs, or set PREFLIGHT_RUST_ANY_CARGO=true to check against PATH's cargo"
     return
+  else
+    # rustup being present is still not the runner's precondition: it asks
+    # rustup for the selected toolchain's cargo and refuses when there is none
+    # (rustup installed, `stable` never added). Ask the same question here so
+    # that state is the documented skip and not a failed step.
+    local rustup_cargo
+    rustup_cargo="$(rustup which --toolchain "${RUST_TOOLCHAIN:-stable}" cargo 2>/dev/null || true)"
+    if [[ -z "$rustup_cargo" || ! -x "$rustup_cargo" ]]; then
+      skip_step "$name" "rustup has no cargo for '${RUST_TOOLCHAIN:-stable}' — run: rustup toolchain install ${RUST_TOOLCHAIN:-stable}"
+      return
+    fi
   fi
   run_step "$name clippy + test" bash "$(helper_script local_test_rust.sh)" --dir "$PROJECT_DIR/$dir" "${args[@]+"${args[@]}"}"
 }

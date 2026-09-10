@@ -60,6 +60,9 @@ shell_files() {
         first="$(head -n1 "$f" 2>/dev/null)"
         if [[ "$first" == '#!'* ]]; then
           interp="${first#\#!}"
+          # `#! /bin/sh` is a valid shebang with a space after the magic; without
+          # this trim it read as an empty interpreter and was dropped.
+          interp="${interp#"${interp%%[![:space:]]*}"}"
           interp="${interp%%[[:space:]]*}"
           interp="${interp##*/}"
           if [[ "$interp" == "env" ]]; then
@@ -80,14 +83,18 @@ shell_files() {
             [[ "$interp" == *=* ]] && interp=""
           fi
           case "$interp" in
-            sh|bash|dash|ksh|ash|zsh) printf '%s\n' "$f" ;;
+            sh|bash|rbash|dash|ksh|ash|zsh) printf '%s\n' "$f" ;;
             # A `#!` line with no interpreter left after resolving it -- bare
             # `#!/usr/bin/env`, `#!/usr/bin/env -S`, `#!` alone. Dropping those
             # would be the original blind spot again, one shape smaller: the
             # shebang check below is the thing that should name a broken
             # shebang, so the file has to reach it.
             "") printf '%s\n' "$f" ;;
-            *) ;;   # python, perl, pwsh, tclsh, ... not this test's subject
+            # python, perl, pwsh, tclsh, ... are not this test's subject -- unless
+            # the file calls itself .sh, in which case the name and the shebang
+            # disagree and the shebang check should say so rather than the file
+            # vanishing from the scan.
+            *) case "$f" in *.sh) printf '%s\n' "$f" ;; esac ;;
           esac
         else
           # No shebang. A `.sh` name still says what it is, and so does living
