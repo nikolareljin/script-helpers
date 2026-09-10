@@ -94,6 +94,17 @@ else
   error "expected both cargo versions in the message: $(cat "$tmp/out" 2>/dev/null)"
 fi
 
+note "diagnostics go to stderr, stdout stays for the caller"
+if (
+  PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin:$bash_dir"
+  out="$(rust_toolchain_ci_uses 2>/dev/null)"
+  [[ -z "$out" ]]
+); then
+  ok "nothing on stdout even when a switch is reported"
+else
+  error "expected an empty stdout"
+fi
+
 note "no message when PATH already offers the right one"
 if (
   PATH="$tmp/rustup-toolchain:$tmp/bin:/usr/bin:/bin:$bash_dir"
