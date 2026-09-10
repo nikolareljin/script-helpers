@@ -203,6 +203,7 @@ fi
 
 note "a cargo that exists but will not run is still named"
 if (
+  set +e   # the call is expected to fail; errexit must not skip the restore below
   chmod -x "$tmp/rustup-toolchain/cargo"
   PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin:$bash_dir"
   rust_toolchain_ci_uses >"$tmp/out" 2>&1
@@ -222,6 +223,7 @@ if (
   # An empty PATH directory: the case is "no cargo anywhere", this path
   # runs no stub, and wherever bash lives (/usr/bin on Ubuntu) may also
   # hold a distribution cargo.
+  set +e   # the call is expected to fail; capture its status, do not exit on it
   mkdir -p "$tmp/empty"
   # shellcheck disable=SC2123  # an empty search path is the point of this case
   PATH="$tmp/empty"
