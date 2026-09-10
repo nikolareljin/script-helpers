@@ -72,7 +72,13 @@ shell_files() {
           fi
           case "$interp" in
             sh|bash|dash|ksh|ash|zsh) printf '%s\n' "$f" ;;
-            *) ;;   # python, perl, pwsh, ... not this test's subject
+            # A `#!` line with no interpreter left after resolving it -- bare
+            # `#!/usr/bin/env`, `#!/usr/bin/env -S`, `#!` alone. Dropping those
+            # would be the original blind spot again, one shape smaller: the
+            # shebang check below is the thing that should name a broken
+            # shebang, so the file has to reach it.
+            "") printf '%s\n' "$f" ;;
+            *) ;;   # python, perl, pwsh, tclsh, ... not this test's subject
           esac
         else
           # No shebang. A `.sh` name still says what it is, and is still sourced
