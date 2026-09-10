@@ -219,9 +219,17 @@ fi
 
 note "a missing cargo is reported on stderr, not in the report"
 if (
-  PATH="$tmp/bin:/usr/bin:/bin:$bash_dir"
+  # An empty PATH directory: the case is "no cargo anywhere", this path
+  # runs no stub, and wherever bash lives (/usr/bin on Ubuntu) may also
+  # hold a distribution cargo.
+  mkdir -p "$tmp/empty"
+  # shellcheck disable=SC2123  # an empty search path is the point of this case
+  PATH="$tmp/empty"
+  hash -r   # the hash table is inherited by the subshell and would answer for cargo
   out="$(rust_toolchain_report 2>"$tmp/err")"; status=$?
-  [[ $status -ne 0 && -z "$out" ]] && grep -q "no cargo" "$tmp/err"
+  # Builtins only from here: with PATH empty there is no grep to call.
+  err="$(<"$tmp/err")"
+  [[ $status -ne 0 && -z "$out" && "$err" == *"no cargo"* ]]
 ); then
   ok "non-zero, empty stdout, reason on stderr"
 else
