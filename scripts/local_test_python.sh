@@ -29,6 +29,11 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+# The library root, resolved before any cd. $BASH_SOURCE is whatever the caller
+# typed -- "scripts/local_test_x.sh" for the documented invocation -- so
+# resolving it after cd-ing into the project looks for the library under the
+# project and silently loses the helper it needs.
+SH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 # --dir is documented as relative to the repository root. preflight, which may
 # be pointed at a subdirectory of a repository with --dir, resolves it to an
@@ -69,7 +74,7 @@ fi
 if [[ "$PYTHON" == "python3" || "$PYTHON" == "python" ]] \
    && [[ -f requirements.txt || -f pyproject.toml ]] \
    && "$PYTHON" -c 'import os,sys,sysconfig; sys.exit(0 if os.path.exists(os.path.join(sysconfig.get_path("stdlib"),"EXTERNALLY-MANAGED")) else 1)' 2>/dev/null; then
-  _sh_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  _sh_dir="$SH_ROOT"
   if [[ -f "$_sh_dir/helpers.sh" ]]; then
     # shellcheck source=/dev/null
     source "$_sh_dir/helpers.sh"

@@ -24,7 +24,9 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   entry points live (`bin/`, the git hooks, `templates/dev-cli/dev`), since
   those are collected on purpose and were still being dropped — and the shebang
   check now errors on a file that has none at all, which is what those files
-  were being kept for. `rbash` counts
+  were being kept for. The same locations are kept when the shebang names
+  something else entirely: `templates/dev-cli/dev` as `#!/usr/bin/env python3`
+  was dropped before the check that exists to say so. `rbash` counts
   as bash; `#! /bin/sh` with a space after the magic is a shebang, not an empty
   interpreter; and a `.sh` file whose shebang names python or perl is reported
   rather than dropped, since the name and the shebang disagree. Failing toward inspection is the whole point: every narrower
@@ -56,6 +58,15 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   a tool it does not have. The remedy is chosen by `$OSTYPE` now: Homebrew on
   macOS, the package manager elsewhere.
 
+- **Three runners resolved the library root after `cd`-ing into the project.**
+  `local_test_gradle.sh`, `local_test_python.sh` and `local_test_rust.sh` built
+  a path from `${BASH_SOURCE[0]}` *after* changing directory. That variable
+  holds whatever the caller typed — `scripts/local_test_rust.sh` for the
+  documented invocation — so with any `--dir` the lookup went to
+  `<project>/scripts/..` and the helper could not be sourced at all
+  (`cd: scripts/..: No such file or directory`). Each resolves `SH_ROOT` before
+  the first `cd` now.
+
 - **`scripts/preflight.sh --dir <sub>` resolved its own later paths as
   `sub/sub/...`.** `PROJECT_DIR` was kept exactly as given, so after `cd`-ing
   into `sub` every later `"$PROJECT_DIR/$dir"` — the iOS stack's `pubspec.yaml`
@@ -71,8 +82,12 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   `runner_dir_test.sh` and `adb_wireless_test.sh` ran without git when the
   bootstrap could not reach the network and failed for a missing tool — under
   exactly the name this runner exists to keep off bash 3.2. The requirement is
-  read out of each test file now; the hand-written case adds only what a scan
-  cannot see (`apt-get`, which no test invokes but `docker_install` requires).
+  read out of each test file now, with comments stripped first so a tool named
+  in prose is not mistaken for a dependency — a skipped test is lost coverage,
+  the same failure pointed the other way. The hand-written case adds only what
+  a scan cannot see: `apt-get`, which no test invokes but `docker_install`
+  requires, and an opt-out for the portability gate, which runs git when it is
+  there and falls back to `find` when it is not.
 
 - **`scripts/install_dev_cli.sh` — `--shims dev` replaced the entry point with
   a shim that ran itself.** Every compatibility shim delegates to `./dev`, so a
@@ -90,11 +105,16 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   existing directory (`--shims .git` moved `.git` to `.git.pre-dev-cli` and
   replaced it with a file), and the reserved `*.pre-dev-cli` suffix (which
   would have displaced the caller's original backup). The message uses
-  `readlink` without `--`, which BSD `readlink` on macOS rejects. The same guard
+  `readlink` is called without `--`, the form both GNU and BSD accept; BSD
+  `readlink` on macOS is the one that rejects GNU's `--`. The same guard
   covers the installer's own destinations (`dev`, `scripts/cli.sh`, the
   PowerShell counterparts): a dangling symlink at one of those is neither `-f`
   nor `-e`, so `install_file` reached `cp`, which followed it and wrote the
-  template outside the repository.
+  template outside the repository. The guard walks the parent components too: a
+  consumer whose `scripts/` is a symlink out of the tree left
+  `scripts/cli.sh` neither a symlink nor a directory, so the check passed and
+  the `mkdir -p` and `cp` followed the parent link — measured, the old
+  installer exited 0 having written outside the repository.
 
 - **`lib/ios.sh` — a simulator was reported as unbootable moments after being
   booted.** `simctl boot` returns when the boot *starts*; the device then sits
@@ -111,7 +131,9 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   models the `Booting` window and the broken listing, and fails without either.
   `IOS_BOOT_TIMEOUT` is validated as a whole number before the loop and refused
   with exit 2: `10s` in an arithmetic test errors on every iteration, so the
-  deadline was never reached.
+  deadline was never reached. All-digit is not sufficient either — bash reads a
+  leading zero as octal, so `08` and `09` were the same error — and the value is
+  normalised to base 10.
 
 - **`templates/dev-cli/cli.sh` — a relative export-options plist named two
   different files in a nested project.** `./dev deploy ios --release` validates

@@ -106,6 +106,10 @@ ios_boot_simulator() {
       echo "ios_boot_simulator: IOS_BOOT_TIMEOUT must be a whole number of seconds, got '$timeout'" >&2
       return 2 ;;
   esac
+  # All-digit is not yet safe: bash arithmetic reads a leading zero as octal, so
+  # 08 and 09 are errors rather than timeouts -- the same non-terminating loop
+  # the validation above exists to prevent. Strip to base 10.
+  while [[ "$timeout" == 0* && "${#timeout}" -gt 1 ]]; do timeout="${timeout#0}"; done
   while :; do
     udid="$(_ios__booted_udid_for "$id")" || {
       echo "ios_boot_simulator: could not list booted simulators while waiting for '$id'" >&2

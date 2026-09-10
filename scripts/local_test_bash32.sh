@@ -108,14 +108,26 @@ RUNNER='
   # only what a scan cannot see.
   needs_for() {
     need=""
-    grep -qE "(^|[^[:alnum:]_-])git " "$1" 2>/dev/null && need="$need git"
-    grep -qE "(^|[^[:alnum:]_])python3?( |$)" "$1" 2>/dev/null && need="$need python3"
-    grep -qE "(^|[^[:alnum:]_])curl( |$)" "$1" 2>/dev/null && need="$need curl"
+    # Comment lines dropped first. Scanning raw text made a tool mentioned in
+    # prose a dependency, so tests that only *talk* about git were skipped
+    # offline instead of run -- lost coverage, the failure this runner exists
+    # to avoid, pointed the other way. Whole-line comments only, and with no
+    # single quote anywhere: this function is carried inside a single-quoted
+    # RUNNER string, and one quote here ends it and breaks the embedded script.
+    body="$(grep -v "^[[:space:]]*#" "$1" 2>/dev/null)"
+    printf "%s" "$body" | grep -qE "(^|[^[:alnum:]_-])git " && need="$need git"
+    printf "%s" "$body" | grep -qE "(^|[^[:alnum:]_])python3?( |$)" && need="$need python3"
+    printf "%s" "$body" | grep -qE "(^|[^[:alnum:]_])curl( |$)" && need="$need curl"
     case "$1" in
       # docker_install supports apt/dnf/pacman, not apk, so on this Alpine-based
       # image the installer correctly refuses and the test correctly fails.
       # That is a statement about Alpine, not about bash 3.2.
       tests/docker_install_test.sh) need="$need apt-get" ;;
+      # Runs git when it is there and falls back to find when it is not, on
+      # purpose and with a comment saying so. Skipping it for a missing git
+      # would drop the portability gate itself from the 3.2 run, which is the
+      # one thing this image exists to exercise.
+      tests/portability_test.sh) need="" ;;
     esac
     echo "${need# }"
   }

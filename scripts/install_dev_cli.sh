@@ -67,6 +67,19 @@ say() { if [[ "$DRY_RUN" == "true" ]]; then echo "[dry-run] $*"; else log_info "
 # write for the window in between.
 refuse_bad_dest() {
   local dest="$1" rel="${1#"$REPO"/}"
+  # Parents first. Checking only the final component leaves the path itself
+  # unexamined: with `scripts` a symlink to somewhere outside,
+  # $REPO/scripts/cli.sh is neither a symlink nor a directory, so the check
+  # passed and the mkdir -p and cp below followed the parent link out of the
+  # repository. Walk what this installer would create or traverse.
+  local rest="$rel" part probe="$REPO"
+  while [[ "$rest" == */* ]]; do
+    part="${rest%%/*}"; rest="${rest#*/}"; probe="$probe/$part"
+    if [[ -L "$probe" ]]; then
+      log_error "${probe#"$REPO"/} is a symlink ($(readlink "$probe")); refusing to write beneath it"
+      exit 2
+    fi
+  done
   if [[ -L "$dest" ]]; then
     log_error "$rel is a symlink ($(readlink "$dest")); refusing to write through it"
     exit 2

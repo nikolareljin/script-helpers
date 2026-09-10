@@ -90,11 +90,16 @@ shell_files() {
             # shebang check below is the thing that should name a broken
             # shebang, so the file has to reach it.
             "") printf '%s\n' "$f" ;;
-            # python, perl, pwsh, tclsh, ... are not this test's subject -- unless
-            # the file calls itself .sh, in which case the name and the shebang
-            # disagree and the shebang check should say so rather than the file
-            # vanishing from the scan.
-            *) case "$f" in *.sh) printf '%s\n' "$f" ;; esac ;;
+            # python, perl, pwsh, tclsh, ... are not this test's subject --
+            # unless the file is one this repository runs as a shell script
+            # anyway: a `.sh` name, or one of the entry-point locations
+            # _candidates collects on purpose. There the name and the shebang
+            # disagree, and the shebang check should say so rather than the
+            # file vanishing from the scan.
+            *) case "$f" in
+                 *.sh|bin/*|scripts/git-hooks/*|templates/dev-cli/dev)
+                   printf '%s\n' "$f" ;;
+               esac ;;
           esac
         else
           # No shebang. A `.sh` name still says what it is, and so does living

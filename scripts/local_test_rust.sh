@@ -49,6 +49,11 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+# The library root, resolved before any cd. $BASH_SOURCE is whatever the caller
+# typed -- "scripts/local_test_x.sh" for the documented invocation -- so
+# resolving it after cd-ing into the project looks for the library under the
+# project and silently loses the helper it needs.
+SH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 # --dir is documented as relative to the repository root. preflight, which may
 # be pointed at a subdirectory of a repository with --dir, resolves it to an
@@ -70,7 +75,7 @@ cd "$target"
 # at all yet, and the point is to run what CI runs.
 if [[ "$ANY_CARGO" == "false" ]]; then
   # shellcheck source=/dev/null
-  source "$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)/helpers.sh"
+  source "$SH_ROOT/helpers.sh"
   shlib_import rust
   rust_toolchain_ci_uses || {
     echo "[local-test-rust] Pass --any-cargo to run against PATH's cargo anyway." >&2
