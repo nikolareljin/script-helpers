@@ -190,6 +190,22 @@ else
   error "PATH grew on the second call"
 fi
 
+note "a cargo that exists but will not run is still named"
+if (
+  chmod -x "$tmp/rustup-toolchain/cargo"
+  PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin:$bash_dir"
+  rust_toolchain_ci_uses >"$tmp/out" 2>&1
+  status=$?
+  chmod +x "$tmp/rustup-toolchain/cargo"
+  # -x is checked before any message, so this is the refusal path; the
+  # message must still carry the path rather than an empty version.
+  [[ $status -ne 0 ]] && grep -q "toolchain install" "$tmp/out"
+); then
+  ok "refused, with the fix named"
+else
+  error "expected a refusal naming the fix: $(cat "$tmp/out" 2>/dev/null)"
+fi
+
 note "the report does not change PATH"
 if (
   PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin:$bash_dir"

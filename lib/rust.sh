@@ -49,7 +49,7 @@ rust_toolchain_ci_uses() {
   # Diagnostics go to stderr, like the refusals above: a caller may be keeping
   # stdout for the command output it is about to capture.
   if [[ "$on_path" != "$rustup_cargo" ]]; then
-    echo "[rust] using $("$rustup_cargo" --version 2>/dev/null) from rustup ($toolchain)" >&2
+    echo "[rust] using $("$rustup_cargo" --version 2>/dev/null || echo "a cargo that will not run, at $rustup_cargo") from rustup ($toolchain)" >&2
     if [[ -n "$on_path" ]]; then
       echo "[rust] (PATH offered $("$on_path" --version 2>/dev/null || echo 'an unusable cargo'), which is not what CI compiles with)" >&2
     fi
