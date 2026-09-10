@@ -85,7 +85,22 @@ ios_boot_simulator() {
       '; then
     return 0
   fi
-  xcrun simctl boot "$id"
+  xcrun simctl boot "$id" || return 1
+
+  # `simctl boot` returns when the boot *starts*. The device then sits in
+  # Booting for several seconds, and `simctl list devices booted` does not list
+  # it until it reaches Booted -- so returning here handed the caller a device
+  # its very next lookup could not find. ios_resolve_device does exactly that
+  # lookup, and reported a simulator it had just successfully started as "not a
+  # booted simulator". Wait for the state the caller is about to ask for.
+  local waited=0 timeout="${IOS_BOOT_TIMEOUT:-60}"
+  while [[ "$waited" -lt "$timeout" ]]; do
+    [[ -n "$(_ios__booted_udid_for "$id")" ]] && return 0
+    sleep 1
+    waited=$((waited + 1))
+  done
+  echo "ios_boot_simulator: '$id' did not reach Booted within ${timeout}s" >&2
+  return 1
 }
 
 # Usage: ios_shutdown_simulators; shuts down all booted simulators.

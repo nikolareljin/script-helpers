@@ -41,6 +41,17 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   exercises the three renderers, not just the collector, which is why the leak
   survived a test written to catch exactly it.
 
+- **`lib/ios.sh` — a simulator was reported as unbootable moments after being
+  booted.** `simctl boot` returns when the boot *starts*; the device then sits
+  in `Booting` for several seconds and does not appear in
+  `simctl list devices booted` until it reaches `Booted`. `ios_boot_simulator`
+  returned at the same moment, so `ios_resolve_device`'s very next lookup found
+  nothing and printed "'X' is not a booted simulator" about a simulator it had
+  just successfully started — worse on a cold simulator, which is when the
+  caller most needed it. It now waits for the state the caller is about to ask
+  for (`IOS_BOOT_TIMEOUT`, default 60s). `tests/ios_test.sh` models the
+  `Booting` window and fails without the wait.
+
 - **`templates/dev-cli/cli.sh` — a relative export-options plist named two
   different files in a nested project.** `./dev deploy ios --release` validates
   `IOS_EXPORT_OPTIONS_PLIST` from the repository root, then hands it to
