@@ -440,20 +440,23 @@ check_go() {
 
 check_rust() {
   local dir="$1" name; name="$(label rust "$dir")"
-  if ! command -v cargo >/dev/null 2>&1; then
-    skip_step "$name" "cargo is not installed — $(install_hint rust rustc)"
-    return
-  fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  # cargo on PATH is not the precondition local_test_rust.sh actually has. It
-  # runs against *rustup's* toolchain, because that is what CI compiles with,
-  # and without rustup it refuses -- advising --any-cargo, which preflight had
-  # no way to pass on. So a machine with a distribution cargo and no rustup
-  # failed the whole gate on a message its reader could not act on. Skip with
-  # both remedies named, the way every other missing toolchain here is handled,
-  # and let a repo that genuinely targets the system toolchain opt back in.
+  # cargo on PATH is not the precondition local_test_rust.sh actually has, and
+  # it is not even a precondition in the default case. That runner targets
+  # *rustup's* toolchain, because that is what CI compiles with, and resolves it
+  # before it ever looks at PATH -- prepending ~/.cargo/bin itself. So demanding
+  # cargo up front turned away a machine with rustup installed and ~/.cargo/bin
+  # not yet on PATH, which the runner handles unaided. cargo is the precondition
+  # for --any-cargo; rustup is the precondition for everything else. Either one
+  # missing is a skip naming both remedies, the way every other absent toolchain
+  # here is handled, rather than a failed run advising a flag preflight has no
+  # way to pass on.
   if [[ "${PREFLIGHT_RUST_ANY_CARGO:-false}" == "true" ]]; then
+    if ! command -v cargo >/dev/null 2>&1; then
+      skip_step "$name" "cargo is not installed — $(install_hint rust rustc)"
+      return
+    fi
     args+=(--any-cargo)
   elif ! command -v rustup >/dev/null 2>&1; then
     skip_step "$name" "rustup is not installed — CI compiles with rustup's ${RUST_TOOLCHAIN:-stable}; install it from https://rustup.rs, or set PREFLIGHT_RUST_ANY_CARGO=true to check against PATH's cargo"

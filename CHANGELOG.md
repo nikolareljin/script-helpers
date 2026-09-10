@@ -50,10 +50,15 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   advice.** `check_rust` gated on `cargo` being on `PATH`, but
   `local_test_rust.sh` runs against *rustup's* toolchain, because that is what
   CI compiles with. On a machine with a distribution cargo and no rustup it
-  refused, advising `--any-cargo` — which preflight had no way to pass on. It
-  now skips the project when rustup is absent, naming both remedies, the way
-  every other missing toolchain here is handled. `PREFLIGHT_RUST_ANY_CARGO=true`
-  turns the skip back into a real check against `PATH`'s cargo.
+  refused, advising `--any-cargo` — which preflight had no way to pass on. And
+  `cargo` on `PATH` is not a precondition at all in the default case: the runner
+  resolves rustup's toolchain before it looks at `PATH`, prepending
+  `~/.cargo/bin` itself, so demanding cargo up front turned away a machine the
+  runner handles unaided. `cargo` is now required only for `--any-cargo`;
+  otherwise the precondition is rustup, and either one missing is a skip naming
+  both remedies, the way every other absent toolchain here is handled.
+  `PREFLIGHT_RUST_ANY_CARGO=true` turns the skip back into a real check against
+  `PATH`'s cargo.
 
 - **`scripts/local_test_bash32.sh` — `--test` ignored the tool-skip rules the
   suite relies on.** The single-test path ran the file directly rather than
@@ -62,8 +67,11 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   whenever the bootstrap could not reach the network — reporting a missing tool
   as a bash 3.2 defect, which is what the skip rules exist to prevent. Both
   paths now share one runner. A stopped daemon and a missing image are also
-  reported as themselves -- with the command to run -- instead of surfacing a
-  registry error that reads like the suite is broken.
+  reported as themselves -- with the command to run, and the documented exit
+  code 3 -- instead of surfacing a registry error that reads like the suite is
+  broken. `--shell` gets those checks too; it used to reach `docker run`
+  directly and answer an unpullable image with `cannot attach stdin to a
+  TTY-enabled container`.
 
 ## 2026-09-09 — v0.26.0
 

@@ -55,21 +55,6 @@ fi
 
 IMAGE="${CI_DEFAULT_BASH32_IMAGE}:${CI_DEFAULT_BASH32_VERSION}"
 
-if [[ "$INTERACTIVE" == "true" ]]; then
-  exec docker run --rm -it -v "$SCRIPT_HELPERS_DIR:/repo" -w /repo "$IMAGE" bash
-fi
-
-# The image is minimal: no git, no python3. Several tests drive real library
-# code through those, so they are installed when the network allows. When it
-# does not, the affected tests are reported as SKIPPED -- a test that failed for
-# want of git says nothing about bash 3.2, and a gate that cries wolf is a gate
-# people learn to ignore.
-BOOTSTRAP='apk add --no-cache git python3 curl >/dev/null 2>&1 || true'
-
-# Offline, `docker run` on an image that was never pulled fails with a registry
-# error that reads like the gate is broken. Say what actually happened, and use
-# the same "docker is unavailable" exit code, so a machine with no network is
-# told to pull the image once rather than left debugging the suite.
 # An installed docker whose daemon is not running fails every command below,
 # including the pull -- so ask the daemon first. Otherwise a stopped Docker
 # Desktop is reported as an image that could not be fetched, and the reader goes
@@ -86,6 +71,21 @@ if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
   fi
 fi
 
+if [[ "$INTERACTIVE" == "true" ]]; then
+  exec docker run --rm -it -v "$SCRIPT_HELPERS_DIR:/repo" -w /repo "$IMAGE" bash
+fi
+
+# The image is minimal: no git, no python3. Several tests drive real library
+# code through those, so they are installed when the network allows. When it
+# does not, the affected tests are reported as SKIPPED -- a test that failed for
+# want of git says nothing about bash 3.2, and a gate that cries wolf is a gate
+# people learn to ignore.
+BOOTSTRAP='apk add --no-cache git python3 curl >/dev/null 2>&1 || true'
+
+# Offline, `docker run` on an image that was never pulled fails with a registry
+# error that reads like the gate is broken. Say what actually happened, and use
+# the same "docker is unavailable" exit code, so a machine with no network is
+# told to pull the image once rather than left debugging the suite.
 # One runner for both paths. The single-test path used to bypass this and run
 # the file directly, so `--test tests/git_branches_test.sh` on an image without
 # git -- which is every image when the bootstrap cannot reach the network --
