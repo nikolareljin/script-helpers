@@ -283,6 +283,15 @@ bash scripts/local_test_node.sh --quick
 bash scripts/local_test_python.sh --quick --dir backend
 bash scripts/local_test_go.sh --quick
 bash scripts/local_test_rust.sh --quick
+```
+
+By default the Rust gate runs against rustup's `stable` — what CI installs — rather
+than whatever `cargo` is first on `PATH`; a distribution cargo shadowing it fails
+with a lockfile error that names the wrong thing. `RUST_TOOLCHAIN=1.80.0` pins a
+channel or version; `--any-cargo` opts out for a repository that genuinely
+targets the system toolchain.
+
+```bash
 bash scripts/local_test_flutter.sh --quick --dir app
 bash scripts/local_test_php.sh --quick --dir backend
 

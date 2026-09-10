@@ -53,14 +53,21 @@ rust_toolchain_ci_uses() {
     fi
   fi
 
-  PATH="$(dirname "$rustup_cargo"):$PATH"
+  # Idempotent: a gate may call this more than once, and each call must not
+  # grow PATH with another copy of the same directory.
+  local rustup_dir; rustup_dir="$(dirname "$rustup_cargo")"
+  case ":$PATH:" in
+    *":$rustup_dir:"*) ;;
+    *) PATH="$rustup_dir:$PATH" ;;
+  esac
   export PATH
 }
 
 # Usage: rust_toolchain_report [toolchain]
 #
-# Prints which cargo and rustc would be used, without changing PATH. For a
-# status verb, or a gate that wants to say what it ran with afterwards.
+# Prints which cargo would be used and what rustup offers for the named
+# toolchain, without changing PATH. For a status verb, or a gate that wants to
+# say what it ran with afterwards.
 rust_toolchain_report() {
   local cargo_path
   cargo_path="$(command -v cargo 2>/dev/null || true)"

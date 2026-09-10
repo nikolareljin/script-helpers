@@ -166,6 +166,19 @@ else
   error "expected an install hint for 1.80.0: $(cat "$tmp/out" 2>/dev/null)"
 fi
 
+note "calling it twice does not grow PATH"
+if (
+  PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin:$bash_dir"
+  rust_toolchain_ci_uses >/dev/null 2>&1
+  once="$PATH"
+  rust_toolchain_ci_uses >/dev/null 2>&1
+  [[ "$PATH" == "$once" ]]
+); then
+  ok "the prepend is idempotent"
+else
+  error "PATH grew on the second call"
+fi
+
 note "the report does not change PATH"
 if (
   PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin:$bash_dir"

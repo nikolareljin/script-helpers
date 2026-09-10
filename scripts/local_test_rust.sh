@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SCRIPT: local_test_rust.sh
 # DESCRIPTION: Check, lint, and test a Rust project.
-# USAGE: bash scripts/local_test_rust.sh [--quick] [--manifest <path>]
+# USAGE: bash scripts/local_test_rust.sh [--dir <path>] [--quick] [--manifest <path>] [--any-cargo]
 #
 # PARAMETERS:
 #   --dir     Project directory, relative to the repository root (default: .).
