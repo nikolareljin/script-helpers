@@ -75,6 +75,9 @@ shell_files() {
             # mandates exactly `#!/usr/bin/env bash` and every one of these
             # forms is something it should report.
             [[ "$interp" == -* ]] && interp=""
+            # `#!/usr/bin/env FOO=bar bash` is an assignment, not an interpreter,
+            # and the same rule applies: unclassifiable is reported, not dropped.
+            [[ "$interp" == *=* ]] && interp=""
           fi
           case "$interp" in
             sh|bash|dash|ksh|ash|zsh) printf '%s\n' "$f" ;;
@@ -87,9 +90,14 @@ shell_files() {
             *) ;;   # python, perl, pwsh, tclsh, ... not this test's subject
           esac
         else
-          # No shebang. A `.sh` name still says what it is, and is still sourced
-          # or run by something that will be bash.
-          case "$f" in *.sh) printf '%s\n' "$f" ;; esac
+          # No shebang. A `.sh` name still says what it is, and so does living
+          # in one of the entry-point locations _candidates collects on purpose:
+          # a shebang-less file under bin/ or the hooks is still something that
+          # will be run by bash, and dropping it here is the original blind
+          # spot again for exactly those files.
+          case "$f" in
+            *.sh|bin/*|scripts/git-hooks/*|templates/dev-cli/dev) printf '%s\n' "$f" ;;
+          esac
         fi
       done
 }

@@ -129,7 +129,11 @@ RUNNER='
   skipped=0
   for f in "$@"; do
     [ -f "$f" ] || { echo "no such test: $f" >&2; failed=1; continue; }
-    need="$(needs_for "$f")"
+    # needs_for keys on the canonical tests/... spelling; a caller may say
+    # ./tests/... and would otherwise skip the skip, failing for a missing tool
+    # under exactly the name this runner exists to avoid.
+    key="${f#./}"
+    need="$(needs_for "$key")"
     if [ -n "$need" ] && ! missing="$(have_all "$need")"; then
       printf "\n--- bash 3.2: %s ---\n" "$f"
       echo "SKIP: needs $missing, which is not in this image"

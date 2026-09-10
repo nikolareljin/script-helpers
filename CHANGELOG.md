@@ -18,8 +18,11 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   repository ships a PowerShell library — so do `tclsh` and `wish`. Anything the
   classifier cannot resolve to an interpreter — a bare `#!`, `#!/usr/bin/env`
   with no command, `env` carrying options (`-S`, `-i`, `-u VAR`,
-  `--ignore-environment`) — is *included* rather than dropped, so the shebang
-  check names it. Failing toward inspection is the whole point: every narrower
+  `--ignore-environment`, an assignment such as `env FOO=bar bash`) — is
+  *included* rather than dropped, so the shebang check names it. A file with no
+  shebang is included when its name says `.sh` *or* when it lives where the
+  entry points live (`bin/`, the git hooks, `templates/dev-cli/dev`), since
+  those are collected on purpose and were still being dropped. Failing toward inspection is the whole point: every narrower
   version of this filter opened a new hole somewhere else. The scanned
   set is unchanged today (114 files) — the defect was latent, and would have
   been paid by whoever added the first `#!/bin/sh` script.
@@ -54,9 +57,13 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   `exec "$(dirname "$0")/dev" dev "$@"` in its place: an exec loop, with the
   file it needed already moved aside. A name containing a path separator would
   likewise have written outside the repository root. Shim names are now
-  validated as a whole list before anything is touched — `dev`, `dev.ps1`,
-  `scripts`, `.`, `..` and anything with a `/` are refused with exit 2 — so a
-  bad name found halfway through cannot leave half the shims installed.
+  validated as a whole list before the first write of any kind — `dev`,
+  `dev.ps1`, `scripts`, `.`, `..` and anything with a `/` are refused with exit
+  2 — so a rejected invocation leaves the repository exactly as it found it;
+  the first version of this check ran after the entry point had already been
+  installed. A shim destination that is a symlink is refused too: `-e` is false
+  for a dangling one, so the write would have followed it and created the shim
+  wherever it pointed, outside the repository included.
 
 - **`lib/ios.sh` — a simulator was reported as unbootable moments after being
   booted.** `simctl boot` returns when the boot *starts*; the device then sits
@@ -66,8 +73,11 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   nothing and printed "'X' is not a booted simulator" about a simulator it had
   just successfully started — worse on a cold simulator, which is when the
   caller most needed it. It now waits for the state the caller is about to ask
-  for (`IOS_BOOT_TIMEOUT`, default 60s). `tests/ios_test.sh` models the
-  `Booting` window and fails without the wait.
+  for (`IOS_BOOT_TIMEOUT`, default 60s). The wait checks the listing's exit
+  status before its output, so a `simctl` that breaks after the boot command is
+  reported as that rather than as a timeout, and it checks once *at* the
+  deadline, so a device that boots on the last second counts. `tests/ios_test.sh`
+  models the `Booting` window and the broken listing, and fails without either.
 
 - **`templates/dev-cli/cli.sh` — a relative export-options plist named two
   different files in a nested project.** `./dev deploy ios --release` validates
@@ -78,6 +88,15 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   a path that had just validated, or resolved to whichever plist sat inside the
   project and signed with that. The path is now made absolute at the point it is
   validated.
+
+- **`scripts/preflight.sh --dir <sub>` looked for every stack under the git
+  root instead of under `<sub>`.** Stack directories are detected relative to
+  the directory preflight was pointed at, but the `local_test_*` runners resolve
+  `--dir` against `git rev-parse --show-toplevel`, so `preflight --dir sub` in
+  a repository reported `Directory not found: <root>/app` for a stack that was
+  at `sub/app`. preflight now hands the runners an absolute path, and the four
+  runners honour one as given; a relative `--dir` still means what it always
+  meant.
 
 - **`scripts/preflight.sh` — `--quick` reported an iOS build that never ran.**
   `check_ios` already passes `--skip-analyze --skip-test`, because those belong
@@ -106,7 +125,8 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   of `apt-get`, and `--test tests/git_branches_test.sh` failed for want of git
   whenever the bootstrap could not reach the network — reporting a missing tool
   as a bash 3.2 defect, which is what the skip rules exist to prevent. Both
-  paths now share one runner. A stopped daemon and a missing image are also
+  paths now share one runner, and the path is normalised before the skip lookup
+  so `--test ./tests/x.sh` is treated the same as `--test tests/x.sh`. A stopped daemon and a missing image are also
   reported as themselves -- with the command to run, and the documented exit
   code 3 -- instead of surfacing a registry error that reads like the suite is
   broken. `--shell` gets those checks too; it used to reach `docker run`

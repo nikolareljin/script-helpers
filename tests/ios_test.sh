@@ -40,6 +40,8 @@ xcrun() {
     return 0
   fi
   if [[ "$1 $2 ${3:-}" == "simctl list devices" ]]; then
+    # A listing that fails outright, for the polling loop's error path.
+    [[ "${list_status:-0}" -ne 0 ]] && return "$list_status"
     # `booted` with boot_reveal_after set models the real thing: simctl boot
     # returns while the device is still Booting, and it does not appear in this
     # listing until it reaches Booted.
@@ -130,6 +132,32 @@ resolved="$(IOS_BOOT_TIMEOUT=10 ios_resolve_device "iPhone 15 Pro Max" 2>/dev/nu
 boot_reveal_after=0
 boot_reveals=""
 boot_calls=1
+
+# simctl breaking *after* a successful boot command. The polling loop used to
+# embed the listing in [[ -n "$( )" ]], discarding its exit status, so a broken
+# simctl was reported as a 60-second timeout instead of as itself.
+list_status=0
+: > "$boot_poll_file"
+boot_reveal_after=0
+boot_reveals=""
+simctl_output=""
+poll_err="$( (
+  xcrun() {
+    case "$1 $2 ${3:-}" in
+      "simctl list devices") [[ "${4:-}" == booted && -n "${LIST_FAIL_AFTER_BOOT:-}" ]] && return 9; printf '%s' "$simctl_output"; return 0 ;;
+      "simctl boot"*) LIST_FAIL_AFTER_BOOT=1; return 0 ;;
+    esac
+    return 0
+  }
+  start=$(date +%s)
+  IOS_BOOT_TIMEOUT=30 ios_boot_simulator "iPhone 15 Pro Max" 2>&1 >/dev/null
+  echo "rc=$? elapsed=$(( $(date +%s) - start ))"
+) )"
+case "$poll_err" in
+  *"could not list booted simulators"*"rc=1 elapsed=0"*|*"could not list booted simulators"*"rc=1 elapsed=1"*)
+    echo "[ios_test] a simctl failure while polling is reported as itself, immediately" ;;
+  *) echo "[ios_test] simctl failure while polling was not propagated: $poll_err" >&2; exit 1 ;;
+esac
 
 
 simctl_output=""

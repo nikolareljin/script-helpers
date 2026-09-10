@@ -77,6 +77,36 @@ install_file() {
   chmod -- "$mode" "$dest"
 }
 
+# --- refuse bad input before the first write --------------------------------
+#
+# Everything below writes files. A --shims list is checked here, in full, so a
+# rejected invocation leaves the repository exactly as it found it: validating
+# it after the entry point had been installed meant exit 2 could still have
+# rewritten dev, scripts/cli.sh and scripts/_bootstrap.sh on the way out.
+shim_list=()
+if [[ -n "$SHIMS" ]]; then
+  IFS=',' read -r -a shim_list <<< "$SHIMS"
+  # Two things are refused. A name with a path
+  # separator, or `.`/`..`, would write outside the repository root or over a
+  # directory. And `dev` -- the entry point every shim delegates to -- would be
+  # moved to dev.pre-dev-cli and replaced by a shim that runs `./dev dev`, which
+  # is itself: an exec loop, with the real entry point already moved aside.
+  # The same goes for the files this installer itself writes.
+  for name in "${shim_list[@]}"; do
+    name="$(printf '%s' "$name" | tr -d '[:space:]')"
+    [[ -n "$name" ]] || continue
+    case "$name" in
+      dev|dev.ps1|scripts|*/*|.|..)
+        log_error "--shims: '$name' cannot be a shim -- it is the entry point the shims delegate to, or a path"
+        exit 2 ;;
+    esac
+    [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || {
+      log_error "--shims: '$name' is not a plain file name (letters, digits, . _ - only)"
+      exit 2
+    }
+  done
+fi
+
 # --- the entry point -------------------------------------------------------
 
 install_file "$TEMPLATE_DIR/_bootstrap.sh" "$REPO/scripts/_bootstrap.sh" 644
@@ -99,32 +129,18 @@ fi
 # systemd unit or a README breaks the day this lands.
 
 if [[ -n "$SHIMS" ]]; then
-  IFS=',' read -r -a shim_list <<< "$SHIMS"
-  # Validate the whole list before touching anything: a bad name found halfway
-  # through would leave the repository with some shims installed and some not,
-  # and the reader guessing which. Two things are refused. A name with a path
-  # separator, or `.`/`..`, would write outside the repository root or over a
-  # directory. And `dev` -- the entry point every shim delegates to -- would be
-  # moved to dev.pre-dev-cli and replaced by a shim that runs `./dev dev`, which
-  # is itself: an exec loop, with the real entry point already moved aside.
-  # The same goes for the files this installer itself writes.
-  for name in "${shim_list[@]}"; do
-    name="$(printf '%s' "$name" | tr -d '[:space:]')"
-    [[ -n "$name" ]] || continue
-    case "$name" in
-      dev|dev.ps1|scripts|*/*|.|..)
-        log_error "--shims: '$name' cannot be a shim -- it is the entry point the shims delegate to, or a path"
-        exit 2 ;;
-    esac
-    [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || {
-      log_error "--shims: '$name' is not a plain file name (letters, digits, . _ - only)"
-      exit 2
-    }
-  done
   for name in "${shim_list[@]}"; do
     name="$(printf '%s' "$name" | tr -d '[:space:]')"
     [[ -n "$name" ]] || continue
     dest="$REPO/$name"
+    # A symlink here is refused outright, dangling or not. `-e` is false for a
+    # dangling one, so the write below would follow it and create the shim
+    # wherever it points -- outside the repository, for a link to /outside/x.
+    # A live one would be overwritten through, replacing a file elsewhere.
+    if [[ -L "$dest" ]]; then
+      log_error "--shims: $name is a symlink ($(readlink -- "$dest")); refusing to write through it"
+      exit 2
+    fi
     if [[ -e "$dest" && "$FORCE" == "false" ]]; then
       # On a re-run $dest is the shim written last time. Moving that over an
       # existing backup would replace the caller's original script with our

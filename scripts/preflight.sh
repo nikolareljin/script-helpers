@@ -4,7 +4,10 @@
 # USAGE: bash scripts/preflight.sh [--quick] [--stack <name>] [--docker] [--skip-security] [--list]
 #
 # PARAMETERS:
-#   --quick           Skip build/assemble steps. Tests and lint still run.
+#   --quick           Skip build/assemble steps. Tests and lint still run. The
+#                     iOS stack is skipped entirely: its analyze and test belong
+#                     to the flutter stack for the same directory, so the build
+#                     is all it does.
 #                     This is what the pre-push hook uses.
 #   --stack <name>    Check one stack only, instead of every stack detected.
 #                     Repeatable. One of: flutter gradle node python go rust php.
@@ -343,7 +346,7 @@ check_flutter() {
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
   local what="analyze + test"; [[ "$QUICK" == "true" ]] && what="test"
-  run_step "$name $what" bash "$(helper_script local_test_flutter.sh)" --dir "$dir" "${args[@]+"${args[@]}"}"
+  run_step "$name $what" bash "$(helper_script local_test_flutter.sh)" --dir "$PROJECT_DIR/$dir" "${args[@]+"${args[@]}"}"
   if [[ "$QUICK" == "false" ]]; then
     # An APK build needs the Android SDK, which a Mac set up for iOS work has no
     # reason to have. This used to be unconditional, so preflight on a Mac
@@ -409,7 +412,7 @@ check_gradle() {
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
   local what="lint + test + assemble"; [[ "$QUICK" == "true" ]] && what="test"
-  run_step "$name $what" bash "$(helper_script local_test_gradle.sh)" --dir "$dir" "${args[@]+"${args[@]}"}"
+  run_step "$name $what" bash "$(helper_script local_test_gradle.sh)" --dir "$PROJECT_DIR/$dir" "${args[@]+"${args[@]}"}"
 }
 
 check_node() {
@@ -420,7 +423,7 @@ check_node() {
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name lint + test" bash "$(helper_script local_test_node.sh)" --dir "$dir" "${args[@]+"${args[@]}"}"
+  run_step "$name lint + test" bash "$(helper_script local_test_node.sh)" --dir "$PROJECT_DIR/$dir" "${args[@]+"${args[@]}"}"
 }
 
 check_python() {
@@ -431,7 +434,7 @@ check_python() {
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name lint + test" bash "$(helper_script local_test_python.sh)" --dir "$dir" "${args[@]+"${args[@]}"}"
+  run_step "$name lint + test" bash "$(helper_script local_test_python.sh)" --dir "$PROJECT_DIR/$dir" "${args[@]+"${args[@]}"}"
 }
 
 check_go() {
@@ -442,7 +445,7 @@ check_go() {
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name vet + test" bash "$(helper_script local_test_go.sh)" --dir "$dir" "${args[@]+"${args[@]}"}"
+  run_step "$name vet + test" bash "$(helper_script local_test_go.sh)" --dir "$PROJECT_DIR/$dir" "${args[@]+"${args[@]}"}"
 }
 
 check_rust() {
@@ -469,7 +472,7 @@ check_rust() {
     skip_step "$name" "rustup is not installed — CI compiles with rustup's ${RUST_TOOLCHAIN:-stable}; install it from https://rustup.rs, or set PREFLIGHT_RUST_ANY_CARGO=true to check against PATH's cargo"
     return
   fi
-  run_step "$name clippy + test" bash "$(helper_script local_test_rust.sh)" --dir "$dir" "${args[@]+"${args[@]}"}"
+  run_step "$name clippy + test" bash "$(helper_script local_test_rust.sh)" --dir "$PROJECT_DIR/$dir" "${args[@]+"${args[@]}"}"
 }
 
 check_php() {
@@ -480,7 +483,7 @@ check_php() {
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name lint + test" bash "$(helper_script local_test_php.sh)" --dir "$dir" "${args[@]+"${args[@]}"}"
+  run_step "$name lint + test" bash "$(helper_script local_test_php.sh)" --dir "$PROJECT_DIR/$dir" "${args[@]+"${args[@]}"}"
 }
 
 check_security() {

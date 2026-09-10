@@ -154,6 +154,37 @@ rc=0; bash scripts/install_dev_cli.sh --repo "$loop" --shims ../escape >/dev/nul
   && note "--shims ../escape: nothing written outside the repository" \
   || error "--shims ../escape: wrote a file outside the repository"
 
+# 6) A refused list must leave the repository untouched -- including the entry
+#    point. Validation used to run after dev, scripts/cli.sh and
+#    scripts/_bootstrap.sh had been written, so exit 2 still modified the tree.
+pristine="$tmp_root/pristine"
+make_repo "$pristine"
+rc=0; bash scripts/install_dev_cli.sh --repo "$pristine" --shims dev >/dev/null 2>&1 || rc=$?
+if [[ $rc -eq 2 && ! -e "$pristine/dev" && ! -e "$pristine/scripts/cli.sh" && ! -e "$pristine/scripts/_bootstrap.sh" ]]; then
+  note "refused list: nothing was written, not even the entry point"
+else
+  error "refused list: exit $rc, and the tree was modified before the refusal (dev=$([[ -e $pristine/dev ]] && echo yes || echo no) cli.sh=$([[ -e $pristine/scripts/cli.sh ]] && echo yes || echo no))"
+fi
+
+# 7) A shim name that is a symlink -- dangling here -- must not be written
+#    through. `-e` is false for a dangling link, so the old code fell to the
+#    write, which followed the link and created the shim outside the repository.
+sym="$tmp_root/sym"
+make_repo "$sym"
+mkdir -p "$tmp_root/outside"
+rm -f "$sym/start"                      # make_repo seeded a real one
+ln -s "$tmp_root/outside/missing" "$sym/start"
+rc=0; bash scripts/install_dev_cli.sh --repo "$sym" --shims start >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 2 ]] \
+  && note "symlink shim: refused with exit 2" \
+  || error "symlink shim: expected exit 2, got $rc"
+[[ ! -e "$tmp_root/outside/missing" ]] \
+  && note "symlink shim: nothing was written through the link" \
+  || error "symlink shim: the shim was written outside the repository via the link"
+[[ -L "$sym/start" ]] \
+  && note "symlink shim: the link itself is left in place" \
+  || error "symlink shim: the link was replaced or removed"
+
 if [[ $failures -gt 0 ]]; then
   echo "[install_dev_cli_test] FAILED ($failures)" >&2
   exit 1

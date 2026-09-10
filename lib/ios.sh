@@ -93,9 +93,19 @@ ios_boot_simulator() {
   # its very next lookup could not find. ios_resolve_device does exactly that
   # lookup, and reported a simulator it had just successfully started as "not a
   # booted simulator". Wait for the state the caller is about to ask for.
-  local waited=0 timeout="${IOS_BOOT_TIMEOUT:-60}"
-  while [[ "$waited" -lt "$timeout" ]]; do
-    [[ -n "$(_ios__booted_udid_for "$id")" ]] && return 0
+  # Two things this loop must not do. It must not swallow a failing simctl:
+  # the listing's exit status is checked before its output, so a simctl that
+  # breaks after the boot command is reported as that, not as a timeout. And it
+  # must check once *at* the deadline: a device that reaches Booted on the last
+  # second was previously counted as never having got there.
+  local waited=0 timeout="${IOS_BOOT_TIMEOUT:-60}" udid
+  while :; do
+    udid="$(_ios__booted_udid_for "$id")" || {
+      echo "ios_boot_simulator: could not list booted simulators while waiting for '$id'" >&2
+      return 1
+    }
+    [[ -n "$udid" ]] && return 0
+    [[ "$waited" -ge "$timeout" ]] && break
     sleep 1
     waited=$((waited + 1))
   done
