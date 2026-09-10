@@ -77,7 +77,8 @@ rust_toolchain_report() {
   local cargo_path
   cargo_path="$(command -v cargo 2>/dev/null || true)"
   if [[ -z "$cargo_path" ]]; then
-    echo "[rust] no cargo on PATH"
+    # The report is stdout; a missing cargo is an error, and goes where errors go.
+    echo "[rust] no cargo on PATH" >&2
     return 1
   fi
   echo "[rust] cargo: $cargo_path ($("$cargo_path" --version 2>/dev/null || echo 'version unavailable'))"

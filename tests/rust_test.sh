@@ -217,6 +217,17 @@ else
   error "expected a refusal naming the fix: $(cat "$tmp/out" 2>/dev/null)"
 fi
 
+note "a missing cargo is reported on stderr, not in the report"
+if (
+  PATH="$tmp/bin:/usr/bin:/bin:$bash_dir"
+  out="$(rust_toolchain_report 2>"$tmp/err")"; status=$?
+  [[ $status -ne 0 && -z "$out" ]] && grep -q "no cargo" "$tmp/err"
+); then
+  ok "non-zero, empty stdout, reason on stderr"
+else
+  error "expected the missing-cargo error on stderr with empty stdout"
+fi
+
 note "the report does not change PATH"
 if (
   PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin:$bash_dir"
