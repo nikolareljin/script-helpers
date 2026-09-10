@@ -41,6 +41,16 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   exercises the three renderers, not just the collector, which is why the leak
   survived a test written to catch exactly it.
 
+- **`scripts/install_dev_cli.sh` — `--shims dev` replaced the entry point with
+  a shim that ran itself.** Every compatibility shim delegates to `./dev`, so a
+  shim *named* `dev` moved the real entry point to `dev.pre-dev-cli` and wrote
+  `exec "$(dirname "$0")/dev" dev "$@"` in its place: an exec loop, with the
+  file it needed already moved aside. A name containing a path separator would
+  likewise have written outside the repository root. Shim names are now
+  validated as a whole list before anything is touched — `dev`, `dev.ps1`,
+  `scripts`, `.`, `..` and anything with a `/` are refused with exit 2 — so a
+  bad name found halfway through cannot leave half the shims installed.
+
 - **`lib/ios.sh` — a simulator was reported as unbootable moments after being
   booted.** `simctl boot` returns when the boot *starts*; the device then sits
   in `Booting` for several seconds and does not appear in

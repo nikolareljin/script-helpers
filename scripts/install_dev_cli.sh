@@ -100,6 +100,27 @@ fi
 
 if [[ -n "$SHIMS" ]]; then
   IFS=',' read -r -a shim_list <<< "$SHIMS"
+  # Validate the whole list before touching anything: a bad name found halfway
+  # through would leave the repository with some shims installed and some not,
+  # and the reader guessing which. Two things are refused. A name with a path
+  # separator, or `.`/`..`, would write outside the repository root or over a
+  # directory. And `dev` -- the entry point every shim delegates to -- would be
+  # moved to dev.pre-dev-cli and replaced by a shim that runs `./dev dev`, which
+  # is itself: an exec loop, with the real entry point already moved aside.
+  # The same goes for the files this installer itself writes.
+  for name in "${shim_list[@]}"; do
+    name="$(printf '%s' "$name" | tr -d '[:space:]')"
+    [[ -n "$name" ]] || continue
+    case "$name" in
+      dev|dev.ps1|scripts|*/*|.|..)
+        log_error "--shims: '$name' cannot be a shim -- it is the entry point the shims delegate to, or a path"
+        exit 2 ;;
+    esac
+    [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || {
+      log_error "--shims: '$name' is not a plain file name (letters, digits, . _ - only)"
+      exit 2
+    }
+  done
   for name in "${shim_list[@]}"; do
     name="$(printf '%s' "$name" | tr -d '[:space:]')"
     [[ -n "$name" ]] || continue

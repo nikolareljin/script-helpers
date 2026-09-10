@@ -115,6 +115,45 @@ else
   error "--dry-run modified the tree"
 fi
 
+# 5) A shim named after the entry point, or written as a path, is refused --
+#    and refused before anything is touched. `--shims dev` used to move the real
+#    ./dev to dev.pre-dev-cli and replace it with a shim that ran `./dev dev`:
+#    an exec loop, with the entry point already moved aside. A bad name found
+#    halfway through the list would leave the earlier shims installed, so the
+#    whole list is checked first: `start` here must not be shimmed either.
+loop="$tmp_root/loop"
+make_repo "$loop"
+rc=0; bash scripts/install_dev_cli.sh --repo "$loop" --shims start,dev >/dev/null 2>&1 || rc=$?
+if [[ $rc -eq 2 ]]; then
+  note "--shims dev: refused with exit 2"
+else
+  error "--shims dev: expected exit 2, got $rc"
+fi
+if [[ -e "$loop/dev" ]] && ! is_shim "$loop/dev"; then
+  note "--shims dev: ./dev is not a shim"
+elif [[ ! -e "$loop/dev" ]]; then
+  # The refusal came before the template was installed at all: also fine.
+  note "--shims dev: ./dev was not written"
+else
+  error "--shims dev: ./dev was replaced by a shim that would exec itself"
+fi
+[[ ! -e "$loop/dev.pre-dev-cli" ]] \
+  && note "--shims dev: the entry point was not moved aside" \
+  || error "--shims dev: ./dev was moved to dev.pre-dev-cli"
+if grep -q "$ORIGINAL" "$loop/start" && [[ ! -e "$loop/start.pre-dev-cli" ]]; then
+  note "--shims dev: the list was refused whole -- start was not shimmed"
+else
+  error "--shims dev: start was shimmed before the bad name was found"
+fi
+
+rc=0; bash scripts/install_dev_cli.sh --repo "$loop" --shims ../escape >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 2 ]] \
+  && note "--shims ../escape: a path is refused with exit 2" \
+  || error "--shims ../escape: expected exit 2, got $rc"
+[[ ! -e "$tmp_root/escape" ]] \
+  && note "--shims ../escape: nothing written outside the repository" \
+  || error "--shims ../escape: wrote a file outside the repository"
+
 if [[ $failures -gt 0 ]]; then
   echo "[install_dev_cli_test] FAILED ($failures)" >&2
   exit 1
