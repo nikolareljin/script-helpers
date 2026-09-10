@@ -81,6 +81,12 @@ if [[ -z "$PROJECT_DIR" ]]; then
 fi
 [[ -d "$PROJECT_DIR" ]] || { log_error "preflight: not a directory: $PROJECT_DIR"; exit 2; }
 cd "$PROJECT_DIR" || exit 2
+# Absolute from here on. A relative --dir sub was left as "sub" after this cd,
+# so every later "$PROJECT_DIR/$dir" -- the iOS pubspec check, in_dir, the
+# runner arguments -- resolved to sub/sub/... from inside sub and skipped or
+# failed a valid nested project. The runners happened to survive because they
+# re-anchor a relative path on the git root; nothing else did.
+PROJECT_DIR="$(pwd)"
 
 KNOWN_STACKS="flutter gradle ios node python go rust php"
 for s in "${WANTED_STACKS[@]+"${WANTED_STACKS[@]}"}"; do
@@ -479,7 +485,7 @@ check_rust() {
     local rustup_cargo
     rustup_cargo="$(rustup which --toolchain "${RUST_TOOLCHAIN:-stable}" cargo 2>/dev/null || true)"
     if [[ -z "$rustup_cargo" || ! -x "$rustup_cargo" ]]; then
-      skip_step "$name" "rustup has no cargo for '${RUST_TOOLCHAIN:-stable}' — run: rustup toolchain install ${RUST_TOOLCHAIN:-stable}"
+      skip_step "$name" "rustup has no cargo for '${RUST_TOOLCHAIN:-stable}' — run: rustup toolchain install ${RUST_TOOLCHAIN:-stable}, or set PREFLIGHT_RUST_ANY_CARGO=true to check against PATH's cargo"
       return
     fi
   fi

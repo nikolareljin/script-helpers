@@ -209,6 +209,23 @@ else
   error "--shims start,link: exit $rc; dev=$([[ -e $r/dev ]] && echo yes || echo no) start-backup=$([[ -e $r/start.pre-dev-cli ]] && echo yes || echo no) escaped=$([[ -e $tmp_root/outside/missing2 ]] && echo yes || echo no)"
 fi
 
+# 9) The entry point's own destinations get the same guard. A dangling symlink
+#    at ./dev is neither -f nor -e, so install_file reached cp, which followed
+#    it and wrote the template outside the repository.
+core="$tmp_root/core"
+make_repo "$core"
+ln -s "$tmp_root/outside/dev-escape" "$core/dev"
+rc=0; bash scripts/install_dev_cli.sh --repo "$core" >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 2 ]] \
+  && note "dangling symlink at ./dev: refused with exit 2" \
+  || error "dangling symlink at ./dev: expected exit 2, got $rc"
+[[ ! -e "$tmp_root/outside/dev-escape" ]] \
+  && note "dangling symlink at ./dev: nothing was written through it" \
+  || error "dangling symlink at ./dev: the template was written outside the repository via the link"
+[[ ! -e "$core/scripts/cli.sh" ]] \
+  && note "dangling symlink at ./dev: refused before any core file was written" \
+  || error "dangling symlink at ./dev: scripts/cli.sh was written before the refusal"
+
 if [[ $failures -gt 0 ]]; then
   echo "[install_dev_cli_test] FAILED ($failures)" >&2
   exit 1

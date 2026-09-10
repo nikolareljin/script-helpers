@@ -22,7 +22,9 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   *included* rather than dropped, so the shebang check names it. A file with no
   shebang is included when its name says `.sh` *or* when it lives where the
   entry points live (`bin/`, the git hooks, `templates/dev-cli/dev`), since
-  those are collected on purpose and were still being dropped. `rbash` counts
+  those are collected on purpose and were still being dropped — and the shebang
+  check now errors on a file that has none at all, which is what those files
+  were being kept for. `rbash` counts
   as bash; `#! /bin/sh` with a space after the magic is a shebang, not an empty
   interpreter; and a `.sh` file whose shebang names python or perl is reported
   rather than dropped, since the name and the shebang disagree. Failing toward inspection is the whole point: every narrower
@@ -54,6 +56,24 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   a tool it does not have. The remedy is chosen by `$OSTYPE` now: Homebrew on
   macOS, the package manager elsewhere.
 
+- **`scripts/preflight.sh --dir <sub>` resolved its own later paths as
+  `sub/sub/...`.** `PROJECT_DIR` was kept exactly as given, so after `cd`-ing
+  into `sub` every later `"$PROJECT_DIR/$dir"` — the iOS stack's `pubspec.yaml`
+  test, `in_dir`, the runner arguments — was built from a relative value that
+  no longer meant anything from the new working directory. The runners happened
+  to survive because they re-anchor a relative path on the git root; nothing
+  else did, so a valid nested project was skipped or failed. `PROJECT_DIR` is
+  absolute from the `cd` onward.
+
+- **`scripts/local_test_bash32.sh` — the offline skip map named one test that
+  needs git while four others use it.** `needs_for` was kept by hand, so
+  `hub_test.sh`, `install_dev_cli_test.sh`, `portability_test.sh`,
+  `runner_dir_test.sh` and `adb_wireless_test.sh` ran without git when the
+  bootstrap could not reach the network and failed for a missing tool — under
+  exactly the name this runner exists to keep off bash 3.2. The requirement is
+  read out of each test file now; the hand-written case adds only what a scan
+  cannot see (`apt-get`, which no test invokes but `docker_install` requires).
+
 - **`scripts/install_dev_cli.sh` — `--shims dev` replaced the entry point with
   a shim that ran itself.** Every compatibility shim delegates to `./dev`, so a
   shim *named* `dev` moved the real entry point to `dev.pre-dev-cli` and wrote
@@ -70,7 +90,11 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   existing directory (`--shims .git` moved `.git` to `.git.pre-dev-cli` and
   replaced it with a file), and the reserved `*.pre-dev-cli` suffix (which
   would have displaced the caller's original backup). The message uses
-  `readlink` without `--`, which BSD `readlink` on macOS rejects.
+  `readlink` without `--`, which BSD `readlink` on macOS rejects. The same guard
+  covers the installer's own destinations (`dev`, `scripts/cli.sh`, the
+  PowerShell counterparts): a dangling symlink at one of those is neither `-f`
+  nor `-e`, so `install_file` reached `cp`, which followed it and wrote the
+  template outside the repository.
 
 - **`lib/ios.sh` — a simulator was reported as unbootable moments after being
   booted.** `simctl boot` returns when the boot *starts*; the device then sits
@@ -85,9 +109,9 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   reported as that rather than as a timeout, and it checks once *at* the
   deadline, so a device that boots on the last second counts. `tests/ios_test.sh`
   models the `Booting` window and the broken listing, and fails without either.
-  `IOS_BOOT_TIMEOUT` is validated as a whole number before the loop: `10s` in
-  an arithmetic test errors on every iteration, so the deadline was never
-  reached.
+  `IOS_BOOT_TIMEOUT` is validated as a whole number before the loop and refused
+  with exit 2: `10s` in an arithmetic test errors on every iteration, so the
+  deadline was never reached.
 
 - **`templates/dev-cli/cli.sh` — a relative export-options plist named two
   different files in a nested project.** `./dev deploy ios --release` validates
@@ -132,7 +156,8 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   `PREFLIGHT_RUST_ANY_CARGO=true` turns the skip back into a real check against
   `PATH`'s cargo. rustup being installed with no cargo for the selected toolchain
   (`stable` never added) is the same kind of state and is the same skip, naming
-  the `rustup toolchain install` to run, rather than a failed step.
+  both remedies — the `rustup toolchain install` to run and the
+  `PREFLIGHT_RUST_ANY_CARGO` opt-in — rather than a failed step.
 
 - **`scripts/local_test_bash32.sh` — `--test` ignored the tool-skip rules the
   suite relies on.** The single-test path ran the file directly rather than

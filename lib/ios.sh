@@ -99,6 +99,13 @@ ios_boot_simulator() {
   # must check once *at* the deadline: a device that reaches Booted on the last
   # second was previously counted as never having got there.
   local waited=0 timeout="${IOS_BOOT_TIMEOUT:-60}" udid
+  # Validated before the loop: "10s" in an arithmetic test is an error on every
+  # iteration, so the deadline is never reached and the loop runs forever.
+  case "$timeout" in
+    ''|*[!0-9]*)
+      echo "ios_boot_simulator: IOS_BOOT_TIMEOUT must be a whole number of seconds, got '$timeout'" >&2
+      return 2 ;;
+  esac
   while :; do
     udid="$(_ios__booted_udid_for "$id")" || {
       echo "ios_boot_simulator: could not list booted simulators while waiting for '$id'" >&2

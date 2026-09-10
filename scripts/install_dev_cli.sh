@@ -59,9 +59,28 @@ git -C "$REPO" rev-parse --show-toplevel >/dev/null 2>&1 || {
 
 say() { if [[ "$DRY_RUN" == "true" ]]; then echo "[dry-run] $*"; else log_info "$*"; fi; }
 
+# A destination this installer is about to write must be a regular file or
+# absent. A symlink -- dangling or live -- would be written through to wherever
+# it points (-f and -e are both false for a dangling one, so the write reaches
+# cp and cp follows it); a directory would be replaced by a file. Used once
+# over every managed destination before the first write, and again at each
+# write for the window in between.
+refuse_bad_dest() {
+  local dest="$1" rel="${1#"$REPO"/}"
+  if [[ -L "$dest" ]]; then
+    log_error "$rel is a symlink ($(readlink "$dest")); refusing to write through it"
+    exit 2
+  fi
+  if [[ -d "$dest" ]]; then
+    log_error "$rel is a directory; refusing to replace it with a file"
+    exit 2
+  fi
+}
+
 install_file() {
   local src="$1" dest="$2" mode="${3:-644}"
   local rel="${dest#"$REPO"/}"
+  refuse_bad_dest "$dest"
   if [[ -f "$dest" ]] && cmp -s "$src" "$dest"; then
     say "unchanged: $rel"
     return 0
@@ -79,10 +98,15 @@ install_file() {
 
 # --- refuse bad input before the first write --------------------------------
 #
-# Everything below writes files. A --shims list is checked here, in full, so a
-# rejected invocation leaves the repository exactly as it found it: validating
-# it after the entry point had been installed meant exit 2 could still have
-# rewritten dev, scripts/cli.sh and scripts/_bootstrap.sh on the way out.
+# Everything below writes files. Every destination -- the entry point's own
+# files and the --shims list -- is checked here, in full, so a rejected
+# invocation leaves the repository exactly as it found it: validating the shim
+# list after the entry point had been installed meant exit 2 could still have
+# rewritten dev, scripts/cli.sh and scripts/_bootstrap.sh on the way out, and a
+# dangling symlink at one of those core paths was never checked at all.
+for core in dev dev.ps1 scripts/_bootstrap.sh scripts/cli.sh scripts/cli.ps1 scripts/_bootstrap.ps1 scripts/project.sh.example; do
+  refuse_bad_dest "$REPO/$core"
+done
 shim_list=()
 if [[ -n "$SHIMS" ]]; then
   IFS=',' read -r -a shim_list <<< "$SHIMS"
@@ -117,14 +141,7 @@ if [[ -n "$SHIMS" ]]; then
     # points. Both are checked here, before any write, so a bad entry anywhere
     # in the list leaves the repository untouched; the per-shim check below
     # remains for the window between this pass and the write.
-    if [[ -L "$REPO/$name" ]]; then
-      log_error "--shims: $name is a symlink ($(readlink "$REPO/$name")); refusing to write through it"
-      exit 2
-    fi
-    if [[ -d "$REPO/$name" ]]; then
-      log_error "--shims: $name is a directory; refusing to replace it with a shim"
-      exit 2
-    fi
+    refuse_bad_dest "$REPO/$name"
   done
 fi
 
@@ -154,16 +171,7 @@ if [[ -n "$SHIMS" ]]; then
     name="$(printf '%s' "$name" | tr -d '[:space:]')"
     [[ -n "$name" ]] || continue
     dest="$REPO/$name"
-    # A symlink here is refused outright, dangling or not. `-e` is false for a
-    # dangling one, so the write below would follow it and create the shim
-    # wherever it points -- outside the repository, for a link to /outside/x.
-    # A live one would be overwritten through, replacing a file elsewhere.
-    # No `--` on readlink: BSD readlink on macOS rejects it, and the target
-    # would be lost from the message on the platform this library supports.
-    if [[ -L "$dest" ]]; then
-      log_error "--shims: $name is a symlink ($(readlink "$dest")); refusing to write through it"
-      exit 2
-    fi
+    refuse_bad_dest "$dest"
     if [[ -e "$dest" && "$FORCE" == "false" ]]; then
       # On a re-run $dest is the shim written last time. Moving that over an
       # existing backup would replace the caller's original script with our

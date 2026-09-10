@@ -101,16 +101,23 @@ RUNNER='
 
   # Tests whose subject is a tool rather than the shell. Each names what it
   # needs, so a missing tool reads as SKIP and only a real 3.2 defect fails.
+  # Derived from the test file rather than kept by hand: a hand-kept map named
+  # one test as needing git while three others also ran it, so offline those
+  # three failed for a missing tool and blamed bash 3.2. A test that invokes a
+  # tool needs it; the scan is the source of truth, and the case below adds
+  # only what a scan cannot see.
   needs_for() {
+    need=""
+    grep -qE "(^|[^[:alnum:]_-])git " "$1" 2>/dev/null && need="$need git"
+    grep -qE "(^|[^[:alnum:]_])python3?( |$)" "$1" 2>/dev/null && need="$need python3"
+    grep -qE "(^|[^[:alnum:]_])curl( |$)" "$1" 2>/dev/null && need="$need curl"
     case "$1" in
-      tests/git_branches_test.sh)   echo git ;;
-      tests/hub_test.sh)            echo "python3 curl" ;;
       # docker_install supports apt/dnf/pacman, not apk, so on this Alpine-based
       # image the installer correctly refuses and the test correctly fails.
       # That is a statement about Alpine, not about bash 3.2.
-      tests/docker_install_test.sh) echo "curl apt-get" ;;
-      *) echo "" ;;
+      tests/docker_install_test.sh) need="$need apt-get" ;;
     esac
+    echo "${need# }"
   }
 
   have_all() {

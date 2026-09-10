@@ -191,6 +191,10 @@ while IFS= read -r f; do
   case "$first" in
     '#!/usr/bin/env bash') ;;
     '#!'*) error "shebang is not '#!/usr/bin/env bash' -> $f: $first" ;;
+    # The classifier deliberately keeps a shebang-less `.sh` or entry point, so
+    # that it reaches this check rather than vanishing. Without a branch here it
+    # arrived and nothing happened, which is the same silence one step later.
+    *) error "no shebang; every scanned file needs '#!/usr/bin/env bash' -> $f" ;;
   esac
 done < <(printf '%s' "$FILES" | grep -v '^$')
 
