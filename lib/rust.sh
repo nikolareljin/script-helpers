@@ -55,11 +55,14 @@ rust_toolchain_ci_uses() {
     fi
   fi
 
-  # Idempotent: a gate may call this more than once, and each call must not
-  # grow PATH with another copy of the same directory.
+  # First on PATH, not merely on it: a machine with rustup installed the
+  # usual way already has ~/.cargo/bin somewhere on PATH, behind the
+  # distribution cargo that is the whole problem. So the test is "is it the
+  # first segment"; only then is there nothing to do. Calling twice is still
+  # a no-op, since after the first call it is first.
   local rustup_dir; rustup_dir="$(dirname "$rustup_cargo")"
-  case ":$PATH:" in
-    *":$rustup_dir:"*) ;;
+  case "$PATH" in
+    "$rustup_dir"|"$rustup_dir:"*) ;;
     *) PATH="$rustup_dir:$PATH" ;;
   esac
   export PATH

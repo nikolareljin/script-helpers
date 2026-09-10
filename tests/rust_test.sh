@@ -177,6 +177,17 @@ else
   error "expected an install hint for 1.80.0: $(cat "$tmp/out" 2>/dev/null)"
 fi
 
+note "a rustup dir already on PATH, but behind the distro cargo, is moved to the front"
+if (
+  PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin:$bash_dir:$tmp/rustup-toolchain"
+  rust_toolchain_ci_uses >/dev/null 2>&1
+  [[ "$(command -v cargo)" == "$tmp/rustup-toolchain/cargo" ]]
+); then
+  ok "later on PATH is not good enough; it is first now"
+else
+  error "expected rustup's cargo to win over a distro cargo earlier on PATH, got: $(command -v cargo)"
+fi
+
 note "calling it twice does not grow PATH"
 if (
   PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin:$bash_dir"
