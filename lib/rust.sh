@@ -66,6 +66,9 @@ rust_toolchain_ci_uses() {
     *) PATH="$rustup_dir:$PATH" ;;
   esac
   export PATH
+  # A cargo already run in this shell is in the command hash table, and the
+  # table wins over PATH. Without this a gate could still execute the old one.
+  hash -r
 }
 
 # Usage: rust_toolchain_report [toolchain]

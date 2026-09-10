@@ -188,6 +188,18 @@ else
   error "expected rustup's cargo to win over a distro cargo earlier on PATH, got: $(command -v cargo)"
 fi
 
+note "a cargo already in the command hash table is not what runs afterwards"
+if (
+  PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin:$bash_dir"
+  hash -r; hash cargo                                   # the distro cargo is now hashed
+  rust_toolchain_ci_uses >/dev/null 2>&1
+  [[ "$(cargo)" == *"(rustup)"* ]]                      # executed by name, not resolved by hand
+); then
+  ok "the hash table is cleared with the PATH change"
+else
+  error "expected the rustup cargo to run after the switch, got: $(cargo 2>&1)"
+fi
+
 note "calling it twice does not grow PATH"
 if (
   PATH="$tmp/distro:$tmp/bin:/usr/bin:/bin:$bash_dir"
