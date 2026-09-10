@@ -446,6 +446,19 @@ check_rust() {
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
+  # cargo on PATH is not the precondition local_test_rust.sh actually has. It
+  # runs against *rustup's* toolchain, because that is what CI compiles with,
+  # and without rustup it refuses -- advising --any-cargo, which preflight had
+  # no way to pass on. So a machine with a distribution cargo and no rustup
+  # failed the whole gate on a message its reader could not act on. Skip with
+  # both remedies named, the way every other missing toolchain here is handled,
+  # and let a repo that genuinely targets the system toolchain opt back in.
+  if [[ "${PREFLIGHT_RUST_ANY_CARGO:-false}" == "true" ]]; then
+    args+=(--any-cargo)
+  elif ! command -v rustup >/dev/null 2>&1; then
+    skip_step "$name" "rustup is not installed — CI compiles with rustup's ${RUST_TOOLCHAIN:-stable}; install it from https://rustup.rs, or set PREFLIGHT_RUST_ANY_CARGO=true to check against PATH's cargo"
+    return
+  fi
   run_step "$name clippy + test" bash "$(helper_script local_test_rust.sh)" --dir "$dir" "${args[@]+"${args[@]}"}"
 }
 

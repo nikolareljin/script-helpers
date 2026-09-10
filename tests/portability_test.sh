@@ -40,12 +40,24 @@ shell_files() {
         | sed 's|^\./||' | sort
     fi
   }
+  local f first
   _candidates \
     | while IFS= read -r f; do
         [[ -f "$f" ]] || continue
         [[ "$f" == "$SELF" ]] && continue
         case "$f" in *.ps1|*.md) continue ;; esac
-        head -n1 "$f" | grep -q 'bash' && printf '%s\n' "$f"
+        # Classify by shebang, not by "does line 1 mention bash". The old test
+        # dropped every file whose first line did not contain the word, which
+        # silently excluded exactly the files the shebang check below exists to
+        # catch: `#!/bin/sh`, `#!/bin/zsh` and scripts with no shebang at all
+        # never reached it, so that check could only ever fire on a shebang that
+        # already said bash. A gate that cannot see its own subject is not a gate.
+        first="$(head -n1 "$f" 2>/dev/null)"
+        case "$first" in
+          '#!'*sh|'#!'*sh[[:space:]]*) printf '%s\n' "$f" ;;
+          '#!'*) ;;   # a shebang naming something that is not a shell: python, perl, ...
+          *) case "$f" in *.sh) printf '%s\n' "$f" ;; esac ;;
+        esac
       done
 }
 

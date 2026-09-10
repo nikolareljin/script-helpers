@@ -64,15 +64,31 @@ fi
 # does not, the affected tests are reported as SKIPPED -- a test that failed for
 # want of git says nothing about bash 3.2, and a gate that cries wolf is a gate
 # people learn to ignore.
+# The image is minimal: no git, no python3. Several tests drive real library
+# code through those, so they are installed when the network allows. When it
+# does not, the affected tests are reported as SKIPPED -- a test that failed for
+# want of git says nothing about bash 3.2, and a gate that cries wolf is a gate
+# people learn to ignore.
 BOOTSTRAP='apk add --no-cache git python3 curl >/dev/null 2>&1 || true'
-if [[ -n "$SINGLE_TEST" ]]; then
-  log_info "local_test_bash32: $SINGLE_TEST under $IMAGE"
-  exec docker run --rm -v "$SCRIPT_HELPERS_DIR:/repo" -w /repo "$IMAGE" \
-    bash -c "$BOOTSTRAP"'; bash --version | head -n1; bash "$1"' _ "$SINGLE_TEST"
+
+# Offline, `docker run` on an image that was never pulled fails with a registry
+# error that reads like the gate is broken. Say what actually happened, and use
+# the same "docker is unavailable" exit code, so a machine with no network is
+# told to pull the image once rather than left debugging the suite.
+if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+  if ! docker pull "$IMAGE" >/dev/null 2>&1; then
+    log_error "local_test_bash32: $IMAGE is not present locally and could not be pulled"
+    log_error "local_test_bash32: with a network, run: docker pull $IMAGE"
+    exit 3
+  fi
 fi
 
-log_info "local_test_bash32: full suite under $IMAGE"
-docker run --rm -v "$SCRIPT_HELPERS_DIR:/repo" -w /repo "$IMAGE" bash -c "$BOOTSTRAP"'
+# One runner for both paths. The single-test path used to bypass this and run
+# the file directly, so `--test tests/git_branches_test.sh` on an image without
+# git -- which is every image when the bootstrap cannot reach the network --
+# failed for want of git and blamed bash 3.2. Whatever is skipped in the suite
+# is skipped the same way for one file.
+RUNNER='
   set -u
   bash --version | head -n1
   case "${BASH_VERSINFO[0]}" in
@@ -101,10 +117,15 @@ docker run --rm -v "$SCRIPT_HELPERS_DIR:/repo" -w /repo "$IMAGE" bash -c "$BOOTS
     return 0
   }
 
+  # No arguments means the whole suite.
+  if [ "$#" -eq 0 ]; then
+    set -- tests/*_test.sh
+  fi
+
   failed=0
   skipped=0
-  for f in tests/*_test.sh; do
-    [ -f "$f" ] || continue
+  for f in "$@"; do
+    [ -f "$f" ] || { echo "no such test: $f" >&2; failed=1; continue; }
     need="$(needs_for "$f")"
     if [ -n "$need" ] && ! missing="$(have_all "$need")"; then
       printf "\n--- bash 3.2: %s ---\n" "$f"
@@ -121,3 +142,13 @@ docker run --rm -v "$SCRIPT_HELPERS_DIR:/repo" -w /repo "$IMAGE" bash -c "$BOOTS
   printf "\nbash 3.2 summary: %s skipped for missing tools\n" "$skipped"
   exit $failed
 '
+
+if [[ -n "$SINGLE_TEST" ]]; then
+  log_info "local_test_bash32: $SINGLE_TEST under $IMAGE"
+  exec docker run --rm -v "$SCRIPT_HELPERS_DIR:/repo" -w /repo "$IMAGE" \
+    bash -c "$BOOTSTRAP; $RUNNER" _ "$SINGLE_TEST"
+fi
+
+log_info "local_test_bash32: full suite under $IMAGE"
+exec docker run --rm -v "$SCRIPT_HELPERS_DIR:/repo" -w /repo "$IMAGE" \
+  bash -c "$BOOTSTRAP; $RUNNER" _

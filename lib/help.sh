@@ -72,6 +72,7 @@ _help__print_inline() {
 # Usage: _help__print_block <color> <label> <value>; internal block renderer.
 _help__print_block() {
   local color="$1" label="$2" value="$3"
+  local line
   if [[ -z "$value" ]]; then
     return 0
   fi
@@ -94,6 +95,19 @@ _help__render() {
   fi
 
   local pfx="_shlib_help_meta"
+  # `get_script_metadata` builds its results with `printf -v "${prefix}_${key}"`.
+  # A name written that way inside a function is a *global* unless some frame
+  # already declares it, so rendering help used to leave a dozen
+  # `_shlib_help_meta_*` variables behind in whatever script called show_help.
+  # Bash locals are dynamically scoped, so declaring the whole fixed set here --
+  # one frame above the call -- makes those assignments land in this frame and
+  # disappear on return. No unset, no cleanup path to forget, and nothing newer
+  # than bash 3.2. The list is _HELP_META_FIELDS plus the param_lines accumulator.
+  local _shlib_help_meta_name _shlib_help_meta_description _shlib_help_meta_author
+  local _shlib_help_meta_created _shlib_help_meta_version _shlib_help_meta_usage
+  local _shlib_help_meta_parameters _shlib_help_meta_example
+  local _shlib_help_meta_exit_codes _shlib_help_meta_date _shlib_help_meta_creator
+  local _shlib_help_meta_param_lines
   get_script_metadata "$script_file" "$pfx"
 
   local m_name m_description m_usage m_parameters m_param_lines

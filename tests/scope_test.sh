@@ -22,6 +22,14 @@ error() { echo "[scope_test][ERROR] $*" >&2; failures=$((failures+1)); }
 
 # Names the rewrite introduced or relies on. None should exist after a call.
 LEAKY="_sh_line line details serials sims devices vars_for_port _serials booted parts tok"
+# show_help collects a dozen fixed-name fields through get_script_metadata, which
+# writes them with `printf -v` -- a global unless a frame above declares them.
+# Rendering help left every one of these in the caller until 0.27.0.
+LEAKY="$LEAKY _shlib_help_meta_name _shlib_help_meta_description _shlib_help_meta_author"
+LEAKY="$LEAKY _shlib_help_meta_created _shlib_help_meta_version _shlib_help_meta_usage"
+LEAKY="$LEAKY _shlib_help_meta_parameters _shlib_help_meta_example"
+LEAKY="$LEAKY _shlib_help_meta_exit_codes _shlib_help_meta_date _shlib_help_meta_creator"
+LEAKY="$LEAKY _shlib_help_meta_param_lines"
 
 assert_no_leak() {
   local label="$1" name
@@ -59,6 +67,16 @@ assert_no_leak "add_to_etc_hosts"
 printf '#!/usr/bin/env bash\n# SCRIPT: s.sh\n# VERSION: 1.0.0\n' > "$tmp/s.sh"
 get_script_metadata "$tmp/s.sh" scopemeta >/dev/null 2>&1 || true
 assert_no_leak "get_script_metadata"
+
+# The renderers, not just the collector. get_script_metadata writing into the
+# prefix the caller asked for is the API; show_help doing it behind the caller's
+# back, with a prefix nobody chose, is the leak. Use a real header so every
+# field is populated and the block renderer runs.
+printf '#!/usr/bin/env bash\n# SCRIPT: r.sh\n# DESCRIPTION: d\n# USAGE: r.sh\n# PARAMETERS:\n#   --x  an option\n# VERSION: 1.0.0\n' > "$tmp/r.sh"
+for renderer in show_help display_help print_help; do
+  "$renderer" "$tmp/r.sh" >/dev/null 2>&1 || true
+  assert_no_leak "$renderer"
+done
 
 if [[ "$failures" -eq 0 ]]; then
   note "ALL PASSED"; exit 0

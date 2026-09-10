@@ -2,6 +2,65 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## 2026-09-10 — v0.27.0
+
+### Fixed
+- **`tests/portability_test.sh` — the portability gate could not see a non-Bash
+  script.** Candidate files were filtered with `head -n1 "$f" | grep -q bash`,
+  so a script whose first line did not contain the word never reached any check.
+  That is exactly the set the shebang check below it exists to catch: `#!/bin/sh`,
+  `#!/bin/zsh` and a file with no shebang at all were dropped before it ran, and
+  the `shebang is not '#!/usr/bin/env bash'` branch could only ever fire on a
+  shebang that already said bash. A gate blind to its own subject reports PASS
+  for the case it was written for. Files are now classified by shebang, with a
+  `*.sh` name standing in when there is none. The scanned set is unchanged today
+  (114 files) — the defect was latent, and would have been paid by whoever added
+  the first `#!/bin/sh` script.
+
+- **`lib/help.sh` — rendering help left a dozen variables in the caller.**
+  `get_script_metadata` writes its results with `printf -v "${prefix}_${key}"`,
+  which creates a *global* unless some frame already declares the name. Callers
+  that pass their own prefix are choosing that; `_help__render` passes a fixed
+  `_shlib_help_meta` prefix nobody asked for, so any script calling `show_help`,
+  `display_help` or `print_help` silently gained `_shlib_help_meta_name`,
+  `_shlib_help_meta_usage` and ten more — plus `line`, from an undeclared loop
+  variable in `_help__print_block`. These libraries are sourced into other
+  people's scripts, so each of those is a name that can quietly clobber theirs.
+  Fixed by declaring the fixed field set `local` one frame above the call:
+  bash locals are dynamically scoped, so the assignments land in that frame and
+  disappear on return — no cleanup path to forget, and nothing newer than bash
+  3.2. `tests/scope_test.sh` now exercises the three renderers, not just the
+  collector, which is why the leak survived a test written to catch exactly it.
+
+- **`templates/dev-cli/cli.sh` — a relative export-options plist named two
+  different files in a nested project.** `./dev deploy ios --release` validates
+  `IOS_EXPORT_OPTIONS_PLIST` from the repository root, then hands it to
+  `ios_build_release`, which re-checks it after `cd`-ing into the Flutter
+  project. In the layout the shared dev CLI assumes — the app under `mobile/`
+  or `app/` — those are different directories, so a relative path either died on
+  a path that had just validated, or resolved to whichever plist sat inside the
+  project and signed with that. The path is now made absolute at the point it is
+  validated.
+
+- **`scripts/preflight.sh` — a Rust project failed the run on unactionable
+  advice.** `check_rust` gated on `cargo` being on `PATH`, but
+  `local_test_rust.sh` runs against *rustup's* toolchain, because that is what
+  CI compiles with. On a machine with a distribution cargo and no rustup it
+  refused, advising `--any-cargo` — which preflight had no way to pass on. It
+  now skips the project when rustup is absent, naming both remedies, the way
+  every other missing toolchain here is handled. `PREFLIGHT_RUST_ANY_CARGO=true`
+  turns the skip back into a real check against `PATH`'s cargo.
+
+- **`scripts/local_test_bash32.sh` — `--test` ignored the tool-skip rules the
+  suite relies on.** The single-test path ran the file directly rather than
+  through the runner, so `--test tests/docker_install_test.sh` failed for want
+  of `apt-get`, and `--test tests/git_branches_test.sh` failed for want of git
+  whenever the bootstrap could not reach the network — reporting a missing tool
+  as a bash 3.2 defect, which is what the skip rules exist to prevent. Both
+  paths now share one runner. A missing image is also reported as such, with
+  the pull command, instead of surfacing a registry error that reads like the
+  suite is broken.
+
 ## 2026-09-09 — v0.26.0
 
 ### Added

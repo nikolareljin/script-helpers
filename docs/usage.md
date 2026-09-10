@@ -291,6 +291,12 @@ with a lockfile error that names the wrong thing. `RUST_TOOLCHAIN=1.80.0` pins a
 channel or version; `--any-cargo` opts out for a repository that genuinely
 targets the system toolchain.
 
+`preflight` runs that same gate, so it needs rustup too, and it has no flag to
+forward. Without rustup it reports the Rust project as **skipped**, naming both
+remedies, rather than failing the run on advice the reader cannot act on. Set
+`PREFLIGHT_RUST_ANY_CARGO=true` to check against `PATH`'s cargo instead of
+skipping.
+
 ```bash
 bash scripts/local_test_flutter.sh --quick --dir app
 bash scripts/local_test_php.sh --quick --dir backend
