@@ -100,6 +100,33 @@ set -e
 [[ "$status" -eq 1 ]] || error "extract of a missing version returned $status (expected 1)"
 note "extract returns just the requested section"
 
+# 5b) a version is matched whole, not as a substring of another version. This
+# was `index(line, want) > 0`, so asking for 0.2.0 returned the body of a
+# v10.2.0 section -- the release notes for one version being another's.
+cat > "$tmp/collide.md" <<'MD'
+# Changelog
+
+## 2026-09-10 — v10.2.0
+
+- ten point two.
+
+## 2026-01-01 — v0.2.0
+
+- zero point two.
+MD
+body="$(changelog_extract "$tmp/collide.md" 0.2.0 2>/dev/null)"
+grep -q "zero point two." <<<"$body" || error "0.2.0 did not select its own section"
+grep -q "ten point two."  <<<"$body" && error "0.2.0 matched the v10.2.0 section"
+body="$(changelog_extract "$tmp/collide.md" 10.2.0 2>/dev/null)"
+grep -q "ten point two." <<<"$body" || error "10.2.0 did not select its own section"
+# The dots are literal, not regex wildcards.
+set +e
+changelog_extract "$tmp/collide.md" 0X2Y0 >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 1 ]] || error "0X2Y0 matched a section, so the dots are being read as wildcards"
+note "a version matches whole, with literal dots"
+
 # 6) new_section inserts above the newest release and is idempotent
 changelog_new_section "$tmp/good.md" 1.3.0 --date 2026-07-31 >/dev/null 2>&1 \
   || error "changelog_new_section failed"

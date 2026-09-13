@@ -60,27 +60,41 @@ changelog_check_header() {
 # <version>, without its header, for use as release notes. The `v` prefix is
 # optional on both sides. Returns 1 when there is no such section.
 changelog_extract() {
-  local file="${1:-}" version="${2:-}" bare
+  local file="${1:-}" version="${2:-}" bare escaped
   [[ -n "$file" && -n "$version" ]] || { log_error "changelog_extract: need <file> <version>"; return 2; }
   [[ -f "$file" ]] || { log_error "changelog_extract: not found: $file"; return 2; }
   bare="${version#v}"
+  # Dots are regex metacharacters, so "0.2.0" would otherwise also match "0X2Y0".
+  escaped="${bare//./\\.}"
 
-  awk -v want="$bare" '
+  # The version has to match as a whole. This was `index(line, want) > 0`, a
+  # plain substring test, so asking for 0.2.0 matched a `## 2026-09-10 — v10.2.0`
+  # header -- "10.2.0" contains "0.2.0" -- and the release notes for one version
+  # were silently the body of another. Requiring a non-version character (or the
+  # line edge) on each side fixes it without narrowing which header shapes are
+  # accepted, which is the point of this function: `YYYY-MM-DD — vX.Y.Z`,
+  # `[X.Y.Z] - YYYY-MM-DD` and a bare version all still match.
+  # Through the environment, not -v: awk processes escape sequences in a -v
+  # assignment, so "0\.2\.0" arrived as "0.2.0" -- unescaped dots matching any
+  # character, and a warning on every run. ENVIRON is passed through verbatim.
+  CHANGELOG_WANT="$escaped" awk '
+    BEGIN { want = ENVIRON["CHANGELOG_WANT"] }
     /^##[[:space:]]/ {
       if (inside) exit
       line = $0
       gsub(/^##[[:space:]]+/, "", line)
-      # Accept "YYYY-MM-DD - vX.Y.Z", "[X.Y.Z] - YYYY-MM-DD", or a bare version.
-      if (index(line, want) > 0) { inside = 1; next }
+      if (match(line, "(^|[^0-9.])" want "([^0-9.]|$)")) { inside = 1; next }
       next
     }
     inside { print }
-  ' "$file" | sed -e '/./,$!d' | awk 'BEGIN{blank=0} {lines[NR]=$0} END{
+  ' "$file" | sed -e '/./,$!d' | awk '{lines[NR]=$0} END{
       last=NR; while (last>0 && lines[last] ~ /^[[:space:]]*$/) last--
       for (i=1; i<=last; i++) print lines[i]
     }'
 
-  grep -qE "^##[[:space:]].*${bare//./\\.}" "$file" || {
+  # Same boundary rule as above; a looser check here would report "found" for a
+  # version the awk above declined to extract, and print an empty body as success.
+  grep -qE "^##[[:space:]].*(^|[^0-9.])${escaped}([^0-9.]|$)" "$file" || {
     log_error "changelog_extract: no section for $version in $file"
     return 1
   }

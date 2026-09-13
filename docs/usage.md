@@ -372,6 +372,37 @@ Check whether a release tag already exists for a release branch:
 - `--fetch-tags` reads tags from the `origin` remote by default; pass `--remote`
   when the repository uses a different remote name.
 
+Require that the version being released has been written up:
+
+```bash
+./scripts/check_changelog_section.sh
+./scripts/check_changelog_section.sh --version 1.4.0 --changelog docs/CHANGELOG.md
+```
+
+- Also a no-op away from a `release/*` branch, so it is safe on every pull
+  request.
+- `changelog_check_header` (run by `make lint-docs`) only inspects the newest
+  header. A release branch whose version was never added to the CHANGELOG passed
+  that and then published a release body built from commit subjects. This closes
+  the gap.
+
+Produce the body of a GitHub Release:
+
+```bash
+./scripts/release_notes.sh --version 1.4.0 --output body.md
+./scripts/release_notes.sh --version 1.4.0 --tag v1.4.0 --repo ../other-repo
+```
+
+- The CHANGELOG section for the version is preferred. With no section it falls
+  back to the commit subjects since the **previous** tag, and with no previous
+  tag to the whole history.
+- It says on stderr which of those it used, and when there is genuinely nothing
+  to report it names the version and the source rather than printing a bare
+  placeholder. `* No changes listed.` was indistinguishable from a range computed
+  wrongly, and for years it was always the latter.
+- Prefer `--output`: a release body should reach `gh` or an action through a file
+  (`body_path:`), not through an interpolated string.
+
 Normalize and evaluate a Gitleaks SARIF report:
 
 ```bash

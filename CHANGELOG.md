@@ -2,6 +2,55 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## 2026-09-12 — v0.28.0
+
+### Fixed
+- **`changelog_extract` returned the wrong version's section.** The header match
+  was `index(line, want) > 0`, a plain substring test, so asking for `0.2.0`
+  selected a `## 2026-09-10 — v10.2.0` header — `10.2.0` contains `0.2.0` — and
+  the release notes for one version were silently the body of another. A version
+  now has to match whole, bounded by a non-version character or the line edge,
+  and its dots are escaped so they cannot act as wildcards. The pattern reaches
+  awk through `ENVIRON` rather than `-v`, because `-v` processes escape sequences
+  and turned `0\.2\.0` back into `0.2.0` — unescaped, plus a warning on every run.
+  Which header shapes are accepted is unchanged: `YYYY-MM-DD — vX.Y.Z`,
+  `[X.Y.Z] - YYYY-MM-DD` and a bare version all still match.
+
+### Added
+- **`scripts/release_notes.sh` — one implementation of the release body.**
+  The CHANGELOG section for the version if there is one; otherwise the commit
+  subjects since the **previous** tag; otherwise, for a first release, the whole
+  history.
+
+  The previous tag is found with `git describe --tags --abbrev=0 --exclude
+  "$TAG"`, and that `--exclude` is the whole point. `ci-helpers` inlined the same
+  generator into three workflows, each resolving the start of the range with a
+  bare `git describe --tags --abbrev=0` run from a checkout **of the tag being
+  released** — which returns the tag it is standing on. The range was always
+  `X..X`, always empty, and every release body was the literal
+  `* No changes listed.`; nine repositories and four years of releases say so.
+  The composite action those three were inlined from took a `since_tag` input and
+  did not have the bug. `--exclude` rather than `"$TAG^"`: `^` fails on a tag at a
+  root commit and silently follows only the first parent of a merge.
+
+  There is no bare placeholder. When nothing is found the body names the version
+  and the source that was consulted, because "this release changed nothing", "the
+  range was computed wrongly" and "nobody wrote a changelog entry" must not print
+  the same sentence.
+
+- **`scripts/check_changelog_section.sh` — a release must have been written up.**
+  On a `release/X.Y.Z` branch, fail when the CHANGELOG has no section for that
+  version; a no-op anywhere else, so it is safe on every pull request. Wired into
+  `make lint-docs` beside `changelog_check_header`, which only ever inspected the
+  newest header and so passed a release branch whose version was never described.
+
+- **`tests/release_notes_test.sh`.** Fixture repositories covering a tag on HEAD
+  (the regression, pinned directly), notes generated before the tag exists, the
+  changelog winning over the range, a version absent from the changelog falling
+  back, the prefix collision in both directions, a first release, an empty result,
+  `--output`, and the gate's three states. Each guard was reverted in turn and the
+  suite confirmed to fail on it.
+
 ## 2026-09-10 — v0.27.0
 
 ### Fixed
