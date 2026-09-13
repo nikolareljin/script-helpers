@@ -9,12 +9,24 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   was `index(line, want) > 0`, a plain substring test, so asking for `0.2.0`
   selected a `## 2026-09-10 — v10.2.0` header — `10.2.0` contains `0.2.0` — and
   the release notes for one version were silently the body of another. A version
-  now has to match whole, bounded by a non-version character or the line edge,
-  and its dots are escaped so they cannot act as wildcards. The pattern reaches
+  now has to match whole: the character before it must not be a digit or a dot,
+  and the character after it must not be anything a version continues with — a
+  digit, a letter, `.`, `-` or `+` — so `0.2.0` also no longer selects a
+  `v0.2.0-rc.1` section. Every regex metacharacter in the version is escaped, not
+  only the dots, so `1.0.0+build.1` matches its own header. The pattern reaches
   awk through `ENVIRON` rather than `-v`, because `-v` processes escape sequences
   and turned `0\.2\.0` back into `0.2.0` — unescaped, plus a warning on every run.
-  Which header shapes are accepted is unchanged: `YYYY-MM-DD — vX.Y.Z`,
-  `[X.Y.Z] - YYYY-MM-DD` and a bare version all still match.
+  `YYYY-MM-DD — vX.Y.Z`, `[X.Y.Z] - YYYY-MM-DD` and a bare version all still
+  match.
+
+  Finding a section and extracting it are now one awk pass. They were two
+  regexes, and the second only accepted a bare `## X.Y.Z` header because GNU grep
+  lets `^` match mid-pattern.
+
+- **`changelog_new_section` skipped a version it was a substring of.** Its "already
+  has a section" test was the same substring match, so with a `v10.2.0` section
+  present, adding `0.2.0` logged success, returned 0 and wrote nothing. It uses the
+  same whole-version rule as `changelog_extract`.
 
 ### Added
 - **`scripts/release_notes.sh` — one implementation of the release body.**
@@ -23,10 +35,11 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   history.
 
   The previous tag is found with `git describe --tags --abbrev=0 --exclude
-  "$TAG"`, and that `--exclude` is the whole point. `ci-helpers` inlined the same
-  generator into three workflows, each resolving the start of the range with a
-  bare `git describe --tags --abbrev=0` run from a checkout **of the tag being
-  released** — which returns the tag it is standing on. The range was always
+  "$TAG"`, restricted to version-shaped tags, and that `--exclude` is the whole
+  point. `ci-helpers` inlined the same generator into three workflows, each
+  resolving the start of the range with a bare `git describe --tags --abbrev=0`
+  run from a checkout **of the tag being released** — which returns the tag it is
+  standing on. The range was always
   `X..X`, always empty, and every release body was the literal
   `* No changes listed.`; nine repositories and four years of releases say so.
   The composite action those three were inlined from took a `since_tag` input and
@@ -38,6 +51,15 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   range was computed wrongly" and "nobody wrote a changelog entry" must not print
   the same sentence.
 
+  The ways the range could still come out empty or wrong are closed too. Floating
+  tags such as `production`, which sit on the release commit, are not taken for
+  the previous release. A `vX.Y.Z` tag is used when `--tag` is not given. A
+  shallow clone, which `actions/checkout` produces by default, makes the commit
+  fallback exit 1 and name `fetch-depth: 0` instead of presenting one commit as a
+  first release, and a failing `git log` is an error rather than an empty body.
+  `--output` is relative to the caller, not to `--repo`. An option with no value
+  or a malformed `--version` returns 2 with a message, in both scripts.
+
 - **`scripts/check_changelog_section.sh` — a release must have been written up.**
   On a `release/X.Y.Z` branch, fail when the CHANGELOG has no section for that
   version; a no-op anywhere else, so it is safe on every pull request. Wired into
@@ -48,7 +70,9 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   (the regression, pinned directly), notes generated before the tag exists, the
   changelog winning over the range, a version absent from the changelog falling
   back, the prefix collision in both directions, a first release, an empty result,
-  `--output`, and the gate's three states. Each guard was reverted in turn and the
+  `--output` (including a relative path with `--repo`), floating tags, `v`-prefixed
+  tags, a shallow clone, malformed arguments, and the gate's states including a
+  pre-release section offered for the final version. Each guard was reverted in turn and the
   suite confirmed to fail on it.
 
 ## 2026-09-10 — v0.27.0

@@ -175,6 +175,96 @@ set -e
 [[ "$bad_flag"   -eq 2 ]] || error "an unknown flag returned $bad_flag (expected 2)"
 note "bad arguments return 2"
 
+# An option with no value, or a version that is not one, is also a bad argument.
+# `shift 2` on a lone `--version` used to exit 1 under set -e, with no message.
+set +e
+"$notes" --version >/dev/null 2>&1;                          notes_novalue=$?
+"$notes" --version 'not-a-version' --repo "$tmp/r1" >/dev/null 2>&1; notes_badver=$?
+"$gate" --changelog >/dev/null 2>&1;                         gate_novalue=$?
+"$gate" --version '1.2' --repo "$tmp/r1" >/dev/null 2>&1;    gate_badver=$?
+msg="$("$notes" --version 2>&1 >/dev/null)"
+set -e
+[[ "$notes_novalue" -eq 2 ]] || error "release_notes --version with no value returned $notes_novalue (expected 2)"
+[[ "$notes_badver"  -eq 2 ]] || error "release_notes accepted 'not-a-version' (returned $notes_badver)"
+[[ "$gate_novalue"  -eq 2 ]] || error "check_changelog_section --changelog with no value returned $gate_novalue (expected 2)"
+[[ "$gate_badver"   -eq 2 ]] || error "check_changelog_section accepted '1.2' (returned $gate_badver)"
+grep -q -- "--version" <<<"$msg" || error "a missing option value was refused without naming the option"
+note "a missing option value or a malformed version returns 2"
+
+# ---------------------------------------------------------------------------
+# 9) Floating tags are not releases. This repository moves `production` to each
+#    release commit; describe used to return it as the "previous" tag, and the
+#    range production..0.2.0 was empty.
+# ---------------------------------------------------------------------------
+build_repo "$tmp/r3"
+( cd "$tmp/r3" && git_t tag production && git_t tag latest )
+out="$("$notes" --version 0.2.0 --repo "$tmp/r3" 2>/dev/null)"
+grep -q "the second thing" <<<"$out" || error "a floating tag on the release commit emptied the range"
+grep -qi "No changes"      <<<"$out" && error "a floating tag produced the empty-result body"
+note "floating tags such as production are not taken for the previous release"
+
+# ---------------------------------------------------------------------------
+# 10) A v-prefixed repository needs no --tag. The default tag was the bare
+#     version, which did not exist, so describe returned v0.2.0 itself.
+# ---------------------------------------------------------------------------
+mkdir -p "$tmp/r4"
+( cd "$tmp/r4"
+  git init --quiet -b main .
+  echo one > a.txt; git_t add a.txt; git_t commit --quiet -m "feat: v one"
+  git_t tag v0.1.0
+  echo two > b.txt; git_t add b.txt; git_t commit --quiet -m "fix: v two"
+  git_t tag v0.2.0
+  # Work after the release, so HEAD is not the tag: a range that ends at HEAD
+  # instead of at v0.2.0 would show it.
+  echo three > c.txt; git_t add c.txt; git_t commit --quiet -m "feat: after the release"
+)
+out="$("$notes" --version 0.2.0 --repo "$tmp/r4" 2>/dev/null)"
+grep -q "v two" <<<"$out" || error "a v-prefixed tag was not found without --tag"
+grep -q "v one" <<<"$out" && error "a v-prefixed range reached back past v0.1.0"
+grep -q "after the release" <<<"$out" && error "a v-prefixed release ran to HEAD instead of stopping at v0.2.0"
+note "a v-prefixed tag is used when --tag is not given"
+
+# ---------------------------------------------------------------------------
+# 11) A relative --output is relative to the caller, not to --repo. It was
+#     resolved after the cd, so the body landed in the other working tree.
+# ---------------------------------------------------------------------------
+mkdir -p "$tmp/caller"
+( cd "$tmp/caller" && "$notes" --version 0.2.0 --repo ../r1 --output body.md >/dev/null 2>&1 )
+[[ -s "$tmp/caller/body.md" ]] || error "a relative --output was not written to the caller's directory"
+[[ -e "$tmp/r1/body.md" ]] && error "a relative --output was written into the --repo working tree"
+note "a relative --output is resolved against the caller's directory"
+
+# ---------------------------------------------------------------------------
+# 12) A shallow clone -- actions/checkout's default -- cannot answer "what
+#     changed since the previous tag". It used to answer anyway: one commit,
+#     described as a first release, exit 0. The CHANGELOG path needs no history,
+#     so it still works there.
+# ---------------------------------------------------------------------------
+build_repo "$tmp/r5"
+git clone --quiet --depth 1 "file://$tmp/r5" "$tmp/r5-shallow" 2>/dev/null
+set +e
+msg="$("$notes" --version 0.2.0 --repo "$tmp/r5-shallow" 2>&1 >/dev/null)"
+status=$?
+set -e
+[[ "$status" -eq 1 ]] || error "a shallow clone produced commit notes (returned $status, expected 1)"
+grep -q "fetch-depth" <<<"$msg" || error "the shallow-clone refusal did not say how to fix it"
+printf '# Changelog\n\n## 2026-09-12 — v0.2.0\n\n- Written down.\n' > "$tmp/r5-shallow/CHANGELOG.md"
+out="$("$notes" --version 0.2.0 --repo "$tmp/r5-shallow" 2>/dev/null)" \
+  || error "a shallow clone with a CHANGELOG section was refused"
+grep -q "Written down." <<<"$out" || error "a shallow clone did not use its CHANGELOG section"
+note "a shallow clone refuses the commit fallback but still reads the CHANGELOG"
+
+# ---------------------------------------------------------------------------
+# 13) The gate does not accept a pre-release section for the final version.
+# ---------------------------------------------------------------------------
+printf '# Changelog\n\n## 2026-09-01 — v0.2.0-rc.1\n\n- The candidate.\n' > "$tmp/RC.md"
+set +e
+"$gate" --branch release/0.2.0 --changelog "$tmp/RC.md" --repo "$tmp/r1" >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 1 ]] || error "the gate accepted a v0.2.0-rc.1 section for release/0.2.0 (returned $status)"
+note "the gate does not take a pre-release section for the final version"
+
 if [[ "$failures" -eq 0 ]]; then
   note "ALL PASSED"
 else

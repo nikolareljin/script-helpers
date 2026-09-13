@@ -5,7 +5,7 @@
 # PARAMETERS:
 #   --branch <name>     Branch to read the version from (default: current branch).
 #   --version <X.Y.Z>   Check this version instead of deriving one from a branch.
-#   --changelog <path>  CHANGELOG to read (default: CHANGELOG.md).
+#   --changelog <path>  CHANGELOG to read, relative to --repo (default: CHANGELOG.md).
 #   --repo <dir>        Repository to read (default: current directory).
 #   -h, --help          Show this help message.
 # ----------------------------------------------------
@@ -27,7 +27,11 @@ source "$ROOT_DIR/helpers.sh"
 shlib_import logging changelog
 
 usage() {
-  sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+}
+
+need_value() {
+  [[ $# -ge 2 && -n "$2" ]] || { log_error "check_changelog_section: $1 requires a value"; usage >&2; exit 2; }
 }
 
 BRANCH_NAME=""
@@ -37,15 +41,19 @@ REPO_DIR="."
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --branch)    BRANCH_NAME="${2:-}"; shift 2;;
-    --version)   VERSION="${2:-}"; shift 2;;
-    --changelog) CHANGELOG="${2:-}"; shift 2;;
-    --repo)      REPO_DIR="${2:-}"; shift 2;;
+    --branch)    need_value "$@"; BRANCH_NAME="$2"; shift 2;;
+    --version)   need_value "$@"; VERSION="$2"; shift 2;;
+    --changelog) need_value "$@"; CHANGELOG="$2"; shift 2;;
+    --repo)      need_value "$@"; REPO_DIR="$2"; shift 2;;
     -h|--help)   usage; exit 0;;
     *) log_error "check_changelog_section: unknown argument: $1"; usage >&2; exit 2;;
   esac
 done
 
+if [[ -n "$VERSION" ]] && ! [[ "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$ ]]; then
+  log_error "check_changelog_section: not a version: '$VERSION' (expected X.Y.Z, optionally with a pre-release or build suffix)"
+  exit 2
+fi
 [[ -d "$REPO_DIR" ]] || { log_error "check_changelog_section: not a directory: $REPO_DIR"; exit 2; }
 cd "$REPO_DIR"
 

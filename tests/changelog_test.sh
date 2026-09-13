@@ -127,6 +127,58 @@ set -e
 [[ "$status" -eq 1 ]] || error "0X2Y0 matched a section, so the dots are being read as wildcards"
 note "a version matches whole, with literal dots"
 
+# 5c) a pre-release is a different version. With `-` counted as a boundary,
+# asking for 0.2.0 returned the v0.2.0-rc.1 section, so a final release with no
+# section of its own passed the gate and shipped the rc's notes.
+cat > "$tmp/rc.md" <<'MD'
+# Changelog
+
+## 2026-09-01 — v0.2.0-rc.1
+
+- the release candidate.
+
+## 2026-01-01 — v0.1.0
+
+- the old one.
+MD
+set +e
+body="$(changelog_extract "$tmp/rc.md" 0.2.0 2>/dev/null)"
+status=$?
+set -e
+[[ "$status" -eq 1 ]] || error "0.2.0 found a section in a file that only has v0.2.0-rc.1 (returned $status)"
+grep -q "the release candidate." <<<"$body" && error "0.2.0 returned the v0.2.0-rc.1 body"
+body="$(changelog_extract "$tmp/rc.md" 0.2.0-rc.1 2>/dev/null)"
+grep -q "the release candidate." <<<"$body" || error "0.2.0-rc.1 did not select its own section"
+note "a pre-release section does not stand in for the final version"
+
+# 5d) every header shape the function documents, including a bare version --
+# the one shape whose leading boundary is the start of the line.
+cat > "$tmp/shapes.md" <<'MD'
+# Changelog
+
+## 3.0.0
+
+- bare.
+
+## [2.0.0] - 2026-02-02
+
+- bracketed.
+
+## 1.0.0+build.7
+
+- build metadata.
+MD
+grep -q "bare."       <<<"$(changelog_extract "$tmp/shapes.md" 3.0.0 2>/dev/null)"  || error "a bare '## 3.0.0' header was not found"
+grep -q "bracketed."  <<<"$(changelog_extract "$tmp/shapes.md" v2.0.0 2>/dev/null)" || error "a '## [2.0.0] - date' header was not found"
+grep -q "build metadata." <<<"$(changelog_extract "$tmp/shapes.md" 1.0.0+build.7 2>/dev/null)" \
+  || error "a version with + build metadata did not match its own header"
+set +e
+changelog_extract "$tmp/shapes.md" 1.0.0+build7 >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 1 ]] || error "1.0.0+build7 matched 1.0.0+build.7, so the dot is still a wildcard"
+note "bare, bracketed and build-metadata headers all match"
+
 # 6) new_section inserts above the newest release and is idempotent
 changelog_new_section "$tmp/good.md" 1.3.0 --date 2026-07-31 >/dev/null 2>&1 \
   || error "changelog_new_section failed"
@@ -144,6 +196,17 @@ changelog_new_section "$tmp/good.md" 1.3.0 --date 2026-07-31 >/dev/null 2>&1
 after="$(cksum < "$tmp/good.md")"
 [[ "$before" == "$after" ]] || error "a second call for the same version changed the file"
 note "new_section inserts correctly and is idempotent"
+
+# 6b) its "already there" check uses the same whole-version rule. It was a
+# substring match, so a v10.2.0 section made 0.2.0 look present: it logged
+# "already has a section", returned 0, and wrote nothing.
+cp "$tmp/collide.md" "$tmp/collide_new.md"
+sed -i.bak '/v0\.2\.0$/,$d' "$tmp/collide_new.md" && rm -f "$tmp/collide_new.md.bak"
+changelog_new_section "$tmp/collide_new.md" 0.2.0 --date 2026-09-12 >/dev/null 2>&1 \
+  || error "changelog_new_section failed beside a v10.2.0 section"
+grep -q '^## 2026-09-12 — v0.2.0$' "$tmp/collide_new.md" \
+  || error "new_section treated 0.2.0 as present because v10.2.0 exists"
+note "new_section is not fooled by a version it is a substring of"
 
 # 7) it creates the file when there is none
 changelog_new_section "$tmp/fresh.md" 0.1.0 --date 2026-07-31 >/dev/null 2>&1 \

@@ -379,8 +379,10 @@ Require that the version being released has been written up:
 ./scripts/check_changelog_section.sh --version 1.4.0 --changelog docs/CHANGELOG.md
 ```
 
-- Also a no-op away from a `release/*` branch, so it is safe on every pull
-  request.
+- Like `check_release_version.sh`, a no-op away from a `release/*` branch, so it
+  is safe on every pull request. `--changelog` is relative to `--repo`.
+- A pre-release section does not count for the final version: `release/0.2.0`
+  is not satisfied by `## 2026-09-01 — v0.2.0-rc.1`.
 - `changelog_check_header` (run by `make lint-docs`) only inspects the newest
   header. A release branch whose version was never added to the CHANGELOG passed
   that and then published a release body built from commit subjects. This closes
@@ -396,6 +398,16 @@ Produce the body of a GitHub Release:
 - The CHANGELOG section for the version is preferred. With no section it falls
   back to the commit subjects since the **previous** tag, and with no previous
   tag to the whole history.
+- "Previous tag" means the nearest version-shaped tag (`X.Y.Z` or `vX.Y.Z`, or
+  the same prefix as `--tag`) other than this version. Floating tags such as
+  `production` are ignored; they sit on the release commit and would empty the
+  range.
+- Without `--tag`, whichever of `X.Y.Z` and `vX.Y.Z` exists is used.
+- The commit fallback needs full history. In a shallow clone it exits 1 and
+  says so; use `fetch-depth: 0` with `actions/checkout`. A CHANGELOG section
+  needs no history.
+- `--changelog` is relative to `--repo`; `--output` is relative to the current
+  directory.
 - It says on stderr which of those it used, and when there is genuinely nothing
   to report it names the version and the source rather than printing a bare
   placeholder. `* No changes listed.` was indistinguishable from a range computed
