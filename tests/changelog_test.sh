@@ -19,7 +19,7 @@ source ./helpers.sh
 shlib_import changelog
 
 # 1) functions defined after import
-for fn in changelog_check_header changelog_extract changelog_new_section; do
+for fn in changelog_check_header changelog_extract changelog_has_entries changelog_new_section; do
   if declare -f "$fn" >/dev/null 2>&1; then
     note "$fn is defined"
   else
@@ -207,6 +207,19 @@ changelog_new_section "$tmp/collide_new.md" 0.2.0 --date 2026-09-12 >/dev/null 2
 grep -q '^## 2026-09-12 — v0.2.0$' "$tmp/collide_new.md" \
   || error "new_section treated 0.2.0 as present because v10.2.0 exists"
 note "new_section is not fooled by a version it is a substring of"
+
+# 6c) a section existing is not a section saying something. new_section's
+# template is a header over empty headings; that must not count as release notes.
+printf '# Changelog\n\n' > "$tmp/fresh_template.md"
+changelog_new_section "$tmp/fresh_template.md" 0.9.0 --date 2026-09-13 >/dev/null 2>&1
+template="$(changelog_extract "$tmp/fresh_template.md" 0.9.0)"
+changelog_has_entries "$template" && error "changelog_has_entries accepted the empty new_section template"
+changelog_has_entries ""          && error "changelog_has_entries accepted an empty body"
+changelog_has_entries $'### Added\r\n\r\n###\r\n' && error "changelog_has_entries accepted CRLF headings"
+changelog_has_entries $'### Added\n- A real entry.' || error "changelog_has_entries rejected a real entry"
+changelog_has_entries 'Prose with no heading.'      || error "changelog_has_entries rejected plain prose"
+changelog_has_entries '- #42 fixed'                  || error "changelog_has_entries took a bullet mentioning #42 for a heading"
+note "has_entries tells a written section from an empty template"
 
 # 7) it creates the file when there is none
 changelog_new_section "$tmp/fresh.md" 0.1.0 --date 2026-07-31 >/dev/null 2>&1 \

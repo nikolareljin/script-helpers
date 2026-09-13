@@ -28,6 +28,13 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   present, adding `0.2.0` logged success, returned 0 and wrote nothing. It uses the
   same whole-version rule as `changelog_extract`.
 
+- **The PowerShell mirror had both bugs, and CI could not see them.**
+  `ps/lib/changelog.ps1` still matched with `$line.Contains($bare)`, and its
+  `changelog_new_section` check had no leading boundary, so `0.2.0` selected and
+  was shadowed by `v10.2.0` there too. It now uses the same whole-version rule.
+  CI only parsed and imported the PowerShell files, so it now also runs
+  `ps/tests/*_test.ps1`; `ps/tests/changelog_test.ps1` fails on the old mirror.
+
 ### Added
 - **`scripts/release_notes.sh` — one implementation of the release body.**
   The CHANGELOG section for the version if there is one; otherwise the commit
@@ -60,9 +67,24 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   `--output` is relative to the caller, not to `--repo`. An option with no value
   or a malformed `--version` returns 2 with a message, in both scripts.
 
+  A CHANGELOG section with no entries is not used as the body; the commits are,
+  with a warning. For a final release, pre-release tags are not the previous
+  release, so `0.2.0` is described from `0.1.0` rather than from `0.2.0-rc.1`; a
+  pre-release is still described from the nearest version tag. A clone with no
+  tags other than the release tag lists the whole history with a warning that
+  the tags may not have been fetched, instead of calling it a first release.
+
+- **`changelog_has_entries` — a section existing is not a release written up.**
+  Returns 0 only when a section body has a line that is neither blank nor a
+  heading. The template `changelog_new_section` writes, a header over four empty
+  `###` headings, returns 1. That template is what `./dev release X` produces in
+  consumer repositories.
+
 - **`scripts/check_changelog_section.sh` — a release must have been written up.**
   On a `release/X.Y.Z` branch, fail when the CHANGELOG has no section for that
-  version; a no-op anywhere else, so it is safe on every pull request. Wired into
+  version, or a section with no entries; a no-op anywhere else, so it is safe on
+  every pull request. Checked only for existence, the untouched template passed
+  and was then published as the release body: four headings and nothing else. Wired into
   `make lint-docs` beside `changelog_check_header`, which only ever inspected the
   newest header and so passed a release branch whose version was never described.
 
@@ -71,9 +93,12 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   changelog winning over the range, a version absent from the changelog falling
   back, the prefix collision in both directions, a first release, an empty result,
   `--output` (including a relative path with `--repo`), floating tags, `v`-prefixed
-  tags, a shallow clone, malformed arguments, and the gate's states including a
-  pre-release section offered for the final version. Each guard was reverted in turn and the
-  suite confirmed to fail on it.
+  tags, a shallow clone, a clone without tags, pre-release tags before a final
+  release, an empty template section, a failing `git log` (through a `git` shim,
+  since nothing else reaches that branch), malformed arguments, and the gate's
+  states including a pre-release section offered for the final version. Each
+  guard was reverted in turn and the suite confirmed to fail on it; the `git log`
+  guard had survived that until the shim test was added.
 
 ## 2026-09-10 — v0.27.0
 

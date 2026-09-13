@@ -109,27 +109,48 @@ previous_tag() {
   # floating tag such as `production` or `latest` sitting on the release commit,
   # and the range is empty again. When --tag carries a prefix before the version
   # (`app-v1.2.0`), the previous release is looked for under the same prefix.
-  local prefix=""
-  local -a match=(--match '[0-9]*.[0-9]*.[0-9]*' --match 'v[0-9]*.[0-9]*.[0-9]*')
+  local prefix="" pattern
+  local -a patterns=('[0-9]*.[0-9]*.[0-9]*' 'v[0-9]*.[0-9]*.[0-9]*') args=()
   if [[ "$TAG" == *"$bare" ]]; then
     prefix="${TAG%"$bare"}"
     if [[ -n "$prefix" && "$prefix" != "v" ]]; then
-      match=(--match "${prefix}[0-9]*.[0-9]*.[0-9]*")
+      patterns=("${prefix}[0-9]*.[0-9]*.[0-9]*")
     fi
   fi
+  for pattern in "${patterns[@]}"; do
+    args+=(--match "$pattern")
+    # A final release is described against the previous final release. Taking
+    # 0.2.0-rc.1 as "previous" made 0.2.0's notes only what changed since the
+    # candidate. A pre-release still starts from the nearest version tag of
+    # either kind, so rc.2 is described against rc.1.
+    [[ "$bare" == *-* ]] || args+=(--exclude "${pattern}-*")
+  done
   # --exclude, not "$TAG^". Both find the previous tag in the ordinary case, but
   # `^` walks to a parent: it fails outright on a tag at a root commit, and on a
   # merge commit it silently follows the first parent only. This asks the
   # question actually being asked -- the nearest release tag that is not this
   # one, under either spelling.
-  git describe --tags --abbrev=0 "${match[@]}" \
+  git describe --tags --abbrev=0 "${args[@]}" \
     --exclude "$TAG" --exclude "$bare" --exclude "v$bare" "$range_end" 2>/dev/null || true
 }
 
 body=""
 source_used=""
+section=""
+use_section=0
 
-if [[ -f "$CHANGELOG" ]] && body="$(changelog_extract "$CHANGELOG" "$VERSION" 2>/dev/null)" && [[ -n "$body" ]]; then
+if [[ -f "$CHANGELOG" ]] && section="$(changelog_extract "$CHANGELOG" "$VERSION" 2>/dev/null)"; then
+  # Only a section that says something. The template changelog_new_section
+  # writes -- four empty `###` headings -- was published as the release body.
+  if changelog_has_entries "$section"; then
+    use_section=1
+  else
+    log_warn "release_notes: the $CHANGELOG section for $VERSION has no entries; using the commits instead"
+  fi
+fi
+
+if [[ "$use_section" -eq 1 ]]; then
+  body="$section"
   source_used="the $CHANGELOG section for $VERSION"
 else
   if ! git rev-parse --git-dir >/dev/null 2>&1; then
@@ -150,7 +171,19 @@ else
     source_used="commits in $range"
   else
     range="$range_end"
-    source_used="every commit, because $TAG is the first tag"
+    if [[ -z "$(git tag -l | grep -vxF -e "$TAG" || true)" ]]; then
+      # No tag but this one -- or none at all. From inside the clone that looks
+      # the same as a clone made without tags (and a release tag created locally
+      # afterwards), which would list the whole history of a project that has
+      # released before. Say so rather than call it a first release.
+      source_used="every commit, because this clone has no other tags"
+      log_warn "release_notes: this clone has no tags other than $TAG. If $VERSION is not the first"
+      log_warn "  release, the tags were not fetched (git fetch --tags) and these notes list the whole history."
+    elif tag_exists "$TAG"; then
+      source_used="every commit, because $TAG is the first version tag"
+    else
+      source_used="every commit, because no version tag precedes $range_end"
+    fi
   fi
   # No `|| true`: a git log that fails is an error, not an empty release.
   if ! body="$(git log --no-merges --pretty=format:'* %s' "$range")"; then

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SCRIPT: check_changelog_section.sh
-# DESCRIPTION: On a release/X.Y.Z branch, require that CHANGELOG.md has a section for that version.
+# DESCRIPTION: On a release/X.Y.Z branch, require that CHANGELOG.md has a section with entries for that version.
 # USAGE: scripts/check_changelog_section.sh [--branch <name>] [--version <X.Y.Z>] [--changelog <path>] [--repo <dir>]
 # PARAMETERS:
 #   --branch <name>     Branch to read the version from (default: current branch).
@@ -79,7 +79,7 @@ if [[ ! -f "$CHANGELOG" ]]; then
   exit 1
 fi
 
-if ! changelog_extract "$CHANGELOG" "$VERSION" >/dev/null 2>&1; then
+if ! section="$(changelog_extract "$CHANGELOG" "$VERSION" 2>/dev/null)"; then
   log_error "check_changelog_section: $CHANGELOG has no section for $VERSION"
   log_error "  The release body is taken from that section. Without it the release"
   log_error "  falls back to a commit list, which is not what anyone reads."
@@ -88,4 +88,15 @@ if ! changelog_extract "$CHANGELOG" "$VERSION" >/dev/null 2>&1; then
   exit 1
 fi
 
-log_info "check_changelog_section: $CHANGELOG has a section for $VERSION"
+# A header with nothing under it, or only the empty `###` headings that
+# changelog_new_section writes, is not a write-up. It used to pass here and then
+# ship as the release body.
+if ! changelog_has_entries "$section"; then
+  log_error "check_changelog_section: the $CHANGELOG section for $VERSION has no entries"
+  log_error "  It has a header and at most empty headings -- the template"
+  log_error "  changelog_new_section writes. Write what changed under them, and"
+  log_error "  delete the headings that stay empty."
+  exit 1
+fi
+
+log_info "check_changelog_section: $CHANGELOG has a written section for $VERSION"

@@ -74,6 +74,23 @@ changelog_extract() {
     }'
 }
 
+# Usage: changelog_has_entries <text>; return 0 when <text> -- a section body as
+# changelog_extract prints it -- has at least one line that is neither blank nor
+# a markdown heading.
+#
+# A section existing is not the same as a release being written up.
+# changelog_new_section writes a header over four empty `###` headings; checked
+# only for existence, that template passed the release gate and was published as
+# the release body: four headings and nothing under them.
+changelog_has_entries() {
+  printf '%s\n' "${1:-}" | awk '
+    /^[[:space:]]*$/ { next }
+    /^[[:space:]]*#+[[:space:]]/ || /^[[:space:]]*#+[[:space:]]*$/ { next }
+    { found = 1; exit }
+    END { exit found ? 0 : 1 }
+  '
+}
+
 # Usage: _changelog__section <file> <version>; print the raw lines of the
 # section whose header names <version>, and return 1 when there is none.
 #

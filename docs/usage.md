@@ -383,6 +383,8 @@ Require that the version being released has been written up:
   is safe on every pull request. `--changelog` is relative to `--repo`.
 - A pre-release section does not count for the final version: `release/0.2.0`
   is not satisfied by `## 2026-09-01 — v0.2.0-rc.1`.
+- The section must have entries. A header with nothing under it, or only the
+  empty `###` headings `changelog_new_section` writes, fails.
 - `changelog_check_header` (run by `make lint-docs`) only inspects the newest
   header. A release branch whose version was never added to the CHANGELOG passed
   that and then published a release body built from commit subjects. This closes
@@ -395,13 +397,19 @@ Produce the body of a GitHub Release:
 ./scripts/release_notes.sh --version 1.4.0 --tag v1.4.0 --repo ../other-repo
 ```
 
-- The CHANGELOG section for the version is preferred. With no section it falls
-  back to the commit subjects since the **previous** tag, and with no previous
-  tag to the whole history.
+- The CHANGELOG section for the version is preferred. With no section, or a
+  section with no entries (a warning says so), it falls back to the commit
+  subjects since the **previous** tag, and with no previous tag to the whole
+  history.
 - "Previous tag" means the nearest version-shaped tag (`X.Y.Z` or `vX.Y.Z`, or
   the same prefix as `--tag`) other than this version. Floating tags such as
   `production` are ignored; they sit on the release commit and would empty the
-  range.
+  range. For a final release, pre-release tags are skipped too, so `0.2.0` is
+  described from `0.1.0`, not from `0.2.0-rc.1`; a pre-release is described
+  from the nearest version tag of either kind.
+- A clone with no tags other than the release tag gets the whole history and a
+  warning, because from inside the clone a first release and tags that were
+  never fetched look the same.
 - Without `--tag`, whichever of `X.Y.Z` and `vX.Y.Z` exists is used.
 - The commit fallback needs full history. In a shallow clone it exits 1 and
   says so; use `fetch-depth: 0` with `actions/checkout`. A CHANGELOG section

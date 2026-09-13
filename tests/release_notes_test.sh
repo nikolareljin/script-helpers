@@ -265,6 +265,106 @@ set -e
 [[ "$status" -eq 1 ]] || error "the gate accepted a v0.2.0-rc.1 section for release/0.2.0 (returned $status)"
 note "the gate does not take a pre-release section for the final version"
 
+# ---------------------------------------------------------------------------
+# 14) The template changelog_new_section writes is a section, not a write-up.
+#     `./dev release X` in consumer repositories writes it; the gate passed it
+#     and the release body was four empty headings.
+# ---------------------------------------------------------------------------
+build_repo "$tmp/r6"
+( cd "$tmp/r6"
+  printf '# Changelog\n\n' > CHANGELOG.md
+  bash -c 'source "$1/helpers.sh"; shlib_import logging changelog; changelog_new_section CHANGELOG.md 0.2.0 --date 2026-09-13' _ "$root_dir" >/dev/null 2>&1
+)
+grep -q '^### Added' "$tmp/r6/CHANGELOG.md" || error "fixture: changelog_new_section did not write its template"
+set +e
+msg="$("$gate" --version 0.2.0 --repo "$tmp/r6" 2>&1 >/dev/null)"
+status=$?
+out="$("$notes" --version 0.2.0 --repo "$tmp/r6" 2>"$tmp/r6.err")"
+notes_status=$?
+set -e
+[[ "$status" -eq 1 ]] || error "the gate accepted the empty changelog_new_section template (returned $status)"
+grep -q "no entries" <<<"$msg" || error "the gate refused the template without saying it has no entries"
+[[ "$notes_status" -eq 0 ]] || error "release_notes failed on an empty section (returned $notes_status)"
+grep -q '^###' <<<"$out" && error "empty template headings were published as the release body"
+grep -q "the third thing" <<<"$out" || error "an empty section did not fall back to the commits"
+grep -q "no entries" "$tmp/r6.err" || error "release_notes did not warn that the section was empty"
+note "an empty template section fails the gate and is not published"
+
+# A header with nothing at all under it, before the next section.
+printf '# Changelog\n\n## 2026-09-13 — v0.2.0\n\n## 2026-09-01 — v0.1.0\n\n- The older one.\n' > "$tmp/EMPTY.md"
+set +e
+"$gate" --version 0.2.0 --changelog "$tmp/EMPTY.md" --repo "$tmp/r1" >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 1 ]] || error "the gate accepted a section with nothing under it (returned $status)"
+note "a bare header with no body fails the gate"
+
+# ---------------------------------------------------------------------------
+# 15) A final release is described against the previous FINAL release. With
+#     0.2.0-rc.1 counted as previous, 0.2.0's notes were only what landed after
+#     the candidate. A pre-release is still described against the nearest tag.
+# ---------------------------------------------------------------------------
+mkdir -p "$tmp/r7"
+( cd "$tmp/r7"
+  git init --quiet -b main .
+  echo one > a.txt; git_t add a.txt; git_t commit --quiet -m "feat: before everything"
+  git_t tag 0.1.0
+  echo two > b.txt; git_t add b.txt; git_t commit --quiet -m "feat: in the first candidate"
+  git_t tag 0.2.0-rc.1
+  echo three > c.txt; git_t add c.txt; git_t commit --quiet -m "fix: in the second candidate"
+  git_t tag 0.2.0-rc.2
+  echo four > d.txt; git_t add d.txt; git_t commit --quiet -m "fix: after the candidates"
+  git_t tag 0.2.0
+)
+out="$("$notes" --version 0.2.0 --repo "$tmp/r7" 2>/dev/null)"
+grep -q "in the first candidate" <<<"$out" || error "0.2.0's notes stopped at a pre-release tag"
+grep -q "after the candidates"   <<<"$out" || error "0.2.0's notes lost its own commit"
+grep -q "before everything"      <<<"$out" && error "0.2.0's notes reached back past 0.1.0"
+out="$("$notes" --version 0.2.0-rc.2 --repo "$tmp/r7" 2>/dev/null)"
+grep -q "in the second candidate" <<<"$out" || error "rc.2's notes lost its own commit"
+grep -q "in the first candidate"  <<<"$out" && error "rc.2's notes reached back past rc.1"
+note "a final release skips pre-release tags; a pre-release does not"
+
+# ---------------------------------------------------------------------------
+# 16) A clone with full history but no tags cannot tell a first release from
+#     tags that were never fetched. It must not call it a first release silently.
+# ---------------------------------------------------------------------------
+git clone --quiet --no-tags "file://$tmp/r5" "$tmp/r5-notags" 2>/dev/null
+out="$("$notes" --version 0.2.0 --repo "$tmp/r5-notags" 2>"$tmp/notags.err")" \
+  || error "a clone without tags was refused"
+grep -q "no tags other than" "$tmp/notags.err" || error "a clone without tags was not warned about"
+grep -q "not fetched" "$tmp/notags.err" || error "the no-tags warning did not name the likely cause"
+# The same clone after a release job creates the tag locally: one tag, which is
+# the one being released. Still not evidence of a first release.
+( cd "$tmp/r5-notags" && git_t tag 0.2.0 )
+"$notes" --version 0.2.0 --repo "$tmp/r5-notags" >/dev/null 2>"$tmp/notags2.err" \
+  || error "a clone with only the release tag was refused"
+grep -q "not fetched" "$tmp/notags2.err" || error "a clone whose only tag is the release tag was presented as a first release"
+# A real history with an earlier release is not warned about.
+"$notes" --version 0.2.0 --repo "$tmp/r3" >/dev/null 2>"$tmp/tags.err"
+grep -q "not fetched" "$tmp/tags.err" && error "a clone with its earlier tags was warned about"
+note "a clone with no other tags is warned about, not presented as a first release"
+
+# ---------------------------------------------------------------------------
+# 17) A failing `git log` is an error, not an empty release. Nothing else in
+#     this suite reaches that branch, so a shim fails `git log` on purpose.
+# ---------------------------------------------------------------------------
+mkdir -p "$tmp/shim"
+real_git="$(command -v git)"
+cat > "$tmp/shim/git" <<EOF
+#!/usr/bin/env bash
+[[ "\${1:-}" == "log" ]] && { echo "fatal: simulated log failure" >&2; exit 128; }
+exec "$real_git" "\$@"
+EOF
+chmod +x "$tmp/shim/git"
+set +e
+msg="$(PATH="$tmp/shim:$PATH" "$notes" --version 0.2.0 --repo "$tmp/r3" 2>&1 >/dev/null)"
+status=$?
+set -e
+[[ "$status" -eq 1 ]] || error "a failing git log did not fail the script (returned $status)"
+grep -q "git log" <<<"$msg" || error "a failing git log was not reported"
+note "a failing git log fails the script"
+
 if [[ "$failures" -eq 0 ]]; then
   note "ALL PASSED"
 else
