@@ -10,8 +10,13 @@ if [[ -f .githooks/pre-commit ]] && ! [[ .githooks/pre-commit -ef "$0" ]]; then
   exec bash .githooks/pre-commit "$@"
 fi
 
-# Block accidental .env commits while allowing cleanup deletions.
-if git diff --cached --name-only --diff-filter=ACMR | grep -qE '(^|\/)(\.env|\.env\..+)$'; then
+# Block accidental .env commits while allowing cleanup deletions. Templates
+# meant to be committed -- .env.example, .env.sample, .env.template, .env.dist,
+# and the same suffix on a variant such as .env.local.example -- are allowed.
+staged_env="$(git diff --cached --name-only --diff-filter=ACMR \
+  | grep -E '(^|/)\.env(\..+)?$' \
+  | grep -vE '(^|/)\.env(\..+)?\.(example|sample|template|dist)$' || true)"
+if [[ -n "$staged_env" ]]; then
   echo "[pre-commit] ERROR: Staging a .env file. Remove it from the index first." >&2
   echo "  git restore --staged <file>" >&2
   exit 1
