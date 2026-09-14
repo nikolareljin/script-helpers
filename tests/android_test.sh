@@ -139,6 +139,74 @@ else
   note "no Android SDK installed — skipping the SDK assertions (not a failure)"
 fi
 
+# 9) android_package_name reads the package, not the last name= on the badging
+#    line, and build-tools are searched newest first under an SDK root that has
+#    a space in it. build-tools 37 appends compileSdkVersionCodename='15', which
+#    the old greedy match returned as the package name.
+sdk="$tmp/sdk root"
+mkdir -p "$sdk/build-tools/9.0.0" "$sdk/build-tools/37.0.0"
+printf '#!/bin/sh\necho "package: name='"'"'com.example.old'"'"' versionCode='"'"'1'"'"'"\n' > "$sdk/build-tools/9.0.0/aapt2"
+printf '#!/bin/sh\necho "package: name='"'"'com.example.app.debug'"'"' versionCode='"'"'1'"'"' versionName='"'"'1.0'"'"' platformBuildVersionName='"'"'15'"'"' compileSdkVersion='"'"'35'"'"' compileSdkVersionCodename='"'"'15'"'"'"\necho "sdkVersion:'"'"'21'"'"'"\n' > "$sdk/build-tools/37.0.0/aapt2"
+chmod +x "$sdk/build-tools/9.0.0/aapt2" "$sdk/build-tools/37.0.0/aapt2"
+got="$(ANDROID_SDK_ROOT="$sdk" android_sdk_tool aapt2 2>/dev/null)" || got=""
+[[ "$got" == "$sdk/build-tools/37.0.0/aapt2" ]] || error "android_sdk_tool under a spaced SDK root gave '$got'"
+got="$(ANDROID_SDK_ROOT="$sdk" android_package_name "$tmp" "$tmp/app.apk" 2>/dev/null)" || got=""
+[[ "$got" == "com.example.app.debug" ]] || error "android_package_name gave '$got' (expected com.example.app.debug)"
+note "package name is read from the package: attribute of the newest build-tools"
+
+# 10) jarsigner gets its passwords from the environment, never argv
+fakebin="$tmp/fakebin"; mkdir -p "$fakebin" "$tmp/nosdk"
+cat > "$fakebin/jarsigner" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" > "$JARSIGNER_LOG.args"
+printf 'store=%s key=%s\n' "$ANDROID_SIGN_STOREPASS" "$ANDROID_SIGN_KEYPASS" > "$JARSIGNER_LOG.env"
+SH
+chmod +x "$fakebin/jarsigner"
+printf 'ks' > "$tmp/ks.jks"
+if PATH="$fakebin:$PATH" command -v apksigner >/dev/null 2>&1; then
+  note "apksigner is on PATH — skipping the jarsigner assertions (not a failure)"
+else
+  set +e
+  ANDROID_SDK_ROOT="$tmp/nosdk" PATH="$fakebin:$PATH" JARSIGNER_LOG="$tmp/js" \
+    android_sign "$tmp/app.apk" --keystore "$tmp/ks.jks" --alias upload --storepass 'STORE secret' >/dev/null 2>&1
+  status=$?
+  set -e
+  [[ "$status" -eq 0 ]] || error "android_sign via jarsigner returned $status"
+  if grep -q 'secret' "$tmp/js.args" 2>/dev/null; then error "jarsigner received a password on its command line: $(cat "$tmp/js.args")"; fi
+  grep -q -- '-storepass:env ANDROID_SIGN_STOREPASS -keypass:env ANDROID_SIGN_KEYPASS' "$tmp/js.args" 2>/dev/null \
+    || error "jarsigner was not told to read passwords from the environment: $(cat "$tmp/js.args" 2>/dev/null)"
+  [[ "$(cat "$tmp/js.env" 2>/dev/null)" == "store=STORE secret key=STORE secret" ]] \
+    || error "jarsigner did not see the passwords in its environment: $(cat "$tmp/js.env" 2>/dev/null)"
+  note "jarsigner passwords are passed through the environment"
+fi
+
+# 11) a failing signer under set -e still removes the decoded keystore
+mkdir -p "$sdk/build-tools/37.0.0" "$tmp/tmpdir"
+printf '#!/bin/sh\nexit 7\n' > "$sdk/build-tools/37.0.0/apksigner"
+chmod +x "$sdk/build-tools/37.0.0/apksigner"
+set +e
+( set -e
+  TMPDIR="$tmp/tmpdir" ANDROID_SDK_ROOT="$sdk" SH_TEST_KS="$(printf 'FAKE-KEYSTORE' | base64)"
+  export TMPDIR ANDROID_SDK_ROOT SH_TEST_KS
+  android_sign "$tmp/app.apk" --base64-env SH_TEST_KS --alias upload --storepass x
+) >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 7 ]] || error "a failing apksigner under set -e gave status $status (expected 7)"
+leftover="$(ls -A "$tmp/tmpdir")"
+[[ -z "$leftover" ]] || error "a failing signer left the decoded keystore behind: $leftover"
+rm -f "$sdk/build-tools/37.0.0/apksigner"
+note "a failing signer cleans up the decoded keystore"
+
+# 12) an option given without its value is an error, not a hang
+set +e
+( android_sign "$tmp/app.apk" --alias x --storepass ) >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "android_sign with a trailing --storepass did not return 2"
+( android_emulator_start myavd --wait ) >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "android_emulator_start with a trailing --wait did not return 2"
+set -e
+note "a trailing option without a value returns 2"
+
 if [[ "$failures" -eq 0 ]]; then
   note "ALL PASSED"
 else
