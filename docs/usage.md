@@ -83,8 +83,10 @@ Bundled CLIs
   including the squash and rebase merges `git branch --merged` cannot see, and
   only when the branch gained nothing afterwards. A dry run by default; `--apply`
   to act and `--remote` before a remote branch is considered at all. Options:
-  `--repo`, `--base`, `--remote-name`, `--keep <glob>`, `--no-fetch`. Run
-  `scripts/prune_branches.sh --help` for details.
+  `--repo`, `--base`, `--remote-name`, `--keep <glob>`, `--no-fetch`.
+  `--remote --apply` refuses to run without a successful fetch, and each remote
+  deletion is leased on the tip that was classified, so a branch that moved in
+  the meantime is kept. Run `scripts/prune_branches.sh --help` for details.
   See [`modules/git_branches.md`](modules/git_branches.md).
 
 Shared include and dependency check
