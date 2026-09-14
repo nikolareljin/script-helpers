@@ -5,7 +5,12 @@
 $_SHLIB_HOSTS_FILE = "$env:SystemRoot\System32\drivers\etc\hosts"
 
 function add_hosts_entry {
-    param([string]$Domain, [string]$Ip = '127.0.0.1')
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateScript({ -not [string]::IsNullOrWhiteSpace($_) })]
+        [string]$Domain,
+        [string]$Ip = '127.0.0.1'
+    )
     if (-not (Get-Command is_admin -ErrorAction SilentlyContinue) -or -not (is_admin)) {
         if (Get-Command log_error -ErrorAction SilentlyContinue) { log_error "Admin elevation required to modify hosts file." }
         throw "Admin elevation required"
@@ -22,7 +27,14 @@ function add_hosts_entry {
 }
 
 function remove_hosts_entry {
-    param([string]$Domain)
+    # Mandatory and non-blank: an empty domain makes the pattern below
+    # "(^|\s)(\s|$)", which matches every aligned hosts line, and this runs
+    # elevated.
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateScript({ -not [string]::IsNullOrWhiteSpace($_) })]
+        [string]$Domain
+    )
     if (-not (Get-Command is_admin -ErrorAction SilentlyContinue) -or -not (is_admin)) {
         throw "Admin elevation required"
     }
