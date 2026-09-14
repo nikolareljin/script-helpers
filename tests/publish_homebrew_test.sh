@@ -45,8 +45,8 @@ cat > "$tmp/home/.gitconfig" <<EOF
 [init]
 	defaultBranch = main
 [url "$tmp/tap.git"]
-	insteadOf = https://github.com/owner/homebrew-tap.git
-	insteadOf = https://x-access-token:${TOKEN}@github.com/owner/homebrew-tap.git
+	insteadOf = https://github.com/owner/formula-fixture.git
+	insteadOf = https://x-access-token:${TOKEN}@github.com/owner/formula-fixture.git
 EOF
 
 # A git shim that logs every argv, what git would send as the github.com auth
@@ -82,7 +82,7 @@ run_publish() {
   rc=0
   out="$(env HOME="$tmp/home" PATH="$tmp/bin:$PATH" GIT_CONFIG_NOSYSTEM=1 "$@" \
     bash "$root_dir/scripts/publish_homebrew.sh" --repo "$tmp/app" \
-      --tap-repo owner/homebrew-tap --tap-token "$TOKEN" 2>&1)" || rc=$?
+      --tap-repo owner/formula-fixture --tap-token "$TOKEN" 2>&1)" || rc=$?
   note "$label: exit $rc"
 }
 
