@@ -29,10 +29,14 @@ load_env() {
   local env_file="${1:-.env}"
   if [[ -f "$env_file" ]]; then
     log_debug "Loading environment from $env_file"
+    # A caller that already had allexport on keeps it: switching it off here
+    # silently stopped exporting everything the caller assigned afterwards.
+    local had_allexport=0
+    [[ -o allexport ]] && had_allexport=1
     set -o allexport
     # shellcheck disable=SC1090
     source "$env_file"
-    set +o allexport
+    [[ "$had_allexport" -eq 1 ]] || set +o allexport
   fi
 }
 
@@ -56,11 +60,57 @@ resolve_env_value() {
   if [[ -n "${!key:-}" ]]; then
     value="${!key}"
   elif [[ -n "$env_file" && -f "$env_file" ]]; then
-    value=$(grep -E "^${key}=" "$env_file" | tail -n1 | sed 's/^.*=//')
+    # Up to the FIRST '=': a greedy match kept only the text after the last
+    # one, so base64 padding and URL query strings came back truncated.
+    value=$(grep -E "^${key}=" "$env_file" | tail -n1 | sed 's/^[^=]*=//')
   fi
-  value="${value%$'\r'}"; value="${value%%#*}"; value="${value%\"}"; value="${value#\"}"; value="${value%\'}"; value="${value#\'}"; value="$(echo "$value" | xargs)"
+  value="$(_env__parse_value "$value")"
   [[ -z "$value" ]] && value="$default"
-  echo "$value"
+  printf '%s\n' "$value"
+}
+
+# Internal: normalise one raw dotenv value. Usage: _env__parse_value RAW
+#
+# Parameter expansion only. The old `echo | xargs` trim printed nothing for
+# -n or -e, dropped backslashes, and failed outright on an apostrophe.
+_env__parse_value() {
+  local value="${1:-}" q rest inner="" c i after
+  value="${value%$'\r'}"
+  value="${value#"${value%%[![:space:]]*}"}"
+  q="${value:0:1}"
+  if [[ "$q" == '"' || "$q" == "'" ]]; then
+    # A quoted value runs to its closing quote; '#' inside it is not a comment.
+    # Double quotes honour \" and \\ as the shell does; single quotes nothing.
+    rest="${value:1}"
+    i=0
+    local closed=0
+    while [[ $i -lt ${#rest} ]]; do
+      c="${rest:$i:1}"
+      if [[ "$q" == '"' && "$c" == '\' && ( "${rest:$((i+1)):1}" == '"' || "${rest:$((i+1)):1}" == '\' ) ]]; then
+        inner+="${rest:$((i+1)):1}"; i=$((i+2)); continue
+      fi
+      if [[ "$c" == "$q" ]]; then closed=1; break; fi
+      inner+="$c"; i=$((i+1))
+    done
+    if [[ "$closed" -eq 1 ]]; then
+      after="${rest:$((i+1))}"
+      after="${after#"${after%%[![:space:]]*}"}"
+      # Only a comment may follow the closing quote; anything else is not a
+      # quoted value, and falls through to the unquoted reading below.
+      if [[ -z "$after" || "$after" == '#'* ]]; then
+        printf '%s' "$inner"
+        return 0
+      fi
+    fi
+  fi
+  # Unquoted: a comment starts at a '#' that begins the value or follows
+  # whitespace, as in the shell and in dotenv; "ab#cd" is a value.
+  [[ "$value" == '#'* ]] && value=""
+  value="${value%%[[:space:]]#*}"
+  value="${value%"${value##*[![:space:]]}"}"
+  # A stray leading or trailing quote is dropped, as it always was.
+  value="${value%\"}"; value="${value#\"}"; value="${value%\'}"; value="${value#\'}"
+  printf '%s' "$value"
 }
 
 # Usage: run_superuser_setup; runs scripts/superuser.sh from project root.
