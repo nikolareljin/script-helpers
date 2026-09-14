@@ -36,14 +36,27 @@ Functions
 - hub_check_key url key
   - Purpose: Prove an API key with an authenticated read,
     `GET url/v1/documents?limit=1` under `X-API-Key`.
+  - Behavior: The key is handed to curl on stdin (`curl -K -`), never on the
+    command line, so `ps` does not show it. A 200 counts as accepted only
+    with a JSON `Content-Type` (`application/json` or `application/*+json`):
+    a web app or captive portal answering 200 with HTML is not a hub.
   - Returns: 0 accepted; **2** the hub answered 401/403 (a wrong key -- not a
     missing hub); 1 the hub did not answer or answered something else.
 
 - hub_write_env file key value
   - Purpose: Upsert `KEY=value` in an env file, creating it when absent.
-  - Behavior: Rewrites in place (follows a symlink, keeps the inode) rather
-    than replacing the file; refuses a key that is not an environment
-    variable name and a value containing a newline; keeps every other line.
+  - Behavior: Rewrites in place (follows a symlink, keeps the inode and the
+    file's mode) rather than replacing the file; a file it creates is `0600`.
+    Refuses a key that is not an environment variable name and a value
+    containing a newline or carriage return; keeps every other line.
+  - Quoting: the file is sourced by `load_env`, so values are written in a
+    form the shell, dotenv and `resolve_env_value` all read literally. A
+    value made only of `A-Z a-z 0-9 . _ / : @ % + = , - [ ]` (URLs, base64url
+    keys, ids, plain paths) is written bare, `KEY=value`. Anything else is
+    single-quoted, or double-quoted when it holds an apostrophe but no
+    `$` `` ` `` `\` `"`. A value no quoting keeps literal for every reader (an
+    apostrophe together with one of those, or a doubled backslash together
+    with other special characters) is refused.
   - Returns: 0; 1 on bad input or a write error.
 
 - hub_latest_tag clone_dir
@@ -90,6 +103,11 @@ Functions
       `env.example` -> the same probe and key steps; when no key is known it
       prints the hub's `./manage issue_api_key` command and asks for the
       result -> also writes `HUB_DIR`.
+    - Either mode: a `/v1/service` reply with neither `name` nor `version`
+      is not a hub and fails; an `instance_id` outside `[A-Za-z0-9._:-]` is
+      warned about and not recorded. With no `--hub-dir`/`HUB_DIR` and an
+      env file whose directory does not exist, local mode fails naming
+      `HUB_DIR` instead of guessing a location.
   - Returns: 0 with the hub answering and the key accepted; 1 otherwise
     (nothing is written before the key is accepted); 2 on an unknown option
     or a flag missing its value.

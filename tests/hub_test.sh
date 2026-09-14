@@ -49,6 +49,9 @@ import json, sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 VERSION = sys.argv[2] if len(sys.argv) > 2 else "0.1.0"
+# "hub" (default); "evil": an instance_id carrying shell syntax; "spa": every
+# path answers 200 with HTML, as a web app or captive portal does.
+MODE = sys.argv[3] if len(sys.argv) > 3 else "hub"
 
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a):  # quiet
@@ -62,10 +65,21 @@ class H(BaseHTTPRequestHandler):
         self.wfile.write(data)
     def do_GET(self):
         path = self.path.split("?")[0]
+        if MODE == "spa":
+            data = b"<!doctype html><html><body>app</body></html>"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if path == "/v1/service":
+            iid = "6f1d2c3b-4a5e-4f60-9a8b-7c6d5e4f3a2b"
+            if MODE == "evil":
+                iid = "i1;touch hub_pwned"
             self._send(200, {"name": "corpus-hub", "version": VERSION,
                              "api_version": "v1",
-                             "instance_id": "6f1d2c3b-4a5e-4f60-9a8b-7c6d5e4f3a2b",
+                             "instance_id": iid,
                              "schema_versions": {"document": "1"}})
         elif path == "/v1/documents":
             if self.headers.get("X-API-Key") == "good-key":
@@ -86,9 +100,9 @@ PY
 }
 
 start_hub() {
-  local version="${1:-0.1.0}"
+  local version="${1:-0.1.0}" mode="${2:-hub}"
   port="$(pick_port)"
-  python3 "$tmp/hub_server.py" "$port" "$version" &
+  python3 "$tmp/hub_server.py" "$port" "$version" "$mode" &
   server_pid=$!
   local _attempt
   for _attempt in $(seq 1 50); do
@@ -134,6 +148,33 @@ if hub_write_env "$env_file" "hub-url" "x" 2>/dev/null; then error "a lowercase/
 if hub_write_env "$env_file" HUB_URL $'a\nb' 2>/dev/null; then error "a value with a newline must be refused"; else ok "newline in value refused"; fi
 if hub_write_env "$env_file" HUB_URL $'a\rb' 2>/dev/null; then error "a value with a carriage return must be refused"; else ok "carriage return in value refused"; fi
 if hub_write_env "" HUB_URL x 2>/dev/null; then error "empty path must fail"; else ok "empty path refused"; fi
+# The file is sourced by load_env, so a value is shell input. Each of these
+# must come back byte-for-byte through the shell and resolve_env_value, and
+# run nothing.
+file_mode() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
+inj="$tmp/inj.env"; rm -f "$inj"
+for v in 'i1;touch hub_pwned' 'k$(touch hub_pwned)' 'a b' 'k\nTOUCHED=1' 'ab\tc\d\nq' "O'Brien" '~/hub' 'x#y' '`touch hub_pwned`'; do
+  if ! hub_write_env "$inj" HUB_API_KEY "$v" 2>/dev/null; then error "hub_write_env refused a writable value: $v"; continue; fi
+  got="$(cd "$tmp" && bash -c 'source ./inj.env 2>/dev/null; printf %s "$HUB_API_KEY"' 2>/dev/null)" || got=""
+  if [[ "$got" == "$v" ]]; then ok "round-trips through the shell: $v"; else error "shell read [$got] for [$v]: $(cat "$inj")"; fi
+  got="$(resolve_env_value HUB_API_KEY "" "$inj")"
+  if [[ "$got" == "$v" ]]; then ok "round-trips through resolve_env_value: $v"; else error "resolve_env_value read [$got] for [$v]"; fi
+done
+if [[ ! -e "$tmp/hub_pwned" ]]; then ok "no value executed when sourced"; else error "a written value ran as a command"; fi
+if [[ "$(grep -c '^HUB_API_KEY=' "$inj")" == "1" ]] && ! grep -q '^TOUCHED=' "$inj"; then ok "a literal backslash-n stays on one line"; else error "value split into lines: $(cat "$inj")"; fi
+if hub_write_env "$inj" HUB_API_KEY "it's \$HOME" 2>/dev/null; then error "an apostrophe with \$ must be refused"; else ok "a value no quoting keeps literal is refused"; fi
+# dotenv reads \\ inside single quotes as one backslash; the shell reads two.
+if hub_write_env "$inj" HUB_API_KEY 'a b\\c' 2>/dev/null; then error "a doubled backslash with shell metacharacters must be refused"; else ok "a value readers disagree on is refused"; fi
+hub_write_env "$inj" HUB_URL "http://[::1]:8000/"
+if grep -q '^HUB_URL=http://\[::1\]:8000/$' "$inj"; then ok "URL characters stay bare"; else error "URL was quoted: $(grep HUB_URL "$inj")"; fi
+hub_write_env "$inj" HUB_API_KEY "dGVz-dGtl_eQ=="
+if grep -q '^HUB_API_KEY=dGVz-dGtl_eQ==$' "$inj"; then ok "base64url keys stay bare"; else error "key was quoted: $(grep HUB_API_KEY "$inj")"; fi
+new_env="$tmp/newdir/.env"
+( umask 022; hub_write_env "$new_env" HUB_API_KEY k )
+if [[ "$(file_mode "$new_env")" == "600" ]]; then ok "a created env file is 0600"; else error "created env file mode $(file_mode "$new_env")"; fi
+printf 'A=1\n' >"$tmp/mode.env"; chmod 640 "$tmp/mode.env"
+hub_write_env "$tmp/mode.env" HUB_API_KEY k
+if [[ "$(file_mode "$tmp/mode.env")" == "640" ]]; then ok "an existing file keeps its mode"; else error "existing mode changed to $(file_mode "$tmp/mode.env")"; fi
 
 # --- hub_probe / hub_probe_field / hub_check_key ----------------------------------
 note "probe and key check"
@@ -169,6 +210,39 @@ if [[ "$rc" == "1" ]]; then ok "an unreachable hub is exit 1 on the key check"; 
 # A key with a CR or LF would be header injection; it must never reach curl.
 if hub_check_key "$url" $'good\nkey' 2>/dev/null; then error "a key with LF must be refused"; else ok "LF in key refused"; fi
 if hub_check_key "$url" $'good\rkey' 2>/dev/null; then error "a key with CR must be refused"; else ok "CR in key refused"; fi
+# The key must not be in curl's argv, where ps shows it to every user. A curl
+# shim on PATH records its arguments and hands over to the real one.
+real_curl="$(command -v curl)"
+mkdir -p "$tmp/shim"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >>"%s/curl_argv.log"\nexec "%s" "$@"\n' "$tmp" "$real_curl" >"$tmp/shim/curl"
+chmod +x "$tmp/shim/curl"
+: >"$tmp/curl_argv.log"
+if PATH="$tmp/shim:$PATH" hub_check_key "$url" good-key; then ok "key check still passes through the shim"; else error "key check failed through the shim"; fi
+if [[ -s "$tmp/curl_argv.log" ]] && ! grep -q "good-key" "$tmp/curl_argv.log"; then ok "the key is not in curl's argv"; else error "key visible in argv: $(cat "$tmp/curl_argv.log")"; fi
+stop_hub
+
+# A 200 that is not a hub: HTML for every path.
+start_hub "0.1.0" spa
+url="http://127.0.0.1:$port"
+rc=0; hub_check_key "$url" any-key 2>/dev/null || rc=$?
+if [[ "$rc" == "1" ]]; then ok "a 200 HTML page is not a key accepted (exit 1)"; else error "HTML 200 key check returned $rc"; fi
+rc=0; HUB_UI=none hub_setup_dialog "$tmp/spa.env" --mode remote --url "$url" --key any-key >"$tmp/out.txt" 2>&1 || rc=$?
+if [[ "$rc" == "1" ]] && grep -qi "not a corpus hub" "$tmp/out.txt"; then ok "setup refuses a server that is not a hub"; else error "spa setup: rc=$rc $(cat "$tmp/out.txt")"; fi
+if [[ ! -f "$tmp/spa.env" ]]; then ok "nothing recorded for a non-hub"; else error "non-hub wrote $(cat "$tmp/spa.env")"; fi
+stop_hub
+
+# A hub whose instance_id carries shell syntax.
+start_hub "0.1.0" evil
+url="http://127.0.0.1:$port"
+mkdir -p "$tmp/evil"
+rc=0; HUB_UI=none hub_setup_dialog "$tmp/evil/.env" --mode remote --url "$url" --key good-key >"$tmp/out.txt" 2>&1 || rc=$?
+if [[ "$rc" == "0" ]] && grep -qi "instance_id" "$tmp/out.txt"; then ok "setup succeeds and warns about the instance_id"; else error "evil setup: rc=$rc $(cat "$tmp/out.txt")"; fi
+if ! grep -q "HUB_INSTANCE_ID" "$tmp/evil/.env"; then ok "a malformed instance_id is not recorded"; else error "malformed id written: $(cat "$tmp/evil/.env")"; fi
+( cd "$tmp/evil" && load_env .env ) >/dev/null 2>&1 || true
+if [[ ! -e "$tmp/evil/hub_pwned" ]]; then ok "loading the env file runs nothing"; else error "remote instance_id executed on load_env"; fi
+stop_hub
+start_hub "0.1.0"
+url="http://127.0.0.1:$port"
 
 # --- URL validation ---------------------------------------------------------------
 note "url validation"
@@ -312,6 +386,10 @@ if HUB_UI=none hub_setup_dialog "$env_file" --mode local --hub-dir "$local_dir" 
 if [[ -x "$local_dir/install-service" ]] && grep -q '^HUB_MODE=local$' "$env_file" && grep -q '^HUB_INSTANCE_ID=' "$env_file"; then ok "clone made, .env written"; else error "local outcome wrong: $(cat "$env_file" 2>/dev/null)"; fi
 rc=0; HUB_UI=none hub_setup_dialog "$tmp/local2.env" --mode local --hub-dir "$tmp/clients3/hub" >"$tmp/out.txt" 2>&1 || rc=$?
 if [[ "$rc" != "0" ]] && grep -q "HUB_REPO_URL" "$tmp/out.txt"; then ok "local mode with no clone and no URL fails naming HUB_REPO_URL"; else error "local no-url: rc=$rc $(cat "$tmp/out.txt")"; fi
+# An env file whose directory does not exist yet: the clone location used to
+# resolve to /hub.
+rc=0; ( cd "$tmp" && HUB_UI=none hub_setup_dialog "not-yet/.env" --mode local ) >"$tmp/out.txt" 2>&1 || rc=$?
+if [[ "$rc" == "1" ]] && grep -q "HUB_DIR" "$tmp/out.txt" && ! grep -q " /hub" "$tmp/out.txt"; then ok "a missing env-file directory fails naming HUB_DIR, not /hub"; else error "missing env dir: rc=$rc $(cat "$tmp/out.txt")"; fi
 stop_hub
 
 # --- no private-range literals in this file or the module ------------------------
