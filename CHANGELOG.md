@@ -2,6 +2,125 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## 2026-09-14 — v0.29.0
+
+A security and correctness pass over the library, the scripts and the dev-CLI
+template. No function, script option, environment variable or output format was
+removed or renamed. Where a function now refuses input it used to accept, that
+input was already producing a wrong or unsafe result; those cases are listed
+under **Changed**.
+
+### Security
+- **`hub_write_env` can no longer be made to write shell code.** The file it
+  writes is sourced by `load_env`, and `HUB_INSTANCE_ID` comes from the remote
+  hub's `/v1/service` reply, so a reply of `"instance_id": "i1;touch x"` ran
+  that command on the next load. Values went to awk with `-v`, which also turned
+  a literal `\n` into a real newline. Values now travel through `ENVIRON`; a
+  value made of URL, key, id and path characters is written bare exactly as
+  before, anything else is quoted so the shell and dotenv read it literally, and
+  a value neither can read the same way is refused. `hub_setup_dialog` does not
+  record an `instance_id` outside `[A-Za-z0-9._:-]`. A new env file is created
+  `0600`.
+- **API keys and signing passwords are kept out of the process list.**
+  `hub_check_key` hands the key to curl on stdin (`-K -`), `android_sign` passes
+  jarsigner's passwords as `-storepass:env`/`-keypass:env`, and
+  `pkg_build_source_package` gives gpg a `0600` passphrase file that is removed
+  on every exit. A passphrase containing spaces now works.
+- **`publish_homebrew.sh` keeps the tap token out of the clone URL and turns
+  tracing back off.** The token was in `git clone`'s arguments, and a `set -x`
+  meant to restore tracing switched it on for the rest of the script. The token
+  now reaches git as an HTTP header in git's environment config.
+- **`add_to_etc_hosts` validates the hostname and address.** A newline in either
+  wrote a second hosts entry, often through `sudo`.
+- **`build_brew_tarball.sh` never packs `.git`, `.env` files or its own earlier
+  tarballs.** Committed templates (`.env.example`, `.sample`, `.template`,
+  `.dist`) are still included.
+- **`verify_checksum` checks the file it was given.** It ran `-c` over the whole
+  list and passed if any entry said OK, including a list that did not mention
+  the file.
+- **`download_file` fails on an HTTP error** instead of saving the error page as
+  the download, and removes the partial file.
+- **`ollama_update_env` keeps the file's mode** (a `0600` `.env` came back
+  `0644`), matches the key literally, and refuses a newline in the key or value.
+
+### Fixed
+- **`git_branches_merge_state` no longer calls a branch squash-merged when a
+  whitespace-only commit landed after the merge.** `git cherry` ignores
+  whitespace, so a re-indent (which changes Python or YAML) was treated as
+  already on the base and `prune_branches.sh` deleted it. The match is now
+  confirmed with whitespace-exact patch ids; where git is older than 2.39 the
+  state is `unknown`, which is kept.
+- **`prune_branches.sh --remote --apply` leases every deletion on the tip it
+  classified, and refuses to run on refs it did not fetch** (`--no-fetch`, or a
+  failed fetch). A branch that gained commits on the remote is kept.
+- **`manifest_sync_version` no longer rewrites a vendored submodule's
+  `VERSION`.** Anything below a directory with its own `.git`, or below a path
+  in `.gitmodules`, is skipped.
+- **`manifest_write_version`** writes a pubspec `1.4.0+46` as given instead of
+  `1.4.0+46+45`, escapes `&`, `|` and `\` in the version, validates `--build`,
+  and warns when a Gradle file has no `versionName` literal to rewrite.
+- **`android_package_name` returns the package name on current build-tools.**
+  It returned `15`, the last `name='…'` on the badging line. SDK roots with
+  spaces in the path are found.
+- **The port checks work under mawk and BSD awk.** They used gawk's
+  three-argument `match()`, a syntax error elsewhere, so on Debian, Ubuntu and
+  macOS a port in use was reported free. `fuser` output with several PIDs is
+  split, and a port range or empty port is refused instead of matching every
+  listener.
+- **`ollama_prepare_models_index` and `ollama_runtime_type` print only their
+  result on stdout.** Progress and warnings were captured as part of the path.
+  A failed sort of the index fails instead of leaving a `.tmp` behind.
+- **`resolve_env_value`** keeps everything after the first `=` (base64 padding
+  and URL query strings were cut), keeps `#` inside quotes and in `ab#cd`, and
+  no longer loses `-n`, backslashes or apostrophes.
+- **`load_env` leaves `allexport` on when the caller had it on.**
+- **`json_escape`** escapes double quotes (it never did) and every control
+  character, and prints `-n` and `-e`.
+- **`wait_for_service` sees a running service on Compose v2,** which says `Up`,
+  not `running`.
+- **`changelog_extract`** ignores `##` lines inside fenced code blocks and uses
+  only the first version in a header.
+- **`version_compare`** reads `08` and `010` as decimal.
+- **`publish_homebrew.sh` publishes a formula the tap has never had.** An
+  untracked file was invisible to `git diff`, so the first publish reported
+  "already up to date".
+- **`preflight.sh`** exits 2 on a misspelled stack in `.preflight` (valid lines
+  before it used to run and the rest was dropped) and on `--stack` or `--dir`
+  with no value, which looped forever.
+- **Options with no value no longer hang.** `adb_install_verified`,
+  `android_sign`, `android_emulator_start`, the `screencap_*` functions,
+  `changelog_new_section`, `manifest_*` and `flutter_build` return 2 when a
+  value-taking option is the last argument.
+- **Empty arrays under `set -u` on bash 3.2** in `screencap`, `flutter`,
+  `run_docker_compose_command` and the `pkg_*` list helpers.
+- **The dev-CLI template** keeps an option's value with its flag
+  (`./dev preflight --stack ios` no longer takes `ios` as the target) and finds
+  nested projects under `CI=true`.
+- **The pre-commit hook allows `.env.example`, `.env.sample`, `.env.template`
+  and `.env.dist`**; real `.env` files are still blocked.
+- **`packaging_init.sh` and `render_brew_formula.sh`** substitute values
+  literally, so `&` and `\` survive; `render_brew_formula.sh` refuses an empty
+  or placeholder `sha256`.
+- **`gen_brew_formula.sh`** puts each `depends_on` on its own line (the formula
+  was invalid Ruby with more than one).
+- **`ci_python.sh`** joins its Docker steps with `&&`.
+- **`android_sign`** removes the decoded keystore when signing fails.
+- **`pkg_find_changes_file`** picks the package's own
+  `<source>_<version>_source.changes` and refuses to guess between several.
+- **`gradle_assemble`** capitalizes the variant.
+- **`add_hosts_entry` and `remove_hosts_entry` (PowerShell)** require a
+  non-blank domain; an empty one removed every aligned hosts line.
+- **`python_pick_3`** no longer overwrites the caller's `candidate`.
+
+### Changed
+- **Inputs that used to produce a wrong result and now return an error:** a
+  hub reply without `name` or `version`, or a non-JSON 200 to the key check; a
+  hosts entry with an invalid name or address; an unquotable `hub_write_env`
+  value; a port range passed to the port functions; an ambiguous `.changes`
+  directory; `render_brew_formula.sh` without a real `sha256`.
+- **`flutter.md`** documents the SDK lookup order the code actually uses:
+  `PATH`, then `FLUTTER_ROOT`, then `FLUTTER_HOME`.
+
 ## 2026-09-12 — v0.28.0
 
 ### Fixed
