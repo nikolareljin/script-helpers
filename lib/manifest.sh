@@ -33,17 +33,27 @@ manifest_kind() {
 }
 
 # Usage: manifest_detect [dir=.]; prints one "<kind>\t<path>" line per version
-# manifest found, searching the directory and one level of subdirectory (an app
+# manifest found, searching the directory and two levels of subdirectory (an app
 # under `mobile/` or `android/` is the common layout). Prints nothing and
 # returns 1 when none is found.
 manifest_detect() {
-  local dir="${1:-.}" found=0 path kind
+  local dir="${1:-.}" found=0 path kind submodules=""
   [[ -d "$dir" ]] || { log_error "manifest_detect: not a directory: $dir"; return 2; }
+  # Submodule paths as declared, one per line. Read with sed rather than
+  # `git config -f`, so a checkout without git on PATH still gets the guard.
+  if [[ -f "$dir/.gitmodules" ]]; then
+    submodules="$(sed -n 's/^[[:space:]]*path[[:space:]]*=[[:space:]]*//p' "$dir/.gitmodules" \
+                  | sed -e 's/[[:space:]]*$//' -e 's|/*$||')"
+  fi
   while IFS= read -r path; do
     # Build outputs and vendored trees are not this project's manifests.
     case "$path" in
       */node_modules/*|*/build/*|*/.dart_tool/*|*/vendor/*|*/.git/*) continue ;;
     esac
+    # Nor is anything inside another repository: a vendored submodule such as
+    # scripts/script-helpers carries its own VERSION, and a sync that rewrites
+    # it corrupts the shared library for every project that pins it.
+    _manifest__in_nested_repo "$dir" "$path" "$submodules" && continue
     kind="$(manifest_kind "$path" 2>/dev/null)" || continue
     printf '%s\t%s\n' "$kind" "$path"
     found=1
@@ -52,6 +62,38 @@ manifest_detect() {
                 -o -name VERSION -o -name package.json -o -name pyproject.toml \) \
              -type f 2>/dev/null | sort)
   [[ "$found" -eq 1 ]]
+}
+
+# Usage: _manifest__in_nested_repo <dir> <path> <submodule-paths>; true when
+# <path>, found under <dir>, sits below a directory that is its own repository
+# (it has a `.git` file or directory) or below a path <dir>/.gitmodules lists.
+# <dir> itself is not considered: it is normally the project's own checkout.
+_manifest__in_nested_repo() {
+  local dir="$1" path="$2" submodules="$3" rel sub d
+  rel="${path#"$dir"}"; rel="${rel#/}"
+  if [[ -n "$submodules" ]]; then
+    while IFS= read -r sub; do
+      [[ -n "$sub" ]] || continue
+      [[ "$rel" == "$sub"/* ]] && return 0
+    done <<< "$submodules"
+  fi
+  # Walk the directories between <dir> and the file, one component at a time.
+  # Parameter expansion rather than word splitting, so a `*` in a directory
+  # name is not globbed.
+  d="${dir%/}"
+  while [[ "$rel" == */* ]]; do
+    d="$d/${rel%%/*}"
+    rel="${rel#*/}"
+    [[ -e "$d/.git" ]] && return 0
+  done
+  return 1
+}
+
+# Usage: _manifest__sed_escape <text>; prints <text> escaped for use in the
+# replacement side of a `s|...|...|` expression: `\`, `&` and the `|`
+# delimiter are otherwise read as sed syntax, not as characters.
+_manifest__sed_escape() {
+  printf '%s\n' "$1" | sed 's/[\\&|]/\\&/g'
 }
 
 # Usage: manifest_read_version <file>; prints the version recorded in a manifest.
@@ -110,13 +152,24 @@ manifest_android_version_code() {
 # unless --build overrides it; for a pubspec, --build sets the `+n` suffix and
 # an existing suffix is preserved when it is not given.
 #
+# A pubspec version may carry its own build number (`1.4.0+46`); it is written
+# as given and replaces the existing suffix rather than being stacked onto it.
+# An explicit --build still wins over it. Other kinds write the version string
+# unchanged, as they always have.
+#
+# --build must be an integer for gradle (versionCode is one) and a semver build
+# identifier (`[0-9A-Za-z-]` separated by dots) for a pubspec; anything else
+# returns 2 instead of being written into the file.
+#
 # Writes via a temp file and moves it into place, so an interrupted write cannot
 # leave a half-rewritten build file behind.
 manifest_write_version() {
   local file="" version="" build="" kind tmp code
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --build) build="${2:-}"; shift 2 ;;
+      --build)
+        [[ $# -ge 2 ]] || { log_error "manifest_write_version: $1 requires a value"; return 2; }
+        build="$2"; shift 2 ;;
       -*) log_error "manifest_write_version: unknown option $1"; return 2 ;;
       *) if [[ -z "$file" ]]; then file="$1"; else version="$1"; fi; shift ;;
     esac
@@ -125,24 +178,43 @@ manifest_write_version() {
   [[ -f "$file" ]] || { log_error "manifest_write_version: not found: $file"; return 2; }
   [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]] \
     || { log_error "manifest_write_version: not a semver version: '$version'"; return 2; }
+  case "$version" in
+    *$'\n'*|*$'\r'*) log_error "manifest_write_version: version contains a line break"; return 2 ;;
+  esac
   kind="$(manifest_kind "$file")" || return 2
 
+  if [[ -n "$build" ]]; then
+    case "$kind" in
+      gradle)
+        [[ "$build" =~ ^[0-9]+$ ]] \
+          || { log_error "manifest_write_version: --build must be an integer for $file: '$build'"; return 2; } ;;
+      pubspec)
+        [[ "$build" =~ ^[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*$ ]] \
+          || { log_error "manifest_write_version: --build is not a valid build identifier: '$build'"; return 2; } ;;
+    esac
+  fi
+
+  local esc
   tmp="$(mktemp)" || return 1
 
   case "$kind" in
     pubspec)
-      if [[ -z "$build" ]]; then
+      if [[ -n "$build" ]]; then
+        version="${version%%+*}"
+      elif [[ "$version" != *+* ]]; then
         build="$(sed -n 's/^version:[[:space:]]*[0-9][^+[:space:]]*+\([0-9]*\).*/\1/p' "$file" | head -n1)"
       fi
       if [[ -n "$build" ]]; then
-        sed "s|^version:[[:space:]]*.*|version: ${version}+${build}|" "$file" > "$tmp"
+        esc="$(_manifest__sed_escape "${version}+${build}")"
       else
-        sed "s|^version:[[:space:]]*.*|version: ${version}|" "$file" > "$tmp"
+        esc="$(_manifest__sed_escape "$version")"
       fi
+      sed "s|^version:[[:space:]]*.*|version: ${esc}|" "$file" > "$tmp"
       ;;
     gradle)
       code="${build:-$(manifest_android_version_code "$version")}" || { rm -f "$tmp"; return 2; }
-      sed -e "s|\(versionName[[:space:]]*[=(]*[[:space:]]*\)\"[^\"]*\"|\1\"${version}\"|" \
+      esc="$(_manifest__sed_escape "$version")"
+      sed -e "s|\(versionName[[:space:]]*[=(]*[[:space:]]*\)\"[^\"]*\"|\1\"${esc}\"|" \
           -e "s|\(versionCode[[:space:]]*[=(]*[[:space:]]*\)[0-9][0-9]*|\1${code}|" \
           "$file" > "$tmp"
       ;;
@@ -150,10 +222,12 @@ manifest_write_version() {
       printf '%s\n' "$version" > "$tmp"
       ;;
     package_json)
-      sed "s|\(\"version\"[[:space:]]*:[[:space:]]*\)\"[^\"]*\"|\1\"${version}\"|" "$file" > "$tmp"
+      esc="$(_manifest__sed_escape "$version")"
+      sed "s|\(\"version\"[[:space:]]*:[[:space:]]*\)\"[^\"]*\"|\1\"${esc}\"|" "$file" > "$tmp"
       ;;
     pyproject)
-      sed "s|^\(version[[:space:]]*=[[:space:]]*\)\"[^\"]*\"|\1\"${version}\"|" "$file" > "$tmp"
+      esc="$(_manifest__sed_escape "$version")"
+      sed "s|^\(version[[:space:]]*=[[:space:]]*\)\"[^\"]*\"|\1\"${esc}\"|" "$file" > "$tmp"
       ;;
   esac
 
@@ -169,6 +243,15 @@ manifest_write_version() {
     log_error "manifest_write_version: could not write $file"
     return 1
   fi
+  # A Flutter module's Gradle file reads `flutter.versionName` and has no
+  # literal to rewrite; the pubspec is where that version lives. Not an error --
+  # release flows sync a whole tree and expect it -- but not a silent success
+  # either.
+  if [[ "$kind" == gradle ]] && ! manifest_read_version "$file" >/dev/null 2>&1; then
+    rm -f "$tmp"
+    log_warn "manifest: $file has no versionName literal; $version was not written there (a Flutter build takes it from pubspec.yaml)"
+    return 0
+  fi
   rm -f "$tmp"
   log_info "manifest: $file -> $version"
 }
@@ -181,7 +264,9 @@ manifest_sync_version() {
   local dir="" version="" build="" rc=0 kind path
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --build) build="${2:-}"; shift 2 ;;
+      --build)
+        [[ $# -ge 2 ]] || { log_error "manifest_sync_version: $1 requires a value"; return 2; }
+        build="$2"; shift 2 ;;
       -*) log_error "manifest_sync_version: unknown option $1"; return 2 ;;
       *) if [[ -z "$dir" ]]; then dir="$1"; else version="$1"; fi; shift ;;
     esac

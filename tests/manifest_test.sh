@@ -93,6 +93,70 @@ set -e
 [[ "$status" -eq 2 ]] || error "writing a non-semver version returned $status (expected 2)"
 [[ -s "$tmp/VERSION" ]] || error "VERSION was emptied by a rejected write"
 
+# 7) a vendored repository's manifests are not this project's. A submodule is
+# marked by a `.git` FILE in its directory, or listed in .gitmodules before it is
+# initialised; syncing either one rewrote the shared library's own VERSION.
+sub="$(mktemp -d)"
+mkdir -p "$sub/scripts/script-helpers" "$sub/tools/lib"
+printf '1.0.0\n' > "$sub/VERSION"
+printf '0.28.0\n' > "$sub/scripts/script-helpers/VERSION"
+printf 'gitdir: ../../.git/modules/scripts/script-helpers\n' > "$sub/scripts/script-helpers/.git"
+printf '0.5.0\n' > "$sub/tools/lib/VERSION"
+printf '[submodule "tools/lib"]\n\tpath = tools/lib\n\turl = https://example.invalid/lib.git\n' > "$sub/.gitmodules"
+detected="$(manifest_detect "$sub")"
+[[ "$detected" == "version_file	$sub/VERSION" ]] \
+  || error "manifest_detect listed nested-repository manifests: $detected"
+manifest_sync_version "$sub" 2.0.0 >/dev/null 2>&1 || error "manifest_sync_version failed on the submodule fixture"
+[[ "$(cat "$sub/scripts/script-helpers/VERSION")" == "0.28.0" ]] || error "sync rewrote a submodule (.git file) VERSION"
+[[ "$(cat "$sub/tools/lib/VERSION")" == "0.5.0" ]] || error "sync rewrote a .gitmodules-listed VERSION"
+[[ "$(cat "$sub/VERSION")" == "2.0.0" ]] || error "sync did not write the project's own VERSION"
+# A trailing slash on <dir> must not defeat the guard.
+[[ "$(manifest_detect "$sub/" | wc -l)" -eq 1 ]] || error "manifest_detect with a trailing slash listed nested manifests"
+rm -rf "$sub"
+note "manifests inside a submodule or nested repository are skipped"
+
+# 8) a pubspec version that carries its own build number replaces the existing
+# suffix instead of stacking onto it; an explicit --build still wins.
+printf 'name: demo\nversion: 1.2.3+45\n' > "$tmp/pubspec.yaml"
+manifest_write_version "$tmp/pubspec.yaml" 1.4.0+46 >/dev/null 2>&1 || error "writing 1.4.0+46 failed"
+grep -qx 'version: 1.4.0+46' "$tmp/pubspec.yaml" || error "1.4.0+46 wrote: $(grep ^version "$tmp/pubspec.yaml")"
+manifest_write_version "$tmp/pubspec.yaml" 1.4.1+47 --build 50 >/dev/null 2>&1 || error "writing with --build failed"
+grep -qx 'version: 1.4.1+50' "$tmp/pubspec.yaml" || error "--build did not win: $(grep ^version "$tmp/pubspec.yaml")"
+manifest_write_version "$tmp/pubspec.yaml" 1.4.2 >/dev/null 2>&1
+grep -qx 'version: 1.4.2+50' "$tmp/pubspec.yaml" || error "existing suffix not preserved: $(grep ^version "$tmp/pubspec.yaml")"
+note "pubspec build number in the version is not doubled"
+
+# 9) sed metacharacters in a version are written literally
+manifest_write_version "$tmp/pubspec.yaml" '1.4.0-a&b|c\d' >/dev/null 2>&1 || error "writing a version with & | \\ failed"
+grep -qxF 'version: 1.4.0-a&b|c\d+50' "$tmp/pubspec.yaml" || error "sed metacharacters mangled: $(grep ^version "$tmp/pubspec.yaml")"
+manifest_write_version "$tmp/package.json" '1.4.0-x&y' >/dev/null 2>&1
+grep -qF '"version": "1.4.0-x&y"' "$tmp/package.json" || error "package.json & mangled: $(grep version "$tmp/package.json")"
+note "sed metacharacters are escaped"
+
+# 10) --build is validated, and a trailing --build with no value is an error
+set +e
+manifest_write_version "$tmp/android/app/build.gradle" 2.0.0 --build 12a >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "a non-integer gradle --build did not return 2"
+grep -q 'versionCode 20000' "$tmp/android/app/build.gradle" || error "a rejected --build changed the gradle file"
+manifest_write_version "$tmp/pubspec.yaml" 2.0.0 --build 'a b' >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "an invalid pubspec --build did not return 2"
+( manifest_write_version "$tmp/VERSION" 2.0.0 --build ) >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "manifest_write_version with a trailing --build did not return 2"
+( manifest_sync_version "$tmp" 2.0.0 --build ) >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "manifest_sync_version with a trailing --build did not return 2"
+set -e
+note "--build is validated"
+
+# 11) a Flutter module's gradle file has no literal: still success, but it says so
+printf 'android {\n  defaultConfig {\n    versionCode = flutter.versionCode\n    versionName = flutter.versionName\n  }\n}\n' > "$tmp/flutter.gradle.kts"
+mkdir -p "$tmp/flutter/app"; mv "$tmp/flutter.gradle.kts" "$tmp/flutter/app/build.gradle.kts"
+set +e
+msg="$(manifest_write_version "$tmp/flutter/app/build.gradle.kts" 2.0.0 2>&1)"
+status=$?
+set -e
+[[ "$status" -eq 0 ]] || error "a gradle file without a literal returned $status (expected 0)"
+[[ "$msg" == *"no versionName literal"* ]] || error "a gradle file without a literal was reported as written: $msg"
+
 if [[ "$failures" -eq 0 ]]; then
   note "ALL PASSED"
 else
