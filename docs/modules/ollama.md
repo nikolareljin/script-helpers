@@ -18,8 +18,9 @@ Functions
 
 - ollama_prepare_models_index [repo_dir=ollama-get-models] [repo_url=https://github.com/webfarmer/ollama-get-models.git]
   - Purpose: Ensure a repo containing the models index exists; update/clone; generate `code/ollama_models.json`.
-  - Behavior: Uses existing `code/ollama_models.json` if present; otherwise ensures Python deps and runs `get_ollama_models.py` with Python 3. The generator combines `/library` with multiple `/search?q=` slices, deduplicates models, sorts JSON by name, and prints the JSON path.
-  - Returns: non-zero on failure.
+  - Behavior: Uses existing `code/ollama_models.json` if present; otherwise ensures Python deps and runs `get_ollama_models.py` with Python 3. The generator combines `/library` with multiple `/search?q=` slices, deduplicates models, sorts JSON by name (a top-level array, or the `models` array of a `{"models": [...]}` object), and prints the JSON path.
+  - Output: stdout carries only the JSON path, so `json_file="$(ollama_prepare_models_index)"` is safe; progress, warnings, git and generator output go to stderr.
+  - Returns: non-zero on failure, including when the index cannot be sorted (no `.tmp` file is left behind).
 
 Environment
 -----------
@@ -65,6 +66,8 @@ Environment
 
 - ollama_update_env [env_file=.env] key value
   - Purpose: Create/update a `key=value` line in a dotenv file.
+  - Behavior: The key is matched literally against the text before the first `=`; the value is written byte-for-byte (backslashes included, unquoted as before). A replaced file keeps its permissions.
+  - Returns: 0; 1 when the key is empty, when the key or value contains a newline or carriage return (the file is left unchanged), or on a write error.
 
 - ollama_install_model_flow [repo_dir=ollama-get-models] [env_file]
   - Purpose: Full flow: ensure index, select model and size, optionally persist to env, then `ollama pull` the selection.
@@ -75,6 +78,7 @@ Runtime functions
 
 - ollama_runtime_type env_file [runtime_override]
   - Purpose: Resolve runtime mode (`local` or `docker`).
+  - Output: prints only the mode on stdout; the warning for an invalid value (which falls back to `local`) goes to stderr.
 
 - ollama_runtime_scheme env_file
 - ollama_runtime_host env_file
