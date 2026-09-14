@@ -91,6 +91,25 @@ else
   note "no Flutter SDK installed — skipping the real-SDK assertions (not a failure)"
 fi
 
+# A trailing --flavor with no value is an error, not an endless loop.
+set +e
+( flutter_build apk --flavor ) >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "flutter_build with a trailing --flavor did not return 2"
+set -e
+
+# A preferred device with nothing connected walks an empty array, which bash 3.2
+# reports as an unbound variable under `set -u` instead of "not connected".
+mkdir -p "$tmp/nodevices"
+printf '#!/bin/sh\necho "No devices detected."\n' > "$tmp/nodevices/flutter"
+chmod +x "$tmp/nodevices/flutter"
+set +e
+out="$( set -u; PATH="$tmp/nodevices:$PATH" flutter_resolve_device emulator-5554 "$tmp" 2>&1 )"
+status=$?
+set -e
+[[ "$status" -eq 1 ]] || error "flutter_resolve_device with no devices returned $status (expected 1): $out"
+[[ "$out" == *"is not connected"* ]] || error "flutter_resolve_device with no devices said: $out"
+note "a trailing --flavor returns 2; an empty device list is reported, not unbound"
+
 if [[ "$failures" -eq 0 ]]; then
   note "ALL PASSED"
 else

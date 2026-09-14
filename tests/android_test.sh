@@ -207,6 +207,16 @@ set +e
 set -e
 note "a trailing option without a value returns 2"
 
+# 13) gradle_assemble capitalizes the variant as documented; one that already is
+#     capitalized is passed through unchanged.
+for pair in "release:assembleRelease" "Debug:assembleDebug" "prodRelease:assembleProdRelease"; do
+  got="$(gradle_assemble "$tmp/proj" "${pair%%:*}" 2>/dev/null)" || got=""
+  [[ "$got" == "gradlew --no-daemon ${pair#*:}" ]] || error "gradle_assemble ${pair%%:*} ran '$got' (expected ${pair#*:})"
+done
+got="$(gradle_assemble "$tmp/proj" 2>/dev/null)" || got=""
+[[ "$got" == "gradlew --no-daemon assembleDebug" ]] || error "gradle_assemble with no variant ran '$got'"
+note "gradle_assemble capitalizes the variant"
+
 if [[ "$failures" -eq 0 ]]; then
   note "ALL PASSED"
 else

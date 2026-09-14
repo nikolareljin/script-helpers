@@ -25,7 +25,7 @@ Functions
     - `0` when equal.
     - `1` when `version_a` is greater than `version_b`.
     - `2` on missing args; `3` on invalid version format.
-  - Notes: Supports multi-digit segments (e.g., `1.14.100`).
+  - Notes: Supports multi-digit segments (e.g., `1.14.100`). Segments are compared as decimal numbers, so leading zeros are allowed: `2026.08.1` is lower than `2026.9.0`.
 
 Examples
 --------

@@ -35,7 +35,7 @@ Functions
   - Purpose: Run the `test` task.
 
 - `gradle_assemble [dir=.] [variant=Debug]`
-  - Purpose: Run `assemble<Variant>`. The variant is capitalized as Gradle expects it.
+  - Purpose: Run `assemble<Variant>`. The first letter of the variant is capitalized as Gradle expects it, so `release` runs `assembleRelease`; the rest is passed through (`prodRelease` runs `assembleProdRelease`).
   - Example: `gradle_assemble android Release`
 
 - `gradle_clean [dir=.]`

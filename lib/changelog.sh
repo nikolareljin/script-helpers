@@ -118,13 +118,32 @@ _changelog__section() {
   # The line is padded with a space on both sides so the boundaries are plain
   # bracket expressions. `(^|[^0-9.])` needs `^` inside an alternation, which
   # not every awk and grep accept; GNU grep also matched it mid-line.
+  #
+  # Only the FIRST version in a header is the section's version. A header such as
+  # `## 2026-09-01 — v1.0.0 (supersedes 0.9.0)` is the 1.0.0 section, and
+  # matching anywhere in the line returned it as the notes for 0.9.0.
+  #
+  # A `##` line inside a fenced code block (``` or ~~~) is content, not a
+  # header: a section documenting markdown ended at its example, and everything
+  # after the fence was silently dropped from the release notes.
   CHANGELOG_WANT="[^0-9.]${escaped}[^0-9A-Za-z.+-]" awk '
-    BEGIN { want = ENVIRON["CHANGELOG_WANT"] }
-    /^##[[:space:]]/ {
+    BEGIN { want = ENVIRON["CHANGELOG_WANT"]; fence = "" }
+    /^[ ]?[ ]?[ ]?(```|~~~)/ {
+      marker = $0
+      sub(/^[ ]*/, "", marker)
+      marker = substr(marker, 1, 3)
+      if (fence == "") fence = marker
+      else if (marker == fence) fence = ""
+      if (found) print
+      next
+    }
+    fence == "" && /^##[[:space:]]/ {
       if (found) exit
       line = $0
       sub(/^##[[:space:]]+/, "", line)
-      if ((" " line " ") ~ want) found = 1
+      if (match(line, /[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.+-]*/)) {
+        if ((" " substr(line, RSTART, RLENGTH) " ") ~ want) found = 1
+      }
       next
     }
     found { print }
@@ -146,8 +165,12 @@ changelog_new_section() {
   local -a sections=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --date) date="${2:-}"; shift 2 ;;
-      --section) sections+=("${2:-}"); shift 2 ;;
+      --date)
+        [[ $# -ge 2 ]] || { log_error "changelog_new_section: $1 requires a value"; return 2; }
+        date="${2:-}"; shift 2 ;;
+      --section)
+        [[ $# -ge 2 ]] || { log_error "changelog_new_section: $1 requires a value"; return 2; }
+        sections+=("${2:-}"); shift 2 ;;
       -*) log_error "changelog_new_section: unknown option $1"; return 2 ;;
       *) if [[ -z "$file" ]]; then file="$1"; else version="$1"; fi; shift ;;
     esac

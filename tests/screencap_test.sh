@@ -102,6 +102,50 @@ else
   note "no device attached — skipping the real capture (not a failure)"
 fi
 
+# An option given without its value is an error, not an endless loop: `shift 2`
+# with one argument left shifts nothing, so the loop saw the same flag forever.
+set +e
+for args in "--device" "--platform" "--out"; do
+  ( screencap_shot "$args" ) >/dev/null 2>&1
+  [[ $? -eq 2 ]] || error "screencap_shot with a trailing $args did not return 2"
+done
+for args in "--device" "--platform" "--out" "--seconds" "--size" "--bitrate"; do
+  ( screencap_record "$args" ) >/dev/null 2>&1
+  [[ $? -eq 2 ]] || error "screencap_record with a trailing $args did not return 2"
+done
+printf 'x' > "$tmp/clip.mp4"
+( screencap_frame "$tmp/clip.mp4" "$tmp/f.png" --at ) >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "screencap_frame with a trailing --at did not return 2"
+( screencap_gif "$tmp/clip.mp4" "$tmp/f.gif" --fps ) >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "screencap_gif with a trailing --fps did not return 2"
+( screencap_gif "$tmp/clip.mp4" "$tmp/f.gif" --width ) >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "screencap_gif with a trailing --width did not return 2"
+set -e
+note "a trailing option without a value returns 2"
+
+# A recording with neither --size nor --bitrate passes an empty flag array, which
+# bash 3.2 reports as an unbound variable under `set -u`. adb is a stub, so this
+# runs without a device; `make test-bash32` is where it bites.
+mkdir -p "$tmp/stubbin"
+cat > "$tmp/stubbin/adb" <<'SH'
+#!/bin/sh
+case "$*" in
+  devices) printf 'List of devices attached\nSER1\tdevice\n' ;;
+  *"dumpsys power"*) echo "mWakefulness=Awake" ;;
+  *pull*) echo data > "$5" ;;
+esac
+exit 0
+SH
+chmod +x "$tmp/stubbin/adb"
+set +e
+( set -u; PATH="$tmp/stubbin:$PATH"
+  screencap_record --platform android --device SER1 --seconds 1 --out "$tmp/rec.mp4" ) >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 0 ]] || error "screencap_record with no --size/--bitrate under set -u returned $status"
+[[ -s "$tmp/rec.mp4" ]] || error "screencap_record with no --size/--bitrate wrote nothing"
+note "a recording without optional flags works under set -u"
+
 if [[ "$failures" -eq 0 ]]; then
   note "ALL PASSED"
 else

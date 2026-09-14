@@ -227,6 +227,57 @@ changelog_new_section "$tmp/fresh.md" 0.1.0 --date 2026-07-31 >/dev/null 2>&1 \
 grep -q '^## 2026-07-31 — v0.1.0' "$tmp/fresh.md" \
   || error "the created file has no release section"
 
+# 8) an option given without its value is an error, not an endless loop
+printf '# Changelog\n' > "$tmp/trailing.md"
+set +e
+( changelog_new_section "$tmp/trailing.md" 1.0.0 --date ) >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "changelog_new_section with a trailing --date did not return 2"
+( changelog_new_section "$tmp/trailing.md" 1.0.0 --section ) >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "changelog_new_section with a trailing --section did not return 2"
+set -e
+grep -q '^## ' "$tmp/trailing.md" && error "a rejected changelog_new_section still wrote a section"
+note "a trailing option without a value returns 2"
+
+# 9) a `##` line inside a fenced code block is content, not the next header
+cat > "$tmp/fenced.md" <<'MD'
+# Changelog
+
+## 2026-09-14 — v1.1.0
+
+- New `deploy` verb. Example:
+
+```markdown
+## Usage
+run it
+```
+
+~~~
+## 0.9.0 inside a tilde fence
+~~~
+
+- Second entry
+
+## 2026-09-01 — v1.0.0 (supersedes 0.9.0)
+
+- one
+
+## 2026-08-01 — v0.9.0
+
+- real 0.9.0 notes
+MD
+body="$(changelog_extract "$tmp/fenced.md" 1.1.0 2>/dev/null)"
+[[ "$body" == *"## Usage"* && "$body" == *"- Second entry"* ]] \
+  || error "a fenced ## line ended the 1.1.0 section early: $body"
+[[ "$body" != *"- one"* ]] || error "the 1.1.0 section ran into the next release"
+
+# 10) only the first version in a header names the section
+body="$(changelog_extract "$tmp/fenced.md" 0.9.0 2>/dev/null)"
+[[ "$body" == "- real 0.9.0 notes" ]] \
+  || error "0.9.0 returned another section (a later version in a header matched): $body"
+body="$(changelog_extract "$tmp/fenced.md" 1.0.0 2>/dev/null)"
+[[ "$body" == "- one" ]] || error "the 1.0.0 section with a trailing note was not found: $body"
+note "fenced headers are content; a header's first version is its version"
+
 if [[ "$failures" -eq 0 ]]; then
   note "ALL PASSED"
 else

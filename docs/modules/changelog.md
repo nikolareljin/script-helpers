@@ -23,7 +23,8 @@ Functions
 
 - `changelog_extract <file> <version>`
   - Purpose: Print the body of the section for `version`, without its header, for use as release notes. The `v` prefix is optional on both sides.
-  - Matching: the version must match whole. `0.2.0` does not select `v10.2.0` or `v0.2.0-rc.1`.
+  - Matching: the version must match whole. `0.2.0` does not select `v10.2.0` or `v0.2.0-rc.1`. Only the first version in a header names the section, so `## 2026-09-01 — v1.0.0 (supersedes 0.9.0)` is the 1.0.0 section and never the 0.9.0 one.
+  - A `##` line inside a fenced code block (```` ``` ```` or `~~~`) is part of the section, not the start of the next one.
   - Returns: 0 and the body; 2 for missing arguments or a missing file; 1 when there is no such section.
 
 - `changelog_has_entries <text>`
@@ -35,7 +36,7 @@ Functions
   - Args:
     - `--date` — defaults to today, UTC.
     - `--section` — repeatable. Defaults to `Added`, `Changed`, `Fixed`, `Security`.
-  - Returns: 0 on success, including when a section for that version already exists — it refuses to run twice, so it is safe in a release script that gets rerun. 2 for a non-semver version; 1 when the rewrite would produce an empty file.
+  - Returns: 0 on success, including when a section for that version already exists — it refuses to run twice, so it is safe in a release script that gets rerun. 2 for a non-semver version or an option without its value; 1 when the rewrite would produce an empty file.
 
 Environment
 -----------

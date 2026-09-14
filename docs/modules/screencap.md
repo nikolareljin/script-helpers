@@ -36,12 +36,12 @@ Functions
     - `--device` — adb serial or simulator UDID. Inferred when exactly one device is present.
     - `--platform` — required only when both an Android device and an iOS simulator are present.
     - `--out` — destination; defaults to `docs/screenshots/<UTC-timestamp>-<device>.png`.
-  - Returns: 0 and the path written, so it can be piped into a docs step; 2 when the target is ambiguous; 3 when no device is available; 1 on a capture failure.
+  - Returns: 0 and the path written, so it can be piped into a docs step; 2 when the target is ambiguous or an option is given without its value; 3 when no device is available; 1 on a capture failure.
   - Example: `screencap_shot --device R5CRC2WANMT --out docs/img/home.png`
 
 - `screencap_record [--device <id>] [--platform android|ios] [--out <path>] [--seconds <n>] [--size <WxH>] [--bitrate <bps>] [--gif]`
   - Purpose: Capture screen video. Defaults to 30 seconds. `--gif` also writes a `.gif` beside the video.
-  - Returns: 0 and the path to the video; 2 on bad arguments or an ambiguous target; 3 when no device is available, or when a >180s Android clip is requested without `ffmpeg`, or for a physical iOS device.
+  - Returns: 0 and the path to the video; 2 on bad arguments (including an option without its value) or an ambiguous target; 3 when no device is available, or when a >180s Android clip is requested without `ffmpeg`, or for a physical iOS device.
   - Example: `screencap_record --seconds 20 --gif`
 
 - `screencap_record_stop [device]`
@@ -50,11 +50,11 @@ Functions
 
 - `screencap_frame <video> <out.png> [--at <seconds>]`
   - Purpose: Extract a still frame from a recording, for a README image taken from a demo clip. Defaults to 1 second in, because frame zero is often a blank or transitioning screen.
-  - Returns: 0 and the path written; 2 on bad arguments; 3 when `ffmpeg` is not installed; 1 on an extraction failure.
+  - Returns: 0 and the path written; 2 on bad arguments, including an option without its value; 3 when `ffmpeg` is not installed; 1 on an extraction failure.
 
 - `screencap_gif <video> <out.gif> [--fps <n>] [--width <px>]`
   - Purpose: Convert a recording to a GIF suitable for a README. Two-pass with a generated palette, because a single-pass GIF from video is visibly dithered. Defaults to 12 fps and 480px wide, which keeps a short clip under a couple of megabytes.
-  - Returns: 0 and the path written; 2 on bad arguments; 3 when `ffmpeg` is not installed; 1 on a conversion failure.
+  - Returns: 0 and the path written; 2 on bad arguments, including an option without its value; 3 when `ffmpeg` is not installed; 1 on a conversion failure.
 
 Environment
 -----------

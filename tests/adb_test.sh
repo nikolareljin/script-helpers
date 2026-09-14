@@ -184,6 +184,14 @@ adb_installed_for_user "S" "p" abc >/dev/null 2>&1; [[ $? -eq 2 ]] || error "ins
 set -e
 note "bad arguments return 2"
 
+# A trailing --user with no value is an error, not an endless loop.
+printf 'apk' > "$tmp/app.apk"
+set +e
+( adb_install_verified SERIAL1 "$tmp/app.apk" com.example.app --user ) >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "adb_install_verified with a trailing --user did not return 2"
+set -e
+note "a trailing --user returns 2"
+
 if [[ "$failures" -eq 0 ]]; then
   note "ALL PASSED"
 else

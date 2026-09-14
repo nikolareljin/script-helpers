@@ -55,7 +55,8 @@ Apps
   all, printing `pm list users` to stderr.
 - `adb_install_verified <serial> <apk> <package> [--user <id>] [args...]` —
   install, then confirm it landed. Returns 0 only when both hold; 4 when the
-  install reported success but the package is not visible to the target user.
+  install reported success but the package is not visible to the target user;
+  2 on missing arguments or a `--user` without a value.
 - `adb_install_all <apk> [adb install args...]` — install to **every** ready
   device; continues past failures, returns non-zero if any failed.
 - `adb_uninstall <serial> <package>` — uninstall an app package.
