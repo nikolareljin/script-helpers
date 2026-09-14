@@ -10,6 +10,8 @@ PORT_DETECTION_ALLOW_SUDO=${PORT_DETECTION_ALLOW_SUDO:-false}
 # with RSTART/RLENGTH and split()'s return value work everywhere.
 #
 # ss: users:(("name",pid=123,fd=4)) -> "name (PID 123)".
+# The $ fields are awk's, not the shell's.
+# shellcheck disable=SC2016
 _PORTS_SS_DETAILS_AWK='$4 ~ ":" port "$" {
   if (match($0, /users:\(\("[^"]+",pid=[0-9]+/)) {
     s = substr($0, RSTART + 9, RLENGTH - 9)
@@ -19,6 +21,7 @@ _PORTS_SS_DETAILS_AWK='$4 ~ ":" port "$" {
   } else { print "unknown process" }
 }'
 # ss: every pid=N on a matching line (a socket shared by several processes).
+# shellcheck disable=SC2016
 _PORTS_SS_PID_AWK='$4 ~ ":" port "$" {
   rest = $0
   while (match(rest, /pid=[0-9]+/)) {
@@ -27,6 +30,7 @@ _PORTS_SS_PID_AWK='$4 ~ ":" port "$" {
   }
 }'
 # netstat -ltnp: column 7 is PID/name, or "-" when not visible.
+# shellcheck disable=SC2016
 _PORTS_NETSTAT_DETAILS_AWK='$4 ~ port "$" {
   n = split($7, parts, "/")
   if (parts[1] != "-" && parts[1] != "") {
@@ -133,11 +137,11 @@ list_port_listener_pids() {
   if [[ ${#pids[@]} -eq 0 ]] && command -v fuser >/dev/null 2>&1; then
     # fuser prints every PID on one line; one per element, not one element.
     while IFS= read -r pid; do [[ -n "$pid" ]] && pids+=("$pid"); done < <(
-      fuser "${port}/tcp" 2>/dev/null | tr -s ' \t' '\n\n'
+      fuser "${port}/tcp" 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) print $i }'
     )
     if [[ ${#pids[@]} -eq 0 && "$allow_sudo" == "true" ]]; then
       while IFS= read -r pid; do [[ -n "$pid" ]] && pids+=("$pid"); done < <(
-        run_with_optional_sudo true fuser "${port}/tcp" 2>/dev/null | tr -s ' \t' '\n\n'
+        run_with_optional_sudo true fuser "${port}/tcp" 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) print $i }'
       )
     fi
   fi

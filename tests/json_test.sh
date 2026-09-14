@@ -13,7 +13,7 @@
 set -uo pipefail
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
-cd "$root_dir"
+cd "$root_dir" || exit 1
 
 failures=0
 note()  { echo "[json_test] $*"; }
@@ -51,6 +51,7 @@ expect "backslash then control" $'\\\001' '\\\u0001'
 
 if command -v python3 >/dev/null 2>&1; then
   all=""
+  # shellcheck disable=SC2059
   for (( i = 1; i < 32; i++ )); do all+="$(printf "\\$(printf '%03o' "$i")")"; done
   all+=$'\n'' "\ end'
   body="{\"s\":\"$(json_escape "$all")\"}"

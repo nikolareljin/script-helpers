@@ -86,7 +86,7 @@ _env__parse_value() {
     local closed=0
     while [[ $i -lt ${#rest} ]]; do
       c="${rest:$i:1}"
-      if [[ "$q" == '"' && "$c" == '\' && ( "${rest:$((i+1)):1}" == '"' || "${rest:$((i+1)):1}" == '\' ) ]]; then
+      if [[ "$q" == '"' && "$c" == "\\" && ( "${rest:$((i+1)):1}" == '"' || "${rest:$((i+1)):1}" == "\\" ) ]]; then
         inner+="${rest:$((i+1)):1}"; i=$((i+2)); continue
       fi
       if [[ "$c" == "$q" ]]; then closed=1; break; fi

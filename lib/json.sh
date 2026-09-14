@@ -17,6 +17,8 @@ json_escape() {
     local i c rep
     for (( i = 1; i < 32; i++ )); do
       case "$i" in 9|10|13) continue ;; esac
+      # The format string is the point: printf turns \ooo into that byte.
+      # shellcheck disable=SC2059
       c="$(printf "\\$(printf '%03o' "$i")")"
       [[ "$input" == *"$c"* ]] || continue
       rep="\\u00$(printf '%02x' "$i")"

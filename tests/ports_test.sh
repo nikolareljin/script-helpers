@@ -15,7 +15,7 @@
 set -uo pipefail
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
-cd "$root_dir"
+cd "$root_dir" || exit 1
 
 failures=0
 note()  { echo "[ports_test] $*"; }
@@ -90,6 +90,7 @@ for entry in "${awks[@]}"; do
   p2="$(list_port_listener_pids 28080 | tr '\n' ' ')"
   u="$(list_port_usage_details 18766)"
   port_in_use_by "$port" >/dev/null; in_use_rc=$?
+  # shellcheck disable=SC2034
   REQUIRED_PORT_DEFAULTS=("BACKEND_PORT:$port")
   : >"$tmp/empty.env"
   check_required_ports_available "$tmp/empty.env" >/dev/null 2>&1; crpa_rc=$?

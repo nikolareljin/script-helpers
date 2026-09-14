@@ -13,7 +13,7 @@
 set -uo pipefail
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
-cd "$root_dir"
+cd "$root_dir" || exit 1
 
 failures=0
 note()  { echo "[file_test] $*"; }
@@ -106,6 +106,7 @@ if [[ "${BASH_VERSINFO[0]}" -ge 4 ]]; then
     # caller's associative one: with `demo` unset the subscript is 0, which is
     # enough to reach the skip logic under test.
     set +u
+    # shellcheck disable=SC2034
     DISTROS=("http://example.invalid/demo.iso")
     calls=0
     # shellcheck disable=SC2317

@@ -15,7 +15,7 @@
 set -uo pipefail
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
-cd "$root_dir"
+cd "$root_dir" || exit 1
 
 failures=0
 note()  { echo "[ollama_test] $*"; }

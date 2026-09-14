@@ -289,7 +289,7 @@ hub_write_env() {
   local bare_re='^[][A-Za-z0-9._/:@%+=,-]*$'
   if [[ "$value" =~ $bare_re ]]; then
     line="$key=$value"
-  elif [[ "$value" != *"'"* && "$value" != *'\\'* ]]; then
+  elif [[ "$value" != *"'"* && "$value" != *"\\\\"* ]]; then
     # No doubled backslash: dotenv reads \\ inside single quotes as one.
     line="$key='$value'"
   elif [[ "$value" != *[\"\$\`\\]* ]]; then

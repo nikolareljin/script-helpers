@@ -153,6 +153,8 @@ if hub_write_env "" HUB_URL x 2>/dev/null; then error "empty path must fail"; el
 # run nothing.
 file_mode() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 inj="$tmp/inj.env"; rm -f "$inj"
+# Literal on purpose: these are values, not expressions.
+# shellcheck disable=SC2016,SC2088
 for v in 'i1;touch hub_pwned' 'k$(touch hub_pwned)' 'a b' 'k\nTOUCHED=1' 'ab\tc\d\nq' "O'Brien" '~/hub' 'x#y' '`touch hub_pwned`'; do
   if ! hub_write_env "$inj" HUB_API_KEY "$v" 2>/dev/null; then error "hub_write_env refused a writable value: $v"; continue; fi
   got="$(cd "$tmp" && bash -c 'source ./inj.env 2>/dev/null; printf %s "$HUB_API_KEY"' 2>/dev/null)" || got=""
