@@ -74,7 +74,7 @@ note "an ambiguous or missing .changes file is an error"
 #    file holding it is gone afterwards -- also when the build fails under set -e.
 bin="$tmp/bin"; mkdir -p "$bin" "$tmp/repo" "$tmp/tmpdir"
 cat > "$bin/debuild" <<'SH'
-#!/bin/sh
+#!/usr/bin/env sh
 printf '%s\n' "$*" > "$DEBUILD_LOG.args"
 for a in "$@"; do
   case "$a" in
@@ -86,7 +86,7 @@ for a in "$@"; do
 done
 exit "${DEBUILD_EXIT:-0}"
 SH
-printf '#!/bin/sh\nexit 0\n' > "$bin/gpg"
+printf '#!/usr/bin/env sh\nexit 0\n' > "$bin/gpg"
 chmod +x "$bin/debuild" "$bin/gpg"
 
 set +e

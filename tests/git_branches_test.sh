@@ -171,6 +171,7 @@ fi
 # A git without `patch-id --verbatim` (older than 2.39) cannot confirm a match
 # byte for byte, so a branch `git cherry` calls landed must come back `unknown`
 # -- kept -- rather than `squashed`.
+# shellcheck disable=SC2317  # the git override is called indirectly, by the library
 old_git_state="$(
   git() {
     if [[ "${1:-}" == patch-id ]]; then echo "error: unknown option" >&2; return 129; fi

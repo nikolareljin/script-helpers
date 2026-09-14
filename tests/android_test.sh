@@ -145,8 +145,8 @@ fi
 #    the old greedy match returned as the package name.
 sdk="$tmp/sdk root"
 mkdir -p "$sdk/build-tools/9.0.0" "$sdk/build-tools/37.0.0"
-printf '#!/bin/sh\necho "package: name='"'"'com.example.old'"'"' versionCode='"'"'1'"'"'"\n' > "$sdk/build-tools/9.0.0/aapt2"
-printf '#!/bin/sh\necho "package: name='"'"'com.example.app.debug'"'"' versionCode='"'"'1'"'"' versionName='"'"'1.0'"'"' platformBuildVersionName='"'"'15'"'"' compileSdkVersion='"'"'35'"'"' compileSdkVersionCodename='"'"'15'"'"'"\necho "sdkVersion:'"'"'21'"'"'"\n' > "$sdk/build-tools/37.0.0/aapt2"
+printf '#!/usr/bin/env sh\necho "package: name='"'"'com.example.old'"'"' versionCode='"'"'1'"'"'"\n' > "$sdk/build-tools/9.0.0/aapt2"
+printf '#!/usr/bin/env sh\necho "package: name='"'"'com.example.app.debug'"'"' versionCode='"'"'1'"'"' versionName='"'"'1.0'"'"' platformBuildVersionName='"'"'15'"'"' compileSdkVersion='"'"'35'"'"' compileSdkVersionCodename='"'"'15'"'"'"\necho "sdkVersion:'"'"'21'"'"'"\n' > "$sdk/build-tools/37.0.0/aapt2"
 chmod +x "$sdk/build-tools/9.0.0/aapt2" "$sdk/build-tools/37.0.0/aapt2"
 got="$(ANDROID_SDK_ROOT="$sdk" android_sdk_tool aapt2 2>/dev/null)" || got=""
 [[ "$got" == "$sdk/build-tools/37.0.0/aapt2" ]] || error "android_sdk_tool under a spaced SDK root gave '$got'"
@@ -157,7 +157,7 @@ note "package name is read from the package: attribute of the newest build-tools
 # 10) jarsigner gets its passwords from the environment, never argv
 fakebin="$tmp/fakebin"; mkdir -p "$fakebin" "$tmp/nosdk"
 cat > "$fakebin/jarsigner" <<'SH'
-#!/bin/sh
+#!/usr/bin/env sh
 printf '%s\n' "$*" > "$JARSIGNER_LOG.args"
 printf 'store=%s key=%s\n' "$ANDROID_SIGN_STOREPASS" "$ANDROID_SIGN_KEYPASS" > "$JARSIGNER_LOG.env"
 SH
@@ -182,7 +182,7 @@ fi
 
 # 11) a failing signer under set -e still removes the decoded keystore
 mkdir -p "$sdk/build-tools/37.0.0" "$tmp/tmpdir"
-printf '#!/bin/sh\nexit 7\n' > "$sdk/build-tools/37.0.0/apksigner"
+printf '#!/usr/bin/env sh\nexit 7\n' > "$sdk/build-tools/37.0.0/apksigner"
 chmod +x "$sdk/build-tools/37.0.0/apksigner"
 set +e
 ( set -e

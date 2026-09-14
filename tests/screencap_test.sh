@@ -128,7 +128,7 @@ note "a trailing option without a value returns 2"
 # runs without a device; `make test-bash32` is where it bites.
 mkdir -p "$tmp/stubbin"
 cat > "$tmp/stubbin/adb" <<'SH'
-#!/bin/sh
+#!/usr/bin/env sh
 case "$*" in
   devices) printf 'List of devices attached\nSER1\tdevice\n' ;;
   *"dumpsys power"*) echo "mWakefulness=Awake" ;;

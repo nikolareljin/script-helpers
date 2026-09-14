@@ -100,7 +100,7 @@ set -e
 # A preferred device with nothing connected walks an empty array, which bash 3.2
 # reports as an unbound variable under `set -u` instead of "not connected".
 mkdir -p "$tmp/nodevices"
-printf '#!/bin/sh\necho "No devices detected."\n' > "$tmp/nodevices/flutter"
+printf '#!/usr/bin/env sh\necho "No devices detected."\n' > "$tmp/nodevices/flutter"
 chmod +x "$tmp/nodevices/flutter"
 set +e
 out="$( set -u; PATH="$tmp/nodevices:$PATH" flutter_resolve_device emulator-5554 "$tmp" 2>&1 )"
