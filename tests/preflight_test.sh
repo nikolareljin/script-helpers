@@ -67,6 +67,43 @@ if [[ $? -eq 0 ]]; then note "--stack ios is accepted"; else error "--stack ios 
 CI="" bash "$PF" --dir "$tmp/root" --stack nonesuch >/dev/null 2>&1
 if [[ $? -eq 2 ]]; then note "an unknown stack still exits 2"; else error "unknown stack did not exit 2"; fi
 
+# --- a trailing value-taking flag is bad arguments, not a hang -------------
+# preflight has no `set -e`, so a `shift 2` with one argument left used to
+# fail silently and loop forever. Run in the background with a deadline so a
+# regression fails the test instead of hanging the suite.
+run_bounded() {
+  # run_bounded <seconds> <cmd...>; sets rc (124 when it had to be killed)
+  local limit="$1" pid waited=0; shift
+  "$@" >/dev/null 2>&1 &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    if [[ $waited -ge $((limit * 10)) ]]; then
+      kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; rc=124; return
+    fi
+    sleep 0.1 2>/dev/null || sleep 1
+    waited=$((waited + 1))
+  done
+  wait "$pid"; rc=$?
+}
+for flag in --stack --dir; do
+  run_bounded 10 env CI="" bash "$PF" --list "$flag"
+  if [[ $rc -eq 2 ]]; then note "trailing $flag exits 2"; else error "trailing $flag: exit $rc (124 = hung)"; fi
+done
+
+# --- an unknown stack in .preflight is an error, wherever it appears --------
+mkdir -p "$tmp/cfg"
+printf 'node .\npyhton .\n' > "$tmp/cfg/.preflight"
+CI="" bash "$PF" --dir "$tmp/cfg" --list >/dev/null 2>&1
+rc=$?
+if [[ $rc -eq 2 ]]; then note ".preflight with a misspelled stack after a valid one exits 2"; else error ".preflight misspelled stack after a valid line: exit $rc"; fi
+printf '# pinned\nnode .\ngo tools\n' > "$tmp/cfg/.preflight"
+out="$(CI="" bash "$PF" --dir "$tmp/cfg" --list 2>/dev/null)"; rc=$?
+if [[ $rc -eq 0 ]] && has_pair "$out" node . && has_pair "$out" go tools; then
+  note "a valid .preflight is still listed in full"
+else
+  error "valid .preflight: rc=$rc out=[$out]"
+fi
+
 # --- off macOS, iOS must SKIP rather than FAIL ------------------------------
 # A Linux box failing an iOS check would be noise on every run; a skip is
 # reported separately so it cannot be mistaken for a pass either.
