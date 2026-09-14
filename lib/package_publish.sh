@@ -79,17 +79,55 @@ pkg_build_source_package() {
     _pkg_log_info "Running build: $build_cmd"
     bash -lc "$build_cmd"
   else
-    debuild -S -sa -k"$key_id" -p"gpg --batch --pinentry-mode loopback --passphrase ${PPA_GPG_PASSPHRASE}"
+    # The passphrase goes to gpg in a 0600 file rather than on its command
+    # line, where every local user can read it from the process list for as
+    # long as the build runs. A file also survives a passphrase with spaces,
+    # which the sign command's word splitting did not. Removed on every path
+    # out, including a failed build under `set -e`.
+    local pass_file rc=0
+    pass_file="$(mktemp)" || return 1
+    chmod 600 "$pass_file" || { rm -f "$pass_file"; return 1; }
+    printf '%s' "${PPA_GPG_PASSPHRASE}" > "$pass_file" || { rm -f "$pass_file"; return 1; }
+    if debuild -S -sa -k"$key_id" -p"gpg --batch --pinentry-mode loopback --passphrase-file ${pass_file}"; then
+      rc=0
+    else
+      rc=$?
+    fi
+    rm -f "$pass_file"
+    return $rc
   fi
 }
 
 # Usage: pkg_find_changes_file <repo_dir>
+#
+# The parent directory is shared: a CI workspace or a packaging directory holds
+# every project's builds, so "the first *.changes there" can be another
+# package, which is then uploaded. The package's own
+# <Source>_<Version>_source.changes, named from debian/changelog, is preferred.
+# Without it, a lone *.changes is still taken; more than one is an error rather
+# than a guess.
 pkg_find_changes_file() {
   local repo_dir="$1"
-  local changes_file
-  changes_file="$(find "$repo_dir/.." -maxdepth 1 -type f -name '*.changes' | head -n 1 || true)"
+  local changes_file src_name version count
+  if [[ -f "$repo_dir/debian/changelog" ]] && command -v dpkg-parsechangelog >/dev/null 2>&1; then
+    src_name="$(dpkg-parsechangelog -l "$repo_dir/debian/changelog" -S Source 2>/dev/null || true)"
+    version="$(dpkg-parsechangelog -l "$repo_dir/debian/changelog" -S Version 2>/dev/null || true)"
+    # The epoch is not part of a Debian file name.
+    version="${version#*:}"
+    if [[ -n "$src_name" && -n "$version" && -f "$repo_dir/../${src_name}_${version}_source.changes" ]]; then
+      echo "$repo_dir/../${src_name}_${version}_source.changes"
+      return 0
+    fi
+  fi
+  changes_file="$(find "$repo_dir/.." -maxdepth 1 -type f -name '*.changes' 2>/dev/null || true)"
   if [[ -z "$changes_file" ]]; then
     _pkg_log_error "No .changes file found."
+    return 1
+  fi
+  count="$(printf '%s\n' "$changes_file" | wc -l | tr -d '[:space:]')"
+  if [[ "$count" -ne 1 ]]; then
+    _pkg_log_error "Found $count .changes files next to $repo_dir and none named for this package; refusing to pick one:"
+    printf '%s\n' "$changes_file" >&2
     return 1
   fi
   echo "$changes_file"

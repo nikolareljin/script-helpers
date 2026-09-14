@@ -46,11 +46,13 @@ Builds a signed Debian source package using `debuild -S -sa` and a GPG key ID.
 Environment:
 - `PPA_GPG_PASSPHRASE`: passphrase for non-interactive GPG signing.
 
+The passphrase is written to a private (0600) temp file and handed to gpg with `--passphrase-file`, never placed on a command line where other local users could read it from the process list. The file is removed when `debuild` returns, whether it succeeded or failed. Returns `debuild`'s exit status.
+
 ### `pkg_find_changes_file`
 
 Usage: `pkg_find_changes_file <repo_dir>`
 
-Finds the first `.changes` file in the parent directory and prints its path.
+Prints the path of the package's `.changes` file in the parent directory. When `debian/changelog` exists and `dpkg-parsechangelog` is available, `<Source>_<Version>_source.changes` (epoch removed) is preferred. Otherwise a single `.changes` file in the parent directory is taken. The parent is often shared with other projects' builds, so when there are several and none is named for this package it returns 1 and lists them instead of picking one.
 
 ### `pkg_upload_ppa`
 
