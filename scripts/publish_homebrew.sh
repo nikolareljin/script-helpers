@@ -84,9 +84,37 @@ fi
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
+# The token must not reach argv (visible in ps), the tap clone's .git/config,
+# or an xtrace log. The clone URL therefore carries no credential -- so origin
+# in .git/config carries none either -- and the token travels as an HTTP auth
+# header in git's environment config, the way actions/checkout passes it.
+# git >= 2.31 reads that from the documented GIT_CONFIG_COUNT variables; older
+# git only from GIT_CONFIG_PARAMETERS, the variable `git -c` itself uses.
+# xtrace is paused while this is set up and restored to what the caller had.
+xtrace_was_on=0
+case "$-" in *x*) xtrace_was_on=1;; esac
 set +x
-git clone "https://x-access-token:${tap_token}@github.com/${tap_repo}.git" "$tmp_dir"
-set -x
+git_env_config_supported() {
+  local v major minor
+  v="$(git --version 2>/dev/null | awk '{print $3}')"
+  major="${v%%.*}"; minor="${v#*.}"; minor="${minor%%.*}"
+  [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]] || return 1
+  (( major > 2 || (major == 2 && minor >= 31) ))
+}
+auth_key="http.https://github.com/.extraheader"
+auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$tap_token" | base64 | tr -d '\n')"
+if git_env_config_supported; then
+  cfg_idx="${GIT_CONFIG_COUNT:-0}"
+  export "GIT_CONFIG_KEY_${cfg_idx}=${auth_key}"
+  export "GIT_CONFIG_VALUE_${cfg_idx}=${auth_header}"
+  export GIT_CONFIG_COUNT=$((cfg_idx + 1))
+else
+  export GIT_CONFIG_PARAMETERS="${GIT_CONFIG_PARAMETERS:+${GIT_CONFIG_PARAMETERS} }'${auth_key}=${auth_header}'"
+fi
+unset auth_header
+if [[ "$xtrace_was_on" -eq 1 ]]; then set -x; fi
+
+git clone "https://github.com/${tap_repo}.git" "$tmp_dir"
 
 mkdir -p "$tmp_dir/$tap_dir"
 cp "$formula_path" "$tmp_dir/$tap_dir/${formula_name}.rb"
@@ -95,11 +123,14 @@ cd "$tmp_dir"
 git config user.name "ci-bot"
 git config user.email "ci-bot@users.noreply.github.com"
 
-if git diff --quiet; then
+# Stage first: a formula published for the first time is an untracked file,
+# which a plain `git diff` never sees, so the tap looked "up to date" and the
+# first publish silently never happened.
+git add "$tap_dir/${formula_name}.rb"
+if git diff --cached --quiet; then
   log_info "Homebrew tap already up to date."
   exit 0
 fi
 
-git add "$tap_dir/${formula_name}.rb"
 git commit -m "$commit_message"
 git push origin "HEAD:${tap_branch}"
