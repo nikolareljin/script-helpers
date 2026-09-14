@@ -55,7 +55,9 @@ else
 fi
 
 note "verify_checksum"
-if command -v sha256sum >/dev/null 2>&1; then
+# POSIX cksum as the checksum tool: its first field is a number, which reads
+# as a hash the same way, and it exists on every platform this library runs on.
+if command -v cksum >/dev/null 2>&1; then
   # `file` is what is_valid_iso and is_valid_checksum consult; a stand-in keeps
   # the test off real ISO images.
   # shellcheck disable=SC2317
@@ -63,38 +65,48 @@ if command -v sha256sum >/dev/null 2>&1; then
   cd "$tmp" || exit 1
   printf 'good bytes' >other.iso
   printf 'target bytes' >target.iso
-  good="$(sha256sum target.iso | awk '{print $1}')"
-  zeros="0000000000000000000000000000000000000000000000000000000000000000"
+  good="$(cksum target.iso | awk '{print $1}')"
+  other="$(cksum other.iso | awk '{print $1 "  " $3}')"
+  zeros="0000000000"
 
   check() {
     local label="$1" want="$2" list="$3" target="${4:-target.iso}"
     printf '%s' "$list" >SUMS
     local rc=0
-    verify_checksum "$target" SUMS >/dev/null 2>&1 || rc=$?
+    verify_checksum "$target" SUMS cksum >/dev/null 2>&1 || rc=$?
     if [[ "$want" == "pass" && "$rc" == "0" ]] || [[ "$want" == "fail" && "$rc" != "0" ]]; then ok "$label"; else error "$label: rc=$rc"; fi
   }
-  check "the right hash passes" pass "$(sha256sum other.iso)"$'\n'"$good  target.iso"$'\n'
-  check "a wrong hash fails although another entry is OK" fail "$(sha256sum other.iso)"$'\n'"$zeros  target.iso"$'\n'
-  check "a list that never names the file fails" fail "$(sha256sum other.iso)"$'\n'
+  check "the right hash passes" pass "$other"$'\n'"$good  target.iso"$'\n'
+  check "a wrong hash fails although another entry is OK" fail "$other"$'\n'"$zeros  target.iso"$'\n'
+  check "a list that never names the file fails" fail "$other"$'\n'
   check "binary-mode entries (*name) are read" pass "$good *target.iso"$'\n'
   check "a listed path matches on its basename" pass "$good  ./isos/target.iso"$'\n'
-  check "tagged ALGO (name) = HASH entries are read" pass "SHA256 (target.iso) = $good"$'\n'
-  check "hashes compare case-insensitively" pass "$(printf '%s' "$good" | tr '[:lower:]' '[:upper:]')  target.iso"$'\n'
+  check "tagged ALGO (name) = HASH entries are read" pass "CKSUM (target.iso) = $good"$'\n'
   check "a CRLF list is read" pass "$good  target.iso"$'\r\n'
   check "a longer name sharing the prefix is not the file" fail "$good  target.iso.bak"$'\n'
+  # Hex digests compare case-insensitively; the tool is a stand-in printing one.
+  # shellcheck disable=SC2317
+  hexsum() { echo "ABCDEF0123  $1"; }
+  printf '%s' "abcdef0123  target.iso"$'\n' >SUMS
+  rc=0; verify_checksum target.iso SUMS hexsum >/dev/null 2>&1 || rc=$?
+  if [[ "$rc" == "0" ]]; then ok "hashes compare case-insensitively"; else error "hex case: rc=$rc"; fi
   mkdir -p sub && cp target.iso sub/
   check "the file is hashed where it is, not in the cwd" pass "$good  target.iso"$'\n' sub/target.iso
   cd "$root_dir" || exit 1
   unset -f file
 else
-  note "SKIP verify_checksum: needs sha256sum"
+  note "SKIP verify_checksum: needs cksum"
 fi
 
 note "download_iso"
 if [[ "${BASH_VERSINFO[0]}" -ge 4 ]]; then
   (
     cd "$tmp" || exit 1
-    declare -A DISTROS=([demo]="http://example.invalid/demo.iso")
+    # download_iso reads ${DISTROS[$name]}. An indexed array stands in for the
+    # caller's associative one: with `demo` unset the subscript is 0, which is
+    # enough to reach the skip logic under test.
+    set +u
+    DISTROS=("http://example.invalid/demo.iso")
     calls=0
     # shellcheck disable=SC2317
     download_file() { calls=$((calls+1)); printf 'x' >"$2"; }
