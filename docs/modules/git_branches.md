@@ -52,7 +52,7 @@ Print exactly one of:
 | `squashed` | The tip is not an ancestor, but the branch's cumulative change is already in the base — a squash merge, a rebase merge or a cherry-pick. |
 | `unmerged` | The branch carries work the base does not have. |
 | `unrelated` | The two share no history. |
-| `unknown` | The squash probe could not be built, so the question was not answered. Distinct from `unmerged` on purpose: both keep the branch, but only one means "I checked". |
+| `unknown` | The squash probe could not be built, or a match could not be confirmed byte for byte (git older than 2.39), so the question was not answered. Distinct from `unmerged` on purpose: both keep the branch, but only one means "I checked". |
 
 - **Returns** 2 on missing arguments.
 - The probe commit carries its own throwaway identity. `git commit-tree`
@@ -66,6 +66,13 @@ Print exactly one of:
   asks `git cherry` whether an equivalent patch is upstream. `git cherry`
   compares patch-ids, so it sees through a different sha, author, date or
   message. The probe commit is dangling and is garbage-collected.
+- `git cherry`'s patch-ids ignore whitespace, so a match is confirmed with
+  `git patch-id --verbatim` against every non-merge commit on the base since
+  the merge base before the branch is called `squashed`. Without that, a branch
+  that landed and then received a whitespace-only commit — a re-indent, which
+  in Python or YAML changes behaviour — was reported `squashed` and deleted
+  with that commit on it. `--verbatim` needs git 2.39; on an older git such a
+  branch is reported `unknown` and kept.
 - A branch whose tree already equals the base's tree is reported `squashed`
   before that test runs: an empty diff has no patch-id to match and would
   otherwise be misreported as `unmerged`.

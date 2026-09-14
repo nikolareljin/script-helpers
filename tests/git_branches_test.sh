@@ -95,6 +95,20 @@ git_t commit --quiet -m "squashed c"
 git checkout --quiet squashed-then-more
 commit c2.txt "c2 — added after the merge"
 
+# 3b) squash-merged, then a WHITESPACE-ONLY commit afterwards. `git cherry`
+# ignores whitespace, so without a byte-exact confirmation this came back
+# `squashed` and was deleted -- with a re-indent that, in Python, moves a call
+# out of an `if`.
+git checkout --quiet -b squashed-then-reindent main
+printf 'def f(x):\n    if x:\n        launch()\n    audit()\n' > f.py
+git add f.py; git_t commit --quiet -m "add f"
+git checkout --quiet main
+git merge --quiet --squash squashed-then-reindent
+git_t commit --quiet -m "squashed f"
+git checkout --quiet squashed-then-reindent
+printf 'def f(x):\n    if x:\n        launch()\n        audit()\n' > f.py
+git add f.py; git_t commit --quiet -m "only audit when launched"
+
 # 4) never merged
 git checkout --quiet -b never-merged main
 commit d.txt "d"
@@ -102,7 +116,7 @@ commit d.txt "d"
 # 5) unrelated history
 git checkout --quiet --orphan stranger
 git rm -rq --cached . 2>/dev/null || true
-rm -f ./*.txt
+rm -f ./*.txt ./*.py
 commit z.txt "z"
 
 git checkout --quiet main
@@ -117,6 +131,7 @@ expect_state() {
 expect_state merged-by-merge     merged
 expect_state squashed-clean      squashed
 expect_state squashed-then-more  unmerged   # the whole point of this file
+expect_state squashed-then-reindent unmerged # whitespace is content
 expect_state never-merged        unmerged
 expect_state stranger            unrelated
 
@@ -153,13 +168,29 @@ else
   error "with no git identity, squashed-clean came back '$no_identity_state' (expected squashed)"
 fi
 
+# A git without `patch-id --verbatim` (older than 2.39) cannot confirm a match
+# byte for byte, so a branch `git cherry` calls landed must come back `unknown`
+# -- kept -- rather than `squashed`.
+old_git_state="$(
+  git() {
+    if [[ "${1:-}" == patch-id ]]; then echo "error: unknown option" >&2; return 129; fi
+    command git "$@"
+  }
+  git_branches_merge_state main squashed-clean
+)"
+if [[ "$old_git_state" == "unknown" ]]; then
+  ok "without patch-id --verbatim a cherry match is unknown, not squashed"
+else
+  error "without patch-id --verbatim, squashed-clean came back '$old_git_state' (expected unknown)"
+fi
+
 # End to end: the script must delete exactly the two landed branches.
 out="$(bash "$root_dir/scripts/prune_branches.sh" --no-fetch --base main --apply 2>&1)" || {
   echo "$out"; error "prune_branches.sh --apply failed"
 }
 
 remaining="$(git for-each-ref --format='%(refname:short)' refs/heads/ | sort | tr '\n' ' ')"
-expected="main never-merged squashed-then-more stranger "
+expected="main never-merged squashed-then-more squashed-then-reindent stranger "
 if [[ "$remaining" == "$expected" ]]; then
   ok "after --apply the surviving branches are exactly: $remaining"
 else

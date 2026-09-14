@@ -117,7 +117,41 @@ git_branches_merge_state() {
   cherry="$(git cherry "$base" "$synth" 2>/dev/null)" || { printf 'unknown\n'; return 0; }
   [[ -n "$cherry" ]] || { printf 'unknown\n'; return 0; }
 
-  if printf '%s\n' "$cherry" | grep -q '^-'; then
+  if ! printf '%s\n' "$cherry" | grep -q '^-'; then
+    printf 'unmerged\n'; return 0
+  fi
+
+  # `git cherry` said the patch is upstream, but its patch-ids ignore
+  # whitespace. A branch that landed and then received a whitespace-only commit
+  # -- a re-indent, which in Python or YAML changes what the code does -- still
+  # matches, and would be deleted with that commit on it. Confirm the match with
+  # whitespace-exact patch-ids before calling it squashed.
+  _git_branches__verbatim_match "$base" "$mb" "$synth"
+}
+
+# Print `squashed` when the probe commit's patch, compared byte for byte, equals
+# the patch of a non-merge commit on base since the merge base; `unmerged` when
+# it does not; `unknown` when the comparison cannot be made (git older than
+# 2.39 has no `git patch-id --verbatim`).
+#
+# Plumbing on both sides with the same flags, so diff configuration cannot make
+# the two patches differ. `--binary --full-index` so two different binary
+# changes to the same path do not collapse into the same "Binary files differ".
+_git_branches__verbatim_match() {
+  local base="$1" mb="$2" synth="$3" want ids
+
+  git patch-id --verbatim </dev/null >/dev/null 2>&1 || { printf 'unknown\n'; return 0; }
+
+  want="$(git diff-tree -p --binary --full-index "$synth" 2>/dev/null | git patch-id --verbatim 2>/dev/null)" \
+    || { printf 'unknown\n'; return 0; }
+  want="${want%% *}"
+  [[ -n "$want" ]] || { printf 'unknown\n'; return 0; }
+
+  ids="$(git rev-list --no-merges "${mb}..${base}" 2>/dev/null \
+         | git diff-tree -p --binary --full-index --stdin 2>/dev/null \
+         | git patch-id --verbatim 2>/dev/null)" || { printf 'unknown\n'; return 0; }
+
+  if printf '%s\n' "$ids" | awk -v want="$want" '$1 == want { found = 1 } END { exit !found }'; then
     printf 'squashed\n'
   else
     printf 'unmerged\n'
