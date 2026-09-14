@@ -78,6 +78,13 @@ if [[ -z "$APP_NAME" ]]; then
   exit 1
 fi
 
+# A formula with no checksum, or with the scaffold's placeholder, renders
+# cleanly and then fails at `brew install`, far from the cause.
+if [[ -z "$BREW_SHA256" || "$BREW_SHA256" == "REPLACE_WITH_SHA256" ]]; then
+  log_error "BREW_SHA256 is not set (empty or the REPLACE_WITH_SHA256 placeholder); pass --sha256 or set it in $config_path"
+  exit 1
+fi
+
 if [[ -z "$BREW_FORMULA_CLASS" ]]; then
   BREW_FORMULA_CLASS="$(pkg_classify_name "$BREW_FORMULA_NAME")"
 fi
@@ -115,19 +122,31 @@ awk \
   -v BREW_DEPENDS_LINES="$BREW_DEPENDS_LINES" \
   -v BREW_INSTALL_CMD="$BREW_INSTALL_CMD" \
   -v BREW_TEST_CMD="$BREW_TEST_CMD" \
-  '{
-    gsub(/@APP_NAME@/, APP_NAME)
-    gsub(/@APP_BIN_NAME@/, APP_BIN_NAME)
-    gsub(/@APP_VERSION@/, APP_VERSION)
-    gsub(/@BREW_FORMULA_CLASS@/, BREW_FORMULA_CLASS)
-    gsub(/@BREW_DESC@/, BREW_DESC)
-    gsub(/@BREW_HOMEPAGE@/, BREW_HOMEPAGE)
-    gsub(/@BREW_URL@/, BREW_URL)
-    gsub(/@BREW_SHA256@/, BREW_SHA256)
-    gsub(/@BREW_LICENSE@/, BREW_LICENSE)
-    gsub(/@BREW_DEPENDS_LINES@/, BREW_DEPENDS_LINES)
-    gsub(/@BREW_INSTALL_CMD@/, BREW_INSTALL_CMD)
-    gsub(/@BREW_TEST_CMD@/, BREW_TEST_CMD)
+  'function subst(s, token, val,    out, i) {
+    # Literal replacement. gsub() treats & in the replacement as the matched
+    # text and \\ as an escape, so a value such as "make && make docs" came
+    # out as "make @TOKEN@@TOKEN@ make docs". index/substr has no such
+    # metacharacters and behaves the same under mawk, gawk and BSD awk.
+    out = ""
+    while ((i = index(s, token)) > 0) {
+      out = out substr(s, 1, i - 1) val
+      s = substr(s, i + length(token))
+    }
+    return out s
+  }
+  {
+    $0 = subst($0, "@APP_NAME@", APP_NAME)
+    $0 = subst($0, "@APP_BIN_NAME@", APP_BIN_NAME)
+    $0 = subst($0, "@APP_VERSION@", APP_VERSION)
+    $0 = subst($0, "@BREW_FORMULA_CLASS@", BREW_FORMULA_CLASS)
+    $0 = subst($0, "@BREW_DESC@", BREW_DESC)
+    $0 = subst($0, "@BREW_HOMEPAGE@", BREW_HOMEPAGE)
+    $0 = subst($0, "@BREW_URL@", BREW_URL)
+    $0 = subst($0, "@BREW_SHA256@", BREW_SHA256)
+    $0 = subst($0, "@BREW_LICENSE@", BREW_LICENSE)
+    $0 = subst($0, "@BREW_DEPENDS_LINES@", BREW_DEPENDS_LINES)
+    $0 = subst($0, "@BREW_INSTALL_CMD@", BREW_INSTALL_CMD)
+    $0 = subst($0, "@BREW_TEST_CMD@", BREW_TEST_CMD)
     print
   }' "$template_path" > "$output_path"
 

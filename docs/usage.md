@@ -518,6 +518,15 @@ Render a Homebrew formula with a release tarball SHA:
 ./vendor/script-helpers/scripts/render_brew_formula.sh --repo . --url <tarball_url> --sha256 <sha256>
 ```
 
+It exits 1 when the checksum is empty or still the scaffold's
+`REPLACE_WITH_SHA256` placeholder. Metadata values are inserted literally, so
+`&` and other awk replacement characters in commands and URLs are safe.
+
+`build_brew_tarball.sh` never packs `.git`, `.env` or `.env.*` files (the
+committed templates `.env.example`, `.env.sample`, `.env.template` and
+`.env.dist` are kept), nor earlier `<name>-*.tar.gz` tarballs in an output
+directory inside the repo. `--exclude` patterns are applied first and still win.
+
 macOS, iOS and bash 3.2
 -----------------------
 
