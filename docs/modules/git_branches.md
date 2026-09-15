@@ -52,7 +52,7 @@ Print exactly one of:
 | `squashed` | The tip is not an ancestor, but the branch's cumulative change is already in the base — a squash merge, a rebase merge or a cherry-pick. |
 | `unmerged` | The branch carries work the base does not have. |
 | `unrelated` | The two share no history. |
-| `unknown` | The squash probe could not be built, or a match could not be confirmed byte for byte (git older than 2.39), so the question was not answered. Distinct from `unmerged` on purpose: both keep the branch, but only one means "I checked". |
+| `unknown` | The squash probe could not be built, or `git cherry` matched the patch but the byte-exact confirmation did not (a whitespace-only difference) or could not run, so the question was not answered. Distinct from `unmerged` on purpose: both keep the branch, but only `unmerged` means "I checked, and the base lacks this work". |
 
 - **Returns** 2 on missing arguments.
 - The probe commit carries its own throwaway identity. `git commit-tree`
@@ -66,13 +66,25 @@ Print exactly one of:
   asks `git cherry` whether an equivalent patch is upstream. `git cherry`
   compares patch-ids, so it sees through a different sha, author, date or
   message. The probe commit is dangling and is garbage-collected.
-- `git cherry`'s patch-ids ignore whitespace, so a match is confirmed with
-  `git patch-id --verbatim` against every non-merge commit on the base since
-  the merge base before the branch is called `squashed`. Without that, a branch
-  that landed and then received a whitespace-only commit — a re-indent, which
-  in Python or YAML changes behaviour — was reported `squashed` and deleted
-  with that commit on it. `--verbatim` needs git 2.39; on an older git such a
-  branch is reported `unknown` and kept.
+- `git cherry`'s patch-ids ignore whitespace, so a match is confirmed byte for
+  byte against the non-merge commits on the base since the merge base before
+  the branch is called `squashed`. Without that, a branch that landed and then
+  received a whitespace-only commit — a re-indent, which in Python or YAML
+  changes behaviour — was reported `squashed` and deleted with that commit on
+  it. A match `git cherry` finds and the byte-exact check does not confirm is
+  reported `unknown` and kept.
+- The confirmation uses `git patch-id --verbatim` (git 2.39+). On an older git
+  it hashes each patch instead, with the commit id line, hunk header line
+  numbers and the `index` line of text changes removed, which is what a
+  verbatim patch-id ignores; a binary change keeps its `index` line, whose blob
+  ids are the only thing that tells two binary changes apart. Only when neither
+  can run is every such branch `unknown`.
+- Only base commits that touch the paths the branch touches are compared — a
+  commit with an identical patch necessarily touches exactly those paths — and
+  patches are taken with `--full-index` but without `--binary`, so a base with
+  a long history of binary assets is not diffed blob by blob. Path names are
+  read NUL-separated and passed as literal pathspecs, so names with spaces,
+  newlines or pathspec magic characters match as themselves.
 - A branch whose tree already equals the base's tree is reported `squashed`
   before that test runs: an empty diff has no patch-id to match and would
   otherwise be misreported as `unmerged`.
