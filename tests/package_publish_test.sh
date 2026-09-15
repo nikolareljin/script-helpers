@@ -67,10 +67,9 @@ while [ $# -gt 0 ]; do
   case "$1" in -l) file="$2"; shift ;; -S) field="$2"; shift ;; esac
   shift
 done
-line="$(head -n1 "$file")"
 case "$field" in
-  Source)  printf '%s\n' "${line%% *}" ;;
-  Version) v="${line#*(}"; printf '%s\n' "${v%%)*}" ;;
+  Source)  sed -n '1s/ .*//p' "$file" ;;
+  Version) sed -n '1s/^[^(]*(\([^)]*\)).*/\1/p' "$file" ;;
 esac
 SH
 chmod +x "$pbin/dpkg-parsechangelog"
