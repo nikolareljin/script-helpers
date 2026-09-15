@@ -76,7 +76,14 @@ download_file() {
     rm -f "$part"
     return "$rc"
   fi
-  mv -f "$part" "$output" || { rm -f "$part"; return 1; }
+  if [[ -e "$output" || -L "$output" ]]; then
+    # Written through the existing path, as curl -o always did: the file keeps
+    # its mode (a downloaded script stays executable) and a symlink stays a link.
+    cat "$part" >"$output" || { rm -f "$part"; return 1; }
+    rm -f "$part"
+  else
+    mv -f "$part" "$output" || { rm -f "$part"; return 1; }
+  fi
   return 0
 }
 

@@ -60,6 +60,14 @@ if command -v python3 >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
   rm -f "$tmp/umask.bin"
   ( umask 022; DOWNLOAD_USE_DIALOG=never download_file "http://127.0.0.1:$port/present.bin" "$tmp/umask.bin" 2>/dev/null )
   if [[ "$(file_mode "$tmp/umask.bin")" == "644" ]]; then ok "a downloaded file gets the umask mode, not mktemp's 0600"; else error "downloaded file mode $(file_mode "$tmp/umask.bin")"; fi
+  # Re-downloading over an existing file keeps its mode and a symlink, as
+  # curl -o writing in place always did.
+  printf 'old' >"$tmp/tool.sh"; chmod 755 "$tmp/tool.sh"
+  rc=0; ( umask 022; DOWNLOAD_USE_DIALOG=never download_file "http://127.0.0.1:$port/present.bin" "$tmp/tool.sh" 2>/dev/null ) || rc=$?
+  if [[ "$rc" == "0" && "$(file_mode "$tmp/tool.sh")" == "755" && "$(cat "$tmp/tool.sh")" == "payload" ]]; then ok "an existing executable keeps its mode when downloaded over"; else error "re-download mode $(file_mode "$tmp/tool.sh") rc=$rc"; fi
+  printf 'old' >"$tmp/target.bin"; ln -sf "$tmp/target.bin" "$tmp/link.bin"
+  rc=0; DOWNLOAD_USE_DIALOG=never download_file "http://127.0.0.1:$port/present.bin" "$tmp/link.bin" 2>/dev/null || rc=$?
+  if [[ "$rc" == "0" && -L "$tmp/link.bin" && "$(cat "$tmp/target.bin")" == "payload" ]]; then ok "a download to a symlink writes through it"; else error "download to symlink: rc=$rc link=$([[ -L "$tmp/link.bin" ]] && echo yes || echo no) target=$(cat "$tmp/target.bin")"; fi
   kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true; server_pid=""
 else
   note "SKIP download_file: needs python3 and curl"
