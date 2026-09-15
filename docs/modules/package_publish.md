@@ -48,11 +48,15 @@ Environment:
 
 The passphrase is written to a private (0600) temp file and handed to gpg with `--passphrase-file`, never placed on a command line where other local users could read it from the process list. The file is removed when `debuild` returns, whether it succeeded or failed. Returns `debuild`'s exit status.
 
+The sign command is word-split before it runs, so the file's path must not contain spaces or shell pattern characters. When `TMPDIR` would give such a path, the file is created in `/tmp` instead; if that also fails the function returns 1.
+
+An INT or TERM during the build removes the file immediately. Any INT/TERM trap the caller had is restored afterwards and the signal is then re-delivered to the calling shell, so it is not swallowed; called from a subshell, the function returns 130 (INT) or 143 (TERM) instead.
+
 ### `pkg_find_changes_file`
 
 Usage: `pkg_find_changes_file <repo_dir>`
 
-Prints the path of the package's `.changes` file in the parent directory. When `debian/changelog` exists and `dpkg-parsechangelog` is available, `<Source>_<Version>_source.changes` (epoch removed) is preferred. Otherwise a single `.changes` file in the parent directory is taken. The parent is often shared with other projects' builds, so when there are several and none is named for this package it returns 1 and lists them instead of picking one.
+Prints the path of the package's `.changes` file in the parent directory. When `debian/changelog` exists and `dpkg-parsechangelog` is available, `<Source>_<Version>_source.changes` (epoch removed) is preferred; failing that, only that source package's own files (`<Source>_*.changes`) are considered, and a single one is taken. A `.changes` file belonging to another package is never returned: when it is all there is, the function returns 1 and names it. Only when `debian/changelog` cannot be read is a single `.changes` file of any name taken. The parent is often shared with other projects' builds, so when there are several candidates it returns 1 and lists them instead of picking one.
 
 ### `pkg_upload_ppa`
 

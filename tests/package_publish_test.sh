@@ -55,6 +55,50 @@ else
   note "dpkg-parsechangelog not installed — skipping the named-lookup assertion (not a failure)"
 fi
 
+# 2b) the source name is known but its own .changes is absent: a lone .changes
+#     of ANOTHER package is refused, not returned for upload. dpkg-parsechangelog
+#     is stubbed so this runs without Debian tooling.
+pbin="$tmp/pbin"; mkdir -p "$pbin"
+cat > "$pbin/dpkg-parsechangelog" <<'SH'
+#!/usr/bin/env sh
+# -l <file> -S <field>: read "name (version) ..." from the first line.
+file=""; field=""
+while [ $# -gt 0 ]; do
+  case "$1" in -l) file="$2"; shift ;; -S) field="$2"; shift ;; esac
+  shift
+done
+line="$(head -n1 "$file")"
+case "$field" in
+  Source)  printf '%s\n' "${line%% *}" ;;
+  Version) v="${line#*(}"; printf '%s\n' "${v%%)*}" ;;
+esac
+SH
+chmod +x "$pbin/dpkg-parsechangelog"
+ws="$tmp/ws-lone-other"
+mkdir -p "$ws/myapp/debian"
+printf 'myapp (1.1.0-1) unstable; urgency=medium\n\n  * Release.\n\n -- Test <test@example.invalid>  Mon, 14 Sep 2026 12:00:00 +0000\n' \
+  > "$ws/myapp/debian/changelog"
+touch "$ws/otherproj_2.0.0_source.changes"
+set +e
+got="$(PATH="$pbin:$PATH" pkg_find_changes_file "$ws/myapp" 2>"$tmp/lone.err")"
+status=$?
+set -e
+[[ "$status" -eq 1 && -z "$got" ]] \
+  || error "with only another package's .changes alongside, pkg_find_changes_file returned $status and '$got' (expected 1 and nothing)"
+grep -q "myapp" "$tmp/lone.err" || error "the refusal did not name the source package: $(cat "$tmp/lone.err")"
+# The package's own binary .changes, alone, is still found by its source name.
+touch "$ws/myapp_1.1.0-1_amd64.changes"
+got="$(PATH="$pbin:$PATH" pkg_find_changes_file "$ws/myapp" 2>/dev/null)" || got=""
+[[ "$got" == "$ws/myapp/../myapp_1.1.0-1_amd64.changes" ]] \
+  || error "the package's own lone .changes was not found by source name (got '$got')"
+# Without a readable debian/changelog the lone-file fallback still applies.
+mkdir -p "$ws/nochangelog"
+rm -f "$ws/myapp_1.1.0-1_amd64.changes"
+got="$(PATH="$pbin:$PATH" pkg_find_changes_file "$ws/nochangelog" 2>/dev/null)" || got=""
+[[ "$got" == "$ws/nochangelog/../otherproj_2.0.0_source.changes" ]] \
+  || error "without debian/changelog a lone .changes was not taken (got '$got')"
+note "a known source name refuses another package's lone .changes"
+
 # 3) several .changes files and none named for the package: an error, not a guess
 mkdir -p "$tmp/many/app"
 touch "$tmp/many/a_1_source.changes" "$tmp/many/b_2_source.changes"
@@ -103,6 +147,7 @@ if grep -q 'secret' "$tmp/db.args" 2>/dev/null; then error "the passphrase was o
 [[ -z "$(ls -A "$tmp/tmpdir")" ]] || error "the passphrase file was left behind: $(ls -A "$tmp/tmpdir")"
 
 set +e
+# shellcheck disable=SC2030,SC2031  # each fixture sets PATH for its own subshell only
 ( set -e
   PATH="$bin:$PATH" TMPDIR="$tmp/tmpdir" DEBUILD_LOG="$tmp/db2" DEBUILD_EXIT=9 PPA_GPG_PASSPHRASE='x'
   export PATH TMPDIR DEBUILD_LOG DEBUILD_EXIT PPA_GPG_PASSPHRASE
@@ -113,6 +158,65 @@ set -e
 [[ "$status" -eq 9 ]] || error "a failing debuild under set -e gave $status (expected 9)"
 [[ -z "$(ls -A "$tmp/tmpdir")" ]] || error "a failing build left the passphrase file behind: $(ls -A "$tmp/tmpdir")"
 note "the GPG passphrase is passed in a private file that is removed afterwards"
+
+# 5) TMPDIR with a space: the sign command is word-split, so the passphrase
+#    file must be made somewhere its path survives that -- and still removed.
+spaced="$tmp/tmp dir"; mkdir -p "$spaced"
+set +e
+# shellcheck disable=SC2030,SC2031  # each fixture sets PATH for its own subshell only
+( PATH="$bin:$PATH" TMPDIR="$spaced" DEBUILD_LOG="$tmp/db3" PPA_GPG_PASSPHRASE='spaced phrase' \
+    pkg_build_source_package "$tmp/repo" "" "" "" KEYID ) >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 0 ]] || error "with a space in TMPDIR pkg_build_source_package returned $status"
+[[ "$(cat "$tmp/db3.pass" 2>/dev/null)" == "spaced phrase" ]] \
+  || error "with a space in TMPDIR gpg would not find the passphrase file: $(cat "$tmp/db3.args" 2>/dev/null)"
+pass_path="$(sed -n 's/.*--passphrase-file \([^ ]*\).*/\1/p' "$tmp/db3.args" 2>/dev/null)"
+[[ -n "$pass_path" && ! -e "$pass_path" ]] || error "the /tmp passphrase file was left behind: '$pass_path'"
+[[ -z "$(ls -A "$spaced")" ]] || error "a passphrase file was left in the spaced TMPDIR: $(ls -A "$spaced")"
+note "a TMPDIR with a space does not break the sign command"
+
+# 6) INT/TERM during the build: the file is removed, the caller's own trap is
+#    put back, and the signal is not swallowed. The stub signals the shell that
+#    called it, as a Ctrl-C or a CI cancel would.
+mkdir -p "$tmp/sigbin" "$tmp/sigtmp"
+cat > "$tmp/sigbin/debuild" <<'SH'
+#!/usr/bin/env sh
+printf '%s\n' "$*" > "$DEBUILD_LOG.args"
+kill -s "$DEBUILD_SIG" "$PPID"
+exit 1
+SH
+cp "$bin/gpg" "$tmp/sigbin/gpg"
+chmod +x "$tmp/sigbin/debuild"
+# In a subshell: the conventional status comes back and the prior trap is intact.
+set +e
+# shellcheck disable=SC2030,SC2031  # each fixture sets PATH for its own subshell only
+out="$(
+  PATH="$tmp/sigbin:$PATH" TMPDIR="$tmp/sigtmp" DEBUILD_LOG="$tmp/db4" DEBUILD_SIG=TERM PPA_GPG_PASSPHRASE='x'
+  export PATH TMPDIR DEBUILD_LOG DEBUILD_SIG PPA_GPG_PASSPHRASE
+  trap 'echo caller-int' INT
+  pkg_build_source_package "$tmp/repo" "" "" "" KEYID >/dev/null 2>&1
+  echo "rc=$?"
+  trap -p INT
+)"
+set -e
+[[ "$out" == *"rc=143"* ]] || error "TERM during the build did not return 143 from a subshell: $out"
+[[ "$out" == *"caller-int"* ]] || error "the caller's INT trap was not restored: $out"
+[[ -z "$(ls -A "$tmp/sigtmp")" ]] || error "TERM during the build left the passphrase file behind: $(ls -A "$tmp/sigtmp")"
+# In a top-level shell: the signal is re-delivered, so the shell dies of it.
+rm -rf "$tmp/sigtmp"; mkdir -p "$tmp/sigtmp"
+set +e
+# shellcheck disable=SC2030,SC2031  # each fixture sets PATH for its own subshell only
+PATH="$tmp/sigbin:$PATH" TMPDIR="$tmp/sigtmp" DEBUILD_LOG="$tmp/db5" DEBUILD_SIG=INT PPA_GPG_PASSPHRASE='x' \
+  bash -c 'source "$1/helpers.sh"; shlib_import logging package_publish
+           pkg_build_source_package "$2" "" "" "" KEYID; echo "survived rc=$?"' _ "$root_dir" "$tmp/repo" \
+  > "$tmp/sig5.out" 2>/dev/null
+status=$?
+set -e
+[[ -z "$(ls -A "$tmp/sigtmp")" ]] || error "INT during the build left the passphrase file behind: $(ls -A "$tmp/sigtmp")"
+grep -q survived "$tmp/sig5.out" && error "INT during the build was swallowed: $(cat "$tmp/sig5.out")"
+[[ "$status" -eq 130 ]] || error "INT during the build: the shell exited $status (expected 130)"
+note "INT/TERM during the build removes the passphrase file and keeps the caller's traps"
 
 if [[ "$failures" -eq 0 ]]; then
   note "ALL PASSED"
