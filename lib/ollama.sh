@@ -1091,7 +1091,7 @@ ollama_run_model() {
 # the literal replace wrote nothing), values travel through ENVIRON (awk -v
 # turned backslashes into escapes), a newline is refused (it would add a line
 # to a file that load_env sources), and a replaced file keeps its mode (a 0600
-# .env holding a token came back 0644).
+# .env holding a token came back 0644) and, when it is a symlink, stays one.
 ollama_update_env() {
   local env_file="${1:-.env}" key="${2:-}" value="${3:-}"
   if [[ -z "$key" ]]; then
@@ -1107,17 +1107,20 @@ ollama_update_env() {
   touch "$env_file" || return 1
   if _OLLAMA_ENV_KEY="$key" awk 'BEGIN{FS="="; k=ENVIRON["_OLLAMA_ENV_KEY"]} $1==k{found=1; exit} END{exit !found}' "$env_file"; then
     # Replace line
-    local tmp mode
+    local tmp
     tmp="$(mktemp "${env_file}.XXXXXX")" || return 1
-    mode="$(stat -c %a "$env_file" 2>/dev/null || stat -f %Lp "$env_file" 2>/dev/null)"
     if ! _OLLAMA_ENV_KEY="$key" _OLLAMA_ENV_VALUE="$value" \
         awk 'BEGIN{FS=OFS="="; k=ENVIRON["_OLLAMA_ENV_KEY"]; v=ENVIRON["_OLLAMA_ENV_VALUE"]} $1==k{$0=k"="v} {print}' \
         "$env_file" >"$tmp"; then
       rm -f "$tmp"
       return 1
     fi
-    [[ -z "$mode" ]] || chmod "$mode" "$tmp" 2>/dev/null || true
-    mv "$tmp" "$env_file" || { rm -f "$tmp"; return 1; }
+    # Written back through the path rather than mv'd over it, as hub_write_env
+    # does: mv replaced a symlinked .env with a regular file, and copying the
+    # mode read off the link made that file 0777. `cat >` follows the link and
+    # keeps the inode, so the link, the target and its mode all stay.
+    cat "$tmp" >"$env_file" || { rm -f "$tmp"; return 1; }
+    rm -f "$tmp"
   else
     printf "%s=%s\n" "$key" "$value" >>"$env_file"
   fi

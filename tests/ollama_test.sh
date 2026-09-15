@@ -54,6 +54,16 @@ printf 'aXb=1\n' >"$tmp/k.env"
 ollama_update_env "$tmp/k.env" a.b 2
 if grep -q '^aXb=1$' "$tmp/k.env" && grep -q '^a\.b=2$' "$tmp/k.env"; then ok "the key is matched literally"; else error "regex key: $(cat "$tmp/k.env")"; fi
 if ls "$tmp"/app.env.* >/dev/null 2>&1; then error "temporary files left behind"; else ok "no temporary files left"; fi
+# A symlinked .env (dotfile-managed): mv replaced the link with a regular file,
+# and the mode copied off the link itself (0777) went onto that file.
+mkdir -p "$tmp/dots" "$tmp/proj"
+printf 'SECRET_TOKEN=s3cr3t\nmodel=llama3\n' >"$tmp/dots/real.env"; chmod 600 "$tmp/dots/real.env"
+ln -s "$tmp/dots/real.env" "$tmp/proj/.env"
+ollama_update_env "$tmp/proj/.env" model qwen2
+if [[ -L "$tmp/proj/.env" ]]; then ok "a symlinked .env is still a symlink"; else error "the symlink was replaced by a file with mode $(file_mode "$tmp/proj/.env")"; fi
+if grep -q '^model=qwen2$' "$tmp/dots/real.env"; then ok "the update reached the link's target"; else error "target not updated: $(cat "$tmp/dots/real.env")"; fi
+if [[ "$(file_mode "$tmp/dots/real.env")" == "600" ]]; then ok "the target of a symlinked 0600 .env stays 0600"; else error "target mode became $(file_mode "$tmp/dots/real.env")"; fi
+if ls "$tmp"/proj/.env.* >/dev/null 2>&1; then error "temporary files left next to the link"; else ok "no temporary files left next to the link"; fi
 
 note "ollama_runtime_type"
 printf 'ollama_runtime=Dockr\n' >"$tmp/rt.env"
