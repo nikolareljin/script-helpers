@@ -116,21 +116,30 @@ fi
 
 # An option given without its value is an error, not an endless loop: `shift 2`
 # with one argument left shifts nothing, so the loop saw the same flag forever.
+# Eleven checks: once one has hung, the rest get a 1s bound, so a regression
+# fails the file in about 20s rather than two minutes.
+bound=10
+bounded() {
+  local rc
+  run_bounded "$bound" "$@"; rc=$?
+  [[ "$rc" -eq 137 ]] && bound=1
+  return "$rc"
+}
 set +e
 for args in "--device" "--platform" "--out"; do
-  run_bounded 10 screencap_shot "$args" >/dev/null 2>&1
+  bounded screencap_shot "$args" >/dev/null 2>&1
   [[ $? -eq 2 ]] || error "screencap_shot with a trailing $args did not return 2 (137 = hung)"
 done
 for args in "--device" "--platform" "--out" "--seconds" "--size" "--bitrate"; do
-  run_bounded 10 screencap_record "$args" >/dev/null 2>&1
+  bounded screencap_record "$args" >/dev/null 2>&1
   [[ $? -eq 2 ]] || error "screencap_record with a trailing $args did not return 2 (137 = hung)"
 done
 printf 'x' > "$tmp/clip.mp4"
-run_bounded 10 screencap_frame "$tmp/clip.mp4" "$tmp/f.png" --at >/dev/null 2>&1
+bounded screencap_frame "$tmp/clip.mp4" "$tmp/f.png" --at >/dev/null 2>&1
 [[ $? -eq 2 ]] || error "screencap_frame with a trailing --at did not return 2 (137 = hung)"
-run_bounded 10 screencap_gif "$tmp/clip.mp4" "$tmp/f.gif" --fps >/dev/null 2>&1
+bounded screencap_gif "$tmp/clip.mp4" "$tmp/f.gif" --fps >/dev/null 2>&1
 [[ $? -eq 2 ]] || error "screencap_gif with a trailing --fps did not return 2 (137 = hung)"
-run_bounded 10 screencap_gif "$tmp/clip.mp4" "$tmp/f.gif" --width >/dev/null 2>&1
+bounded screencap_gif "$tmp/clip.mp4" "$tmp/f.gif" --width >/dev/null 2>&1
 [[ $? -eq 2 ]] || error "screencap_gif with a trailing --width did not return 2 (137 = hung)"
 set -e
 note "a trailing option without a value returns 2"
