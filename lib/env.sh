@@ -82,18 +82,30 @@ _env__parse_value() {
     # A quoted value runs to its closing quote; '#' inside it is not a comment.
     # Double quotes honour \" and \\ as the shell does; single quotes nothing.
     rest="${value:1}"
-    i=0
     local closed=0
-    while [[ $i -lt ${#rest} ]]; do
-      c="${rest:$i:1}"
-      if [[ "$q" == '"' && "$c" == "\\" && ( "${rest:$((i+1)):1}" == '"' || "${rest:$((i+1)):1}" == "\\" ) ]]; then
-        inner+="${rest:$((i+1)):1}"; i=$((i+2)); continue
+    if [[ "$q" == "'" || "$rest" != *"\\"* ]]; then
+      # Nothing to unescape: cut at the first closing quote. The loop below
+      # indexes one character at a time, which is quadratic -- a 20KB value
+      # took seconds.
+      if [[ "$rest" == *"$q"* ]]; then
+        inner="${rest%%"$q"*}"
+        # Not ${rest#*"$q"}: a shortest-prefix match is itself quadratic.
+        after="${rest:$((${#inner} + 1))}"
+        closed=1
       fi
-      if [[ "$c" == "$q" ]]; then closed=1; break; fi
-      inner+="$c"; i=$((i+1))
-    done
-    if [[ "$closed" -eq 1 ]]; then
+    else
+      i=0
+      while [[ $i -lt ${#rest} ]]; do
+        c="${rest:$i:1}"
+        if [[ "$c" == "\\" && ( "${rest:$((i+1)):1}" == '"' || "${rest:$((i+1)):1}" == "\\" ) ]]; then
+          inner+="${rest:$((i+1)):1}"; i=$((i+2)); continue
+        fi
+        if [[ "$c" == "$q" ]]; then closed=1; break; fi
+        inner+="$c"; i=$((i+1))
+      done
       after="${rest:$((i+1))}"
+    fi
+    if [[ "$closed" -eq 1 ]]; then
       after="${after#"${after%%[![:space:]]*}"}"
       # Only a comment may follow the closing quote; anything else is not a
       # quoted value, and falls through to the unquoted reading below.
@@ -103,8 +115,10 @@ _env__parse_value() {
       fi
     fi
   fi
-  # Unquoted: a comment starts at a '#' that begins the value or follows
-  # whitespace, as in the shell and in dotenv; "ab#cd" is a value.
+  # Unquoted: a comment starts at a '#' that follows whitespace, as in the
+  # shell and in dotenv; "ab#cd" is a value. A value that begins with '#'
+  # (KEY=#x) is read as empty here and so returns the default, as it always
+  # did -- the shell and dotenv both read it as "#x".
   [[ "$value" == '#'* ]] && value=""
   value="${value%%[[:space:]]#*}"
   value="${value%"${value##*[![:space:]]}"}"

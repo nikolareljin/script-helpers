@@ -58,6 +58,7 @@ check_table unchanged \
   '""' 'DEFAULT' \
   '# only a comment' 'DEFAULT' \
   "value"$'\r' 'value' \
+  "'it''s'" "it''s" \
   '"a\"b"' 'a"b' \
   '"abc' 'abc' \
   'abc"' 'abc' \
@@ -77,6 +78,47 @@ check_table fixed \
   '-e' '-e' \
   'C:\new\dev' 'C:\new\dev' \
   "'it\"s'" 'it"s'
+
+note "quoted values are not read one character at a time"
+# Parsing a quoted value indexed it character by character, which is quadratic:
+# a 20KB value took about 9 seconds and a 40KB one well over half a minute.
+# run_bounded <seconds> <cmd...>: sets rc, 124 when the command had to be killed.
+run_bounded() {
+  local limit="$1" pid waited=0; shift
+  "$@" >/dev/null 2>&1 &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    if [[ "$waited" -ge $((limit * 10)) ]]; then
+      kill -9 "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      rc=124
+      return 0
+    fi
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  rc=0; wait "$pid" || rc=$?
+  return 0
+}
+big="$(printf '%40000s' '' | tr ' ' 'x')"
+# The parser itself runs in the bounded process, not in a command substitution
+# under it: kill -9 would not reach that grandchild, which kept the CPU busy
+# after a timeout.
+parse_big() { _env__parse_value "$1" >"$tmp/big.out"; }
+for form in "'$big'" "\"$big\"" "'$big' # note"; do
+  rc=0; run_bounded 5 parse_big "$form"
+  case "$rc" in
+    0)
+      if [[ "$(cat "$tmp/big.out")" == "$big" ]]; then
+        ok "a 40KB ${form:0:1}-quoted value parses within 5s (${form:$((${#form} - 6))})"
+      else
+        error "a 40KB ${form:0:1}-quoted value parsed wrong"
+      fi
+      ;;
+    124) error "a 40KB ${form:0:1}-quoted value took longer than 5s" ;;
+    *) error "a 40KB ${form:0:1}-quoted value failed (rc=$rc)" ;;
+  esac
+done
 
 # Last assignment wins, as when the file is sourced.
 printf 'KEY=first\nKEY=second\n' >"$tmp/t.env"
