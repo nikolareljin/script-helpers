@@ -170,10 +170,17 @@ android_package_name() {
   local dir="${1:-.}" artifact="${2:-}" aapt out pkg=""
   if [[ -n "$artifact" && -f "$artifact" ]]; then
     if aapt="$(android_sdk_tool aapt2 2>/dev/null)" || aapt="$(android_sdk_tool aapt 2>/dev/null)"; then
-      out="$("$aapt" dump badging "$artifact" 2>/dev/null | grep -m1 '^package:')" || out=""
       # Anchored on `package: name=`: the badging line carries several `name`
       # attributes, and build-tools 37 appends compileSdkVersionCodename='15',
       # which a greedy `.*name=` picked instead of the package.
+      #
+      # awk reads the whole dump rather than stopping at the first match: with
+      # `grep -m1` aapt2 was still writing when grep exited, got SIGPIPE, and a
+      # caller running with pipefail (the dev-CLI template does) saw the
+      # pipeline fail, so the package came back empty and the build-file
+      # fallback -- without applicationIdSuffix -- was used instead.
+      out="$("$aapt" dump badging "$artifact" 2>/dev/null \
+        | awk '!seen && /^package: name=/ { print; seen = 1 }')" || out=""
       pkg="$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<<"$out")"
       [[ -n "$pkg" ]] && { printf '%s\n' "$pkg"; return 0; }
     fi

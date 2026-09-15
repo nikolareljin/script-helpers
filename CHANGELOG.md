@@ -2,6 +2,19 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## 2026-09-15 — v0.29.1
+
+### Fixed
+- **`android_package_name` returns the package under `pipefail`.** 0.29.0 read
+  the badging dump with `grep -m1`, which exits at the first match while
+  `aapt2` is still writing. `aapt2` then died of SIGPIPE, a caller running with
+  `pipefail` (the dev-CLI template does) saw the pipeline fail, and the package
+  came back empty, so the build-file fallback -- which ignores
+  `applicationIdSuffix` -- was used and `./dev deploy` verified the wrong
+  package. The whole dump is now read. The test uses a dump long enough to fill
+  the pipe buffer, so the failure is deterministic instead of an occasional
+  macOS CI failure.
+
 ## 2026-09-14 — v0.29.0
 
 A security and correctness pass over the library, the scripts and the dev-CLI
