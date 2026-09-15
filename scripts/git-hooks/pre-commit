@@ -13,7 +13,12 @@ fi
 # Block accidental .env commits while allowing cleanup deletions. Templates
 # meant to be committed -- .env.example, .env.sample, .env.template, .env.dist,
 # and the same suffix on a variant such as .env.local.example -- are allowed.
-staged_env="$(git diff --cached --name-only --diff-filter=ACMR \
+# Paths are read NUL-separated: git otherwise quotes a path with non-ASCII
+# bytes, a tab, a quote or a newline ("\303\274n\303\257/.env"), and the
+# closing quote hid the .env suffix from the pattern. NULs become newlines, so
+# a newline inside a name can only add a line that is blocked, never hide one.
+staged_env="$(git -c core.quotePath=false diff --cached --name-only -z --diff-filter=ACMR \
+  | tr '\000' '\n' \
   | grep -E '(^|/)\.env(\..+)?$' \
   | grep -vE '(^|/)\.env(\..+)?\.(example|sample|template|dist)$' || true)"
 if [[ -n "$staged_env" ]]; then

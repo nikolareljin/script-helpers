@@ -39,7 +39,15 @@ for f in .env .env.local .env.production app/.env app/.env.staging; do
   if [[ "$rc" -eq 1 ]]; then note "blocks $f"; else error "$f was not blocked (exit $rc)"; fi
 done
 
-for f in .env.example .env.sample .env.template .env.dist app/.env.example \
+# git quotes these paths in plain --name-only output, and the closing quote
+# hid the .env suffix from the guard.
+for f in "ünï/.env" "ünï/.env.local" $'tab\tdir/.env' 'quo"te/.env' $'new\nline/.env'; do
+  rc="$(hook_rc "$f")"
+  shown="$(printf '%q' "$f")"
+  if [[ "$rc" -eq 1 ]]; then note "blocks $shown"; else error "$shown was not blocked (exit $rc)"; fi
+done
+
+for f in "ünï/.env.example" .env.example .env.sample .env.template .env.dist app/.env.example \
          .env.local.example notes.env config.envrc; do
   rc="$(hook_rc "$f")"
   if [[ "$rc" -eq 0 ]]; then note "allows $f"; else error "$f was blocked (exit $rc)"; fi
