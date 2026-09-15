@@ -532,7 +532,7 @@ Publish the formula to a tap repository:
 
 ```bash
 HOMEBREW_TAP_TOKEN=... ./vendor/script-helpers/scripts/publish_homebrew.sh \
-  --formula packaging/brew/myapp.rb --tap-repo owner/homebrew-tap
+  --formula packaging/brew/myapp.rb --tap-repo owner/homebrew-example
 ```
 
 Pass the token in `HOMEBREW_TAP_TOKEN` rather than `--tap-token`: a
