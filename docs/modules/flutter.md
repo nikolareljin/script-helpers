@@ -12,7 +12,7 @@ Functions
 
 - `flutter_resolve_sdk`
   - Purpose: Print the path to a usable `flutter` executable, searching `PATH` first and then the conventional install locations. Does not modify `PATH` — the caller decides.
-  - Env: `FLUTTER_ROOT` and `FLUTTER_HOME` are honoured when set.
+  - Env: `FLUTTER_ROOT` and `FLUTTER_HOME` are honoured when set, but only after `PATH`: a `flutter` on `PATH` wins over both. The order is `PATH`, then `$FLUTTER_ROOT/bin/flutter`, then `$FLUTTER_HOME/bin/flutter`, then the conventional install locations. To pin an SDK, put its `bin` first on `PATH`.
   - Returns: 0 and the path; 3 with no output when none is found.
 
 - `flutter_available`
@@ -41,7 +41,7 @@ Functions
   - Purpose: Build an artifact. Defaults to `--release`, because a Flutter build with no mode flag is a debug build and that is rarely what a caller of a build function means.
   - Args:
     - `--simulator` — ios target only. `flutter build ios` targets a physical device, and the `.app` it produces cannot be installed on a simulator.
-  - Returns: 2 on an unknown target or option, or on `--simulator` with a non-ios target; otherwise Flutter's status.
+  - Returns: 2 on an unknown target or option, a `--flavor` without a value, or `--simulator` with a non-ios target; otherwise Flutter's status.
   - Example: `flutter_build appbundle mobile --release --flavor prod`
   - Example: `flutter_build ios mobile --debug --simulator`
 
@@ -51,15 +51,15 @@ Functions
 
 - `flutter_resolve_device [preferred] [dir=.]`
   - Purpose: Print the device id to build against — `preferred` if it is connected, else `FLUTTER_DEVICE`, else the only connected device.
-  - Returns: 0 and the id; 1 with a listing on stderr when the choice is ambiguous. An ambiguous device is a question for the caller, not a guess.
+  - Returns: 0 and the id; 1 when `preferred` is not connected or nothing is; 1 with a listing on stderr when the choice is ambiguous. An ambiguous device is a question for the caller, not a guess.
 
 Environment
 -----------
 
 | Variable | Use |
 |---|---|
-| `FLUTTER_ROOT` | Preferred Flutter SDK location. |
-| `FLUTTER_HOME` | Fallback SDK location. |
+| `FLUTTER_ROOT` | SDK location, used when no `flutter` is on `PATH`. |
+| `FLUTTER_HOME` | SDK location, used when neither `PATH` nor `FLUTTER_ROOT` provides one. |
 | `FLUTTER_DEVICE` | Default device id for `flutter_resolve_device`. |
 
 Dependencies

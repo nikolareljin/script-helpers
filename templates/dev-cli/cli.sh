@@ -61,6 +61,18 @@ parse_dev_options() {
       --user)
         [[ $# -ge 2 ]] || { log_error "--user needs a profile id, e.g. --user 0"; exit 2; }
         DEV_USER="$2"; shift 2 ;;
+      # Options the forwarded scripts take a value for: preflight's --stack and
+      # --dir, screencap's --platform, --out, --seconds, --size and --bitrate.
+      # The value is passed through with its flag, so a value that happens to
+      # be a target word (`./dev preflight --stack ios`, `./dev screenshot
+      # --out web`) is not taken as the target and the flag left dangling.
+      # A next word starting with `-` is another option, not the value: taking
+      # it would swallow `--help` or `--release` (`./dev preflight --stack
+      # --help` ran preflight). The flag is then passed on alone for the script
+      # to reject as missing its value.
+      --stack|--dir|--platform|--out|--seconds|--size|--bitrate)
+        DEV_ARGS+=("$1"); shift
+        if [[ $# -gt 0 && "$1" != -* ]]; then DEV_ARGS+=("$1"); shift; fi ;;
       --release) DEV_RELEASE=true; shift ;;
       --verbose) DEV_VERBOSE=true; shift ;;
       # Asking a verb for help must not run the verb. Without this, `./dev
@@ -88,7 +100,10 @@ not_applicable() {
 # "<stack>\t<dir>" lines.
 
 dev_projects() {
-  bash "$SCRIPT_HELPERS_DIR/scripts/preflight.sh" --list 2>/dev/null || true
+  # CI cleared for this call only: preflight refuses to run under CI=true, and
+  # with its error discarded every nested project went undetected in CI. --list
+  # only detects; it runs no checks.
+  CI="" bash "$SCRIPT_HELPERS_DIR/scripts/preflight.sh" --list 2>/dev/null || true
 }
 
 dev_has_stack() { dev_projects | grep -q "^$1	"; }

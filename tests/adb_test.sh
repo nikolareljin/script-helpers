@@ -19,6 +19,18 @@ cd "$root_dir"
 failures=0
 note()  { echo "[adb_test] $*"; }
 error() { echo "[adb_test][ERROR] $*" >&2; failures=$((failures+1)); }
+# Run a command with a time limit and return its status, or 137 when it had to
+# be killed. For checks whose regression is a hang (an option parser that
+# loops on a missing value): a hang must fail the run, not stall it. The
+# watcher's output goes to /dev/null so its sleep cannot hold a pipe open.
+run_bounded() {
+  local secs=$1; shift
+  "$@" & local pid=$!
+  ( sleep "$secs"; kill -9 "$pid" 2>/dev/null ) >/dev/null 2>&1 & local w=$!
+  wait "$pid" 2>/dev/null; local rc=$?
+  kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
+  return $rc
+}
 
 # shellcheck source=/dev/null
 source ./helpers.sh
@@ -183,6 +195,14 @@ adb_installed_for_user "SERIAL1" >/dev/null 2>&1;   [[ $? -eq 2 ]] || error "ins
 adb_installed_for_user "S" "p" abc >/dev/null 2>&1; [[ $? -eq 2 ]] || error "installed_for_user with a non-numeric user did not return 2"
 set -e
 note "bad arguments return 2"
+
+# A trailing --user with no value is an error, not an endless loop.
+printf 'apk' > "$tmp/app.apk"
+set +e
+run_bounded 10 adb_install_verified SERIAL1 "$tmp/app.apk" com.example.app --user >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "adb_install_verified with a trailing --user did not return 2 (137 = hung)"
+set -e
+note "a trailing --user returns 2"
 
 if [[ "$failures" -eq 0 ]]; then
   note "ALL PASSED"

@@ -83,8 +83,10 @@ Bundled CLIs
   including the squash and rebase merges `git branch --merged` cannot see, and
   only when the branch gained nothing afterwards. A dry run by default; `--apply`
   to act and `--remote` before a remote branch is considered at all. Options:
-  `--repo`, `--base`, `--remote-name`, `--keep <glob>`, `--no-fetch`. Run
-  `scripts/prune_branches.sh --help` for details.
+  `--repo`, `--base`, `--remote-name`, `--keep <glob>`, `--no-fetch`.
+  `--remote --apply` refuses to run without a successful fetch, and each remote
+  deletion is leased on the tip that was classified, so a branch that moved in
+  the meantime is kept. Run `scripts/prune_branches.sh --help` for details.
   See [`modules/git_branches.md`](modules/git_branches.md).
 
 Shared include and dependency check
@@ -269,6 +271,12 @@ falls back to the submodule path (`scripts/script-helpers/scripts/git-hooks`)
 or the local `scripts/git-hooks` directory. Shared hooks still defer to a
 matching repo-local `.githooks/pre-commit` or `.githooks/pre-push` when one
 is present (same-file recursion guard included).
+
+The shared `pre-commit` hook refuses a staged `.env` or `.env.*` file anywhere
+in the tree; the committed templates `.env.example`, `.env.sample`,
+`.env.template` and `.env.dist` are allowed. Staged paths are read
+NUL-separated, so a path git would quote -- non-ASCII characters, a tab, a quote
+or a newline, such as `ünï/.env` -- is checked like any other.
 
 Run the language-specific local test scripts directly when you want the same
 entry points outside a hook. Use `--quick` for the fast test-only path. The
@@ -516,6 +524,30 @@ Render a Homebrew formula with a release tarball SHA:
 ./vendor/script-helpers/scripts/render_brew_formula.sh --repo . --url <tarball_url> --sha256 <sha256>
 ```
 
+It exits 1 when the checksum is empty or still the scaffold's
+`REPLACE_WITH_SHA256` placeholder. Metadata values are inserted literally, so
+`&` and other awk replacement characters in commands and URLs are safe.
+
+Publish the formula to a tap repository:
+
+```bash
+HOMEBREW_TAP_TOKEN=... ./vendor/script-helpers/scripts/publish_homebrew.sh \
+  --formula packaging/brew/myapp.rb --tap-repo owner/homebrew-example
+```
+
+Pass the token in `HOMEBREW_TAP_TOKEN` rather than `--tap-token`: a
+command-line argument is visible to other users in `ps`. The token never
+reaches git's argv, the tap clone's `.git/config` or a `bash -x` trace; it is
+sent as an `http.https://github.com/.extraheader` in git's environment config.
+An extraheader the caller already has for github.com (a global gitconfig,
+`GIT_CONFIG_COUNT` or `GIT_CONFIG_PARAMETERS`, as `actions/checkout` sets) is
+reset first, so git sends exactly one `Authorization` header.
+
+`build_brew_tarball.sh` never packs `.git`, `.env` or `.env.*` files (the
+committed templates `.env.example`, `.env.sample`, `.env.template` and
+`.env.dist` are kept), nor earlier `<name>-*.tar.gz` tarballs in an output
+directory inside the repo. `--exclude` patterns are applied first and still win.
+
 macOS, iOS and bash 3.2
 -----------------------
 
@@ -560,6 +592,26 @@ belong to the flutter stack for the same directory, so the build is the whole
 of what the iOS step does — and `--quick` is defined as skipping builds. The
 old behaviour ran `ci_ios.sh` with every step disabled and still reported a
 passed "ios build", which is a claim about a build that never happened.
+
+### Pinning stacks with `.preflight`, and `./dev` detection
+
+A `.preflight` file at the repo root lists exactly what `preflight` checks, one
+`<stack> [dir]` per line; blank lines and `#` comments are ignored. The last
+line counts whether or not the file ends with a newline, and an unknown stack
+on any line exits 2.
+
+`./dev install`, `./dev build` and `./dev clean` find nested projects (a Flutter
+app in `mobile/`, for example) through `preflight --list`.
+That detection also works under `CI=true`: `preflight` itself refuses to run in
+CI, so the dev CLI clears `CI` for the `--list` call only, which detects and
+runs no checks.
+
+Options that forward a value (`--stack`, `--dir`, `--platform`, `--out`,
+`--seconds`, `--size`, `--bitrate`) keep that value with the flag, so
+`./dev preflight --stack ios` does not take `ios` as the target. A next word
+that starts with `-` is another option, not the value: `./dev preflight --stack
+--help` shows help, and `--dir --release` still sets `--release`. The flag is
+then forwarded alone and the script it goes to reports the missing value.
 
 ### Deploying to an iOS simulator
 

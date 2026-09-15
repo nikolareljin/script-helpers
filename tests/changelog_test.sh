@@ -13,6 +13,18 @@ cd "$root_dir"
 failures=0
 note()  { echo "[changelog_test] $*"; }
 error() { echo "[changelog_test][ERROR] $*" >&2; failures=$((failures+1)); }
+# Run a command with a time limit and return its status, or 137 when it had to
+# be killed. For checks whose regression is a hang (an option parser that
+# loops on a missing value): a hang must fail the run, not stall it. The
+# watcher's output goes to /dev/null so its sleep cannot hold a pipe open.
+run_bounded() {
+  local secs=$1; shift
+  "$@" & local pid=$!
+  ( sleep "$secs"; kill -9 "$pid" 2>/dev/null ) >/dev/null 2>&1 & local w=$!
+  wait "$pid" 2>/dev/null; local rc=$?
+  kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
+  return $rc
+}
 
 # shellcheck source=/dev/null
 source ./helpers.sh
@@ -226,6 +238,154 @@ changelog_new_section "$tmp/fresh.md" 0.1.0 --date 2026-07-31 >/dev/null 2>&1 \
   || error "changelog_new_section did not create a missing file"
 grep -q '^## 2026-07-31 — v0.1.0' "$tmp/fresh.md" \
   || error "the created file has no release section"
+
+# 8) an option given without its value is an error, not an endless loop
+printf '# Changelog\n' > "$tmp/trailing.md"
+set +e
+run_bounded 10 changelog_new_section "$tmp/trailing.md" 1.0.0 --date >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "changelog_new_section with a trailing --date did not return 2 (137 = hung)"
+run_bounded 10 changelog_new_section "$tmp/trailing.md" 1.0.0 --section >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "changelog_new_section with a trailing --section did not return 2 (137 = hung)"
+set -e
+grep -q '^## ' "$tmp/trailing.md" && error "a rejected changelog_new_section still wrote a section"
+note "a trailing option without a value returns 2"
+
+# 9) a `##` line inside a fenced code block is content, not the next header
+cat > "$tmp/fenced.md" <<'MD'
+# Changelog
+
+## 2026-09-14 — v1.1.0
+
+- New `deploy` verb. Example:
+
+```markdown
+## Usage
+run it
+```
+
+~~~
+## 0.9.0 inside a tilde fence
+~~~
+
+- Second entry
+
+## 2026-09-01 — v1.0.0 (supersedes 0.9.0)
+
+- one
+
+## 2026-08-01 — v0.9.0
+
+- real 0.9.0 notes
+MD
+body="$(changelog_extract "$tmp/fenced.md" 1.1.0 2>/dev/null)"
+[[ "$body" == *"## Usage"* && "$body" == *"- Second entry"* ]] \
+  || error "a fenced ## line ended the 1.1.0 section early: $body"
+[[ "$body" != *"- one"* ]] || error "the 1.1.0 section ran into the next release"
+
+# 10) only the first version in a header names the section
+body="$(changelog_extract "$tmp/fenced.md" 0.9.0 2>/dev/null)"
+[[ "$body" == "- real 0.9.0 notes" ]] \
+  || error "0.9.0 returned another section (a later version in a header matched): $body"
+body="$(changelog_extract "$tmp/fenced.md" 1.0.0 2>/dev/null)"
+[[ "$body" == "- one" ]] || error "the 1.0.0 section with a trailing note was not found: $body"
+note "fenced headers are content; a header's first version is its version"
+
+# 11) fences follow CommonMark. A backtick opener's info string cannot contain a
+# backtick, so ```make test``` at column 0 is inline code and the next `##` is
+# a header. A fence closes only on the same character, at least as many, with
+# nothing but spaces or tabs after it.
+cat > "$tmp/commonmark.md" <<'MD'
+# Changelog
+
+## 2026-09-14 — v2.0.0
+
+```make test``` now runs the portability suite.
+
+## 2026-09-10 — v1.9.0
+
+- four-backtick fence:
+
+````markdown
+```bash
+## not a header (a shorter fence inside)
+```
+~~~
+## not a header either (the other character)
+````
+
+~~~
+## not a header (tilde fence)
+~~~~   
+- after a longer closer with trailing spaces
+
+## 2026-09-01 — v1.8.0
+
+- eighteen.
+MD
+body="$(changelog_extract "$tmp/commonmark.md" 2.0.0 2>/dev/null)"
+# shellcheck disable=SC2016  # literal backticks, nothing to expand
+[[ "$body" == '```make test``` now runs the portability suite.' ]] \
+  || error "an inline \`\`\`code\`\`\` line at column 0 opened a fence and swallowed the next release: $body"
+set +e
+body="$(changelog_extract "$tmp/commonmark.md" 1.9.0 2>/dev/null)"
+status=$?
+set -e
+[[ "$status" -eq 0 ]] || error "1.9.0 was not found after an inline \`\`\`code\`\`\` line (returned $status)"
+[[ "$body" == *"not a header (a shorter fence inside)"* && "$body" == *"not a header either"* \
+   && "$body" == *"not a header (tilde fence)"* && "$body" == *"after a longer closer"* ]] \
+  || error "fence closing rules cut the 1.9.0 section short: $body"
+[[ "$body" != *eighteen* ]] || error "the 1.9.0 section ran into 1.8.0: $body"
+note "fences open and close as CommonMark says"
+
+# 12) an unclosed fence is text, so it cannot hide every older release.
+cat > "$tmp/unclosed.md" <<'MD'
+# Changelog
+
+## 2026-09-14 — v1.1.0
+
+- a stray fence:
+
+```
+
+## 2026-09-01 — v1.0.0
+
+- one
+MD
+body="$(changelog_extract "$tmp/unclosed.md" 1.0.0 2>/dev/null)" || body="<rc $?>"
+[[ "$body" == "- one" ]] || error "an unclosed fence in 1.1.0 hid the 1.0.0 section: $body"
+body="$(changelog_extract "$tmp/unclosed.md" 1.1.0 2>/dev/null)" || body="<rc $?>"
+[[ "$body" != *"- one"* ]] || error "an unclosed fence made 1.1.0 run into 1.0.0: $body"
+note "an unclosed fence does not swallow later sections"
+
+# 13) two-part versions, and a header whose date has dots: the version is the
+# first version-like token that is not a dotted date.
+cat > "$tmp/shapes2.md" <<'MD'
+# Changelog
+
+## 2026.09.01 — v1.1.9
+
+- dotted date.
+
+## [1.2] - 2026-02-02
+
+- two part.
+
+## 2026.01.01
+
+- calver only.
+MD
+body="$(changelog_extract "$tmp/shapes2.md" 1.1.9 2>/dev/null)" || body="<rc $?>"
+[[ "$body" == "- dotted date." ]] || error "'## 2026.09.01 — v1.1.9' was not the 1.1.9 section: $body"
+body="$(changelog_extract "$tmp/shapes2.md" 1.2 2>/dev/null)" || body="<rc $?>"
+[[ "$body" == "- two part." ]] || error "'## [1.2] - date' was not the 1.2 section: $body"
+body="$(changelog_extract "$tmp/shapes2.md" 2026.01.01 2>/dev/null)" || body="<rc $?>"
+[[ "$body" == "- calver only." ]] || error "a header whose only token is dotted was not found: $body"
+set +e
+changelog_extract "$tmp/shapes2.md" 2026.09.01 >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" -eq 1 ]] || error "the dotted date of a '## 2026.09.01 — v1.1.9' header matched as a version"
+note "two-part versions and dotted dates"
 
 if [[ "$failures" -eq 0 ]]; then
   note "ALL PASSED"

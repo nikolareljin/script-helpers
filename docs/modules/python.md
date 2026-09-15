@@ -23,7 +23,7 @@ Functions
 
 - python_pick_3 [min_major=3] [min_minor=8]
   - Purpose: Pick a `python3` (or `python`) executable that satisfies the minimum version.
-  - Returns: Prints the command name on stdout; non-zero if none found.
+  - Returns: Prints the command name on stdout; non-zero if none found. Sets no variables in the caller's scope.
 
 - python_resolve_3 [requested] [min_major=3] [min_minor=8]
   - Purpose: Resolve a requested Python executable if valid; otherwise pick a suitable Python 3.

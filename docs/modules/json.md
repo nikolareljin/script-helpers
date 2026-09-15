@@ -7,6 +7,7 @@ Functions
 
 - json_escape input
   - Purpose: Escape backslashes, quotes, and control characters for JSON string context.
+  - Behavior: `\` and `"` are backslash-escaped; newline, carriage return and tab become `\n`, `\r`, `\t`; every other character in U+0001-U+001F becomes `\u00XX`. Printed with `printf '%s\n'`, so inputs such as `-n` are output as-is.
   - Returns: escaped string.
 
 - format_response json

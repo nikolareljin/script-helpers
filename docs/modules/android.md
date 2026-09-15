@@ -25,7 +25,7 @@ Functions
   - Returns: 0 when it is; non-zero otherwise.
 
 - `android_sdk_tool <name>`
-  - Purpose: Print the path to an SDK tool (`sdkmanager`, `avdmanager`, `emulator`, `apksigner`, `zipalign`, `adb`), searching the SDK's several layouts and then `PATH`. Versioned `build-tools` directories are searched newest first.
+  - Purpose: Print the path to an SDK tool (`sdkmanager`, `avdmanager`, `emulator`, `apksigner`, `zipalign`, `adb`), searching the SDK's several layouts and then `PATH`. Versioned `build-tools` directories are searched newest first; an SDK root containing spaces is handled.
   - Returns: 0 and the path; 2 for a missing argument; 3 when not found.
 
 - `android_ensure_sdk [api=34] [build_tools=34.0.0]`
@@ -46,7 +46,7 @@ Functions
   - Returns: 0 and the path; 1 when none exists, so a caller can tell "not built yet" from "built and here it is".
 
 - `android_package_name [dir=.] [artifact]`
-  - Purpose: Print the application id. Read from the built artifact with `aapt2`/`aapt` when one is available, since that is the only source that accounts for `applicationIdSuffix` and product flavors; otherwise parsed out of the Gradle build file.
+  - Purpose: Print the application id. Read from the built artifact with `aapt2`/`aapt` when one is available, since that is the only source that accounts for `applicationIdSuffix` and product flavors; otherwise parsed out of the Gradle build file. The name is taken from the `package: name=` attribute only — newer build-tools add further `name` attributes (such as `compileSdkVersionCodename`) to the same badging line.
   - Returns: 0 and the package name; 1 when neither source works — a caller that needs a package name should say so rather than guess one.
   - Used by the `deploy` verb to feed `adb_install_verified`, which is what turns a silent work-profile install into one line of output.
 
@@ -56,6 +56,9 @@ Functions
     - `--base64-env VAR` — name of an environment variable holding a base64 keystore, the CI-shaped secret.
     - `--allow-unsigned` — a missing keystore becomes a warning and success rather than a failure: the debug-signed fallback that lets a local build proceed without release credentials.
   - Env: `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` supply defaults.
+  - Passwords reach both signers through the environment (`--ks-pass env:` for `apksigner`, `-storepass:env` / `-keypass:env` for `jarsigner`), never as command-line arguments, which any local user can read from the process list.
+  - A failing signer — including under `set -e` — still removes the decoded temp keystore, logs the failure, and returns the signer's exit status.
+  - An option given without its value returns 2.
   - Returns: 2 on bad arguments; 3 when no signer tool is available; otherwise the signer's status.
   - Example: `android_sign app.aab --base64-env ANDROID_KEYSTORE_BASE64 --alias upload`
 
@@ -70,7 +73,7 @@ Functions
 
 - `android_emulator_start <avd> [--no-window] [--wait <seconds>]`
   - Purpose: Start an emulator in the background and wait for it to report boot completion. Prints the serial of the booted emulator.
-  - Returns: 0 and the serial; 1 if it does not boot within `--wait` (default 180); 3 when the emulator binary is not available.
+  - Returns: 0 and the serial; 1 if it does not boot within `--wait` (default 180); 3 when the emulator binary is not available; 2 for a missing `<avd>` or a `--wait` without a value.
 
 - `android_emulator_stop [serial]`
   - Purpose: Stop one emulator, or every running emulator when no serial is given.

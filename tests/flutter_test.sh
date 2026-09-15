@@ -17,6 +17,18 @@ cd "$root_dir"
 failures=0
 note()  { echo "[flutter_test] $*"; }
 error() { echo "[flutter_test][ERROR] $*" >&2; failures=$((failures+1)); }
+# Run a command with a time limit and return its status, or 137 when it had to
+# be killed. For checks whose regression is a hang (an option parser that
+# loops on a missing value): a hang must fail the run, not stall it. The
+# watcher's output goes to /dev/null so its sleep cannot hold a pipe open.
+run_bounded() {
+  local secs=$1; shift
+  "$@" & local pid=$!
+  ( sleep "$secs"; kill -9 "$pid" 2>/dev/null ) >/dev/null 2>&1 & local w=$!
+  wait "$pid" 2>/dev/null; local rc=$?
+  kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
+  return $rc
+}
 
 # shellcheck source=/dev/null
 source ./helpers.sh
@@ -90,6 +102,25 @@ else
   [[ "$status" -eq 3 ]] || error "flutter_pub_get with no SDK returned $status (expected 3)"
   note "no Flutter SDK installed — skipping the real-SDK assertions (not a failure)"
 fi
+
+# A trailing --flavor with no value is an error, not an endless loop.
+set +e
+run_bounded 10 flutter_build apk --flavor >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "flutter_build with a trailing --flavor did not return 2 (137 = hung)"
+set -e
+
+# A preferred device with nothing connected walks an empty array, which bash 3.2
+# reports as an unbound variable under `set -u` instead of "not connected".
+mkdir -p "$tmp/nodevices"
+printf '#!/usr/bin/env sh\necho "No devices detected."\n' > "$tmp/nodevices/flutter"
+chmod +x "$tmp/nodevices/flutter"
+set +e
+out="$( set -u; PATH="$tmp/nodevices:$PATH" flutter_resolve_device emulator-5554 "$tmp" 2>&1 )"
+status=$?
+set -e
+[[ "$status" -eq 1 ]] || error "flutter_resolve_device with no devices returned $status (expected 1): $out"
+[[ "$out" == *"is not connected"* ]] || error "flutter_resolve_device with no devices said: $out"
+note "a trailing --flavor returns 2; an empty device list is reported, not unbound"
 
 if [[ "$failures" -eq 0 ]]; then
   note "ALL PASSED"

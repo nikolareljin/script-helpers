@@ -20,6 +20,7 @@ Functions
   - Purpose: Helper that accepts one whitespace-separated command string.
   - Behavior: Quoting and escaping within that string are not parsed. Pass
     separate arguments when an argument contains whitespace or shell syntax.
+    An empty string runs the compose command with no arguments (also on bash 3.2).
 
 - check_docker
   - Purpose: Verify Docker is installed and the daemon is running/reachable.
@@ -30,7 +31,8 @@ Functions
 
 - wait_for_service service_name [max_wait=60]
   - Purpose: Wait until a compose service appears as running.
-  - Behavior: Prints progress (every ~10s) and errors on timeout.
+  - Behavior: Polls every 2s. Compose v2: ready when `ps --status running -q service` lists a container. Compose v1 (no `--status`): ready when `ps service` shows the container `Up`. Prints progress (every ~10s) and errors on timeout.
+  - Returns: 0 when running; 1 on timeout.
 
 - docker_status
   - Purpose: Show running containers and compose services summary with glyphs.

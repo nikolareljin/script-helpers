@@ -69,8 +69,12 @@ while [[ $# -gt 0 ]]; do
     --no-docker) USE_DOCKER=false; shift ;;   # accepted for symmetry with ci_*.sh
     --skip-security) SKIP_SECURITY=true; shift ;;
     --list) LIST_ONLY=true; shift ;;
-    --stack) WANTED_STACKS+=("${2:-}"); shift 2 ;;
-    --dir) PROJECT_DIR="${2:-}"; shift 2 ;;
+    # No `set -e` here, so a failed `shift 2` on a trailing flag would leave
+    # $1 in place and loop forever. Check for the value first.
+    --stack) [[ $# -ge 2 ]] || { echo "--stack needs a value" >&2; exit 2; }
+             WANTED_STACKS+=("$2"); shift 2 ;;
+    --dir) [[ $# -ge 2 ]] || { echo "--dir needs a value" >&2; exit 2; }
+           PROJECT_DIR="$2"; shift 2 ;;
     -h|--help) show_help "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; exit 2 ;;
   esac
@@ -207,7 +211,9 @@ detect_stacks() {
 read_preflight_config() {
   local file="$PROJECT_DIR/.preflight" stack dir
   [[ -f "$file" ]] || return 1
-  while read -r stack dir _; do
+  # `|| [[ -n "$stack" ]]` keeps a last line that has no trailing newline:
+  # read returns non-zero for it even though it filled the variables.
+  while read -r stack dir _ || [[ -n "$stack" ]]; do
     [[ -n "$stack" ]] || continue
     [[ "$stack" == \#* ]] && continue
     [[ " $KNOWN_STACKS " == *" $stack "* ]] || {
@@ -221,7 +227,11 @@ read_preflight_config() {
 DETECTED=()
 CONFIGURED=false
 if [[ -f "$PROJECT_DIR/.preflight" ]]; then
-  while IFS= read -r line; do [[ -n "$line" ]] && DETECTED+=("$line"); done < <(read_preflight_config)
+  # Captured rather than read from a process substitution, whose exit status
+  # is lost: a misspelled stack used to be dropped silently, with every line
+  # before it still run.
+  PREFLIGHT_CONFIG="$(read_preflight_config)" || exit 2
+  while IFS= read -r line; do [[ -n "$line" ]] && DETECTED+=("$line"); done <<< "$PREFLIGHT_CONFIG"
   [[ ${#DETECTED[@]} -gt 0 ]] || { log_error "preflight: .preflight is present but lists no usable projects"; exit 2; }
   CONFIGURED=true
 else

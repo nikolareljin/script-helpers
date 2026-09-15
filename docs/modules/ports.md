@@ -13,11 +13,12 @@ Functions
 - list_port_usage_details port
   - Purpose: Print human-friendly details like `process (PID 1234, user bob)` for listeners on a TCP port.
   - Behavior: Tries `lsof`, then `ss`, then `netstat`. With sudo (if allowed) as a fallback.
-  - Returns: 0 and prints lines if any found; 1 if nothing could be determined.
+  - Returns: 0 and prints lines if any found; 1 if nothing could be determined, or when `port` is not a single port 1-65535 (an empty string or a range such as `1-65535` would otherwise match every listener).
 
 - list_port_listener_pids port
   - Purpose: Print the PIDs that are listening on a TCP port.
-  - Behavior: Similar detection strategy as above; prints unique PIDs found.
+  - Behavior: Similar detection strategy as above, plus `fuser`; prints unique PIDs found, one per line (every PID of a socket shared by several processes).
+  - Returns: 1 with no output when `port` is not a single port 1-65535 -- an empty string or a range would otherwise list every listener on the machine; otherwise 0.
 
 - port_in_use_by port
   - Purpose: Print process details for listeners on a TCP port, or nothing if unused.
@@ -40,3 +41,4 @@ Dependencies
 ------------
 
 - `lsof`/`ss`/`netstat`/`fuser` (any subset available), optional `sudo` when allowed.
+- Any POSIX awk: gawk, mawk (Debian/Ubuntu default) and BSD awk (macOS) all parse the `ss`/`netstat` output.

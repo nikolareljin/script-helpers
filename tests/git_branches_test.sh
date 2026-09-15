@@ -95,6 +95,34 @@ git_t commit --quiet -m "squashed c"
 git checkout --quiet squashed-then-more
 commit c2.txt "c2 — added after the merge"
 
+# 3b) squash-merged, then a WHITESPACE-ONLY commit afterwards. `git cherry`
+# ignores whitespace, so without a byte-exact confirmation this came back
+# `squashed` and was deleted -- with a re-indent that, in Python, moves a call
+# out of an `if`.
+git checkout --quiet -b squashed-then-reindent main
+printf 'def f(x):\n    if x:\n        launch()\n    audit()\n' > f.py
+git add f.py; git_t commit --quiet -m "add f"
+git checkout --quiet main
+git merge --quiet --squash squashed-then-reindent
+git_t commit --quiet -m "squashed f"
+git checkout --quiet squashed-then-reindent
+printf 'def f(x):\n    if x:\n        launch()\n        audit()\n' > f.py
+git add f.py; git_t commit --quiet -m "only audit when launched"
+
+# 3c) squash-merged, touching names with a space, a newline and pathspec
+# magic characters. The byte-exact check limits its search to the paths the
+# branch touches, so those names must reach git as themselves.
+git checkout --quiet -b squashed-odd-names main
+printf 'one\n' > 'with space.txt'
+printf 'two\n' > "$(printf 'new\nline.txt')"
+printf 'three\n' > ':(glob)*.txt'
+git add -A; git_t commit --quiet -m "odd names"
+git checkout --quiet main
+git merge --quiet --squash squashed-odd-names
+git_t commit --quiet -m "squashed odd names"
+# Base moves on, so the trees differ and the patch comparison is what decides.
+commit after-odd.txt "base moves"
+
 # 4) never merged
 git checkout --quiet -b never-merged main
 commit d.txt "d"
@@ -102,7 +130,7 @@ commit d.txt "d"
 # 5) unrelated history
 git checkout --quiet --orphan stranger
 git rm -rq --cached . 2>/dev/null || true
-rm -f ./*.txt
+rm -f ./*.txt ./*.py "$(printf 'new\nline.txt')"
 commit z.txt "z"
 
 git checkout --quiet main
@@ -114,9 +142,32 @@ expect_state() {
   else error "$branch: expected $want, got $got"; fi
 }
 
+# Whether this git can confirm a `git cherry` match byte for byte, with
+# `patch-id --verbatim` or the diff-hash fallback. When it cannot, every such
+# branch is `unknown` by design, and the checks that need a confirmed match
+# are skipped -- reported, not passed.
+#
+# Probed here rather than by asking the library, so a library that wrongly
+# believes it cannot verify fails these checks instead of skipping them.
+can_verify=0
+if git patch-id --verbatim </dev/null >/dev/null 2>&1 \
+   || printf '' | git hash-object --stdin >/dev/null 2>&1; then
+  can_verify=1
+fi
+skip() { note "SKIP: $* (this git can confirm no patch byte for byte)"; }
+
 expect_state merged-by-merge     merged
-expect_state squashed-clean      squashed
+if (( can_verify )); then
+  expect_state squashed-clean      squashed
+  expect_state squashed-odd-names  squashed
+else
+  skip "squashed-clean / squashed-odd-names are squashed"
+fi
 expect_state squashed-then-more  unmerged   # the whole point of this file
+# Whitespace is content. `git cherry` matches the patch, the byte-exact check
+# does not: that is `unknown`, not `unmerged` -- the branch is kept, without
+# claiming it carries work the base lacks.
+expect_state squashed-then-reindent unknown
 expect_state never-merged        unmerged
 expect_state stranger            unrelated
 
@@ -147,10 +198,121 @@ no_identity_state="$(
       bash -c 'source "$1"/helpers.sh; shlib_import git_branches; git_branches_merge_state main squashed-clean' \
       _ "$root_dir"
 )"
-if [[ "$no_identity_state" == "squashed" ]]; then
+if (( ! can_verify )); then
+  skip "squash detection with no git identity"
+elif [[ "$no_identity_state" == "squashed" ]]; then
   ok "squash detection works with no git identity available"
 else
   error "with no git identity, squashed-clean came back '$no_identity_state' (expected squashed)"
+fi
+
+# A git without `patch-id --verbatim` (older than 2.39) confirms a match with
+# the diff-hash fallback instead: squash-merged branches are still found, and
+# the whitespace-only case is still not called squashed.
+# shellcheck disable=SC2317  # the git override is called indirectly, by the library
+no_verbatim() {
+  git() {
+    if [[ "${1:-}" == patch-id ]]; then echo "error: unknown option" >&2; return 129; fi
+    command git "$@"
+  }
+  git_branches_merge_state main "$1"
+}
+if (( ! can_verify )); then
+  skip "the no-patch-id fallback"
+else
+  old_git_state="$(no_verbatim squashed-clean)"
+  if [[ "$old_git_state" == "squashed" ]]; then
+    ok "without patch-id --verbatim the fallback still finds a squash merge"
+  else
+    error "without patch-id --verbatim, squashed-clean came back '$old_git_state' (expected squashed)"
+  fi
+  old_git_state="$(no_verbatim squashed-odd-names)"
+  if [[ "$old_git_state" == "squashed" ]]; then
+    ok "the fallback handles names with spaces, newlines and magic"
+  else
+    error "without patch-id --verbatim, squashed-odd-names came back '$old_git_state' (expected squashed)"
+  fi
+  old_git_state="$(no_verbatim squashed-then-reindent)"
+  if [[ "$old_git_state" == "unknown" ]]; then
+    ok "the fallback does not call a whitespace-only change squashed"
+  else
+    error "without patch-id --verbatim, squashed-then-reindent came back '$old_git_state' (expected unknown)"
+  fi
+fi
+
+# Neither `patch-id --verbatim` nor the fallback: unknown, kept.
+# shellcheck disable=SC2317  # the git override is called indirectly, by the library
+# (Defined outside the command substitution: bash 3.2 cannot parse a `case`
+# inside `$( )`.)
+no_verify() {
+  git() {
+    if [[ "${1:-}" == patch-id || "${1:-}" == hash-object ]]; then
+      echo "error: unavailable" >&2; return 129
+    fi
+    command git "$@"
+  }
+  git_branches_merge_state main "$1"
+}
+no_verify_state="$(no_verify squashed-clean)"
+if [[ "$no_verify_state" == "unknown" ]]; then
+  ok "with no way to confirm a cherry match it is unknown, not squashed"
+else
+  error "with no byte-exact check available, squashed-clean came back '$no_verify_state' (expected unknown)"
+fi
+
+# The byte-exact check diffs only base commits that touch the branch's paths,
+# and never with `--binary`. Both were missing once: every commit on base was
+# diffed with every binary blob inlined, and prune took over a minute per
+# branch on a repository with binary assets. Checked on the commands the
+# library runs, so the test stays fast whether or not it regresses.
+limit_dir="$tmp/limit"
+mkdir -p "$limit_dir"
+(
+  cd "$limit_dir"
+  git init --quiet -b main .
+  commit base.txt "base"
+  git checkout --quiet -b landed-early main
+  commit early.txt "early"
+  git checkout --quiet main
+  git merge --quiet --squash landed-early >/dev/null
+  git_t commit --quiet -m "squashed early"
+  i=0
+  while (( i < 30 )); do
+    i=$((i + 1))
+    printf 'asset %s\0\001\002' "$i" > asset.bin
+    git add asset.bin; git_t commit --quiet -m "asset $i"
+  done
+)
+limit_log="$tmp/limit.log"
+: > "$limit_log"
+# shellcheck disable=SC2317  # the git override is called indirectly, by the library
+limit_state="$(
+  cd "$limit_dir"
+  git() {
+    if [[ "${1:-}" == diff-tree ]]; then
+      printf 'diff-tree %s\n' "$*" >> "$limit_log"
+      if [[ " $* " == *" --stdin "* ]]; then
+        tee -a "$limit_log.stdin" | command git "$@"; return
+      fi
+    fi
+    command git "$@"
+  }
+  git_branches_merge_state main landed-early
+)"
+fed=0
+[[ -f "$limit_log.stdin" ]] && fed="$(grep -c . "$limit_log.stdin" || true)"
+if (( can_verify )) && [[ "$limit_state" != "squashed" ]]; then
+  error "the path-limit fixture came back '$limit_state' (expected squashed)"
+fi
+if grep -q -- '--binary' "$limit_log"; then
+  error "the byte-exact check diffs with --binary (inlines every binary blob on base)"
+else
+  ok "the byte-exact check does not diff with --binary"
+fi
+if (( fed > 2 )); then
+  error "the byte-exact check diffed $fed base commits; only the one touching the branch's paths is needed"
+else
+  ok "the byte-exact check diffs only base commits touching the branch's paths ($fed)"
 fi
 
 # End to end: the script must delete exactly the two landed branches.
@@ -159,8 +321,10 @@ out="$(bash "$root_dir/scripts/prune_branches.sh" --no-fetch --base main --apply
 }
 
 remaining="$(git for-each-ref --format='%(refname:short)' refs/heads/ | sort | tr '\n' ' ')"
-expected="main never-merged squashed-then-more stranger "
-if [[ "$remaining" == "$expected" ]]; then
+expected="main never-merged squashed-then-more squashed-then-reindent stranger "
+if (( ! can_verify )); then
+  skip "the --apply survivor set"
+elif [[ "$remaining" == "$expected" ]]; then
   ok "after --apply the surviving branches are exactly: $remaining"
 else
   error "expected [$expected] but got [$remaining]"
