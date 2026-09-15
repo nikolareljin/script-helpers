@@ -23,8 +23,9 @@ Functions
 
 - `changelog_extract <file> <version>`
   - Purpose: Print the body of the section for `version`, without its header, for use as release notes. The `v` prefix is optional on both sides.
-  - Matching: the version must match whole. `0.2.0` does not select `v10.2.0` or `v0.2.0-rc.1`. Only the first version in a header names the section, so `## 2026-09-01 — v1.0.0 (supersedes 0.9.0)` is the 1.0.0 section and never the 0.9.0 one.
-  - A `##` line inside a fenced code block (```` ``` ```` or `~~~`) is part of the section, not the start of the next one.
+  - Matching: the version must match whole. `0.2.0` does not select `v10.2.0` or `v0.2.0-rc.1`. Only the first version in a header names the section, so `## 2026-09-01 — v1.0.0 (supersedes 0.9.0)` is the 1.0.0 section and never the 0.9.0 one. A version is two or more dot-separated numbers, so `## [1.2] - 2026-02-02` is the 1.2 section. A dotted date is skipped when picking that first version — `## 2026.09.01 — v1.1.9` is the 1.1.9 section — unless it is the only version-like token in the header.
+  - A `##` line inside a fenced code block (```` ``` ```` or `~~~`) is part of the section, not the start of the next one. Fences follow CommonMark: up to three spaces of indent and at least three backticks or tildes; a backtick fence's info string cannot contain a backtick, so a line such as ```` ```make test``` now ```` is inline code, not a fence; a fence closes only on a line of the same character, at least as long as the opener, with nothing but spaces or tabs after it.
+  - Unlike CommonMark, a fence that is never closed is treated as ordinary text rather than running to the end of the file. In a changelog an unclosed fence is a typo, and running it to the end would hide every older release header, so those versions would silently have no section.
   - Returns: 0 and the body; 2 for missing arguments or a missing file; 1 when there is no such section.
 
 - `changelog_has_entries <text>`
