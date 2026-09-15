@@ -294,7 +294,7 @@ hub_write_env() {
   local bare_re='^[][A-Za-z0-9._/:@%+=,-]*$'
   if [[ "$value" =~ $bare_re ]]; then
     line="$key=$value"
-  elif [[ "$value" != *"'"* && "$value" != *"\\\\"* && "$value" != *"\\" && "$value" != *'${'* ]]; then
+  elif [[ "$value" != *"'"* && "$value" != *"\\\\"* && "$value" != *"\\" && "$value" != *"\${"* ]]; then
     # Single quotes are not literal to python-dotenv in three cases, and each
     # is left to the refusal below: \\ reads as one backslash; a trailing \
     # escapes the closing quote, so the line is dropped (and docker compose

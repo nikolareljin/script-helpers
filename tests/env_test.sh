@@ -104,6 +104,7 @@ big="$(printf '%40000s' '' | tr ' ' 'x')"
 # The parser itself runs in the bounded process, not in a command substitution
 # under it: kill -9 would not reach that grandchild, which kept the CPU busy
 # after a timeout.
+# shellcheck disable=SC2317
 parse_big() { _env__parse_value "$1" >"$tmp/big.out"; }
 for form in "'$big'" "\"$big\"" "'$big' # note"; do
   rc=0; run_bounded 5 parse_big "$form"

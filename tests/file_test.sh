@@ -83,7 +83,7 @@ if ls "$tmp"/*.XXXXXX "$tmp"/keep.iso.* "$tmp"/missing.iso.* >/dev/null 2>&1; th
   }
   printf 'precious' >w.iso
   rc=0; WGET_STUB=fail DOWNLOAD_USE_DIALOG=never download_file "http://example.invalid/w.iso" w.iso 2>/dev/null || rc=$?
-  echo "fail rc=$rc content=$(cat w.iso 2>/dev/null || echo ABSENT) left=$(ls w.iso.* 2>/dev/null | wc -l | tr -d ' ')"
+  echo "fail rc=$rc content=$(cat w.iso 2>/dev/null || echo ABSENT) left=$(set -- w.iso.*; [[ -e "$1" ]] && echo "$#" || echo 0)"
   rc=0; WGET_STUB=fail DOWNLOAD_USE_DIALOG=never download_file "http://example.invalid/n.iso" n.iso 2>/dev/null || rc=$?
   echo "new rc=$rc exists=$([[ -e n.iso ]] && echo yes || echo no)"
   rc=0; WGET_STUB=ok DOWNLOAD_USE_DIALOG=never download_file "http://example.invalid/w.iso" w.iso 2>/dev/null || rc=$?
@@ -106,7 +106,6 @@ if command -v cksum >/dev/null 2>&1; then
   printf 'target bytes' >target.iso
   good="$(cksum target.iso | awk '{print $1}')"
   other="$(cksum other.iso | awk '{print $1 "  " $3}')"
-  zeros="0000000000"
 
   check() {
     local label="$1" want="$2" list="$3" target="${4:-target.iso}"

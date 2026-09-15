@@ -172,7 +172,7 @@ if hub_write_env "$inj" HUB_API_KEY 'a b\\c' 2>/dev/null; then error "a doubled 
 # python-dotenv reads each of these differently from the shell even inside
 # single quotes: a trailing backslash escapes the closing quote (the line is
 # dropped, and docker compose refuses the whole file), and ${NAME} is expanded.
-# shellcheck disable=SC2016
+# shellcheck disable=SC2016,SC1003
 for v in 'trail\' '\' 'a\\b' '${X}' 'a${HOME}b' '${'; do
   before="$(cat "$inj")"
   if hub_write_env "$inj" HUB_API_KEY "$v" 2>/dev/null; then
