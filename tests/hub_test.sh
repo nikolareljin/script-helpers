@@ -52,6 +52,8 @@ VERSION = sys.argv[2] if len(sys.argv) > 2 else "0.1.0"
 # "hub" (default); "evil": an instance_id carrying shell syntax; "spa": every
 # path answers 200 with HTML, as a web app or captive portal does.
 MODE = sys.argv[3] if len(sys.argv) > 3 else "hub"
+# "ctsp": a JSON hub whose Content-Type has whitespace before its parameters.
+CTYPE = "application/json ; charset=utf-8" if MODE == "ctsp" else "application/json"
 
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a):  # quiet
@@ -59,7 +61,7 @@ class H(BaseHTTPRequestHandler):
     def _send(self, code, body):
         data = json.dumps(body).encode()
         self.send_response(code)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", CTYPE)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -155,7 +157,7 @@ file_mode() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 inj="$tmp/inj.env"; rm -f "$inj"
 # Literal on purpose: these are values, not expressions.
 # shellcheck disable=SC2016,SC2088
-for v in 'i1;touch hub_pwned' 'k$(touch hub_pwned)' 'a b' 'k\nTOUCHED=1' 'ab\tc\d\nq' "O'Brien" '~/hub' 'x#y' '`touch hub_pwned`'; do
+for v in 'i1;touch hub_pwned' 'k$(touch hub_pwned)' 'a b' 'k\nTOUCHED=1' 'ab\tc\d\nq' "O'Brien" '~/hub' 'x#y' '`touch hub_pwned`' 'a$b' '$HOME' 'back\slash' '{}'; do
   if ! hub_write_env "$inj" HUB_API_KEY "$v" 2>/dev/null; then error "hub_write_env refused a writable value: $v"; continue; fi
   got="$(cd "$tmp" && bash -c 'source ./inj.env 2>/dev/null; printf %s "$HUB_API_KEY"' 2>/dev/null)" || got=""
   if [[ "$got" == "$v" ]]; then ok "round-trips through the shell: $v"; else error "shell read [$got] for [$v]: $(cat "$inj")"; fi
@@ -167,6 +169,20 @@ if [[ "$(grep -c '^HUB_API_KEY=' "$inj")" == "1" ]] && ! grep -q '^TOUCHED=' "$i
 if hub_write_env "$inj" HUB_API_KEY "it's \$HOME" 2>/dev/null; then error "an apostrophe with \$ must be refused"; else ok "a value no quoting keeps literal is refused"; fi
 # dotenv reads \\ inside single quotes as one backslash; the shell reads two.
 if hub_write_env "$inj" HUB_API_KEY 'a b\\c' 2>/dev/null; then error "a doubled backslash with shell metacharacters must be refused"; else ok "a value readers disagree on is refused"; fi
+# python-dotenv reads each of these differently from the shell even inside
+# single quotes: a trailing backslash escapes the closing quote (the line is
+# dropped, and docker compose refuses the whole file), and ${NAME} is expanded.
+# shellcheck disable=SC2016
+for v in 'trail\' '\' 'a\\b' '${X}' 'a${HOME}b' '${'; do
+  before="$(cat "$inj")"
+  if hub_write_env "$inj" HUB_API_KEY "$v" 2>/dev/null; then
+    error "a value dotenv reads differently must be refused: [$v] -> $(grep '^HUB_API_KEY=' "$inj")"
+  elif [[ "$(cat "$inj")" != "$before" ]]; then
+    error "a refused value still changed the file: [$v]"
+  else
+    ok "refused, file unchanged: $v"
+  fi
+done
 hub_write_env "$inj" HUB_URL "http://[::1]:8000/"
 if grep -q '^HUB_URL=http://\[::1\]:8000/$' "$inj"; then ok "URL characters stay bare"; else error "URL was quoted: $(grep HUB_URL "$inj")"; fi
 hub_write_env "$inj" HUB_API_KEY "dGVz-dGtl_eQ=="
@@ -221,6 +237,15 @@ chmod +x "$tmp/shim/curl"
 : >"$tmp/curl_argv.log"
 if PATH="$tmp/shim:$PATH" hub_check_key "$url" good-key; then ok "key check still passes through the shim"; else error "key check failed through the shim"; fi
 if [[ -s "$tmp/curl_argv.log" ]] && ! grep -q "good-key" "$tmp/curl_argv.log"; then ok "the key is not in curl's argv"; else error "key visible in argv: $(cat "$tmp/curl_argv.log")"; fi
+stop_hub
+
+# RFC 7231 allows whitespace before the `;` of a media type's parameters.
+start_hub "0.1.0" ctsp
+url="http://127.0.0.1:$port"
+rc=0; hub_check_key "$url" good-key 2>/dev/null || rc=$?
+if [[ "$rc" == "0" ]]; then ok "a JSON Content-Type with whitespace before ';' is accepted"; else error "'application/json ; charset=utf-8' key check returned $rc"; fi
+rc=0; hub_check_key "$url" wrong-key 2>/dev/null || rc=$?
+if [[ "$rc" == "2" ]]; then ok "a wrong key is still exit 2 there"; else error "wrong key with spaced Content-Type returned $rc"; fi
 stop_hub
 
 # A 200 that is not a hub: HTML for every path.

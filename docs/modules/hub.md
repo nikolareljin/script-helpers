@@ -38,8 +38,9 @@ Functions
     `GET url/v1/documents?limit=1` under `X-API-Key`.
   - Behavior: The key is handed to curl on stdin (`curl -K -`), never on the
     command line, so `ps` does not show it. A 200 counts as accepted only
-    with a JSON `Content-Type` (`application/json` or `application/*+json`):
-    a web app or captive portal answering 200 with HTML is not a hub.
+    with a JSON `Content-Type` (`application/json` or `application/*+json`,
+    parameters allowed, with or without whitespace before the `;`): a web
+    app or captive portal answering 200 with HTML is not a hub.
   - Returns: 0 accepted; **2** the hub answered 401/403 (a wrong key -- not a
     missing hub); 1 the hub did not answer or answered something else.
 
@@ -54,9 +55,13 @@ Functions
     value made only of `A-Z a-z 0-9 . _ / : @ % + = , - [ ]` (URLs, base64url
     keys, ids, plain paths) is written bare, `KEY=value`. Anything else is
     single-quoted, or double-quoted when it holds an apostrophe but no
-    `$` `` ` `` `\` `"`. A value no quoting keeps literal for every reader (an
-    apostrophe together with one of those, or a doubled backslash together
-    with other special characters) is refused.
+    `$` `` ` `` `\` `"`. A value no quoting keeps literal for every reader is
+    refused: an apostrophe together with one of those, any doubled backslash
+    (a lone `a\\b` included -- dotenv reads `\\` in single quotes as one), a
+    trailing backslash (it escapes dotenv's closing quote, and docker compose
+    then rejects the whole file) and `${` (dotenv expands it even inside
+    single quotes). `$HOME`, `a$b` and a single backslash inside a value
+    are still written single-quoted.
   - Returns: 0; 1 on bad input or a write error.
 
 - hub_latest_tag clone_dir

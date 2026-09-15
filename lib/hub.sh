@@ -252,10 +252,14 @@ hub_check_key() {
       -H 'Accept: application/json' "$url/v1/documents?limit=1" 2>/dev/null)" || return 1
   code="${out%% *}"
   ctype="$(printf '%s' "${out#* }" | tr '[:upper:]' '[:lower:]')"
+  # The media type without its parameters; RFC 7231 allows whitespace before
+  # the `;` (`application/json ; charset=utf-8`).
+  ctype="${ctype%%;*}"
+  ctype="${ctype%"${ctype##*[![:space:]]}"}"
   case "$code" in
     200)
       case "$ctype" in
-        application/json|application/json\;*|application/*+json|application/*+json\;*) return 0 ;;
+        application/json|application/*+json) return 0 ;;
         *) return 1 ;;
       esac
       ;;
@@ -278,7 +282,8 @@ hub_check_key() {
 # anything else is quoted so the shell and dotenv both read it literally --
 # single quotes, or double quotes for a value holding an apostrophe but no
 # $ ` \ or ". A value that fits neither is refused (return 1) rather than
-# written in a form some reader would expand or read differently.
+# written in a form some reader would expand or read differently -- which
+# includes any doubled backslash, a trailing backslash and `${`.
 hub_write_env() {
   local file="${1:-}" key="${2:-}" value="${3:-}" tmp="" line=""
   [[ -n "$file" && -n "$key" ]] || { log_error "hub_write_env: FILE and KEY required"; return 1; }
@@ -289,8 +294,11 @@ hub_write_env() {
   local bare_re='^[][A-Za-z0-9._/:@%+=,-]*$'
   if [[ "$value" =~ $bare_re ]]; then
     line="$key=$value"
-  elif [[ "$value" != *"'"* && "$value" != *"\\\\"* ]]; then
-    # No doubled backslash: dotenv reads \\ inside single quotes as one.
+  elif [[ "$value" != *"'"* && "$value" != *"\\\\"* && "$value" != *"\\" && "$value" != *'${'* ]]; then
+    # Single quotes are not literal to python-dotenv in three cases, and each
+    # is left to the refusal below: \\ reads as one backslash; a trailing \
+    # escapes the closing quote, so the line is dropped (and docker compose
+    # rejects the whole file); ${NAME} is expanded even inside single quotes.
     line="$key='$value'"
   elif [[ "$value" != *[\"\$\`\\]* ]]; then
     line="$key=\"$value\""
