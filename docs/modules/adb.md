@@ -56,7 +56,12 @@ Apps
 - `adb_install_verified <serial> <apk> <package> [--user <id>] [args...]` —
   install, then confirm it landed. Returns 0 only when both hold; 4 when the
   install reported success but the package is not visible to the target user;
-  2 on missing arguments or a `--user` without a value.
+  3 when the install reported success but the shell is not permitted to query
+  that user at all (a work profile or Secure Folder it cannot read — the same
+  3 as `adb_installed_for_user`); 2 on missing arguments or a `--user` without
+  a value. When the install itself fails, `adb_install`'s status is returned
+  unchanged: 1 when adb is unavailable, 2 for a missing APK or a non-numeric
+  `--user`, otherwise `adb install`'s own exit status.
 - `adb_install_all <apk> [adb install args...]` — install to **every** ready
   device; continues past failures, returns non-zero if any failed.
 - `adb_uninstall <serial> <package>` — uninstall an app package.
