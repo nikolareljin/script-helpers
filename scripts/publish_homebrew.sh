@@ -2,7 +2,7 @@
 # SCRIPT: publish_homebrew.sh
 # DESCRIPTION: Publish a Homebrew formula to a tap repository.
 # USAGE: ./publish_homebrew.sh [--repo PATH] [--formula PATH] [--name NAME] [--tap-repo OWNER/REPO] [--tap-token TOKEN] [--tap-branch BRANCH] [--tap-dir DIR] [--commit-message MESSAGE]
-# EXAMPLE: ./publish_homebrew.sh --formula packaging/brew/myapp.rb --tap-repo owner/homebrew-tap
+# EXAMPLE: ./publish_homebrew.sh --formula packaging/brew/myapp.rb --tap-repo owner/homebrew-example
 # PARAMETERS:
 #   --repo <path>            Repo path (default: GITHUB_WORKSPACE or cwd).
 #   --formula <path>         Formula path (default: packaging/brew/<name>.rb).
