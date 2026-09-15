@@ -60,8 +60,10 @@ gradle_test() { gradle_run "${1:-.}" test; }
 gradle_assemble() {
   local dir="${1:-.}" variant="${2:-Debug}" first
   # Capitalized here rather than trusted: `release` ran `assemblerelease`, which
-  # Gradle rejects. `tr` because bash 3.2 has no ${variant^}.
-  first="$(printf '%s' "${variant:0:1}" | tr '[:lower:]' '[:upper:]')"
+  # Gradle rejects. `tr` because bash 3.2 has no ${variant^}; in the C locale
+  # because case mapping is locale data, and a Turkish locale upper-cases `i`
+  # to a dotted capital I that no Gradle task name contains.
+  first="$(printf '%s' "${variant:0:1}" | LC_ALL=C tr '[:lower:]' '[:upper:]')"
   gradle_run "$dir" "assemble${first}${variant:1}"
 }
 

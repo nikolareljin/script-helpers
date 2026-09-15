@@ -17,6 +17,18 @@ cd "$root_dir"
 failures=0
 note()  { echo "[android_test] $*"; }
 error() { echo "[android_test][ERROR] $*" >&2; failures=$((failures+1)); }
+# Run a command with a time limit and return its status, or 137 when it had to
+# be killed. For checks whose regression is a hang (an option parser that
+# loops on a missing value): a hang must fail the run, not stall it. The
+# watcher's output goes to /dev/null so its sleep cannot hold a pipe open.
+run_bounded() {
+  local secs=$1; shift
+  "$@" & local pid=$!
+  ( sleep "$secs"; kill -9 "$pid" 2>/dev/null ) >/dev/null 2>&1 & local w=$!
+  wait "$pid" 2>/dev/null; local rc=$?
+  kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
+  return $rc
+}
 
 # shellcheck source=/dev/null
 source ./helpers.sh
@@ -200,10 +212,10 @@ note "a failing signer cleans up the decoded keystore"
 
 # 12) an option given without its value is an error, not a hang
 set +e
-( android_sign "$tmp/app.apk" --alias x --storepass ) >/dev/null 2>&1
-[[ $? -eq 2 ]] || error "android_sign with a trailing --storepass did not return 2"
-( android_emulator_start myavd --wait ) >/dev/null 2>&1
-[[ $? -eq 2 ]] || error "android_emulator_start with a trailing --wait did not return 2"
+run_bounded 10 android_sign "$tmp/app.apk" --alias x --storepass >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "android_sign with a trailing --storepass did not return 2 (137 = hung)"
+run_bounded 10 android_emulator_start myavd --wait >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "android_emulator_start with a trailing --wait did not return 2 (137 = hung)"
 set -e
 note "a trailing option without a value returns 2"
 
@@ -215,6 +227,21 @@ for pair in "release:assembleRelease" "Debug:assembleDebug" "prodRelease:assembl
 done
 got="$(gradle_assemble "$tmp/proj" 2>/dev/null)" || got=""
 [[ "$got" == "gradlew --no-daemon assembleDebug" ]] || error "gradle_assemble with no variant ran '$got'"
+# In the C locale whatever the caller's: case mapping is locale data (a Turkish
+# locale maps `i` to a dotted capital I). Those locales are rarely installed, so
+# a `tr` on PATH stands in for one: it answers wrongly unless LC_ALL=C.
+real_tr="$(command -v tr)"
+mkdir -p "$tmp/localebin"
+{
+  printf '#!/bin/sh\n'
+  # shellcheck disable=SC2016  # $LC_ALL and $@ belong to the stub
+  printf 'if [ "${LC_ALL:-}" != C ]; then printf "\\304\\260"; exit 0; fi\n'
+  printf 'exec "%s" "$@"\n' "$real_tr"
+} > "$tmp/localebin/tr"
+chmod +x "$tmp/localebin/tr"
+got="$(PATH="$tmp/localebin:$PATH" LC_ALL='' gradle_assemble "$tmp/proj" instrumented 2>/dev/null)" || got=""
+[[ "$got" == "gradlew --no-daemon assembleInstrumented" ]] \
+  || error "gradle_assemble capitalized with the caller's locale: ran '$got'"
 note "gradle_assemble capitalizes the variant"
 
 if [[ "$failures" -eq 0 ]]; then
