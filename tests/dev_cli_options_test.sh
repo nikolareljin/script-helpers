@@ -33,15 +33,22 @@ git -C "$repo" init -q .
 cp templates/dev-cli/cli.sh templates/dev-cli/_bootstrap.sh "$repo/scripts/"
 ln -s "$ROOT_DIR" "$repo/scripts/script-helpers"
 
-# parsed <args...>: prints "target=<t>|args=<a1>,<a2>,..." from parse_dev_options.
+# parsed <args...>: prints "target=<t>|args=<a1>,<a2>,..." from parse_dev_options,
+# plus "|release=<r>" / "|device=<d>" when those options are in the arguments.
 parsed() {
   (
     # shellcheck source=/dev/null
     source "$repo/scripts/cli.sh"          # the source guard stops main
+    local asked=" $* "
     parse_dev_options "$@"
     printf 'target=%s|args=' "$DEV_TARGET"
     local IFS=,
-    printf '%s\n' "${DEV_ARGS[*]-}"
+    printf '%s' "${DEV_ARGS[*]-}"
+    # --release and --device are reported only when asked, so the older
+    # expectations above keep their exact shape.
+    case "$asked" in *" --release "*) printf '|release=%s' "$DEV_RELEASE" ;; esac
+    case "$asked" in *" --device "*) printf '|device=%s' "$DEV_DEVICE" ;; esac
+    printf '\n'
   ) 2>/dev/null
 }
 
@@ -65,6 +72,19 @@ expect "a bare target word is still the target" \
   "target=ios|args=--quick" ios --quick
 expect "a trailing value flag is passed through for the script to reject" \
   "target=|args=--stack" --stack
+# A value flag followed by another option has no value: the option is parsed
+# as itself rather than swallowed as the value.
+expect "--dir with no value leaves --release as an option" \
+  "target=|args=--dir|release=true" --dir --release
+expect "--platform with no value leaves --device to be parsed" \
+  "target=|args=--platform|device=X" --platform --device X
+expect "--stack ios after a value-less --out" \
+  "target=|args=--out,--stack,ios" --out --stack ios
+if ( source "$repo/scripts/cli.sh"; usage() { echo USAGE-SHOWN; }; parse_dev_options --stack --help; echo PARSED-ON ) 2>/dev/null | grep -q '^USAGE-SHOWN$'; then
+  note "--stack --help shows help instead of taking --help as the stack"
+else
+  error "--stack --help: --help was swallowed as the value of --stack"
+fi
 expect "unrelated arguments pass through unchanged" \
   "target=web|args=1.4.0,--gif" web 1.4.0 --gif
 

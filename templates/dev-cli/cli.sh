@@ -66,9 +66,13 @@ parse_dev_options() {
       # The value is passed through with its flag, so a value that happens to
       # be a target word (`./dev preflight --stack ios`, `./dev screenshot
       # --out web`) is not taken as the target and the flag left dangling.
+      # A next word starting with `-` is another option, not the value: taking
+      # it would swallow `--help` or `--release` (`./dev preflight --stack
+      # --help` ran preflight). The flag is then passed on alone for the script
+      # to reject as missing its value.
       --stack|--dir|--platform|--out|--seconds|--size|--bitrate)
         DEV_ARGS+=("$1"); shift
-        if [[ $# -gt 0 ]]; then DEV_ARGS+=("$1"); shift; fi ;;
+        if [[ $# -gt 0 && "$1" != -* ]]; then DEV_ARGS+=("$1"); shift; fi ;;
       --release) DEV_RELEASE=true; shift ;;
       --verbose) DEV_VERBOSE=true; shift ;;
       # Asking a verb for help must not run the verb. Without this, `./dev
