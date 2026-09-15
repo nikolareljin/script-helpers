@@ -80,7 +80,17 @@ expect "--platform with no value leaves --device to be parsed" \
   "target=|args=--platform|device=X" --platform --device X
 expect "--stack ios after a value-less --out" \
   "target=|args=--out,--stack,ios" --out --stack ios
-if ( source "$repo/scripts/cli.sh"; usage() { echo USAGE-SHOWN; }; parse_dev_options --stack --help; echo PARSED-ON ) 2>/dev/null | grep -q '^USAGE-SHOWN$'; then
+help_out="$(
+  (
+    # shellcheck source=/dev/null
+    source "$repo/scripts/cli.sh"
+    # shellcheck disable=SC2317  # called by parse_dev_options on -h/--help
+    usage() { echo USAGE-SHOWN; }
+    parse_dev_options --stack --help
+    echo PARSED-ON
+  ) 2>/dev/null
+)"
+if [[ "$help_out" == "USAGE-SHOWN" ]]; then
   note "--stack --help shows help instead of taking --help as the stack"
 else
   error "--stack --help: --help was swallowed as the value of --stack"
