@@ -172,6 +172,7 @@ got="$(ANDROID_SDK_ROOT="$sdk" android_package_name "$tmp" "$tmp/app.apk" 2>/dev
 {
   printf '#!/usr/bin/env sh\n'
   printf 'echo "package: name='"'"'com.example.app.debug'"'"' versionCode='"'"'1'"'"'"\n'
+  # shellcheck disable=SC2016  # $i belongs to the stub, not this script
   printf 'i=0; while [ $i -lt 4000 ]; do echo "uses-permission: name='"'"'android.permission.P$i'"'"'"; i=$((i+1)); done\n'
 } > "$sdk/build-tools/37.0.0/aapt2"
 chmod +x "$sdk/build-tools/37.0.0/aapt2"
