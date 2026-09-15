@@ -109,20 +109,37 @@ mkdir -p "$(dirname "$output_path")"
 
 template_path="${SCRIPT_HELPERS_DIR}/templates/packaging/brew/app.rb"
 
+# Values reach awk through the environment, not -v: the original awk
+# (macOS) rejects a -v value containing a newline ("newline in string"),
+# and the dependency lists are multi-line.
+_PKG_APP_NAME="$APP_NAME" \
+_PKG_APP_BIN_NAME="$APP_BIN_NAME" \
+_PKG_APP_VERSION="$APP_VERSION" \
+_PKG_BREW_FORMULA_CLASS="$BREW_FORMULA_CLASS" \
+_PKG_BREW_DESC="$BREW_DESC" \
+_PKG_BREW_HOMEPAGE="$BREW_HOMEPAGE" \
+_PKG_BREW_URL="$BREW_URL" \
+_PKG_BREW_SHA256="$BREW_SHA256" \
+_PKG_BREW_LICENSE="$BREW_LICENSE" \
+_PKG_BREW_DEPENDS_LINES="$BREW_DEPENDS_LINES" \
+_PKG_BREW_INSTALL_CMD="$BREW_INSTALL_CMD" \
+_PKG_BREW_TEST_CMD="$BREW_TEST_CMD" \
 awk \
-  -v APP_NAME="$APP_NAME" \
-  -v APP_BIN_NAME="$APP_BIN_NAME" \
-  -v APP_VERSION="$APP_VERSION" \
-  -v BREW_FORMULA_CLASS="$BREW_FORMULA_CLASS" \
-  -v BREW_DESC="$BREW_DESC" \
-  -v BREW_HOMEPAGE="$BREW_HOMEPAGE" \
-  -v BREW_URL="$BREW_URL" \
-  -v BREW_SHA256="$BREW_SHA256" \
-  -v BREW_LICENSE="$BREW_LICENSE" \
-  -v BREW_DEPENDS_LINES="$BREW_DEPENDS_LINES" \
-  -v BREW_INSTALL_CMD="$BREW_INSTALL_CMD" \
-  -v BREW_TEST_CMD="$BREW_TEST_CMD" \
-  'function subst(s, token, val,    out, i) {
+  'BEGIN {
+    APP_NAME = ENVIRON["_PKG_APP_NAME"]
+    APP_BIN_NAME = ENVIRON["_PKG_APP_BIN_NAME"]
+    APP_VERSION = ENVIRON["_PKG_APP_VERSION"]
+    BREW_FORMULA_CLASS = ENVIRON["_PKG_BREW_FORMULA_CLASS"]
+    BREW_DESC = ENVIRON["_PKG_BREW_DESC"]
+    BREW_HOMEPAGE = ENVIRON["_PKG_BREW_HOMEPAGE"]
+    BREW_URL = ENVIRON["_PKG_BREW_URL"]
+    BREW_SHA256 = ENVIRON["_PKG_BREW_SHA256"]
+    BREW_LICENSE = ENVIRON["_PKG_BREW_LICENSE"]
+    BREW_DEPENDS_LINES = ENVIRON["_PKG_BREW_DEPENDS_LINES"]
+    BREW_INSTALL_CMD = ENVIRON["_PKG_BREW_INSTALL_CMD"]
+    BREW_TEST_CMD = ENVIRON["_PKG_BREW_TEST_CMD"]
+  }
+  function subst(s, token, val,    out, i) {
     # Literal replacement. gsub() treats & in the replacement as the matched
     # text and \\ as an escape, so a value such as "make && make docs" came
     # out as "make @TOKEN@@TOKEN@ make docs". index/substr has no such

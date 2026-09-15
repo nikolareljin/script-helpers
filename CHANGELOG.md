@@ -101,6 +101,12 @@ under **Changed**.
 - **`packaging_init.sh` and `render_brew_formula.sh`** substitute values
   literally, so `&` and `\` survive; `render_brew_formula.sh` refuses an empty
   or placeholder `sha256`.
+- **`packaging_init.sh` and `render_brew_formula.sh` run on macOS.** Their
+  awk values went in with `-v`, which the original awk macOS ships rejects
+  for a multi-line value (`newline in string`), and `packaging_init.sh` used
+  `date -R`, which BSD `date` does not have. Values now reach awk through
+  `ENVIRON`, and the changelog date is formatted explicitly (RFC 2822, UTC,
+  C locale).
 - **`gen_brew_formula.sh`** puts each `depends_on` on its own line (the formula
   was invalid Ruby with more than one).
 - **`ci_python.sh`** joins its Docker steps with `&&`.
