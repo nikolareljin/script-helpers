@@ -18,6 +18,18 @@ cd "$root_dir"
 failures=0
 note()  { echo "[screencap_test] $*"; }
 error() { echo "[screencap_test][ERROR] $*" >&2; failures=$((failures+1)); }
+# Run a command with a time limit and return its status, or 137 when it had to
+# be killed. For checks whose regression is a hang (an option parser that
+# loops on a missing value): a hang must fail the run, not stall it. The
+# watcher's output goes to /dev/null so its sleep cannot hold a pipe open.
+run_bounded() {
+  local secs=$1; shift
+  "$@" & local pid=$!
+  ( sleep "$secs"; kill -9 "$pid" 2>/dev/null ) >/dev/null 2>&1 & local w=$!
+  wait "$pid" 2>/dev/null; local rc=$?
+  kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
+  return $rc
+}
 
 # shellcheck source=/dev/null
 source ./helpers.sh
@@ -106,20 +118,20 @@ fi
 # with one argument left shifts nothing, so the loop saw the same flag forever.
 set +e
 for args in "--device" "--platform" "--out"; do
-  ( screencap_shot "$args" ) >/dev/null 2>&1
-  [[ $? -eq 2 ]] || error "screencap_shot with a trailing $args did not return 2"
+  run_bounded 10 screencap_shot "$args" >/dev/null 2>&1
+  [[ $? -eq 2 ]] || error "screencap_shot with a trailing $args did not return 2 (137 = hung)"
 done
 for args in "--device" "--platform" "--out" "--seconds" "--size" "--bitrate"; do
-  ( screencap_record "$args" ) >/dev/null 2>&1
-  [[ $? -eq 2 ]] || error "screencap_record with a trailing $args did not return 2"
+  run_bounded 10 screencap_record "$args" >/dev/null 2>&1
+  [[ $? -eq 2 ]] || error "screencap_record with a trailing $args did not return 2 (137 = hung)"
 done
 printf 'x' > "$tmp/clip.mp4"
-( screencap_frame "$tmp/clip.mp4" "$tmp/f.png" --at ) >/dev/null 2>&1
-[[ $? -eq 2 ]] || error "screencap_frame with a trailing --at did not return 2"
-( screencap_gif "$tmp/clip.mp4" "$tmp/f.gif" --fps ) >/dev/null 2>&1
-[[ $? -eq 2 ]] || error "screencap_gif with a trailing --fps did not return 2"
-( screencap_gif "$tmp/clip.mp4" "$tmp/f.gif" --width ) >/dev/null 2>&1
-[[ $? -eq 2 ]] || error "screencap_gif with a trailing --width did not return 2"
+run_bounded 10 screencap_frame "$tmp/clip.mp4" "$tmp/f.png" --at >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "screencap_frame with a trailing --at did not return 2 (137 = hung)"
+run_bounded 10 screencap_gif "$tmp/clip.mp4" "$tmp/f.gif" --fps >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "screencap_gif with a trailing --fps did not return 2 (137 = hung)"
+run_bounded 10 screencap_gif "$tmp/clip.mp4" "$tmp/f.gif" --width >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "screencap_gif with a trailing --width did not return 2 (137 = hung)"
 set -e
 note "a trailing option without a value returns 2"
 

@@ -15,11 +15,12 @@ note()  { echo "[changelog_test] $*"; }
 error() { echo "[changelog_test][ERROR] $*" >&2; failures=$((failures+1)); }
 # Run a command with a time limit and return its status, or 137 when it had to
 # be killed. For checks whose regression is a hang (an option parser that
-# loops on a missing value): a hang must fail the run, not stall it.
+# loops on a missing value): a hang must fail the run, not stall it. The
+# watcher's output goes to /dev/null so its sleep cannot hold a pipe open.
 run_bounded() {
   local secs=$1; shift
   "$@" & local pid=$!
-  ( sleep "$secs"; kill -9 "$pid" 2>/dev/null ) & local w=$!
+  ( sleep "$secs"; kill -9 "$pid" 2>/dev/null ) >/dev/null 2>&1 & local w=$!
   wait "$pid" 2>/dev/null; local rc=$?
   kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
   return $rc
