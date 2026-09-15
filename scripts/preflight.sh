@@ -211,7 +211,9 @@ detect_stacks() {
 read_preflight_config() {
   local file="$PROJECT_DIR/.preflight" stack dir
   [[ -f "$file" ]] || return 1
-  while read -r stack dir _; do
+  # `|| [[ -n "$stack" ]]` keeps a last line that has no trailing newline:
+  # read returns non-zero for it even though it filled the variables.
+  while read -r stack dir _ || [[ -n "$stack" ]]; do
     [[ -n "$stack" ]] || continue
     [[ "$stack" == \#* ]] && continue
     [[ " $KNOWN_STACKS " == *" $stack "* ]] || {

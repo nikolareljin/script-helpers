@@ -103,6 +103,18 @@ if [[ $rc -eq 0 ]] && has_pair "$out" node . && has_pair "$out" go tools; then
 else
   error "valid .preflight: rc=$rc out=[$out]"
 fi
+# A last line without a trailing newline (an editor that does not add one, or
+# printf) is still a line: it used to be dropped silently.
+printf 'node .\ngo tools' > "$tmp/cfg/.preflight"
+out="$(CI="" bash "$PF" --dir "$tmp/cfg" --list 2>/dev/null)"; rc=$?
+if [[ $rc -eq 0 ]] && has_pair "$out" node . && has_pair "$out" go tools; then
+  note "a .preflight last line with no trailing newline is listed"
+else
+  error ".preflight last line without newline dropped: rc=$rc out=[$out]"
+fi
+printf 'node .\npyhton .' > "$tmp/cfg/.preflight"
+CI="" bash "$PF" --dir "$tmp/cfg" --list >/dev/null 2>&1; rc=$?
+if [[ $rc -eq 2 ]]; then note "a misspelled stack on an unterminated last line exits 2"; else error "misspelled stack on unterminated last line: exit $rc"; fi
 
 # --- off macOS, iOS must SKIP rather than FAIL ------------------------------
 # A Linux box failing an iOS check would be noise on every run; a skip is
