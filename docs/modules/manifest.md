@@ -41,7 +41,7 @@ Functions
     - `--build` — for `gradle`, overrides the computed `versionCode` and must be an integer; for `pubspec`, sets the `+n` suffix and must be a build identifier (`[0-9A-Za-z-]`, dot-separated). An existing pubspec suffix is preserved when this is not given. A `--build` with no value returns 2.
   - Pubspec: a version that carries its own build number (`1.4.0+46`) is written as given and replaces the existing suffix; an explicit `--build` wins over it. Other kinds write the version string unchanged.
   - The version is written literally: `&`, `|` and `\` are not sed syntax. A version containing a line break returns 2.
-  - A Gradle file with no `versionName` literal (a Flutter module reading `flutter.versionName`) is not an error: it returns 0 and logs a warning that the version was not written there, instead of reporting it as updated.
+  - A Gradle file with no `versionName` literal is not an error and returns 0, without reporting the version as written. A Flutter module (the file references `flutter.versionName`) logs a warning that the version was not written there because a Flutter build takes it from `pubspec.yaml`. Any other such file — a native app that sets `versionName` from a variable, a root `build.gradle(.kts)` with no `android` block — logs only at debug level (`DEBUG=true`). When a `versionCode` literal was rewritten, the message says so rather than claiming nothing was written.
   - Returns: 0 on success; 2 for a missing file, a non-semver version or an invalid `--build`; 1 when the rewrite would produce an empty file, which is refused rather than written.
   - Note: Writes via a temp file, so an interrupted write cannot leave a half-rewritten build file behind.
 
@@ -49,6 +49,7 @@ Functions
   - Purpose: Write `version` into every manifest under `dir`. This is the "one release, one number" operation.
   - Returns: 0 when every manifest was written; non-zero if any failed, after attempting all of them — a partial sync is reported, not hidden. 2 for missing arguments or a `--build` with no value.
   - Only the manifests `manifest_detect` lists are written, so a vendored submodule's `VERSION` is left alone.
+  - When no manifest is found under `dir` it still returns 0, and logs an `[INFO]` line saying no version manifest was found and nothing was written.
 
 Environment
 -----------

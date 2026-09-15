@@ -12,6 +12,17 @@ cd "$root_dir"
 
 failures=0
 note()  { echo "[manifest_test] $*"; }
+# Run a command with a time limit and return its status, or 137 when it had to
+# be killed. For checks whose regression is a hang (an option parser that
+# loops on a missing value): a hang must fail the run, not stall it.
+run_bounded() {
+  local secs=$1; shift
+  "$@" & local pid=$!
+  ( sleep "$secs"; kill -9 "$pid" 2>/dev/null ) & local w=$!
+  wait "$pid" 2>/dev/null; local rc=$?
+  kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
+  return $rc
+}
 error() { echo "[manifest_test][ERROR] $*" >&2; failures=$((failures+1)); }
 
 # shellcheck source=/dev/null
@@ -140,10 +151,10 @@ manifest_write_version "$tmp/android/app/build.gradle" 2.0.0 --build 12a >/dev/n
 grep -q 'versionCode 20000' "$tmp/android/app/build.gradle" || error "a rejected --build changed the gradle file"
 manifest_write_version "$tmp/pubspec.yaml" 2.0.0 --build 'a b' >/dev/null 2>&1
 [[ $? -eq 2 ]] || error "an invalid pubspec --build did not return 2"
-( manifest_write_version "$tmp/VERSION" 2.0.0 --build ) >/dev/null 2>&1
-[[ $? -eq 2 ]] || error "manifest_write_version with a trailing --build did not return 2"
-( manifest_sync_version "$tmp" 2.0.0 --build ) >/dev/null 2>&1
-[[ $? -eq 2 ]] || error "manifest_sync_version with a trailing --build did not return 2"
+run_bounded 10 manifest_write_version "$tmp/VERSION" 2.0.0 --build >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "manifest_write_version with a trailing --build did not return 2 (137 = hung)"
+run_bounded 10 manifest_sync_version "$tmp" 2.0.0 --build >/dev/null 2>&1
+[[ $? -eq 2 ]] || error "manifest_sync_version with a trailing --build did not return 2 (137 = hung)"
 set -e
 note "--build is validated"
 
@@ -156,6 +167,47 @@ status=$?
 set -e
 [[ "$status" -eq 0 ]] || error "a gradle file without a literal returned $status (expected 0)"
 [[ "$msg" == *"no versionName literal"* ]] || error "a gradle file without a literal was reported as written: $msg"
+[[ "$msg" == *"[WARN]"*"pubspec.yaml"* ]] || error "a Flutter gradle file did not warn that pubspec.yaml holds the version: $msg"
+
+# 12) a native Android build file without a versionName literal is normal: no
+# warning, and certainly none that names Flutter. Where versionCode is a literal
+# it is still rewritten, and the message (at debug level) says so.
+mkdir -p "$tmp/native/app"
+printf 'android {\n  defaultConfig {\n    versionCode = 7\n    versionName = appVersionName\n  }\n}\n' \
+  > "$tmp/native/app/build.gradle.kts"
+printf 'plugins {\n  id("com.android.application") version "8.5.0" apply false\n}\n' \
+  > "$tmp/native/build.gradle.kts"
+for f in native/app/build.gradle.kts native/build.gradle.kts; do
+  set +e
+  msg="$(DEBUG=false manifest_write_version "$tmp/$f" 2.0.0 2>&1)"
+  status=$?
+  set -e
+  [[ "$status" -eq 0 ]] || error "native $f returned $status (expected 0)"
+  [[ "$msg" != *"[WARN]"* && "$msg" != *Flutter* ]] || error "native $f warned: $msg"
+done
+grep -q 'versionCode = 20000' "$tmp/native/app/build.gradle.kts" \
+  || error "native versionCode literal was not rewritten: $(grep versionCode "$tmp/native/app/build.gradle.kts")"
+msg="$(DEBUG=true manifest_write_version "$tmp/native/app/build.gradle.kts" 2.0.0 2>&1)"
+[[ "$msg" == *"versionCode was set to 20000"* && "$msg" != *"2.0.0 was not written there"* ]] \
+  || error "native versionCode rewrite was described as nothing written: $msg"
+# A Flutter module that still has a versionCode literal: warned, and accurately.
+printf 'android {\n  defaultConfig {\n    versionCode 3\n    versionName flutter.versionName\n  }\n}\n' \
+  > "$tmp/flutter/app/build.gradle.kts"
+msg="$(manifest_write_version "$tmp/flutter/app/build.gradle.kts" 2.0.0 2>&1)"
+[[ "$msg" == *"[WARN]"*"versionCode was set to 20000"* ]] \
+  || error "a Flutter gradle file with a versionCode literal was misreported: $msg"
+note "gradle files without a versionName literal are reported accurately"
+
+# 13) sync with nothing to sync is success, but says so
+empty="$(mktemp -d)"
+set +e
+msg="$(manifest_sync_version "$empty" 2.0.0 2>&1)"
+status=$?
+set -e
+rm -rf "$empty"
+[[ "$status" -eq 0 ]] || error "manifest_sync_version with no manifest returned $status (expected 0)"
+[[ "$msg" == *"no version manifest found"* ]] || error "manifest_sync_version with no manifest was silent: '$msg'"
+note "an empty sync is reported"
 
 if [[ "$failures" -eq 0 ]]; then
   note "ALL PASSED"

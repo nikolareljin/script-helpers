@@ -243,13 +243,27 @@ manifest_write_version() {
     log_error "manifest_write_version: could not write $file"
     return 1
   fi
-  # A Flutter module's Gradle file reads `flutter.versionName` and has no
-  # literal to rewrite; the pubspec is where that version lives. Not an error --
-  # release flows sync a whole tree and expect it -- but not a silent success
-  # either.
+  # A Gradle file with no versionName literal is not an error -- release flows
+  # sync a whole tree and expect some -- but what was and was not written must
+  # be reported accurately.
+  #
+  # Only a file that reads `flutter.versionName` gets a warning: that is a
+  # Flutter module, and the pubspec is where its version lives. A native app
+  # that takes versionName from a variable, or a root build file with no
+  # android block at all, is normal and gets a debug line, not a warning that
+  # names Flutter. A versionCode literal is still rewritten in either case, so
+  # the message must not claim nothing was written.
   if [[ "$kind" == gradle ]] && ! manifest_read_version "$file" >/dev/null 2>&1; then
     rm -f "$tmp"
-    log_warn "manifest: $file has no versionName literal; $version was not written there (a Flutter build takes it from pubspec.yaml)"
+    local code_note="$version was not written there"
+    if grep -q 'versionCode[[:space:]]*[=(]*[[:space:]]*[0-9]' "$file" 2>/dev/null; then
+      code_note="versionCode was set to $code, but versionName $version was not written"
+    fi
+    if grep -q 'flutter\.versionName' "$file" 2>/dev/null; then
+      log_warn "manifest: $file has no versionName literal; $code_note (a Flutter build takes it from pubspec.yaml)"
+    else
+      log_debug "manifest: $file has no versionName literal; $code_note"
+    fi
     return 0
   fi
   rm -f "$tmp"
@@ -273,14 +287,24 @@ manifest_sync_version() {
   done
   [[ -n "$dir" && -n "$version" ]] || { log_error "manifest_sync_version: need <dir> <version>"; return 2; }
 
+  local found=0
   while IFS=$'\t' read -r kind path; do
     [[ -n "$path" ]] || continue
+    found=1
     if [[ -n "$build" ]]; then
       manifest_write_version "$path" "$version" --build "$build" || rc=1
     else
       manifest_write_version "$path" "$version" || rc=1
     fi
   done < <(manifest_detect "$dir")
+
+  # The process substitution hides manifest_detect's status, so "nothing was
+  # found" is counted here. Still success -- a tree with no manifest has nothing
+  # to disagree with -- but said, not silent. (A <dir> that is not a directory
+  # is reported by manifest_detect itself.)
+  if [[ "$found" -eq 0 && -d "$dir" ]]; then
+    log_info "manifest_sync_version: no version manifest found under $dir; nothing written"
+  fi
 
   [[ "$rc" -eq 0 ]] || log_error "manifest_sync_version: one or more manifests were not updated"
   return $rc
