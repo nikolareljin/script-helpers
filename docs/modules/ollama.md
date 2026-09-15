@@ -66,7 +66,7 @@ Environment
 
 - ollama_update_env [env_file=.env] key value
   - Purpose: Create/update a `key=value` line in a dotenv file.
-  - Behavior: The key is matched literally against the text before the first `=`; the value is written byte-for-byte (backslashes included, unquoted as before). A replaced file keeps its permissions.
+  - Behavior: The key is matched literally against the text before the first `=`; the value is written byte-for-byte (backslashes included, unquoted as before). A replaced file is rewritten in place, so it keeps its permissions and, when the env file is a symlink, the link stays and the update reaches its target.
   - Returns: 0; 1 when the key is empty, when the key or value contains a newline or carriage return (the file is left unchanged), or on a write error.
 
 - ollama_install_model_flow [repo_dir=ollama-get-models] [env_file]
