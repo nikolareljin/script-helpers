@@ -164,6 +164,20 @@ got="$(ANDROID_SDK_ROOT="$sdk" android_sdk_tool aapt2 2>/dev/null)" || got=""
 [[ "$got" == "$sdk/build-tools/37.0.0/aapt2" ]] || error "android_sdk_tool under a spaced SDK root gave '$got'"
 got="$(ANDROID_SDK_ROOT="$sdk" android_package_name "$tmp" "$tmp/app.apk" 2>/dev/null)" || got=""
 [[ "$got" == "com.example.app.debug" ]] || error "android_package_name gave '$got' (expected com.example.app.debug)"
+# A real badging dump runs to hundreds of lines. Stopping at the first match
+# (grep -m1) left aapt2 writing into a closed pipe; under the caller's pipefail
+# (this test runs with it, like the dev-CLI template) the pipeline failed and
+# the package came back empty. A dump long enough to fill the pipe buffer makes
+# that deterministic rather than a race.
+{
+  printf '#!/usr/bin/env sh\n'
+  printf 'echo "package: name='"'"'com.example.app.debug'"'"' versionCode='"'"'1'"'"'"\n'
+  # shellcheck disable=SC2016  # $i belongs to the stub, not this script
+  printf 'i=0; while [ $i -lt 4000 ]; do echo "uses-permission: name='"'"'android.permission.P$i'"'"'"; i=$((i+1)); done\n'
+} > "$sdk/build-tools/37.0.0/aapt2"
+chmod +x "$sdk/build-tools/37.0.0/aapt2"
+got="$(ANDROID_SDK_ROOT="$sdk" android_package_name "$tmp" "$tmp/app.apk" 2>/dev/null)" || got=""
+[[ "$got" == "com.example.app.debug" ]] || error "android_package_name with a long badging dump under pipefail gave '$got'"
 note "package name is read from the package: attribute of the newest build-tools"
 
 # 10) jarsigner gets its passwords from the environment, never argv
