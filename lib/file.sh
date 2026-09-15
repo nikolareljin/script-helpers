@@ -53,23 +53,30 @@ download_file() {
   fi
 
   # Fallback to curl/wget without dialog
-  local rc=0
-  if command_exists curl; then
-    # -sS: silent progress, show errors only. -f: an HTTP error is a failure;
-    # without it a 404 page was saved as the download and returned 0.
-    curl --max-time 3600 -f -sS -L -o "$output" "$url" || rc=$?
-  elif command_exists wget; then
-    # -q: quiet output
-    wget -q --timeout=3600 -O "$output" "$url" || rc=$?
-  else
+  local rc=0 part
+  if ! command_exists curl && ! command_exists wget; then
     print_error "Neither curl nor wget is installed."
     return 1
   fi
+  # Into a temporary file beside the destination, moved into place only on
+  # success: no partial or error-page file is left where the caller expects
+  # the download, and a file already there survives a failed one.
+  part="$(mktemp "$output.XXXXXX")" || return 1
+  # mktemp makes the file 0600; a download gets the mode curl would give it.
+  chmod "$(printf '%o' $(( 0666 & ~0$(umask) )))" "$part" 2>/dev/null || true
+  if command_exists curl; then
+    # -sS: silent progress, show errors only. -f: an HTTP error is a failure;
+    # without it a 404 page was saved as the download and returned 0.
+    curl --max-time 3600 -f -sS -L -o "$part" "$url" || rc=$?
+  else
+    # -q: quiet output
+    wget -q --timeout=3600 -O "$part" "$url" || rc=$?
+  fi
   if [[ "$rc" -ne 0 ]]; then
-    # No partial or error-page file left where the caller expects the download.
-    rm -f "$output"
+    rm -f "$part"
     return "$rc"
   fi
+  mv -f "$part" "$output" || { rm -f "$part"; return 1; }
   return 0
 }
 
@@ -100,7 +107,19 @@ verify_checksum() {
       print_error "Checksum verification failed for $iso_file."
       return 1
     fi
-    actual="$("$checksum_type" "$iso_file" 2>/dev/null | awk '{print $1; exit}')"
+    # shasum defaults to SHA-1 whatever the list holds (`shasum -c` chose the
+    # algorithm from the digest length), so choose it the same way here.
+    local -a hash_cmd=("$checksum_type")
+    if [[ "$checksum_type" == "shasum" ]]; then
+      case "${#expected}" in
+        40) hash_cmd+=(-a 1) ;;
+        56) hash_cmd+=(-a 224) ;;
+        64) hash_cmd+=(-a 256) ;;
+        96) hash_cmd+=(-a 384) ;;
+        128) hash_cmd+=(-a 512) ;;
+      esac
+    fi
+    actual="$("${hash_cmd[@]}" "$iso_file" 2>/dev/null | awk '{print $1; exit}')"
     actual="${actual#\\}"
     expected="$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')"
     actual="$(printf '%s' "$actual" | tr '[:upper:]' '[:lower:]')"
