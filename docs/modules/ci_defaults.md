@@ -30,6 +30,11 @@ All values can be overridden by setting the variable before invoking a script.
 - `CI_DEFAULT_GITLEAKS_VERSION` (default: `v8.30.0`)
 - `CI_DEFAULT_GITLEAKS_IMAGE` (default: `zricethezav/gitleaks`)
 
+### Wrangler (Cloudflare)
+- `CI_DEFAULT_WRANGLER_VERSION` (default: `4.42.0`)
+
+Not a Docker image. This is the version `lib/cloudflare.sh` hands to `npx` when a project has no wrangler of its own; a project with a lockfile gets the version it was tested against instead.
+
 ## Usage
 
 ```bash

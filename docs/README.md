@@ -65,5 +65,6 @@ Modules overview
 - changelog — check, extract and generate the CHANGELOG release-header format that `ci-helpers` builds release notes from; Bash + PowerShell.
 - rust — resolve the Rust toolchain CI compiles with, rather than whatever `PATH` offers first; a distribution cargo shadowing rustup's fails with a lockfile error that names the wrong thing.
 - hub — corpus-hub setup for capture clients: local-vs-remote dialog, probe, API-key check, symlink-safe `.env` writing, bootstrap through the hub's own scripts, and an update offer.
+- cloudflare — deploy to Cloudflare with wrangler: credential and account-id resolution, version and deploy-config derivation, a typed confirmation for protected environments, and a smoke test that asserts the deployed version is the one now live. Shares one deploy definition with CI through `CF_DEPLOY_*`.
 
 If you add a new module or function, update ./docs/api.md and the relevant ./docs/modules/*.md file. See AGENTS.md for the process and checklist.

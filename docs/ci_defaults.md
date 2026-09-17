@@ -55,6 +55,7 @@ export CI_DEFAULT_NODE_VERSION="22-bookworm"
 | Gradle    | `CI_DEFAULT_GRADLE_VERSION`    | `8.7-jdk17`   | `gradle:8.7-jdk17`                 |
 | Go        | `CI_DEFAULT_GO_VERSION`        | `1.22`        | `golang:1.22`                      |
 | Gitleaks  | `CI_DEFAULT_GITLEAKS_VERSION`  | `v8.30.0`     | `zricethezav/gitleaks:v8.30.0`     |
+| Wrangler  | `CI_DEFAULT_WRANGLER_VERSION`  | `4.42.0`      | npm package, not an image          |
 
 ## How to update versions
 
