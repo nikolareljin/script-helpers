@@ -46,7 +46,12 @@ done
 
 2) For any new/changed functions, update `docs/modules/<module>.md`.
 
-3) If a new module was added, create `docs/modules/<module>.md` and update `docs/api.md` and `docs/README.md` (module overview).
+3) If a new module was added, create `docs/modules/<module>.md` and update `docs/api.md`, `docs/README.md` (module overview), **and the `nav:` list in `mkdocs.yml`**.
+
+   `make lint-docs` catches a missing module page or api.md entry. It cannot see
+   the nav — `mkdocs build --strict` is what fails on a `docs/*.md` that no nav
+   entry points at, via `validation.nav.omitted_files`. Run `make docs-check`
+   before opening the PR, or CI will find it for you.
 
 4) If behavior changed in examples, update relevant scripts in `scripts/` and cross-check `docs/usage.md`.
 

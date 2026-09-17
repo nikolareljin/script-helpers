@@ -1,0 +1,12 @@
+/* script-helpers accent — the ONLY visual difference from ci-helpers.
+ *
+ * Shell-prompt amber, taken from this repository's logo. Do not copy this file
+ * to the sibling repository; extra.css is the part that is mirrored.
+ *
+ * Two values, not one, because a single accent cannot pass contrast on both
+ * canvases: #e3b341 on white is about 2.0:1 and fails WCAG AA for text, while
+ * the darkened variant on #0b0e14 is muddy. Contrast checked against the two
+ * backgrounds extra.css defines.
+ */
+[data-md-color-scheme="default"] { --nr-accent: #8a6100; }  /* 5.3:1 on #ffffff */
+[data-md-color-scheme="slate"]   { --nr-accent: #e3b341; }  /* 9.6:1 on #0b0e14 */

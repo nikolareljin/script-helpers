@@ -1,0 +1,67 @@
+name: docs-site
+#
+# Builds this repository's documentation site with MkDocs Material and
+# publishes it to GitHub Pages through ci-helpers' Pages preset, pinned at
+# @production the same way every other consumer pins it.
+#
+# Nothing here is special-cased. If this stops working, the preset is broken for
+# everyone — which is the point of consuming it the ordinary way rather than
+# inlining the build.
+#
+# The `deploy` expression validates the site on every pull request and publishes
+# only from main. The cost of doing both in one call is that `pages: write` and
+# `id-token: write` are granted on pull requests too: GitHub validates a called
+# workflow's declared permissions when the run starts, before any job-level
+# `if:` is evaluated, so a caller granting less fails the whole run with
+# startup_failure. To hold no write scope at all on pull requests, split this
+# into pages-build.yml (upload: false) and pages-deploy.yml as two jobs — see
+# https://nikolareljin.github.io/ci-helpers/presets/#pages-split
+#
+# No `concurrency:` block here on purpose. pages.yml already sets its own group,
+# and a caller's group is evaluated alongside the called workflow's — a group
+# named the same thing would leave the called jobs queued behind the run that
+# started them, permanently.
+#
+# Pages must be enabled for this repository with source = GitHub Actions before
+# the first publishing run, or actions/configure-pages fails with a Pages API
+# error.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'requirements-docs.txt'
+      - '.github/workflows/docs-site.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'requirements-docs.txt'
+      - '.github/workflows/docs-site.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  site:
+    uses: nikolareljin/ci-helpers/.github/workflows/pages.yml@production
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    with:
+      python_version: "3.12"
+      requirements_file: requirements-docs.txt
+      build_command: "mkdocs build --strict"
+      pages_path: site
+      # 1, not the default 0: nothing here reads git history. No
+      # git-revision-date plugin, no Hugo .Lastmod. Cloning the full history of
+      # this repository to render markdown is wasted minutes.
+      fetch_depth: 1
+      deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      timeout_minutes: 15

@@ -33,8 +33,20 @@ api_index="docs/api.md"
 api_modules=""
 if [[ -f "$api_index" ]]; then
   while IFS= read -r line; do
-    # Match lines like: - name — ./modules/name.md OR - name — ./modules/name.md
-    if [[ "$line" =~ \-\ ([a-zA-Z0-9_-]+)[[:space:]]+\—?[[:space:]]+\./modules/([a-zA-Z0-9_-]+)\.md ]]; then
+    # Both index forms, because the docs site needs real links and the old
+    # plain-text form must keep passing while anything still uses it:
+    #
+    #   - name — ./modules/name.md      (plain text, the original)
+    #   - [name](./modules/name.md)     (a link, which renders on the site)
+    #
+    # There is no link syntax that satisfies the original pattern: it required
+    # whitespace between the name and the path, and every markdown link form
+    # puts a `]` and a `(` there instead. Hence the optional brackets and the
+    # optional em-dash rather than a second branch.
+    #
+    # The module name stays BASH_REMATCH[1]; note the trailing path capture is
+    # now [3], since the em-dash group is [2].
+    if [[ "$line" =~ \-\ \[?([a-zA-Z0-9_-]+)\]?[[:space:]]*(\—[[:space:]]*)?\(?\./modules/([a-zA-Z0-9_-]+)\.md ]]; then
       mod="${BASH_REMATCH[1]}"; api_modules="${api_modules}${mod}"$'\n'
     fi
   done < "$api_index"

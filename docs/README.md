@@ -1,13 +1,28 @@
 # Script Helpers — Documentation
 
+<div class="nr-hero" markdown>
+
+```console
+$ source helpers.sh && shlib_import logging docker ports
+$ print_success "script-helpers is ready"
+Success [OK]: script-helpers is ready
+$ check_required_ports_available 8000 5432
+8000 free · 5432 in use by postgres (pid 4412)
+```
+
+</div>
+
 Reusable Bash helpers extracted from projects in this workspace. Source the loader, import only the modules you need, and call the functions in your own scripts.
 
-- Installation: see ./docs/installation.md
-- Usage: see ./docs/usage.md
-- Packaging: see ./docs/packaging.md
-- Full API: see ./docs/api.md
-- CI helper scripts: see ./docs/usage.md#ci-helper-scripts
-- CI default versions: see ./docs/ci_defaults.md
+Thirty-six modules — with a PowerShell mirror — that run unchanged on the bash 3.2 macOS ships and always will.
+
+- [Installation](installation.md)
+- [Usage](usage.md)
+- [Packaging](packaging.md)
+- [Full API](api.md)
+- [CI helper scripts](usage.md#ci-helper-scripts)
+- [CI default versions](ci_defaults.md)
+- [About this work](about.md)
 
 Quick start
 -----------
@@ -66,4 +81,4 @@ Modules overview
 - rust — resolve the Rust toolchain CI compiles with, rather than whatever `PATH` offers first; a distribution cargo shadowing rustup's fails with a lockfile error that names the wrong thing.
 - hub — corpus-hub setup for capture clients: local-vs-remote dialog, probe, API-key check, symlink-safe `.env` writing, bootstrap through the hub's own scripts, and an update offer.
 
-If you add a new module or function, update ./docs/api.md and the relevant ./docs/modules/*.md file. See AGENTS.md for the process and checklist.
+If you add a new module or function, update [the API index](api.md), the relevant page under `modules/`, and the `nav:` list in `mkdocs.yml`. `make lint-docs` checks the first two; `mkdocs build --strict` checks the third. See AGENTS.md for the process and checklist.
