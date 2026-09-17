@@ -118,6 +118,59 @@ Dependencies
 - `jq` or `python3` for JSON; a `grep`/`sed` fallback is used when neither is present.
 - `lib/logging.sh`, and `lib/env.sh` for `resolve_env_value`.
 
+Pushing KV entries or seed data
+-------------------------------
+
+**This module deliberately does not do it, and will not gain a function for it.**
+If a deploy also has to write KV entries, seed a namespace, or upload data, put
+that in your own script — alongside `cloudflare_deploy`, not inside it.
+
+Why it stays out:
+
+- **It needs a wider token.** Deploying needs *Workers Scripts → Edit*; writing
+  KV needs *Workers KV Storage → Edit* as well. Binding a namespace does not.
+  A helper that writes data would push every caller toward the broader token
+  whether or not they need it.
+- **It is the one step that cannot be undone by the next deploy.** A Worker is
+  replaced by the deploy after it. Overwritten data is gone.
+- **"Push the data" is not one operation.** Replacing a namespace, upserting a
+  few keys, uploading a file and applying a migration are different jobs with
+  different failure modes. A single function covering all of them would be a
+  shell command with extra steps.
+
+If you write one, four things to get right:
+
+1. **Guard it with a string comparison, never a bare truthiness test.** In a CI
+   job, an output crossing a job boundary is a *string*, so a guard like
+   `if: needs.x.outputs.push_data` is true even when the value is the literal
+   `"false"` — every non-empty string is truthy. The same shape in bash is
+   `[[ -n "$PUSH_DATA" ]]`, which is true for `"false"` too. Compare against the
+   value you mean: `[[ "$PUSH_DATA" = "true" ]]`.
+2. **Make it idempotent, or make it refuse.** Deploys get re-run — a retried
+   job, a re-pushed tag, a person clicking the button again. A push that
+   overwrites unconditionally gives a different result each time. If it cannot
+   be idempotent, detect existing data and stop rather than clobber it.
+3. **It is not atomic with the deploy.** wrangler deploying and your data
+   landing are two operations with no shared transaction. Decide which order
+   fails better for your service and write that reasoning down next to the code.
+4. **Run it under the same confirmation.** `cloudflare_confirm_environment` is
+   what stops an unattended production deploy; a data push that runs before or
+   outside it has no such gate. Call it first, or call `cloudflare_deploy` and
+   do the data push only after it returns `0`.
+
+```bash
+source helpers.sh
+shlib_import cloudflare
+
+cloudflare_confirm_environment production "$@" || exit $?
+cloudflare_deploy --env production --config wrangler.toml --yes || exit 1
+
+# Only after the Worker is live and the smoke test passed.
+if [[ "${PUSH_DATA:-false}" = "true" ]]; then
+  ./scripts/seed-kv.sh            # yours, idempotent, and it may refuse
+fi
+```
+
 Notes
 -----
 
