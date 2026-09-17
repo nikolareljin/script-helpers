@@ -24,9 +24,11 @@ Dependencies
 ------------
 
 Core
+
 - A POSIX-ish shell (tested with bash), common coreutils.
 
 Per-module
+
 - logging: none.
 - help: none.
 - os: `sudo` for privileged commands (optional).
