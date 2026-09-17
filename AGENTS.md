@@ -72,3 +72,33 @@ Validation
 ----------
 
 - Where possible, run `make examples` to sanity-check behavior. Avoid adding hard dependencies just for docs.
+
+## Bash version policy
+
+**bash 3.2 is the floor, not the target.** Write every new module and script so
+it runs on 3.2; it then runs on 4 and 5 as well, which is where it will actually
+run most of the time. `./dev` deliberately prefers a newer bash and falls back to
+`/bin/bash` last.
+
+The floor exists because macOS ships bash 3.2 as `/bin/bash` and always will —
+bash 4 moved to GPLv3. A library that needs bash 4 is a library every Mac user
+must install something to use.
+
+Two gates enforce this, and both must pass:
+
+```bash
+bash tests/portability_test.sh   # static: bash-4-only and GNU-only constructs
+make test-bash32                 # the suite under a real bash 3.2, in Docker
+```
+
+`portability_test.sh` scans tracked **and untracked** files, so a new script is
+checked before it is committed.
+
+Use `require_bash4 <feature>` only when something is genuinely impossible on
+3.2 — in practice, a function receiving an associative array from the caller.
+Use `bash_at_least <major> [minor]` when a newer bash merely enables a better
+path. Never let a bash-4 construct through silently: a wrong value is worse than
+a refusal that names the remedy.
+
+Full detail, including what to write instead of each bash-4 feature, is in
+`docs/bash-compatibility.md`. Keep that page in step with any change here.

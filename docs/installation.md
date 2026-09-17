@@ -1,5 +1,8 @@
 # Installation
 
+See [Bash compatibility](bash-compatibility.md) for which bash versions are
+supported, why 3.2 is the floor, and what that rules out.
+
 Options
 -------
 
