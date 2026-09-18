@@ -69,7 +69,8 @@ Functions
   - Purpose: The single deploy sequence, shared by `./dev deploy cloudflare` and by CI.
   - Options: `--env NAME` (required), `--config PATH`, `--dist DIR`, `--source CONFIG`, `--build-command CMD`, `--command KIND`, `--version-file FILE`, `--status-path PATH`, `--yes`, `--dry-run`, `--no-smoke`. Anything after `--` is passed to wrangler untouched.
   - Behavior: Validates `--command` against the allowlist `deploy` / `versions upload` / `pages deploy` before anything else, because that value becomes argv. Then confirms the environment, checks credentials, resolves and exports the account id, runs the build command with `CLOUDFLARE_ENV` exported, resolves the version, derives the deploy config when `--dist` was given, asserts the config exists, runs wrangler, and smoke-tests. `--dry-run` stops before any credential check or wrangler call.
-  - Returns: `0`; `1` a step failed; `2` a bad option or an unknown command; `4` no credentials; `5` a protected environment was not confirmed.
+  - Returns: `0`; `1` a step failed, or the account id could not be resolved; `2` a bad option, a missing option value, or an unknown command; `3` wrangler could not be run; `4` no usable credentials; `5` a protected environment was not confirmed.
+  - Every value-taking option is checked for its value before it is consumed. `--env` with nothing after it returns `2` with a message; it does not consume the next option, and it does not hang.
 
 Environment
 -----------
@@ -79,8 +80,8 @@ Environment
 | `CLOUDFLARE_API_TOKEN` | The API token. Read by wrangler from the environment; never placed in argv. |
 | `CLOUDFLARE_ACCOUNT_ID` | The account to deploy to. Checked explicitly, because wrangler treats an empty value as "resolve from the token". |
 | `CLOUDFLARE_WRANGLER_CMD` | Overrides how wrangler is invoked, e.g. `pnpm exec wrangler`. |
-| `CLOUDFLARE_WRANGLER_VERSION` | Version used by the `npx` fallback. Defaults to `CI_DEFAULT_WRANGLER_VERSION` from `ci_defaults`. |
-| `CLOUDFLARE_PROTECTED_ENVS` | Space-separated environments needing a typed confirmation. Default `production`. |
+| `CLOUDFLARE_WRANGLER_VERSION` | Version used by the `npx` fallback. Defaults to `CI_DEFAULT_WRANGLER_VERSION`, which this module sources from `ci_defaults` so the pin has one home. |
+| `CLOUDFLARE_PROTECTED_ENVS` | Space-separated environments needing a typed confirmation. Default `production`. Matched literally — globbing is disabled while the list is read, so the value cannot be altered by files in the working directory. |
 | `CLOUDFLARE_DEPLOY_YES` | Set to `1` to confirm a protected environment without a prompt. |
 | `CLOUDFLARE_HEALTH_PATH` | Reachability path for the smoke test. Default `/health`. |
 | `CLOUDFLARE_DEPLOY_CONFIG` | Names the generated deploy config directly, skipping derivation. |
@@ -176,3 +177,6 @@ Notes
 
 - Cloudflare Pages is supported as an input combination (`--command "pages deploy"`), not as a separate code path. The Workers path is the one exercised end to end.
 - `--dry-run` validates and builds but never calls the Cloudflare API, so it proves the config and the bundle, not bindings, routes, or account access.
+- `--config` and `--dist` are not passed to `pages deploy`, which does not take them in this module's invocation. Supplying one logs a warning rather than dropping it silently.
+- The smoke test uses `curl --retry-all-errors` where available. That option needs curl 7.71 (2020); on an older curl the flag is omitted rather than failing, because an unknown option would otherwise read as "the service did not answer" and fail a deploy that worked.
+- `cloudflare_deploy` exports `CLOUDFLARE_ACCOUNT_ID` into the calling shell once resolved, so a later wrangler call in the same script sees it.

@@ -38,6 +38,17 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   job that hangs to its timeout is worse than one that says what it needed.
   `--yes` or `CLOUDFLARE_DEPLOY_YES=1` is the deliberate way past it.
 
+- **Two safety properties, each with a test that fails without them.** A
+  value-taking option with nothing after it returns `2` and says which option
+  needed a value: `shift 2` when only one positional remains returns non-zero
+  and shifts nothing, so the naive parser spun forever — and under
+  `set -euo pipefail`, which is what `./dev` runs, died with no message at all.
+  And the protected-environment list is read with globbing disabled, so it is
+  matched literally; unquoted, a list entry was subject to pathname expansion
+  and the same configuration gave different answers depending on what files
+  happened to be in the working directory. A safety gate whose behaviour
+  depends on the current directory is worse than no gate.
+
 - **`CI_DEFAULT_WRANGLER_VERSION`**, the version handed to `npx` when a project
   has no wrangler of its own. A project with a lockfile gets the version it was
   tested against instead, which is always the better answer; this is the floor

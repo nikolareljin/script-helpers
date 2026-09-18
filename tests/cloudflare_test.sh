@@ -258,6 +258,16 @@ note "deploy argv"
   >/dev/null 2>&1 )
 
 argv="$(cat "$WRANGLER_ARGV_LOG")"
+
+# Asserted FIRST, because every check below is a grep over this file: an empty
+# log would make the "token never appears in argv" assertion pass vacuously,
+# which is the shape of test that reports success while the code is broken.
+if [[ -s "$WRANGLER_ARGV_LOG" ]]; then
+  ok "wrangler was actually invoked (the argv log is non-empty)"
+else
+  error "wrangler was never invoked — every argv assertion below is vacuous"
+fi
+
 case "$argv" in
   *"--var VERSION:1.4.2-abc1234"*) ok "the deployed version reaches --var VERSION:" ;;
   *) error "expected --var VERSION:1.4.2-abc1234 in argv, got: $argv" ;;
@@ -279,6 +289,49 @@ if grep -q 'token_in_env=s3cr3t-token-value' "$WRANGLER_ENV_LOG"; then
 else
   error "wrangler did not receive the token in its environment"
 fi
+
+# --- cloudflare_deploy: exit status ---------------------------------------------
+note "deploy exit status"
+
+# Nothing used to assert the SUCCESS path's status at all — only that the argv
+# looked right. A function that did all the right things and then returned 1
+# would have passed every test in this file.
+rc=0
+( cd "$tmp/work" && \
+  CLOUDFLARE_API_TOKEN=tok CLOUDFLARE_ACCOUNT_ID=acct \
+  CF_DEPLOY_VERSION="1.4.2-abc1234" CF_DEPLOY_BASE_URL="https://example.com" \
+  CURL_BODY='{"version":"1.4.2-abc1234"}' \
+  bash -c 'source '"$root_dir"'/helpers.sh; shlib_import cloudflare
+    cloudflare_deploy --env staging --config wrangler.toml --status-path /api/status' \
+  >/dev/null 2>&1 ) || rc=$?
+if [[ $rc -eq 0 ]]; then ok "a successful deploy returns 0"; else error "successful deploy returned $rc, expected 0"; fi
+
+# The gate that stops an unattended production deploy must propagate its code
+# all the way out of cloudflare_deploy, not just out of the gate function.
+rc=0
+( cd "$tmp/work" && cloudflare_deploy --env production --config wrangler.toml </dev/null >/dev/null 2>&1 ) || rc=$?
+if [[ $rc -eq 5 ]]; then
+  ok "an unattended protected deploy returns 5 through cloudflare_deploy"
+else
+  error "expected 5 from an unattended production deploy, got $rc"
+fi
+
+# Regression test for a trailing value flag. `shift 2` with one positional left
+# returns 1 and shifts NOTHING, so this used to spin forever — and under
+# `set -euo pipefail` it died silently instead. Bounded by timeout so a
+# regression fails the suite rather than hanging CI until the job times out.
+for trailing in "--env" "--config" "--command" "--status-path"; do
+  rc=0
+  timeout 10 bash -c 'set -uo pipefail; source '"$root_dir"'/helpers.sh; shlib_import cloudflare
+    cloudflare_deploy '"$trailing"'' >/dev/null 2>&1 || rc=$?
+  if [[ $rc -eq 2 ]]; then
+    ok "a trailing ${trailing} returns 2 instead of looping forever"
+  elif [[ $rc -eq 124 ]]; then
+    error "a trailing ${trailing} HUNG — the option parser loops when shift 2 cannot shift"
+  else
+    error "a trailing ${trailing} returned $rc, expected 2"
+  fi
+done
 
 # --- cloudflare_deploy: guards --------------------------------------------------
 note "deploy guards"

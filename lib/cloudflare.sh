@@ -36,6 +36,14 @@ if ! type resolve_env_value >/dev/null 2>&1 && [[ -n "${_SHLIB_LIB_DIR:-}" ]]; t
   # shellcheck source=/dev/null
   source "$_SHLIB_LIB_DIR/env.sh"
 fi
+# ci_defaults is the single place versions are pinned. Without this the literal
+# below was the effective default and a bump to ci_defaults.sh had no effect --
+# two live definitions of one version, which is the drift this module exists to
+# stop. helpers.sh does not autoload it, so it is sourced explicitly.
+if [[ -z "${CI_DEFAULT_WRANGLER_VERSION:-}" && -n "${_SHLIB_LIB_DIR:-}" && -r "$_SHLIB_LIB_DIR/ci_defaults.sh" ]]; then
+  # shellcheck source=/dev/null
+  source "$_SHLIB_LIB_DIR/ci_defaults.sh"
+fi
 
 # Environments that require a typed confirmation before a deploy. Space
 # separated so bash 3.2 can hold it without an array in a variable.
@@ -80,7 +88,7 @@ _cloudflare__runner() {
     return 0
   fi
   if command -v npx >/dev/null 2>&1; then
-    printf '%s\n' "npx --yes wrangler@${CLOUDFLARE_WRANGLER_VERSION}"
+    printf '%s\n' "npx --yes wrangler@${CLOUDFLARE_WRANGLER_VERSION:-${CI_DEFAULT_WRANGLER_VERSION:-4.42.0}}"
     return 0
   fi
   return 1
@@ -119,11 +127,20 @@ if v is not None and not isinstance(v, (dict, list)):
 
 # Usage: _cloudflare__is_protected ENV; 0 when ENV needs a typed confirmation.
 _cloudflare__is_protected() {
-  local env_name="${1:-}" candidate=""
+  local env_name="${1:-}" candidate="" restore_glob=0
   [[ -n "$env_name" ]] || return 1
-  for candidate in $CLOUDFLARE_PROTECTED_ENVS; do
-    [[ "$candidate" = "$env_name" ]] && return 0
+  # Word splitting is wanted here; pathname expansion is NOT. Unquoted, a list
+  # like "prod*" was expanded against the working directory, so a file named
+  # prod-notes.txt replaced the entry and `production` silently stopped being
+  # protected -- a safety gate that fails open is worse than no gate.
+  case "$-" in *f*) : ;; *) restore_glob=1; set -f ;; esac
+  for candidate in ${CLOUDFLARE_PROTECTED_ENVS:-production}; do
+    if [[ "$candidate" = "$env_name" ]]; then
+      [[ "$restore_glob" -eq 1 ]] && set +f
+      return 0
+    fi
   done
+  [[ "$restore_glob" -eq 1 ]] && set +f
   return 1
 }
 
@@ -355,9 +372,20 @@ cloudflare_smoke_test() {
 
   # Retry: a deploy that has just landed may take a moment to be reachable
   # everywhere, and a smoke test that fails on that is a false alarm.
-  if ! curl -fsS --retry 5 --retry-delay 5 --retry-all-errors --max-time 30 \
-      -o /dev/null "${base}${CLOUDFLARE_HEALTH_PATH}" 2>/dev/null; then
-    log_error "cloudflare_smoke_test: ${base}${CLOUDFLARE_HEALTH_PATH} did not answer."
+  local health="${CLOUDFLARE_HEALTH_PATH:-/health}"
+  # --retry-all-errors needs curl >= 7.71 (2020). Ubuntu 20.04, RHEL 8 and older
+  # macOS ship less, where curl exits 2 on the unknown option -- which, with
+  # stderr discarded, read as "the service did not answer" and failed a deploy
+  # that had worked. Probe once and drop the flag rather than mis-report.
+  local retry_all=""
+  if curl --help all 2>/dev/null | grep -q -- '--retry-all-errors'; then
+    retry_all="--retry-all-errors"
+  fi
+  local curl_err=""
+  # shellcheck disable=SC2086  # retry_all is one optional flag, assembled here
+  if ! curl_err="$(curl -fsSL --retry 5 --retry-delay 5 ${retry_all} --max-time 30 \
+      -o /dev/null "${base}${health}" 2>&1)"; then
+    log_error "cloudflare_smoke_test: ${base}${health} did not answer: ${curl_err}"
     return 1
   fi
 
@@ -370,7 +398,8 @@ cloudflare_smoke_test() {
     return 2
   fi
 
-  if ! body="$(curl -fsS --retry 5 --retry-delay 5 --retry-all-errors --max-time 30 \
+  # shellcheck disable=SC2086  # retry_all is one optional flag, assembled above
+  if ! body="$(curl -fsSL --retry 5 --retry-delay 5 ${retry_all} --max-time 30 \
       "${base}${status_path}" 2>/dev/null)"; then
     log_error "cloudflare_smoke_test: ${base}${status_path} did not answer."
     return 1
@@ -412,16 +441,29 @@ cloudflare_deploy() {
   local assume_yes="" dry_run="" no_smoke=""
   local version="" account_id="" base="" runner=""
 
+  # Every value-taking option goes through this. `shift 2` when only one
+  # positional remains returns 1 AND SHIFTS NOTHING, so a trailing `--env` used
+  # to spin this loop forever -- and under `set -euo pipefail`, which is what
+  # ./dev runs, it died with no message at all. A deploy that hangs to its
+  # timeout is the failure this module exists to refuse.
+  _need_value() {
+    if [[ $# -lt 2 || -z "${2:-}" ]]; then
+      log_error "cloudflare_deploy: $1 needs a value"
+      return 2
+    fi
+    return 0
+  }
+
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --env) env_name="${2:-}"; shift 2 ;;
-      --config) config="${2:-}"; shift 2 ;;
-      --dist) dist="${2:-}"; shift 2 ;;
-      --source) source_config="${2:-}"; shift 2 ;;
-      --build-command) build_command="${2:-}"; shift 2 ;;
-      --command) command_kind="${2:-}"; shift 2 ;;
-      --version-file) version_file="${2:-}"; shift 2 ;;
-      --status-path) status_path="${2:-}"; shift 2 ;;
+      --env)            _need_value "$@" || return 2; env_name="$2";       shift 2 ;;
+      --config)         _need_value "$@" || return 2; config="$2";         shift 2 ;;
+      --dist)           _need_value "$@" || return 2; dist="$2";           shift 2 ;;
+      --source)         _need_value "$@" || return 2; source_config="$2";  shift 2 ;;
+      --build-command)  _need_value "$@" || return 2; build_command="$2";  shift 2 ;;
+      --command)        _need_value "$@" || return 2; command_kind="$2";   shift 2 ;;
+      --version-file)   _need_value "$@" || return 2; version_file="$2";   shift 2 ;;
+      --status-path)    _need_value "$@" || return 2; status_path="$2";    shift 2 ;;
       --yes|-y) assume_yes="--yes"; shift ;;
       --dry-run) dry_run=1; shift ;;
       --no-smoke) no_smoke=1; shift ;;
@@ -448,22 +490,30 @@ cloudflare_deploy() {
 
   if [[ -z "$dry_run" ]]; then
     cloudflare_credentials_ok || return $?
+    # 1, not 4: cloudflare_account_id returns 1, and 4 means "no usable
+    # credentials" -- which would send the operator to check a token that is
+    # fine.
     if ! account_id="$(cloudflare_account_id)"; then
-      return 4
+      return 1
     fi
     export CLOUDFLARE_ACCOUNT_ID="$account_id"
   fi
 
+  # Before the build, not after: a missing VERSION file is a five-second
+  # failure, and discovering it only once a full build has been spent is a
+  # waste that the operator pays for every time.
+  if ! version="$(cloudflare_version_string "$version_file")"; then
+    return 1
+  fi
+
   if [[ -n "$build_command" ]]; then
     log_info "cloudflare_deploy: building for ${env_name}"
+    # CLOUDFLARE_ENV is wrangler's own environment selector and build plugins
+    # read it; scoped to this command so it cannot alter the deploy below.
     if ! CLOUDFLARE_ENV="$env_name" eval "$build_command"; then
       log_error "cloudflare_deploy: build command failed; nothing was deployed."
       return 1
     fi
-  fi
-
-  if ! version="$(cloudflare_version_string "$version_file")"; then
-    return 1
   fi
 
   if [[ -z "$config" && -n "$dist" ]]; then
@@ -474,6 +524,9 @@ cloudflare_deploy() {
   if [[ -n "$config" && ! -r "$config" ]]; then
     log_error "cloudflare_deploy: deploy config '${config}' does not exist. The build may not have produced it."
     return 1
+  fi
+  if [[ "$command_kind" = "pages deploy" && -n "$config" ]]; then
+    log_warn "cloudflare_deploy: --config is not passed to 'pages deploy'; ignoring '${config}'."
   fi
 
   if [[ -n "$dry_run" ]]; then
@@ -507,8 +560,10 @@ cloudflare_deploy() {
   if [[ -n "$no_smoke" ]]; then
     return 0
   fi
-  if ! base="$(cloudflare_base_url "$env_name")"; then
-    log_warn "cloudflare_deploy: deployed, but no base URL to verify against."
+  if ! base="$(cloudflare_base_url "$env_name" 2>/dev/null)"; then
+    # Silenced above: this path is benign, and the inner log_error would print a
+    # red ERROR immediately before a WARN saying it does not matter.
+    log_warn "cloudflare_deploy: deployed, but no base URL to verify against; set <ENV>_BASE_URL or BASE_URL to enable the check."
     return 0
   fi
   cloudflare_smoke_test "$base" "$version" "$status_path" || return 1

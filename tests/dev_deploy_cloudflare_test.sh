@@ -48,6 +48,10 @@ run_deploy() {
     cloudflare_deploy() { printf '%s\n' "$*" > "$tmp/argv"; return 0; }
     not_applicable() { printf 'not_applicable: %s\n' "$1" > "$tmp/argv"; return 0; }
     parse_dev_options "$@"
+    # Recorded so a test can prove an option value was not swallowed as the
+    # target word, which is the only thing the value-taking list actually
+    # changes.
+    printf '%s' "${DEV_TARGET:-}" > "$tmp/target"
     verb_deploy
   ) >/dev/null 2>&1
 }
@@ -66,33 +70,60 @@ esac
 # --- option pass-through --------------------------------------------------------
 note "option pass-through"
 
+# These use TARGET WORDS as option values on purpose, and that is the whole
+# point of the test.
+#
+# An earlier version of this file asserted `--env staging`, which proves
+# nothing: without `--env` in the value-taking list, `--env` and `staging` both
+# fall through to the catch-all `*) DEV_ARGS+=("$1")` in the same order, so the
+# resulting argv is byte-identical either way. The test passed with the feature
+# reverted.
+#
+# `web`, `linux` and `host` ARE target words. If the flag is not in the
+# value-taking list, the parser consumes the value as the target instead —
+# DEV_TARGET flips and the value never reaches cloudflare_deploy. That is a real
+# difference, so this fails when the production change is reverted.
 : > "$tmp/argv"
-run_deploy cloudflare --env staging
+run_deploy cloudflare --env web
 got="$(cat "$tmp/argv")"
-if [[ "$got" == *"--env staging"* ]]; then
-  ok "--env keeps its value (it is in the value-taking list)"
+if [[ "$got" == *"--env web"* ]]; then
+  ok "--env keeps a value that is also a target word"
 else
-  error "expected '--env staging' to reach cloudflare_deploy, got: $got"
+  error "expected '--env web' to reach cloudflare_deploy, got: '$got'"
 fi
 
-# The regression this guards: a value-taking flag followed by another option.
-# If --env is not in the value-taking list the order silently changes.
+: > "$tmp/argv"
+: > "$tmp/target"
+run_deploy cloudflare --env web --config linux
+got="$(cat "$tmp/argv")"
+tgt="$(cat "$tmp/target")"
+if [[ "$got" == *"--env web"* && "$got" == *"--config linux"* ]]; then
+  ok "two value-taking flags both keep target-word values"
+else
+  error "expected '--env web --config linux', got: '$got'"
+fi
+if [[ "$tgt" == "cloudflare" ]]; then
+  ok "the target stays cloudflare rather than being stolen by an option value"
+else
+  error "DEV_TARGET was '$tgt', expected 'cloudflare' — an option value was parsed as the target"
+fi
+
 : > "$tmp/argv"
 run_deploy cloudflare --env production --yes --dry-run
 got="$(cat "$tmp/argv")"
 if [[ "$got" == *"--env production"* && "$got" == *"--yes"* && "$got" == *"--dry-run"* ]]; then
   ok "a value-taking flag followed by bare flags keeps its value"
 else
-  error "expected --env production --yes --dry-run intact, got: $got"
+  error "expected --env production --yes --dry-run intact, got: '$got'"
 fi
 
 : > "$tmp/argv"
-run_deploy cloudflare --env staging --config wrangler.toml --status-path /api/status
+run_deploy cloudflare --status-path /api/status --command host
 got="$(cat "$tmp/argv")"
-if [[ "$got" == *"--config wrangler.toml"* && "$got" == *"--status-path /api/status"* ]]; then
-  ok "--config and --status-path keep their values"
+if [[ "$got" == *"--status-path /api/status"* && "$got" == *"--command host"* ]]; then
+  ok "--status-path and --command keep their values"
 else
-  error "expected --config and --status-path intact, got: $got"
+  error "expected --status-path and --command intact, got: '$got'"
 fi
 
 # --- the override still wins ----------------------------------------------------
