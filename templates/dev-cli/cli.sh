@@ -150,7 +150,13 @@ dev_stack_dir() {
   return 1
 }
 
-dev_is_flutter() { [[ -f pubspec.yaml ]] || dev_has_stack flutter; }
+# Ask the detector first, so the cache is filled in this shell rather than
+# inside whichever command substitution happens to run next. With the file test
+# first, a Flutter app at the repository root short-circuits, dev_has_stack
+# never runs here, and the first fill lands in a `$(dev_stack_dir ...)` subshell
+# and is discarded -- which made the memoization worth 5->2 instead of 5->1 on
+# exactly the repositories this template targets.
+dev_is_flutter() { dev_has_stack flutter || [[ -f pubspec.yaml ]]; }
 dev_is_android() { dev_has_stack gradle || [[ -d android ]]; }
 
 # --- verbs -----------------------------------------------------------------

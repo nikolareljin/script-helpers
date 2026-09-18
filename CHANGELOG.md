@@ -6,6 +6,57 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ### Fixed
 
+- **An upstream git submodule was detected as a project to lint, test and
+  install into.** Sibling detection removed the clause that had been hiding
+  them, and the two filters in place did not cover a submodule: `_is_pruned`
+  does not name it, and `check-ignore` correctly answers "not ignored" because
+  a submodule path is *tracked*.
+
+  One repository began reporting an upstream library as a Python project. Since
+  `preflight` is the pre-push hook, that means building a virtualenv **inside
+  the submodule working tree** and installing upstream's dependencies, then
+  linting and testing code that is not ours — dirtying the superproject, taking
+  minutes and failing, so the push is refused on a repository whose own code is
+  fine. The predictable response is `--no-verify`, which disarms the gate
+  entirely.
+
+  A submodule worktree has `.git` as a *file* rather than a directory, so the
+  test needs no subprocess.
+
+- **A Flutter app at the repository root swallowed every Gradle project in the
+  tree.** The Flutter/Gradle pass carried the same `"$other" == "."` clause that
+  was removed from the same-stack pass — so a standalone `wear/` or
+  `automotive/` module was never linted, tested or assembled, and the run still
+  reported PASS. A Flutter app owns its own `android/` tree and nothing else.
+
+- **The ignore filter reached one detection loop but not the other.** Podfiles
+  were filtered only by `_is_pruned`, so a gitignored stale copy returned as an
+  `ios` project — and an `ios` check is an Xcode build, the slowest step in a
+  run. This was a regression: before sibling detection was fixed, the buggy
+  clause happened to drop it.
+
+- **`"workspaces"` appearing as a value was read as a workspace declaration.**
+  The test was a substring `grep`, so `"keywords": ["monorepo", "workspaces"]`
+  in a repository with no workspace at all would drop every sibling package
+  silently — the exact failure the sibling fix exists to prevent. It is now a
+  top-level-key test that reads depth at the key's position, which also handles
+  compact single-line JSON. The Cargo equivalent now accepts an indented
+  `[workspace]`, which cargo accepts, and ignores the table name inside a
+  string.
+
+### Changed
+
+- **`./dev` now detects once per invocation in Flutter repositories too.** The
+  previous entry's "five down to one" held only where the repository root was
+  *not* a Flutter app. `dev_is_flutter` tested for `pubspec.yaml` first, so at a
+  Flutter root it short-circuited, the detector never ran in the parent shell,
+  and the first call landed inside a command substitution — the subshell the
+  code's own comment warns about — where the cache is discarded. Measured 2
+  detections where the entry claimed 1. Asking the detector first makes the
+  invariant unconditional; measured at 1 in both repository shapes.
+
+### Fixed
+
 - **`preflight.sh` silently dropped sibling projects, so whole services were
   never checked.** The dedupe pass removes a project that another one builds —
   right for a Cargo workspace member or a package inside an npm workspace. Its

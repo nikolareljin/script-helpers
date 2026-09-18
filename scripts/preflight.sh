@@ -124,10 +124,92 @@ _is_pruned() {
 # beside the real one is the common case. Only git knows, so ask it -- and treat
 # every other outcome as "not ignored", because failing open detects one project
 # too many, while failing closed silently drops a real one.
+#
+# Note it consults the index, so a file force-added under an ignored directory
+# still reports "not ignored" and is still detected. That is the behaviour we
+# want: the repository tracks it, so it is ours. Do not add --no-index.
 _is_git_ignored() {
-  command -v git >/dev/null 2>&1 || return 1
-  git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
+  [[ "${_PREFLIGHT_IN_GIT_REPO:-}" == "1" ]] || return 1
   git -C "$PROJECT_DIR" check-ignore -q -- "$1" 2>/dev/null
+}
+
+# Someone else's repository, nested inside this one. A submodule is *tracked*,
+# so `check-ignore` correctly answers "not ignored" and `_is_pruned` does not
+# name it -- yet its contents are upstream code this gate must never lint, test
+# or install into. Left detected, the pre-push hook builds a virtualenv inside
+# the submodule working tree and installs upstream's dependencies, which dirties
+# the superproject and fails on code that is not ours.
+#
+# A submodule worktree has `.git` as a *file* (a gitdir pointer), where an
+# ordinary repository has a directory -- so this needs no subprocess.
+_is_submodule_path() {
+  local d="${1#./}"
+  d="$(dirname "$d")"
+  while [[ -n "$d" && "$d" != "." && "$d" != "/" ]]; do
+    [[ -f "$PROJECT_DIR/$d/.git" ]] && return 0
+    d="$(dirname "$d")"
+  done
+  return 1
+}
+
+# True when this project is inside a git work tree. Resolved once: the answer
+# cannot change during a run, and asking per marker doubled the git calls.
+_preflight__detect_git() {
+  _PREFLIGHT_IN_GIT_REPO=0
+  command -v git >/dev/null 2>&1 || return 0
+  git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 &&
+    _PREFLIGHT_IN_GIT_REPO=1
+  return 0
+}
+
+# Is <key> a key of the top-level JSON object in <file>?
+#
+# A substring grep for '"workspaces"' also matches it as a value -- a
+# `"keywords": ["monorepo", "workspaces"]` would declare a workspace that does
+# not exist, and every sibling package would then be dropped from the gate
+# without a word. Tracking brace depth costs one awk and removes the class.
+#
+# POSIX awk only: no gensub, no length(array), no \s. Escaped quotes inside
+# strings are removed first so they cannot be read as delimiters.
+_preflight__has_top_level_key() {
+  local file="$1" key="$2"
+  [[ -f "$file" ]] || return 1
+  awk -v k="$key" '
+    {
+      line = $0; gsub(/\\"/, "", line)
+      n = length(line)
+      for (i = 1; i <= n; i++) {
+        c = substr(line, i, 1)
+        if (instr) {
+          if (c == "\"") { instr = 0; closed = 1 } else cur = cur c
+          continue
+        }
+        if (c == "\"") { instr = 1; cur = ""; strdepth = depth; closed = 0; continue }
+        # A string followed by a colon is a key, and its depth is where it began
+        # -- which is why depth is read at the string, not at end of line. A
+        # compact one-line object is back to depth 0 by then.
+        if (closed && c == ":") { if (strdepth == 1 && cur == k) found = 1; closed = 0 }
+        else if (c != " " && c != "\t") closed = 0
+        if (c == "{" || c == "[") depth++
+        else if (c == "}" || c == "]") depth--
+      }
+    }
+    END { exit found ? 0 : 1 }
+  ' "$file" 2>/dev/null
+}
+
+# Does <file> declare a Cargo workspace?
+#
+# `[workspace]` may be indented (cargo accepts it) and must not be matched
+# inside a multi-line string. Anchoring on a whole line that is exactly the
+# table header, optionally followed by a comment, covers both.
+_preflight__has_cargo_workspace() {
+  local file="$1"
+  [[ -f "$file" ]] || return 1
+  awk '
+    /^[ \t]*\[workspace\][ \t]*(#.*)?$/ { found = 1 }
+    END { exit found ? 0 : 1 }
+  ' "$file" 2>/dev/null
 }
 
 # Does the project at <outer> actually build the one at <inner>?
@@ -157,11 +239,11 @@ _preflight__owns() {
       # npm and yarn declare members in package.json; pnpm uses its own file,
       # and four of this fleet's five workspaces use only the latter.
       [[ -f "$root/pnpm-workspace.yaml" ]] && return 0
-      grep -q '"workspaces"' "$root/package.json" 2>/dev/null && return 0
+      _preflight__has_top_level_key "$root/package.json" workspaces && return 0
       return 1
       ;;
     rust)
-      grep -q '^\[workspace\]' "$root/Cargo.toml" 2>/dev/null && return 0
+      _preflight__has_cargo_workspace "$root/Cargo.toml" && return 0
       return 1
       ;;
     *)
@@ -177,8 +259,11 @@ detect_stacks() {
   local marker dir
   local -a pairs=() flutter_dirs=()
 
+  _preflight__detect_git
+
   while IFS= read -r marker; do
     _is_pruned "$marker" && continue
+    _is_submodule_path "$marker" && continue
     _is_git_ignored "$marker" && continue
     dir="$(dirname "$marker")"; dir="${dir#./}"; [[ -n "$dir" ]] || dir="."
     case "$(basename "$marker")" in
@@ -208,6 +293,11 @@ detect_stacks() {
   done
   while IFS= read -r podfile; do
     _is_pruned "$podfile" && continue
+    # The same three filters as the marker loop above. Applying them to one loop
+    # and not the other let a gitignored stale copy back in as an ios project,
+    # and an ios check is an Xcode build -- the slowest step in the run.
+    _is_submodule_path "$podfile" && continue
+    _is_git_ignored "$podfile" && continue
     pdir_ios="$(dirname "$podfile")"; pdir_ios="${pdir_ios#./}"
     [[ -n "$pdir_ios" ]] || pdir_ios="."
     # A Podfile lives in the ios/ folder; the project it belongs to is above it.
@@ -236,7 +326,19 @@ detect_stacks() {
     if [[ "$stack" == "gradle" ]]; then
       for other in "${flutter_dirs[@]-}"; do
         [[ -n "$other" ]] || continue
-        [[ "$other" == "." || "$pdir" == "$other" || "$pdir" == "$other"/* ]] && { skip=1; break; }
+        # Only the Gradle tree *belonging to* this Flutter app. This condition
+        # used to include `"$other" == "."`, which with an app at the repository
+        # root dropped every Gradle project anywhere in the tree -- a standalone
+        # wear/ or automotive/ module was never built and the run still passed.
+        # That is the same defect the same-stack pass below was fixed for.
+        [[ "$pdir" == "$other" ]] && { skip=1; break; }
+        if [[ "$other" == "." ]]; then
+          # Everything is under the root, so containment alone proves nothing;
+          # a Flutter app at the root owns android/ and nothing else.
+          [[ "$pdir" == "android" || "$pdir" == android/* ]] && { skip=1; break; }
+        elif [[ "$pdir" == "$other"/* ]]; then
+          skip=1; break
+        fi
       done
     fi
     [[ "$skip" -eq 1 ]] && continue
