@@ -190,5 +190,6 @@ nav:
           - svg: modules/svg.md
           - ollama: modules/ollama.md
           - hub: modules/hub.md
+          - cloudflare: modules/cloudflare.md
   - About: about.md
   - ci-helpers ↗: https://nikolareljin.github.io/ci-helpers/

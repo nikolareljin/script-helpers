@@ -175,6 +175,7 @@ Loader and modules
 - `python.sh` — resolve Python 3 executables and ensure local virtualenvs.
 - `version.sh` — semantic version helpers (`version_bump`, `version_compare`).
 - `hub.sh` — corpus-hub setup for capture clients: local-or-remote dialog with a plain and a no-terminal fallback, probe, key check, `.env` writer, bootstrap through the hub's own scripts, and an offer to run the hub's own `./update` (`hub_setup_dialog`, `hub_probe`, `hub_check_key`, `hub_write_env`, `hub_bootstrap`, `hub_offer_update`, `hub_latest_tag`, `hub_ui_mode`).
+- `cloudflare.sh` — deploy to Cloudflare with wrangler: credential and account-id resolution, version and deploy-config derivation, a typed confirmation before a protected environment, and a smoke test that asserts the version now live is the one just deployed (`cloudflare_deploy`, `cloudflare_wrangler`, `cloudflare_credentials_ok`, `cloudflare_account_id`, `cloudflare_version_string`, `cloudflare_deploy_config`, `cloudflare_base_url`, `cloudflare_confirm_environment`, `cloudflare_smoke_test`). Backs `./dev deploy cloudflare`, and shares one deploy definition with CI through `CF_DEPLOY_*`.
 - `ports.sh` — port usage/availability helpers.
 - `browser.sh` — `open_url`, `open_frontend_when_ready`.
 - `traps.sh` — cleanup and signal traps.

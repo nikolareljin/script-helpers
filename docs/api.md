@@ -38,3 +38,4 @@ This index lists all modules and their functions. See the linked module pages fo
 - [manifest](./modules/manifest.md)
 - [changelog](./modules/changelog.md)
 - [rust](./modules/rust.md)
+- [cloudflare](./modules/cloudflare.md)

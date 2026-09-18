@@ -46,6 +46,68 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   until something ships undocumented.
 - **`docs/modules/git_branches.md` linked outside the docs tree** (`../../scripts/…`),
   which a site build cannot resolve. It points at the file on GitHub now.
+## 2026-09-17 — v0.30.0
+
+### Added
+- **A `cloudflare` module, and `./dev deploy cloudflare`.** Deploying a Worker
+  needs the same eight steps every time -- prove the credentials, resolve the
+  account, build, derive the generated deploy config, compute a version string,
+  run wrangler, then check what is actually live -- and every project that has
+  done it has written those steps twice: once in a shell script for a laptop
+  and once in a CI job. The two copies then drift, and the drift is invisible
+  until a release goes out with the wrong version stamped on it.
+
+  `cloudflare_deploy` is the one sequence. `./dev deploy cloudflare` passes its
+  options straight through, and a CI job runs the same function as its deploy
+  command. Where CI has already decided a value it exports it -- `CF_DEPLOY_VERSION`,
+  `CF_DEPLOY_BASE_URL` -- and the matching function returns it verbatim rather
+  than computing a second answer. A single run never holds two live definitions.
+
+- **The account id is checked, not assumed.** An empty account id is not an
+  error to wrangler: it falls back to resolving the account from the token,
+  which is correct for a token scoped to one account and a coin toss otherwise.
+  A deploy that lands on the wrong account looks exactly like a deploy that
+  worked, so `cloudflare_account_id` fails loudly and names both places it
+  looked.
+
+- **The smoke test asserts a version, not a status code.** Reachability proves
+  something answers; it does not prove the deploy took effect. Without the
+  version assertion a smoke test passes against the previous release, which is
+  the one failure it exists to catch -- so a reachability-only run says so in a
+  warning rather than reporting a clean pass.
+
+- **A protected environment refuses rather than waits.** `production` asks the
+  operator to type its name. With no terminal on stdin it returns `5`
+  immediately instead of blocking on a read nobody can answer: an unattended
+  job that hangs to its timeout is worse than one that says what it needed.
+  `--yes` or `CLOUDFLARE_DEPLOY_YES=1` is the deliberate way past it.
+
+- **Two safety properties, each with a test that fails without them.** A
+  value-taking option with nothing after it returns `2` and says which option
+  needed a value: `shift 2` when only one positional remains returns non-zero
+  and shifts nothing, so the naive parser spun forever — and under
+  `set -euo pipefail`, which is what `./dev` runs, died with no message at all.
+  And the protected-environment list is read with globbing disabled, so it is
+  matched literally; unquoted, a list entry was subject to pathname expansion
+  and the same configuration gave different answers depending on what files
+  happened to be in the working directory. A safety gate whose behaviour
+  depends on the current directory is worse than no gate.
+
+- **`CI_DEFAULT_WRANGLER_VERSION`**, the version handed to `npx` when a project
+  has no wrangler of its own. A project with a lockfile gets the version it was
+  tested against instead, which is always the better answer; this is the floor
+  for projects that have none.
+
+### Notes
+- Cloudflare Pages is reachable as an input combination
+  (`--command "pages deploy"`), not as a separate code path. The Workers path is
+  the one exercised end to end, and the module doc says so rather than implying
+  parity.
+- No PowerShell mirror ships for this module. Nothing in the suite enforces
+  Bash/PowerShell parity, `ps/lib/` already omits several modules, and a second
+  wrangler invocation for a platform nobody deploys Workers from would be two
+  implementations of the thing this module exists to stop being two
+  implementations.
 
 ## 2026-09-15 — v0.29.1
 
