@@ -2,6 +2,62 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## [Unreleased]
+
+### Fixed
+
+- **`preflight.sh` silently dropped sibling projects, so whole services were
+  never checked.** The dedupe pass removes a project that another one builds —
+  right for a Cargo workspace member or a package inside an npm workspace. Its
+  condition also contained `"$odir" == "."`, which dropped **every** project of
+  a stack whenever one of them sat at the repository root, nesting or not.
+
+  Measured across the fleet it affected **twelve repositories**. In the worst
+  case a repository with a root `requirements.txt`, a Django admin, a FastAPI
+  service and a frontend reported two projects out of four: the admin and the
+  API were never linted or tested, and the run reported PASS. Another reported
+  one Go module where five exist.
+
+  A project is now dropped only when the outer project's build system genuinely
+  builds it — a pnpm or npm workspace root, a Cargo `[workspace]`. Nothing else
+  qualifies: a directory merely containing another is not a build relationship,
+  and Go modules are independent build units however they nest.
+
+  The distinction matters in both directions. Six of those twelve are real
+  workspaces, and simply deleting the faulty clause would have turned one
+  repository's single Node check into twenty-one and another's single Rust check
+  into nine — running the same tests many times over. The workspace test is
+  deliberately loose: it asks whether the outer project declares a workspace at
+  all, not whether the inner one matches its globs, because every workspace here
+  nests its members, so the looser rule leaves them behaving exactly as before.
+
+  Both directions are asserted: the fixture that reproduces the bug and the
+  workspace fixtures that must still collapse. Four of the new cases fail
+  against the previous implementation.
+
+- **A directory the repository ignores is no longer detected as a project.**
+  Once sibling projects stopped being dropped, a stale copy left beside a real
+  one became visible — one repository has a gitignored duplicate of itself
+  holding a second `go.mod`. Detection now asks git, and treats every answer
+  other than "ignored" as "not ignored", so a missing or failing git detects one
+  project too many rather than silently dropping a real one.
+
+### Changed
+
+- **`./dev` detects once per invocation instead of once per question.**
+  `dev_projects` was re-running the detector for every caller: `./dev install`
+  alone spawned **five** `preflight.sh` subprocesses — `dev_is_flutter`, then
+  `dev_has_stack` and `dev_stack_dir` for python and node — to answer one
+  question. It is now detected once and cached, measured at five invocations
+  down to one.
+
+  The cache required changing the two callers, not just adding the cache.
+  `dev_has_stack` piped `dev_projects` into `grep` and `dev_stack_dir` captured
+  it in a command substitution — both run it in a subshell, where the cache it
+  fills is discarded on exit, so the memoization would have done nothing. They
+  now match the cached value in the current shell, which also removes the `grep`
+  and `awk` each call used to spawn.
+
 ## 2026-09-17 — v0.30.0
 
 ### Added

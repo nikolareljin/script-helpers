@@ -99,23 +99,55 @@ not_applicable() {
 # Delegated to preflight, which is the one implementation of it. Emits
 # "<stack>\t<dir>" lines.
 
-dev_projects() {
+# Detect once per ./dev invocation. Detection cannot change while one command
+# runs, and every caller asked again: `./dev install` alone asked five times --
+# dev_is_flutter, then dev_has_stack and dev_stack_dir for python and node --
+# so one command spawned five preflight subprocesses to answer one question.
+#
+# The guard tests a separate flag rather than the cache being non-empty, because
+# a repository with no detected stack caches an empty string and would otherwise
+# be re-detected on every call: the cheapest case would pay the most.
+_dev_projects_ensure() {
+  [[ "${_DEV_PROJECTS_CACHED:-}" == "1" ]] && return 0
   # CI cleared for this call only: preflight refuses to run under CI=true, and
   # with its error discarded every nested project went undetected in CI. --list
   # only detects; it runs no checks.
-  CI="" bash "$SCRIPT_HELPERS_DIR/scripts/preflight.sh" --list 2>/dev/null || true
+  _DEV_PROJECTS_CACHE="$(CI="" bash "$SCRIPT_HELPERS_DIR/scripts/preflight.sh" --list 2>/dev/null || true)"
+  _DEV_PROJECTS_CACHED=1
 }
 
-dev_has_stack() { dev_projects | grep -q "^$1	"; }
+dev_projects() {
+  _dev_projects_ensure
+  printf '%s\n' "$_DEV_PROJECTS_CACHE"
+}
 
-# Returns 1 when the stack is absent so callers can fall back. awk exits 0 when
-# it matches nothing, so `dev_stack_dir x || echo .` would otherwise be dead
+# The callers below must not put dev_projects on the left of a pipe or inside a
+# command substitution: both run it in a subshell, where the cache it fills is
+# discarded when that subshell exits, so every call would detect again and the
+# memoization above would do nothing. They match the cached string in this shell
+# instead -- which also drops the grep and awk each call used to spawn.
+dev_has_stack() {
+  _dev_projects_ensure
+  case $'\n'"$_DEV_PROJECTS_CACHE"$'\n' in
+    *$'\n'"$1"$'\t'*) return 0 ;;
+  esac
+  return 1
+}
+
+# Returns 1 when the stack is absent so callers can fall back. awk exited 0 when
+# it matched nothing, so `dev_stack_dir x || echo .` would otherwise be dead
 # code and the caller would receive an empty directory.
 dev_stack_dir() {
-  local dir
-  dir="$(dev_projects | awk -F'\t' -v s="$1" '$1==s {print $2; exit}')"
-  [[ -n "$dir" ]] || return 1
-  printf '%s\n' "$dir"
+  local want="$1" stack dir
+  _dev_projects_ensure
+  # A here-string keeps the loop in this shell; a pipe would not.
+  while IFS=$'\t' read -r stack dir || [[ -n "$stack" ]]; do
+    [[ "$stack" == "$want" ]] || continue
+    [[ -n "$dir" ]] || return 1
+    printf '%s\n' "$dir"
+    return 0
+  done <<< "$_DEV_PROJECTS_CACHE"
+  return 1
 }
 
 dev_is_flutter() { [[ -f pubspec.yaml ]] || dev_has_stack flutter; }
