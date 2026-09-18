@@ -2,17 +2,10 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
-## [Unreleased]
-
-<!--
-  Deliberately not a version header. This work ships in the same release as
-  whatever else is unreleased, and inventing a number here produced a section
-  numbered BELOW the one already on main -- so release_notes.sh, which extracts
-  the section for the version being released, would have omitted all of it. The
-  release branch owns the number and the date.
--->
+## 2026-09-17 — v0.30.0
 
 ### Added
+
 - **A documentation site, built from `docs/` in place.** MkDocs Material renders
   the existing markdown tree — there is no second copy of the content to rot.
   `make docs-serve` for live reload while writing, `make docs-preview` to serve
@@ -31,24 +24,6 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   `make lint-docs` checks that every module is documented; it cannot see the
   nav, so the two gates cover different halves and `AGENTS.md` now says so.
 
-### Fixed
-- **`docs/README.md`'s links were broken on GitHub, not only on the site.** Six
-  references were written `./docs/installation.md` from inside `docs/`, which
-  resolves to `docs/docs/installation.md`. They were plain text rather than
-  links, which is the only reason nobody had clicked one and noticed.
-- **`docs/api.md` was an index with no links.** All 36 entries are now markdown
-  links. That required widening the pattern in `scripts/lint_docs.sh`: the
-  original demanded whitespace between the module name and the path, and every
-  markdown link form puts `](` there instead — there was no link syntax that
-  satisfied it. Both forms are accepted now, and `tests/lint_docs_test.sh`
-  pins that, including that the linter still *rejects* non-entries. A linter
-  that matches everything is indistinguishable from one that works, right up
-  until something ships undocumented.
-- **`docs/modules/git_branches.md` linked outside the docs tree** (`../../scripts/…`),
-  which a site build cannot resolve. It points at the file on GitHub now.
-## 2026-09-17 — v0.30.0
-
-### Added
 - **A `cloudflare` module, and `./dev deploy cloudflare`.** Deploying a Worker
   needs the same eight steps every time -- prove the credentials, resolve the
   account, build, derive the generated deploy config, compute a version string,
@@ -98,7 +73,25 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   tested against instead, which is always the better answer; this is the floor
   for projects that have none.
 
+### Fixed
+
+- **`docs/README.md`'s links were broken on GitHub, not only on the site.** Six
+  references were written `./docs/installation.md` from inside `docs/`, which
+  resolves to `docs/docs/installation.md`. They were plain text rather than
+  links, which is the only reason nobody had clicked one and noticed.
+- **`docs/api.md` was an index with no links.** All 36 entries are now markdown
+  links. That required widening the pattern in `scripts/lint_docs.sh`: the
+  original demanded whitespace between the module name and the path, and every
+  markdown link form puts `](` there instead — there was no link syntax that
+  satisfied it. Both forms are accepted now, and `tests/lint_docs_test.sh`
+  pins that, including that the linter still *rejects* non-entries. A linter
+  that matches everything is indistinguishable from one that works, right up
+  until something ships undocumented.
+- **`docs/modules/git_branches.md` linked outside the docs tree** (`../../scripts/…`),
+  which a site build cannot resolve. It points at the file on GitHub now.
+
 ### Notes
+
 - Cloudflare Pages is reachable as an input combination
   (`--command "pages deploy"`), not as a separate code path. The Workers path is
   the one exercised end to end, and the module doc says so rather than implying
@@ -808,7 +801,6 @@ under **Changed**.
 - preflight's "tool is not installed" skips name a platform-appropriate fix, so a
   Mac is no longer told to run `apt install`.
 
-
 ## 2026-09-08 — v0.24.1
 
 ### Fixed
@@ -865,7 +857,6 @@ under **Changed**.
   gate three times. Skipped only when every ref in the push is a deletion.
 - Comments and module docs name `iso-forge` rather than `burn-iso`, following the
   rename of the repository these helpers were first written for. No behavior changed.
-
 
 ## 2026-08-22 — v0.23.0
 
