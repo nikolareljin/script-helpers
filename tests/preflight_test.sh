@@ -133,6 +133,111 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   esac
 fi
 
+# ---------------------------------------------------------------------------
+# Sibling projects of one stack (R-765 #802)
+#
+# The dedupe pass used to drop every project of a stack whenever one of them sat
+# at the repository root, so a repo with a root requirements.txt plus real
+# projects beside it reported only the root and the rest were never checked.
+# A project is dropped now only when the outer project's build system genuinely
+# builds it -- a workspace root -- which these cases assert in both directions.
+# ---------------------------------------------------------------------------
+
+sib="$tmp/siblings"
+mkdir -p "$sib/admin" "$sib/api" "$sib/dashboard"
+: > "$sib/requirements.txt"
+: > "$sib/admin/manage.py"; : > "$sib/admin/requirements.txt"; mkdir -p "$sib/admin/cfg"; : > "$sib/admin/cfg/settings.py"
+: > "$sib/api/requirements.txt"
+: > "$sib/dashboard/package.json"
+out="$(run_list "$sib")"
+for d in . admin api; do
+  if has_pair "$out" python "$d"; then note "siblings: python $d detected"
+  else error "siblings: python $d missing from [$out]"; fi
+done
+if has_pair "$out" node dashboard; then note "siblings: node dashboard detected"
+else error "siblings: node dashboard missing from [$out]"; fi
+
+# Several Go modules beside a root one. Go modules are independent build units
+# however they nest, so every one of them is its own project.
+gomod="$tmp/gomods"
+mkdir -p "$gomod/scanner" "$gomod/tools/speedtest"
+: > "$gomod/go.mod"; : > "$gomod/scanner/go.mod"; : > "$gomod/tools/speedtest/go.mod"
+out="$(run_list "$gomod")"
+for d in . scanner tools/speedtest; do
+  if has_pair "$out" go "$d"; then note "go modules: $d detected"
+  else error "go modules: $d missing from [$out]"; fi
+done
+
+# A pnpm workspace root does install and test its members, so checking both runs
+# the same tests twice. Four of this fleet's five workspaces declare membership
+# only in pnpm-workspace.yaml, with no "workspaces" key in package.json.
+pnpmws="$tmp/pnpmws"
+mkdir -p "$pnpmws/packages/one"
+: > "$pnpmws/package.json"; : > "$pnpmws/pnpm-workspace.yaml"; : > "$pnpmws/packages/one/package.json"
+out="$(run_list "$pnpmws")"
+if has_pair "$out" node .; then note "pnpm workspace: root detected"
+else error "pnpm workspace: root missing from [$out]"; fi
+if has_pair "$out" node packages/one; then error "pnpm workspace: member should be owned by the root, got [$out]"
+else note "pnpm workspace: member collapses into the root"; fi
+
+# The same, declared the npm/yarn way.
+npmws="$tmp/npmws"
+mkdir -p "$npmws/packages/one"
+printf '{"workspaces":["packages/*"]}\n' > "$npmws/package.json"
+: > "$npmws/packages/one/package.json"
+out="$(run_list "$npmws")"
+if has_pair "$out" node packages/one; then error "npm workspace: member should be owned by the root, got [$out]"
+else note "npm workspace: member collapses into the root"; fi
+
+# A Cargo workspace root builds and tests its members.
+cargows="$tmp/cargows"
+mkdir -p "$cargows/crates/one"
+printf '[workspace]\nmembers = ["crates/one"]\n' > "$cargows/Cargo.toml"
+: > "$cargows/crates/one/Cargo.toml"
+out="$(run_list "$cargows")"
+if has_pair "$out" rust crates/one; then error "cargo workspace: member should be owned by the root, got [$out]"
+else note "cargo workspace: member collapses into the root"; fi
+
+# A plain package.json at the root declares no workspace, so a package beside it
+# is a separate project and must be checked.
+plainnode="$tmp/plainnode"
+mkdir -p "$plainnode/sub"
+printf '{"name":"root"}\n' > "$plainnode/package.json"
+: > "$plainnode/sub/package.json"
+out="$(run_list "$plainnode")"
+if has_pair "$out" node sub; then note "plain node root: the sibling package is its own project"
+else error "plain node root: sub missing from [$out]"; fi
+
+# The Flutter/Gradle exception is unrelated and must survive: `flutter build`
+# already runs the Gradle build, so a second pass doubles the slowest step.
+fg="$tmp/flutter_gradle"
+mkdir -p "$fg/android"
+: > "$fg/pubspec.yaml"; : > "$fg/android/gradlew"
+out="$(run_list "$fg")"
+if has_pair "$out" flutter .; then note "flutter/gradle: flutter detected"
+else error "flutter/gradle: no flutter pair in [$out]"; fi
+if has_pair "$out" gradle android; then error "flutter/gradle: android tree should collapse into the Flutter app, got [$out]"
+else note "flutter/gradle: the android tree still collapses"; fi
+
+# A path the repository ignores is not a project. A stale copy left beside the
+# real one is the common case, and it only became visible once sibling projects
+# stopped being dropped.
+if command -v git >/dev/null 2>&1; then
+  ign="$tmp/ignored"
+  mkdir -p "$ign/stale"
+  git -C "$ign" init -q 2>/dev/null
+  printf '/stale\n' > "$ign/.gitignore"
+  : > "$ign/go.mod"; : > "$ign/stale/go.mod"
+  out="$(run_list "$ign")"
+  if has_pair "$out" go .; then note "gitignored: the real module is detected"
+  else error "gitignored: root module missing from [$out]"; fi
+  if has_pair "$out" go stale; then error "gitignored: an ignored directory was detected as a project, got [$out]"
+  else note "gitignored: the ignored copy is not a project"; fi
+else
+  note "SKIP: gitignored-copy case needs git"
+fi
+
+
 if [[ "$failures" -eq 0 ]]; then
   note "ALL PASSED"; exit 0
 fi

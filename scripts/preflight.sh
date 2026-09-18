@@ -120,12 +120,66 @@ _is_pruned() {
   return 1
 }
 
+# A path the repository itself ignores is not a project: a stale local copy left
+# beside the real one is the common case. Only git knows, so ask it -- and treat
+# every other outcome as "not ignored", because failing open detects one project
+# too many, while failing closed silently drops a real one.
+_is_git_ignored() {
+  command -v git >/dev/null 2>&1 || return 1
+  git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
+  git -C "$PROJECT_DIR" check-ignore -q -- "$1" 2>/dev/null
+}
+
+# Does the project at <outer> actually build the one at <inner>?
+#
+# Only true where the outer project's own build system is told about the inner
+# one. A workspace root does install and test its members, so checking both runs
+# the same tests twice. Nothing else does: a directory merely containing another
+# is not a build relationship, and treating it as one is how sibling projects
+# disappear from the gate entirely.
+#
+# Deliberately loose for node and rust: it asks whether the outer declares a
+# workspace at all, not whether the inner matches its globs. Glob membership is
+# the stricter test, but every workspace in this fleet nests its members, so the
+# looser rule keeps behaviour identical for them while fixing everything else.
+_preflight__owns() {
+  local stack="$1" outer="$2" inner="$3" root
+  # A build relationship needs containment first.
+  [[ "$outer" != "$inner" ]] || return 1
+  if [[ "$outer" == "." ]]; then
+    root="$PROJECT_DIR"
+  else
+    case "$inner" in "$outer"/*) ;; *) return 1 ;; esac
+    root="$PROJECT_DIR/$outer"
+  fi
+  case "$stack" in
+    node)
+      # npm and yarn declare members in package.json; pnpm uses its own file,
+      # and four of this fleet's five workspaces use only the latter.
+      [[ -f "$root/pnpm-workspace.yaml" ]] && return 0
+      grep -q '"workspaces"' "$root/package.json" 2>/dev/null && return 0
+      return 1
+      ;;
+    rust)
+      grep -q '^\[workspace\]' "$root/Cargo.toml" 2>/dev/null && return 0
+      return 1
+      ;;
+    *)
+      # python, go, php, flutter, gradle, ios: no construct by which a project
+      # at the root builds a sibling directory. Go modules in particular are
+      # independent build units however they are nested.
+      return 1
+      ;;
+  esac
+}
+
 detect_stacks() {
   local marker dir
   local -a pairs=() flutter_dirs=()
 
   while IFS= read -r marker; do
     _is_pruned "$marker" && continue
+    _is_git_ignored "$marker" && continue
     dir="$(dirname "$marker")"; dir="${dir#./}"; [[ -n "$dir" ]] || dir="."
     case "$(basename "$marker")" in
       pubspec.yaml)                       pairs+=("flutter	$dir"); flutter_dirs+=("$dir") ;;
@@ -196,8 +250,10 @@ detect_stacks() {
     for other in "${kept[@]+"${kept[@]}"}"; do
       ostack="${other%%	*}"; odir="${other#*	}"
       [[ "$ostack" == "$stack" && "$odir" != "$pdir" ]] || continue
-      # $pdir sits inside $odir — the outer project owns it.
-      if [[ "$odir" == "." || "$pdir" == "$odir"/* ]]; then skip=1; break; fi
+      # Drop $pdir only when $odir's build system genuinely builds it. This
+      # used to also drop every project of the stack whenever one sat at the
+      # root, which silently removed sibling projects from the gate.
+      if _preflight__owns "$stack" "$odir" "$pdir"; then skip=1; break; fi
     done
     [[ "$skip" -eq 1 ]] && continue
     printf '%s\n' "$pair"
