@@ -168,6 +168,86 @@ for d in . scanner tools/speedtest; do
   else error "go modules: $d missing from [$out]"; fi
 done
 
+# ---------------------------------------------------------------------------
+# Regressions found reviewing the sibling-projects fix
+# ---------------------------------------------------------------------------
+
+# Someone else's repository nested in ours. A submodule is tracked, so the
+# ignore filter says "not ignored" -- yet running the gate inside it builds a
+# virtualenv in upstream's working tree and tests upstream's code.
+if command -v git >/dev/null 2>&1; then
+  sub="$tmp/submodule"
+  mkdir -p "$sub/third_party/upstream"
+  git -C "$sub" init -q 2>/dev/null
+  : > "$sub/requirements.txt"
+  : > "$sub/third_party/upstream/requirements.txt"
+  # a submodule worktree is marked by .git being a FILE, not a directory
+  printf 'gitdir: ../../.git/modules/upstream\n' > "$sub/third_party/upstream/.git"
+  out="$(run_list "$sub")"
+  if has_pair "$out" python .; then note "submodule: our own project is detected"
+  else error "submodule: root project missing from [$out]"; fi
+  if has_pair "$out" python third_party/upstream; then
+    error "submodule: upstream code was detected as our project, got [$out]"
+  else note "submodule: upstream code is not our project"; fi
+else
+  note "SKIP: submodule case needs git"
+fi
+
+# A Flutter app at the repository root must not swallow an unrelated Gradle
+# project elsewhere in the tree. It owns android/, and nothing else.
+fgs="$tmp/flutter_gradle_sibling"
+mkdir -p "$fgs/android" "$fgs/wear"
+: > "$fgs/pubspec.yaml"; : > "$fgs/android/gradlew"
+: > "$fgs/wear/gradlew"; : > "$fgs/wear/settings.gradle"
+out="$(run_list "$fgs")"
+if has_pair "$out" gradle android; then
+  error "flutter at root: android/ is built by the app and should collapse, got [$out]"
+else note "flutter at root: the app's own android/ still collapses"; fi
+if has_pair "$out" gradle wear; then note "flutter at root: a standalone gradle module survives"
+else error "flutter at root: standalone wear/ was dropped, got [$out]"; fi
+
+# The ignore filter has to cover the Podfile loop too, or an ignored stale copy
+# returns as an ios project -- and an ios check is an Xcode build.
+if command -v git >/dev/null 2>&1; then
+  ign2="$tmp/ignored_ios"
+  mkdir -p "$ign2/ios" "$ign2/stale/ios"
+  git -C "$ign2" init -q 2>/dev/null
+  printf '/stale\n' > "$ign2/.gitignore"
+  : > "$ign2/pubspec.yaml"; : > "$ign2/ios/Podfile"
+  : > "$ign2/stale/pubspec.yaml"; : > "$ign2/stale/ios/Podfile"
+  out="$(run_list "$ign2")"
+  if has_pair "$out" ios .; then note "ignored ios: the real app is detected"
+  else error "ignored ios: real app missing from [$out]"; fi
+  if has_pair "$out" ios stale; then
+    error "ignored ios: a gitignored copy became an ios project, got [$out]"
+  else note "ignored ios: the ignored copy is not an ios project"; fi
+else
+  note "SKIP: ignored-ios case needs git"
+fi
+
+# "workspaces" appearing as a VALUE does not declare a workspace. A substring
+# grep matched it and dropped every sibling package silently.
+kw="$tmp/keywords_not_workspace"
+mkdir -p "$kw/packages/one"
+printf '{"name":"root","keywords":["monorepo","workspaces"],"private":true}\n' > "$kw/package.json"
+: > "$kw/packages/one/package.json"
+out="$(run_list "$kw")"
+if has_pair "$out" node packages/one; then
+  note "keywords: a workspaces keyword does not own a sibling package"
+else
+  error "keywords: sibling package dropped by a value that is not a key, got [$out]"
+fi
+
+# Cargo accepts an indented table header; missing it checks the workspace twice.
+ind="$tmp/indented_workspace"
+mkdir -p "$ind/crates/one"
+printf '# root\n  [workspace]\nmembers = ["crates/one"]\n' > "$ind/Cargo.toml"
+: > "$ind/crates/one/Cargo.toml"
+out="$(run_list "$ind")"
+if has_pair "$out" rust crates/one; then
+  error "indented [workspace]: member should collapse into the root, got [$out]"
+else note "indented [workspace]: still recognised as a workspace root"; fi
+
 # A pnpm workspace root does install and test its members, so checking both runs
 # the same tests twice. Four of this fleet's five workspaces declare membership
 # only in pnpm-workspace.yaml, with no "workspaces" key in package.json.
