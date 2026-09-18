@@ -316,13 +316,38 @@ else
   error "expected 5 from an unattended production deploy, got $rc"
 fi
 
+# Runs a command with a deadline, portably. macOS has no `timeout` — it is GNU
+# coreutils — so a bare `timeout` returned 127 on the macOS runner and the
+# assertion below could not tell "hung" from "no such command". gtimeout is used
+# when coreutils is installed; otherwise a backgrounded watchdog does the same
+# job with nothing but the shell.
+# Returns the command's status, or 124 when the deadline was hit.
+run_bounded() {
+  local secs="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$secs" "$@"; return $?
+  fi
+  if command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$secs" "$@"; return $?
+  fi
+  local cmd_pid watch_pid rc=0
+  "$@" & cmd_pid=$!
+  ( sleep "$secs"; kill -9 "$cmd_pid" 2>/dev/null ) & watch_pid=$!
+  wait "$cmd_pid" 2>/dev/null || rc=$?
+  kill "$watch_pid" 2>/dev/null || true
+  wait "$watch_pid" 2>/dev/null || true
+  # 128+9 from the watchdog's SIGKILL is a deadline hit, not a real status.
+  [[ $rc -eq 137 ]] && rc=124
+  return $rc
+}
+
 # Regression test for a trailing value flag. `shift 2` with one positional left
 # returns 1 and shifts NOTHING, so this used to spin forever — and under
-# `set -euo pipefail` it died silently instead. Bounded by timeout so a
-# regression fails the suite rather than hanging CI until the job times out.
+# `set -euo pipefail` it died silently instead. Bounded, so a regression fails
+# the suite rather than hanging CI until the job times out.
 for trailing in "--env" "--config" "--command" "--status-path"; do
   rc=0
-  timeout 10 bash -c 'set -uo pipefail; source '"$root_dir"'/helpers.sh; shlib_import cloudflare
+  run_bounded 10 bash -c 'set -uo pipefail; source '"$root_dir"'/helpers.sh; shlib_import cloudflare
     cloudflare_deploy '"$trailing"'' >/dev/null 2>&1 || rc=$?
   if [[ $rc -eq 2 ]]; then
     ok "a trailing ${trailing} returns 2 instead of looping forever"
