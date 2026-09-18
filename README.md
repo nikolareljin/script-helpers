@@ -1,5 +1,4 @@
-script-helpers
-================
+![script-helpers — reusable Bash and PowerShell helpers. 36 Bash modules, 29 PowerShell mirrors, runs on the bash 3.2 macOS ships.](docs/assets/hero.svg)
 
 Reusable Bash helpers extracted from projects in this workspace. Source modules you need (docker, logging, dialog, file, json, ports, etc.) and reuse them across scripts.
 

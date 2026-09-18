@@ -1,5 +1,7 @@
 # Script Helpers — Documentation
 
+![script-helpers](assets/hero.svg)
+
 <div class="nr-hero" markdown>
 
 ```console
