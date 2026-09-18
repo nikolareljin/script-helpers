@@ -3,7 +3,7 @@
 Decide, safely, whether a branch has already landed and can be removed.
 
 Import with `shlib_import git_branches`. The entry point built on it is
-[`scripts/prune_branches.sh`](../../scripts/prune_branches.sh), which is
+[`scripts/prune_branches.sh`](https://github.com/nikolareljin/script-helpers/blob/main/scripts/prune_branches.sh), which is
 callable from any repository that vendors these helpers:
 
 ```bash

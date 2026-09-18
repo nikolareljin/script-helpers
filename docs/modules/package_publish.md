@@ -44,6 +44,7 @@ Usage: `pkg_build_source_package <repo_dir> <prebuild_cmd> <build_cmd> <series> 
 Builds a signed Debian source package using `debuild -S -sa` and a GPG key ID.
 
 Environment:
+
 - `PPA_GPG_PASSPHRASE`: passphrase for non-interactive GPG signing.
 
 The passphrase is written to a private (0600) temp file and handed to gpg with `--passphrase-file`, never placed on a command line where other local users could read it from the process list. The file is removed when `debuild` returns, whether it succeeded or failed. Returns `debuild`'s exit status.

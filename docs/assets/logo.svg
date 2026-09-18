@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="script-helpers">
+  <title>script-helpers</title>
+  <!--
+    A gear driven by a wrench stroke: the library is the mechanism other
+    scripts turn.
+
+    Referenced by mkdocs.yml as theme.logo, which renders an <img>. It is NOT
+    wired through Material's icon mechanism (theme.icon.logo), which inlines a
+    glyph and recolours it with currentColor — that is built for single-colour
+    icons and would flatten this gradient. It costs nothing here: the site
+    header is #0b0e14 in both the light and the dark scheme, so this mark
+    always sits on the same dark ground and never needs to adapt.
+
+    No width/height, so it scales from a 16px favicon to a social card. No
+    hardcoded background: the transparent ground is what lets it sit on the
+    header bar.
+  -->
+  <defs>
+    <!--
+      Namespaced id. Two inline SVGs on one page sharing a gradient id would
+      collide, and the second would silently render with the first's colours.
+    -->
+    <linearGradient id="sh-grad" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0"   stop-color="#3080D0"/>
+      <stop offset="0.5" stop-color="#40A0A0"/>
+      <stop offset="1"   stop-color="#60D070"/>
+    </linearGradient>
+  </defs>
+
+  <g fill="none" stroke="url(#sh-grad)" stroke-width="5"
+     stroke-linecap="round" stroke-linejoin="round">
+    <!-- The wrench: two strokes converging on the gear's hub. -->
+    <path d="M7 15 L23 32 L7 49"/>
+    <path d="M23 32 H31"/>
+    <!-- Gear body. Drawn as a stroked ring so the teeth read at small sizes. -->
+    <circle cx="41" cy="32" r="11"/>
+  </g>
+
+  <!-- Eight teeth. They must OVERLAP the ring, not sit outside it: a tooth
+       that only touches the rim reads as a detached dot and the mark turns
+       into a sun. These span radius 10.5 to 16.5, against a ring whose outer
+       edge is at 13.5. rx is small — nearly-square teeth keep their silhouette
+       at 16px, where a large corner radius rounds them back into dots. -->
+  <g fill="url(#sh-grad)">
+    <g transform="translate(41 32)">
+      <rect x="-2.6" y="-16.5" width="5.2" height="6" rx="1.2"/>
+      <rect x="-2.6" y="-16.5" width="5.2" height="6" rx="1.2" transform="rotate(45)"/>
+      <rect x="-2.6" y="-16.5" width="5.2" height="6" rx="1.2" transform="rotate(90)"/>
+      <rect x="-2.6" y="-16.5" width="5.2" height="6" rx="1.2" transform="rotate(135)"/>
+      <rect x="-2.6" y="-16.5" width="5.2" height="6" rx="1.2" transform="rotate(180)"/>
+      <rect x="-2.6" y="-16.5" width="5.2" height="6" rx="1.2" transform="rotate(225)"/>
+      <rect x="-2.6" y="-16.5" width="5.2" height="6" rx="1.2" transform="rotate(270)"/>
+      <rect x="-2.6" y="-16.5" width="5.2" height="6" rx="1.2" transform="rotate(315)"/>
+    </g>
+    <!-- Hub. -->
+    <circle cx="41" cy="32" r="4"/>
+  </g>
+</svg>

@@ -359,6 +359,7 @@ bash "$SCRIPT_HELPERS_DIR/scripts/check_release_version.sh" --version-file VERSI
 ```
 
 Notes:
+
 - Set `SCRIPT_HELPERS_DIR` if your submodule lives elsewhere.
 
 Reusable workflow helper scripts

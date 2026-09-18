@@ -22,11 +22,13 @@ Functions
 ---------
 
 Discovery
+
 - `adb_available` — 0 if `adb` is on `PATH`.
 - `adb_ready_serials` — serials of *ready* devices, one per line (skips header +
   offline/unauthorized).
 
 Device info
+
 - `adb_getprop <serial> <prop>` — read a system property.
 - `adb_device_model <serial>` — `ro.product.model`.
 - `adb_android_version <serial>` — Android OS release (e.g. `9`).
@@ -37,16 +39,19 @@ Device info
   every ready device.
 
 Shell / debugging
+
 - `adb_shell <serial> <cmd...>` — run a shell command on a device.
 - `adb_logcat <serial> [regex]` — dump the logcat buffer (`-d`), optionally
   filtered to lines matching `regex`. For a live tail use `adb -s <serial> logcat`.
 - `adb_clear_logcat <serial>` — clear the logcat buffer.
 
 File transfer
+
 - `adb_push <serial> <local> <remote>` — copy a file/dir **to** the device.
 - `adb_pull <serial> <remote> [local=.]` — copy a file/dir **from** the device.
 
 Apps
+
 - `adb_install <serial> <apk> [--user <id>] [adb install args...]` — (re)install
   an APK (`-r`). `--user` defaults to `0`, the device owner, and is passed
   through to adb. Returns 2 when it is not a number.
@@ -90,6 +95,7 @@ call it rather than `adb_install`. An installer's exit code asserts that adb
 accepted the command, not that the app is usable.
 
 Status
+
 - `adb_battery_level <serial>` — battery percent (0–100).
 - `adb_screen_on <serial>` — 0 = on, 1 = off, 2 = unknown.
 - `adb_device_status <serial>` — a status block: model, Android + API, battery,
