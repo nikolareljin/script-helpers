@@ -646,3 +646,42 @@ reporting success.
 
 Set `IOS_EXPORT_OPTIONS_PLIST` for a signed release build, and `IOS_DEVICE` to
 pin a simulator without passing `--device` each time.
+
+### Deploying to Cloudflare: one definition, two lanes
+
+```bash
+./dev deploy cloudflare --env staging --config wrangler.toml --status-path /api/status
+./dev deploy cloudflare --env production --yes        # unattended; see below
+./dev deploy cloudflare --env staging --dry-run       # build and validate, deploy nothing
+```
+
+Options after the target word are passed straight to `cloudflare_deploy`, so
+`./dev` is a thin entry point rather than a second place where deploy options
+are enumerated and then drift.
+
+The same function is what a CI job calls. A reusable workflow supplies the
+credentials, the environment gate and the kill switch, then invokes
+`./dev deploy cloudflare` as its deploy command — so the laptop and the pipeline
+run one sequence, not two that have to be kept in step by hand.
+
+Where CI has already decided a value it exports it, and the matching function
+returns it verbatim instead of computing its own:
+
+| Exported by CI | Consumed by |
+|---|---|
+| `CF_DEPLOY_VERSION` | `cloudflare_version_string` |
+| `CF_DEPLOY_BASE_URL` | `cloudflare_base_url` |
+
+A single run therefore never has two live definitions of the version string.
+CI's definition wins in CI, this library's wins on a laptop, and neither is a
+copy of the other.
+
+Two behaviours worth knowing before you automate anything:
+
+- `production` (and anything in `CLOUDFLARE_PROTECTED_ENVS`) asks you to type
+  the environment name. With **no terminal** it returns `5` immediately rather
+  than blocking on a read nobody can answer — pass `--yes`, or set
+  `CLOUDFLARE_DEPLOY_YES=1`.
+- The smoke test asserts the **version**, not just a 200. Give it
+  `--status-path`; without one it only proves something answered, which is the
+  failure it exists to catch, and it warns saying so.

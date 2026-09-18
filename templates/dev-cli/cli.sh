@@ -50,7 +50,7 @@ declare -a DEV_ARGS=()
 parse_dev_options() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      android|ios|host|backend|frontend|linux|web|macos|windows)
+      android|ios|host|backend|frontend|linux|web|macos|windows|cloudflare)
         DEV_TARGET="$1"; shift ;;
       # Checked before shifting: `shift 2` with one argument left returns
       # non-zero, and set -e would kill the process before the validation below
@@ -70,7 +70,7 @@ parse_dev_options() {
       # it would swallow `--help` or `--release` (`./dev preflight --stack
       # --help` ran preflight). The flag is then passed on alone for the script
       # to reject as missing its value.
-      --stack|--dir|--platform|--out|--seconds|--size|--bitrate)
+      --stack|--dir|--platform|--out|--seconds|--size|--bitrate|--env|--config|--dist|--status-path|--build-command|--command|--version-file|--source)
         DEV_ARGS+=("$1"); shift
         if [[ $# -gt 0 && "$1" != -* ]]; then DEV_ARGS+=("$1"); shift; fi ;;
       --release) DEV_RELEASE=true; shift ;;
@@ -382,12 +382,29 @@ _deploy_android() {
   fi
 }
 
+# Deploy to Cloudflare. Everything after the target word is handed to
+# cloudflare_deploy untouched, so this stays a pass-through rather than a second
+# place where deploy options are enumerated and then drift.
+#
+# The same function is what a CI workflow calls through its deploy_command, so
+# the laptop and the pipeline run one sequence, not two that must be kept in
+# step by hand.
+_deploy_cloudflare() {
+  shlib_import cloudflare
+  local -a args=()
+  args=("${DEV_ARGS[@]+"${DEV_ARGS[@]}"}")
+  # --env is required by cloudflare_deploy and has no safe default: guessing an
+  # environment is how a staging deploy reaches production.
+  cloudflare_deploy "${args[@]+"${args[@]}"}"
+}
+
 verb_deploy() {
   declare -f project_deploy >/dev/null && { project_deploy; return; }
   case "${DEV_TARGET:-android}" in
-    android) _deploy_android ;;
-    ios)     _deploy_ios ;;
-    *) not_applicable "deploy ${DEV_TARGET}" "deploy installs on a device; targets are android and ios" ;;
+    android)    _deploy_android ;;
+    ios)        _deploy_ios ;;
+    cloudflare) _deploy_cloudflare ;;
+    *) not_applicable "deploy ${DEV_TARGET}" "targets are android, ios and cloudflare" ;;
   esac
 }
 
@@ -494,7 +511,8 @@ Core
   run           Start the app in the foreground.
   test          Run the test suite.
   preflight     Run every check CI would have run. The pre-push hook calls this.
-  deploy        Build, then install and launch on a connected device.
+  deploy        Build, then install and launch on a connected device,
+                or deploy to Cloudflare with `deploy cloudflare --env <name>`.
   clean         Remove build output and caches. Never touches user data.
   update        Sync submodules and refresh pinned dependencies.
 
@@ -505,8 +523,18 @@ Mobile
   logs          Stream filtered device logs.
   release       Bump the version across manifests and open a CHANGELOG section.
 
-Targets   android ios host backend frontend linux web macos windows
+Targets   android ios host backend frontend linux web macos windows cloudflare
 Options   --device <id>  --user <id>  --release  --verbose
+
+deploy cloudflare passes its options straight to cloudflare_deploy:
+  --env <name>          required; also the wrangler --env
+  --config <path>       wrangler config to deploy
+  --dist <dir>          build output holding a generated deploy config
+  --status-path <path>  JSON endpoint carrying the deployed version
+  --yes                 skip the typed confirmation for a protected environment
+  --dry-run             build and validate, deploy nothing
+A protected environment (default: production) asks you to type its name. With
+no terminal it refuses rather than waiting, so pass --yes in automation.
 
 --user is the Android profile to install into, default 0 (the device owner).
 deploy verifies the package is visible there afterwards: an unqualified install
