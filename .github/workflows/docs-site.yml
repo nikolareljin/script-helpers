@@ -63,5 +63,9 @@ jobs:
       # git-revision-date plugin, no Hugo .Lastmod. Cloning the full history of
       # this repository to render markdown is wasted minutes.
       fetch_depth: 1
-      deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      # Not `event_name == 'push'`: that made workflow_dispatch unable to
+      # publish at all, so the manual trigger could only ever validate. This
+      # publishes from main on a push or a dispatch, and never from a pull
+      # request.
+      deploy: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
       timeout_minutes: 15

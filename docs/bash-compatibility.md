@@ -16,13 +16,16 @@ behaviour on a machine that has something newer.
 | macOS with nothing installed | bash 3.2, `/bin/bash` |
 | Anything older than 3.2 | refused at load, with a message |
 
-`./dev` resolves this deliberately, in this order:
+`./dev` resolves this deliberately. It walks these candidates:
 
 ```
 $BASH → /opt/homebrew/bin/bash → /usr/local/bin/bash → $(command -v bash) → /bin/bash
 ```
 
-`/bin/bash` is **last**. That ordering exists so a Mac with a modern bash
+and takes **the first one that is bash 4 or newer**; only if none of them is
+does it fall back to the first that is at least 3.2. So a Mac whose `$BASH` is
+the stock 3.2 but which has Homebrew bash installed gets the Homebrew one — a
+flat first-match order would not do that. `/bin/bash` is **last**. That ordering exists so a Mac with a modern bash
 installed actually uses it: a bare `exec bash` would resolve from `PATH` and
 discard the script's own shebang, which on macOS lands back on 3.2.
 
@@ -61,16 +64,17 @@ These are bash 4+ features, and they are **not** used in `lib/`:
 | Namerefs (`declare -n`) | print a value and capture it, or pass a name and `eval` carefully |
 | `${var^^}` / `${var,,}` | `tr '[:lower:]' '[:upper:]'` |
 | `shopt -s globstar` (`**`) | `find` |
-| `&>>` | `>>file 2>&1` |
+| `&>>` | `>>file 2>&1` (not currently banned by the scanner — see below) |
 
 The same discipline rules out GNU-only tool flags, because macOS ships BSD
 versions: no `sed -i`/`sed -r`, no `readlink -f`, no `realpath`, no `grep -P`,
 no `date -d`, no `find -printf`, no `xargs -r`, no `base64 -w`, no
 `md5sum`/`sha256sum`, and no `\s` or `\b` in a grep or sed pattern.
 
-`tests/portability_test.sh` enforces every one of those statically, over
-tracked **and untracked** files — so a new script is checked before it is
-committed.
+`tests/portability_test.sh` enforces **the GNU-only tool flags above, and every
+bash-4 construct in the previous table except `&>>`**, statically, over tracked
+**and untracked** files — so a new script is checked before it is committed.
+`&>>` is unused today and has no ban rule; do not rely on the scanner for it.
 
 ## When a function genuinely needs bash 4
 

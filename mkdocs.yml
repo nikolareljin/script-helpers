@@ -130,6 +130,12 @@ validation:
 exclude_docs: |
   requirements*.txt
   *.tmp
+  *.bak
+  *.orig
+  *.rej
+  *.swp
+  *.swo
+  *~
 
 nav:
   - Home: README.md

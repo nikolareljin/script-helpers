@@ -102,3 +102,32 @@ a refusal that names the remedy.
 
 Full detail, including what to write instead of each bash-4 feature, is in
 `docs/bash-compatibility.md`. Keep that page in step with any change here.
+
+## The About page
+
+`docs/about.md` is hand-maintained. Nothing generates it and nothing may.
+
+1. Public, non-fork, non-archived repositories only.
+2. Prefer a repository's own documentation site over its GitHub URL.
+3. No private repository names, account ids, hostnames, tokens, e-mail
+   addresses, customer or personal data, or internal roadmap.
+4. Nothing outside this repository is read at build time. The site must build
+   from a clean clone of this repository plus PyPI, and nothing else.
+
+To refresh — by hand, reviewed, and pasted in; **never** as a build step:
+
+```bash
+gh repo list nikolareljin --visibility public --source --no-archived \
+  --limit 300 --json name,description,homepageUrl
+```
+
+Then confirm every link still returns 200:
+
+```bash
+grep -oE 'https://[^)]+' docs/about.md | sort -u | while read -r u; do
+  printf '%s  %s\n' "$(curl -sIL -o /dev/null -w '%{http_code}' --max-time 10 "$u")" "$u"
+done
+```
+
+These rules live here rather than in `docs/about.md` because Python-Markdown
+passes HTML comments straight through into the published page source.

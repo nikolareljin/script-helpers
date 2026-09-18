@@ -1,25 +1,28 @@
 #!/usr/bin/env bash
 # SCRIPT: lint_docs_test.sh
-# DESCRIPTION: Tests scripts/lint_docs.sh — that it accepts both docs/api.md index forms and still catches a genuinely undocumented module.
+# DESCRIPTION: End-to-end tests for scripts/lint_docs.sh against fixture trees.
 # USAGE: bash tests/lint_docs_test.sh
 # PARAMETERS: No required parameters.
 # EXAMPLE: bash tests/lint_docs_test.sh
 # ----------------------------------------------------
 #
-# The index in docs/api.md used to be plain text — `- name — ./modules/name.md`
-# — which renders as dead text on a documentation site. Making it a markdown
-# link broke the linter, because the original pattern required whitespace
-# between the name and the path and every link form puts `](` there instead.
-# There was no link syntax that satisfied it.
+# This runs THE REAL scripts/lint_docs.sh. That is the whole design.
 #
-# So the pattern was widened to accept both. Both must keep working: the linter
-# runs in the pre-commit hook and in CI, and a linter that silently stops
-# recognising entries would report every module as undocumented — or, far
-# worse, quietly match nothing and pass.
+# An earlier version copied the linter's regex into this file and tested the
+# copy. It was worthless and provably so: with `scripts/lint_docs.sh` deleted
+# outright it still reported "all passed", and with the linter's condition
+# replaced by one that matches every line -- the exact catastrophe its header
+# warns about -- it still reported "all passed". It tested that one string
+# literal equalled another string literal.
 #
-# The last case here is the one that matters most. A linter that accepts
-# everything is indistinguishable from a linter that works, right up until
-# something ships undocumented.
+# lint_docs.sh resolves its root from BASH_SOURCE and cd's there, so copying it
+# into a fixture tree points it at that tree. Every case below builds a small
+# repository, runs the real script, and asserts the exit status. If the linter
+# stops working, these fail.
+#
+# The negative cases matter more than the positive ones. A linter that accepts
+# everything is indistinguishable from one that works, right up until something
+# ships undocumented.
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -30,102 +33,146 @@ note()  { echo "[lint_docs_test] $*"; }
 error() { echo "[lint_docs_test][ERROR] $*" >&2; failures=$((failures+1)); }
 ok()    { echo "[lint_docs_test]   ok  $*"; }
 
-# The pattern under test, copied from scripts/lint_docs.sh. Copied rather than
-# sourced because the linter runs top-to-bottom over the real repository; this
-# tests the matching rule in isolation.
-matches() {
-  local line="$1"
-  [[ "$line" =~ \-\ \[?([a-zA-Z0-9_-]+)\]?[[:space:]]*(\—[[:space:]]*)?\(?\./modules/([a-zA-Z0-9_-]+)\.md ]]
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+[[ -f scripts/lint_docs.sh ]] || { error "scripts/lint_docs.sh is missing — there is nothing to test"; exit 1; }
+
+# Builds a minimal repository the linter will accept, and prints its path.
+# $1 is a label so each case gets its own tree.
+make_fixture() {
+  local name="$1" root="$tmp/$1"
+  mkdir -p "$root/scripts" "$root/lib" "$root/docs/modules"
+  cp "$ROOT_DIR/scripts/lint_docs.sh" "$root/scripts/lint_docs.sh"
+
+  # One module with one documented function, plus helpers.
+  cat > "$root/helpers.sh" <<'SH'
+#!/usr/bin/env bash
+shlib_import() { :; }
+SH
+  cat > "$root/lib/widget.sh" <<'SH'
+#!/usr/bin/env bash
+widget_make() { :; }
+SH
+  cat > "$root/docs/modules/helpers.md" <<'MD'
+# helpers
+The loader.
+
+- shlib_import
+MD
+  cat > "$root/docs/modules/widget.md" <<'MD'
+# widget
+Makes widgets.
+
+- widget_make
+MD
+  cat > "$root/docs/api.md" <<'MD'
+# API Index
+
+- [helpers](./modules/helpers.md)
+- [widget](./modules/widget.md)
+MD
+  printf '%s' "$root"
 }
-name_of() {
-  local line="$1"
-  if [[ "$line" =~ \-\ \[?([a-zA-Z0-9_-]+)\]?[[:space:]]*(\—[[:space:]]*)?\(?\./modules/([a-zA-Z0-9_-]+)\.md ]]; then
-    printf '%s' "${BASH_REMATCH[1]}"
-  fi
-}
 
-note "both index forms are recognised"
+run_lint() { ( cd "$1" && bash scripts/lint_docs.sh >/dev/null 2>&1 ); }
 
-for line in \
-  "- helpers — ./modules/helpers.md" \
-  "- docker_install — ./modules/docker_install.md" \
-  "- git_branches — ./modules/git_branches.md"
-do
-  if matches "$line" && [[ -n "$(name_of "$line")" ]]; then
-    ok "plain text: $(name_of "$line")"
-  else
-    error "the original plain-text form stopped matching: $line"
-  fi
-done
-
-for line in \
-  "- [helpers](./modules/helpers.md)" \
-  "- [docker_install](./modules/docker_install.md)" \
-  "- [git_branches](./modules/git_branches.md)"
-do
-  if matches "$line" && [[ -n "$(name_of "$line")" ]]; then
-    ok "markdown link: $(name_of "$line")"
-  else
-    error "the markdown-link form does not match: $line"
-  fi
-done
-
-note "the captured name is the module name, not the path"
-
-got="$(name_of "- [ci_defaults](./modules/ci_defaults.md)")"
-if [[ "$got" = "ci_defaults" ]]; then
-  ok "capture group 1 is still the module name after the pattern was widened"
+# --- the linter accepts a correct tree ------------------------------------------
+note "a correct tree passes"
+f="$(make_fixture clean)"
+if run_lint "$f"; then
+  ok "a well-formed index and matching docs pass"
 else
-  error "expected 'ci_defaults', got '$got' — the capture groups shifted"
+  error "a correct fixture failed — the linter rejects valid input"
 fi
 
-note "lines that are not index entries are still rejected"
+# --- and the plain-text form still passes ---------------------------------------
+note "both index forms are accepted"
+f="$(make_fixture plaintext)"
+cat > "$f/docs/api.md" <<'MD'
+# API Index
 
-# A linter that matches everything passes everything. These prove it does not.
-for line in \
-  "This index lists all modules and their functions." \
-  "- see the modules directory" \
-  "- [helpers](https://example.com/helpers.md)" \
-  "- [helpers](./guides/helpers.md)" \
-  ""
-do
-  if matches "$line"; then
-    error "should not have matched: '$line'"
-  else
-    ok "rejected: '${line:-(empty line)}'"
-  fi
-done
-
-note "the real docs/api.md is fully recognised"
-
-# Guards the specific bug that a trailing-newline loss caused: `while read`
-# drops a final line with no newline, so the last module silently vanished
-# from the index while the file looked correct.
-if [[ "$(tail -c 1 docs/api.md | od -An -c | tr -d ' ')" != '\n' ]]; then
-  error "docs/api.md does not end with a newline — its last entry will be dropped by the linter's read loop"
+- helpers — ./modules/helpers.md
+- widget — ./modules/widget.md
+MD
+if run_lint "$f"; then
+  ok "the original plain-text index form still passes"
 else
-  ok "docs/api.md ends with a newline, so its last entry is read"
+  error "the plain-text form stopped being accepted"
 fi
 
-indexed=0
-while IFS= read -r line; do
-  matches "$line" && indexed=$((indexed+1))
-done < docs/api.md
+# --- THE NEGATIVE CASES: the linter must actually fail --------------------------
+note "the linter fails on real problems"
 
-libs=0
-for f in lib/*.sh; do
-  [[ -e "$f" ]] || continue
-  libs=$((libs+1))
-done
-# helpers.sh is documented as a module too, so the index carries one more
-# entry than there are files under lib/.
-expected=$((libs+1))
-if (( indexed == expected )); then
-  ok "docs/api.md indexes all ${expected} modules"
+f="$(make_fixture nodoc)"
+rm "$f/docs/modules/widget.md"
+if run_lint "$f"; then
+  error "a module with no docs page PASSED — the gate is not gating"
 else
-  error "docs/api.md indexes ${indexed} modules but ${expected} are expected (lib/*.sh plus helpers)"
+  ok "a module with no docs page fails"
 fi
 
+f="$(make_fixture noentry)"
+cat > "$f/docs/api.md" <<'MD'
+# API Index
+
+- [helpers](./modules/helpers.md)
+MD
+if run_lint "$f"; then
+  error "a module missing from the index PASSED"
+else
+  ok "a module missing from the index fails"
+fi
+
+f="$(make_fixture nofunc)"
+cat > "$f/docs/modules/widget.md" <<'MD'
+# widget
+Makes widgets, but names none of them.
+MD
+if run_lint "$f"; then
+  error "an undocumented public function PASSED"
+else
+  ok "an undocumented public function fails"
+fi
+
+# The bug this pairing exists for: thirty-six near-identical bracketed lines are
+# exactly the shape that gets copy-pasted wrong, and a wrong target used to
+# satisfy the index while sending the reader to another page.
+f="$(make_fixture mismatch)"
+cat > "$f/docs/api.md" <<'MD'
+# API Index
+
+- [helpers](./modules/helpers.md)
+- [widget](./modules/helpers.md)
+MD
+if run_lint "$f"; then
+  error "an entry whose name and target DISAGREE passed — the index can point at the wrong page"
+else
+  ok "an entry whose name and target disagree fails"
+fi
+
+# --- junk must not count as an entry --------------------------------------------
+note "text that merely mentions a module path is not an entry"
+
+f="$(make_fixture junk)"
+cat > "$f/docs/api.md" <<'MD'
+# API Index
+
+- [helpers](./modules/helpers.md)
+
+Examples of what an entry looks like, which must NOT satisfy the index:
+
+<!-- - [widget](./modules/widget.md) -->
+Do not write - widget ./modules/widget.md in prose.
+| cell | - widget ./modules/widget.md |
+MD
+if run_lint "$f"; then
+  error "a commented-out or prose mention satisfied the index for 'widget'"
+else
+  ok "commented-out, prose and table mentions do not satisfy the index"
+fi
+
+# --- result ---------------------------------------------------------------------
 if (( failures > 0 )); then
   echo "[lint_docs_test] FAILED: $failures" >&2
   exit 1

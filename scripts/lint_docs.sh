@@ -33,21 +33,36 @@ api_index="docs/api.md"
 api_modules=""
 if [[ -f "$api_index" ]]; then
   while IFS= read -r line; do
-    # Both index forms, because the docs site needs real links and the old
-    # plain-text form must keep passing while anything still uses it:
+    # Two anchored branches, not one loose pattern. The docs site needs real
+    # links; the plain-text form must keep passing while anything still uses it:
     #
-    #   - name — ./modules/name.md      (plain text, the original)
-    #   - [name](./modules/name.md)     (a link, which renders on the site)
+    #   - [name](./modules/name.md)     a link, which renders on the site
+    #   - name — ./modules/name.md      plain text, the original
     #
-    # There is no link syntax that satisfies the original pattern: it required
-    # whitespace between the name and the path, and every markdown link form
-    # puts a `]` and a `(` there instead. Hence the optional brackets and the
-    # optional em-dash rather than a second branch.
-    #
-    # The module name stays BASH_REMATCH[1]; note the trailing path capture is
-    # now [3], since the em-dash group is [2].
-    if [[ "$line" =~ \-\ \[?([a-zA-Z0-9_-]+)\]?[[:space:]]*(\—[[:space:]]*)?\(?\./modules/([a-zA-Z0-9_-]+)\.md ]]; then
-      mod="${BASH_REMATCH[1]}"; api_modules="${api_modules}${mod}"$'\n'
+    # Anchored at both ends on purpose. A single permissive pattern with
+    # optional brackets also matched a commented-out line, a line inside a
+    # fenced block, a table cell, and prose merely mentioning `./modules/x.md`
+    # -- so a worked example in this very file could satisfy the index for a
+    # module that had been dropped from it. Each branch below is stricter than
+    # the original pattern was, not looser.
+    mod=""; target=""
+    if [[ "$line" =~ ^[[:space:]]*-[[:space:]]\[([a-zA-Z0-9_-]+)\]\(\./modules/([a-zA-Z0-9_-]+)\.md\)[[:space:]]*$ ]]; then
+      mod="${BASH_REMATCH[1]}"; target="${BASH_REMATCH[2]}"
+    elif [[ "$line" =~ ^[[:space:]]*-[[:space:]]([a-zA-Z0-9_-]+)[[:space:]]+—[[:space:]]+\./modules/([a-zA-Z0-9_-]+)\.md[[:space:]]*$ ]]; then
+      mod="${BASH_REMATCH[1]}"; target="${BASH_REMATCH[2]}"
+    fi
+    if [[ -n "$mod" ]]; then
+      # The name and the page it points at must agree. Without this,
+      # `- [rust](./modules/gradle.md)` passed every gate: `rust` counted as
+      # indexed, mkdocs --strict saw two files that both exist, and the
+      # published index quietly sent the reader to the wrong page. Thirty-six
+      # near-identical bracketed lines is exactly the shape that gets
+      # copy-pasted wrong.
+      if [[ "$mod" != "$target" ]]; then
+        error "docs/api.md: '${mod}' links to ./modules/${target}.md"
+      else
+        api_modules="${api_modules}${mod}"$'\n'
+      fi
     fi
   done < "$api_index"
 fi

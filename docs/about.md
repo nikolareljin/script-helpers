@@ -1,22 +1,6 @@
-<!--
-  HAND-MAINTAINED. Nothing generates this page, and nothing may.
-
-  Rules, in force:
-    1. Public, non-fork, non-archived repositories only.
-    2. Prefer a repository's own documentation site over its GitHub URL.
-    3. No private repository names. No account ids, hostnames, tokens, e-mail
-       addresses, customer or personal data, or internal roadmap.
-    4. Nothing outside this repository is read at build time. This site must
-       build from a clean clone of this repository plus PyPI, and nothing else.
-
-  To refresh — by hand, reviewed, and pasted in; NEVER as a build step:
-    gh repo list nikolareljin --visibility public --source --no-archived \
-      --limit 300 --json name,description,homepageUrl
-  Then confirm every link below still returns 200:
-    grep -oE 'https://[^)]+' docs/about.md | sort -u | while read -r u; do
-      printf '%s  %s\n' "$(curl -sIL -o /dev/null -w '%{http_code}' --max-time 10 "$u")" "$u"
-    done
--->
+<!-- Curation rules and the refresh procedure live in AGENTS.md, under
+     "The About page". Kept out of this file because Python-Markdown passes
+     HTML comments straight through into the published page source. -->
 
 # About
 
