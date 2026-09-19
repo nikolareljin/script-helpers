@@ -12,18 +12,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-19
         with:
           fetch-depth: 0
+      # Delegates to scripts/check_release_version.sh rather than repeating the
+      # rules inline. The inline copy accepted release/X.Y.Z only, while the
+      # script, the pre-commit hook, check_release_tag.sh,
+      # check_changelog_section.sh and ci-helpers' own version pattern all
+      # accept release/X.Y.Z-rcN. So this repository could not cut a candidate:
+      # the branch was rejected here by the one definition that had drifted.
+      #
+      # The script also checks more than the inline copy did -- that the tag
+      # does not already exist, and that an rc whose base tag exists is at least
+      # flagged.
       - name: Validate VERSION matches release branch
         shell: bash
+        env:
+          HEAD_REF: ${{ github.head_ref }}
         run: |
           set -euo pipefail
-          branch="${GITHUB_HEAD_REF#release/}"
-          # Ensure the branch name suffix is a plain semantic version: X.Y.Z
-          if [[ ! "$branch" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Release branch name '$GITHUB_HEAD_REF' is invalid. Expected format 'release/X.Y.Z'." >&2
-            exit 1
-          fi
-          version="$(head -n1 VERSION | xargs)"
-          if [[ "$version" != "$branch" ]]; then
-            echo "VERSION ($version) does not match release branch ($branch). Please update the VERSION file to match the release branch version or rename the branch to match VERSION." >&2
-            exit 1
-          fi
+          bash scripts/check_release_version.sh --branch "$HEAD_REF" --fetch-tags
