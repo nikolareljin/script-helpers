@@ -6,6 +6,30 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ### Fixed
 
+- **This repository could not cut a release candidate.** `release-version-check.yml`
+  validated the branch name with its own inline pattern, `^[0-9]+\.[0-9]+\.[0-9]+$`,
+  which rejects `release/X.Y.Z-rcN`. Every other definition in the repository
+  accepts one — `scripts/check_release_version.sh`, the pre-commit hook,
+  `check_release_tag.sh`, `check_changelog_section.sh`, and the version pattern
+  ci-helpers tags from. The gate that blocked candidates was the single copy
+  that had drifted, and it only surfaced when a candidate was first cut here.
+
+  The workflow now calls `scripts/check_release_version.sh` instead of
+  restating the rules, so there is one definition. The script also checks more
+  than the inline copy did: that the tag does not already exist, and that an rc
+  whose base tag exists is flagged.
+
+- **A malformed release branch asserted nothing and reported success.**
+  `check_release_version.sh` put every assertion inside its
+  `release/X.Y.Z[-rcN]` match, so `release/oops` fell through the whole script
+  and exited 0. The inline workflow copy happened to reject it, so replacing
+  that copy would have silently removed the only check on it. A branch that
+  announces itself as a release and then does not parse now fails, in CI and in
+  the pre-commit hook alike.
+
+
+### Fixed
+
 - **The `production` branch would have followed a release candidate.** The
   version pattern accepts `release/X.Y.Z-rcN`, and the job that moves
   `production` was gated only on the version being non-empty — so cutting a
