@@ -6,6 +6,47 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ### Fixed
 
+- **`scripts/pin_production.sh` could not roll back, and said it had.** Rolling
+  `production` back to an earlier tag was documented in two places as a
+  supported use. The move was `git merge --ff-only "$TAG"`, and when the target
+  is an *ancestor* of `production` that reports `Already up to date` and exits
+  `0`. The script pushed nothing of consequence and printed
+  `production now points to tag <tag>`. Exit 0, success message, `production`
+  untouched — the operator had to notice unaided that the rollback had not
+  happened.
+
+  A backward or diverged move is now named rather than silently attempted:
+
+  ```bash
+  scripts/pin_production.sh 0.9.0 --allow-rewind
+  ```
+
+  Without the flag such a move is **refused**, with a message saying which case
+  it is and what to pass. The rewind pushes with
+  `--force-with-lease=refs/heads/production:<sha just read>`, so a concurrent
+  move by someone else aborts this one instead of being overwritten by it.
+
+  **Release automation never passes `--allow-rewind`.** Rolling `production`
+  back is a deliberate act by a person in the repository that needs it, not
+  something an unattended release run can decide to do.
+
+  Also here, because the same lines were involved:
+
+  - **The result is read back from the remote before anything claims success.**
+    `git push` exiting `0` is not evidence that the branch arrived where it was
+    asked to go.
+  - **`.github/workflows/auto-tag-release.yml` now calls the script** instead of
+    repeating the move inline. The two copies had already drifted into carrying
+    the same `--ff-only` defect in two places.
+  - **The move no longer touches the working tree.** It is a refspec push, so
+    the script no longer runs `git checkout -B production`, which left the
+    caller standing on a local `production` branch as a side effect, and no
+    longer needs to refuse a dirty tree.
+  - New options `--dry-run`, `--remote`, `--branch`; `main`, `master` and `HEAD`
+    are refused as targets. `tests/pin_production_test.sh` covers all of it —
+    four of its assertions fail against the previous implementation, including
+    one that names the silent no-op directly.
+
 - **An upstream git submodule was detected as a project to lint, test and
   install into.** Sibling detection removed the clause that had been hiding
   them, and the two filters in place did not cover a submodule: `_is_pruned`

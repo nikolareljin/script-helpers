@@ -61,20 +61,19 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+      # Delegates to scripts/pin_production.sh rather than repeating the move
+      # inline. The two copies had already drifted into carrying the same bug:
+      # `git merge --ff-only <ancestor>` reports "Already up to date" and exits
+      # 0, so a move that did nothing printed success.
+      #
+      # Deliberately WITHOUT --allow-rewind. This runs unattended on every
+      # release, and a rollback must never be something the automation decides
+      # to do. Rolling `production` back is a human running the script with the
+      # flag, in the repository that needs it.
       - name: Move production branch to the new tag
         shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.tag.outputs.version }}
         run: |
           set -euo pipefail
-          tag="${{ needs.tag.outputs.version }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          tag_commit="$(git rev-parse "${tag}^{}")"
-          git fetch origin production || true
-          if git rev-parse -q --verify origin/production >/dev/null; then
-            git checkout -B production origin/production
-            git merge --ff-only "$tag_commit"
-          else
-            git checkout -b production "$tag_commit"
-          fi
-          git push origin production
-          echo "production branch moved to ${tag}"
+          bash scripts/pin_production.sh "$RELEASE_TAG"
