@@ -145,7 +145,8 @@ Quick start
   git submodule add -b production git@github.com:nikolareljin/script-helpers.git scripts/script-helpers
   ```
   
-  - The `production` branch is fast-forwarded to a specific release tag to enable quick rollback.
+  - The `production` branch is moved to a specific release tag. Rolling it back to an earlier tag is
+    supported, but it is not a fast-forward, so it must be asked for explicitly — see below.
   - Source as shown above.
 
 Pinning the production branch
@@ -154,8 +155,20 @@ Pinning the production branch
 To manually move `production` to a specific tag:
 
 ```bash
-scripts/pin_production.sh 0.10.0
+scripts/pin_production.sh 0.10.0                  # roll forward
+scripts/pin_production.sh 0.9.0 --allow-rewind    # roll back, deliberately
+scripts/pin_production.sh 0.10.0 --dry-run        # report, push nothing
 ```
+
+Moving `production` forward needs no flag. Moving it **backward** — a rollback — is not a
+fast-forward, so it needs `--allow-rewind`; without the flag the move is refused rather than
+attempted. Other options: `--remote <name>`, `--branch <name>` (`main`, `master` and `HEAD` are refused),
+`--repo <path>`. The end state is read back from the remote before the script reports success.
+
+It acts on **the repository you are standing in**, not on the one the script lives in, and prints
+which repository and remote it is about to touch. That matters when script-helpers is vendored as a
+submodule: running `scripts/script-helpers/scripts/pin_production.sh` from your own repository moves
+*your* `production`, not the library's. A refused move exits `3`, distinct from `1` for an error.
 
 Loader and modules
 ------------------
@@ -361,7 +374,9 @@ Versioning and releases
   the previous tag).
 - GitHub Actions:
   - Auto tag + release (`.github/workflows/auto-tag-release.yml`): on merge of a `release/X.Y.Z` PR into `main`, reuses the shared ci-helpers workflows to detect the version, create the semver tag, and publish the GitHub Release.
-  - Production pinning: the same workflow run fast-forwards the `production` branch to the new tag commit.
+  - Production pinning: the same workflow run moves the `production` branch to the new tag commit, by
+    calling `scripts/pin_production.sh`. The automated path is forward-only — it never passes
+    `--allow-rewind`, so release automation cannot roll `production` back on its own.
   - Release (`.github/workflows/release.yml`): fallback that publishes a GitHub Release when a `*.*.*` tag is pushed manually.
 
 

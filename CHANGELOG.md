@@ -6,6 +6,85 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ### Fixed
 
+- **`actions/checkout` was unpinned, on a runtime that is being removed.** All
+  five uses across four workflows said `@v4` — a mutable tag, so what actually
+  ran was whatever that tag pointed at on the day. `v4` also declares
+  `using: node20`, and Node 20 actions are removed as of September 2026.
+
+  Pinned to `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1`
+  (`v7.0.1`, `node24`) with a dated comment, matching the convention and the
+  exact SHA already in use in ci-helpers.
+
+  The `nikolareljin/ci-helpers/...@production` references are deliberately left
+  floating: consumers track that ref by design, and pinning it to a SHA is the
+  opposite of what it is for.
+
+- **`scripts/pin_production.sh` could not roll back, and said it had.** Rolling
+  `production` back to an earlier tag was documented in two places as a
+  supported use. The move was `git merge --ff-only "$TAG"`, and when the target
+  is an *ancestor* of `production` that reports `Already up to date` and exits
+  `0`. The script pushed nothing of consequence and printed
+  `production now points to tag <tag>`. Exit 0, success message, `production`
+  untouched — the operator had to notice unaided that the rollback had not
+  happened.
+
+  A backward or diverged move is now named rather than silently attempted:
+
+  ```bash
+  scripts/pin_production.sh 0.9.0 --allow-rewind
+  ```
+
+  Without the flag such a move is **refused**, with a message saying which case
+  it is and what to pass. The rewind pushes with
+  `--force-with-lease=refs/heads/production:<sha just read>`, so a concurrent
+  move by someone else aborts this one instead of being overwritten by it.
+
+  **Release automation never passes `--allow-rewind`.** Rolling `production`
+  back is a deliberate act by a person in the repository that needs it, not
+  something an unattended release run can decide to do.
+
+  Also here, because the same lines were involved:
+
+  - **The result is read back from the remote before anything claims success.**
+    `git push` exiting `0` is not evidence that the branch arrived where it was
+    asked to go.
+  - **`.github/workflows/auto-tag-release.yml` now calls the script** instead of
+    repeating the move inline. The two copies had already drifted into carrying
+    the same `--ff-only` defect in two places.
+  - **The move no longer touches the working tree.** It is a refspec push, so
+    the script no longer runs `git checkout -B production`, which left the
+    caller standing on a local `production` branch as a side effect, and no
+    longer needs to refuse a dirty tree.
+  - **It acts on the repository the caller is standing in**, not on the one the
+    script lives in, and says which repository and remote it is about to touch
+    before it touches them. Consumers vendor script-helpers as a submodule, so
+    resolving the target from the script's own path meant running the vendored
+    copy from a consumer repository targeted *script-helpers itself* — which,
+    now that `--allow-rewind` can force-move a branch, would have rewound the
+    library's own `production` and broken every downstream consumer while
+    reporting success. `--repo <path>` overrides.
+  - **An option given without a value is a usage error.** `--remote` or
+    `--branch` as the last argument hit `shift 2` with one argument left, which
+    returns non-zero and, under `set -e`, ended the script with exit 1 and *no
+    output whatsoever* — indistinguishable from a deliberate refusal.
+  - **A refused move exits `3`**, distinct from `1` (an error) and `2` (bad
+    arguments), so a wrapper can tell "this needs a human decision" from
+    "something is broken".
+  - The move summary labels the pre-move SHA `before` rather than `is now`. On
+    the moving path it was printing a stale value in the present tense — the
+    same class of defect as the one above.
+  - New options `--dry-run`, `--remote`, `--branch`, `--repo`; `main`, `master`
+    and `HEAD` are refused as targets.
+  - `tests/pin_production_test.sh` covers all of it in 13 cases. **16
+    assertions fail against the previous implementation**, including one that
+    names the silent no-op directly. Several of those failures are downstream
+    of the old implementation checking out `production`, which in the fixture
+    predates the script's own commit and so removed the script from the working
+    tree mid-run — a vivid demonstration of the side effect this change
+    removes. Assertions are on observed state and on the message text, not on
+    exit codes alone: a test that checked only the forward move, or only a
+    non-zero exit, passes against the bug.
+
 - **An upstream git submodule was detected as a project to lint, test and
   install into.** Sibling detection removed the clause that had been hiding
   them, and the two filters in place did not cover a submodule: `_is_pruned`
