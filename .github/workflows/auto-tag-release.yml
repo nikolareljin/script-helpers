@@ -50,9 +50,24 @@ jobs:
 
   # 3) Move the `production` branch to the new tag (script-helpers ships from a
   #    production branch, not a floating tag).
+  # `production` is the branch consumers track (`git submodule add -b production`),
+  # so it must follow a final X.Y.Z only. The version pattern accepts
+  # release/X.Y.Z-rcN, and this job was gated on the version merely being
+  # non-empty -- so cutting a candidate here would have pushed it to every
+  # consumer that updates its submodule. That is the same defect ci-helpers
+  # just fixed for the floating `production` tag; this is the copy that lives
+  # here, in the job this repository runs itself.
+  #
+  # The test is inline rather than ci-helpers' `is_prerelease` output because
+  # that output ships in ci-helpers 0.28.0 and this repository calls
+  # @production, which is still 0.27.0. Once 0.28.0 is the production ref, this
+  # can become `needs.tag.outputs.is_prerelease != 'true'` and the rule will
+  # have one definition again.
   production:
     needs: tag
-    if: ${{ needs.tag.outputs.version != '' }}
+    if: >-
+      ${{ needs.tag.outputs.version != ''
+          && !contains(needs.tag.outputs.version, '-') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -77,3 +92,19 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/pin_production.sh "$RELEASE_TAG"
+
+  note_candidate:
+    needs: tag
+    if: >-
+      ${{ needs.tag.outputs.version != ''
+          && contains(needs.tag.outputs.version, '-') }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Note that the candidate left production alone
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          echo "::notice::Tagged ${RELEASE_TAG}. The production branch was not moved: it follows a final X.Y.Z only, because consumers track it as a submodule branch. Promote deliberately with scripts/pin_production.sh, or by cutting release/${RELEASE_TAG%%-*}."

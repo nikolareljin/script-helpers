@@ -6,6 +6,24 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ### Fixed
 
+- **The `production` branch would have followed a release candidate.** The
+  version pattern accepts `release/X.Y.Z-rcN`, and the job that moves
+  `production` was gated only on the version being non-empty — so cutting a
+  candidate here would have moved the branch onto it. Consumers track that
+  branch directly (`git submodule add -b production`), so a candidate would
+  have reached every consumer that updated its submodule.
+
+  This is the same defect ci-helpers just fixed for its floating `production`
+  tag. That fix does not cover this, because this repository moves the branch
+  itself, in its own job, rather than delegating it — so it needed the rule in
+  both places. It was found by preparing to cut a candidate here, which no
+  release in this repository has ever done.
+
+  A candidate merge now tags and emits a `::notice::` naming the promotion
+  branch, leaving `production` where it is.
+
+### Fixed
+
 - **`actions/checkout` was unpinned, on a runtime that is being removed.** All
   five uses across four workflows said `@v4` — a mutable tag, so what actually
   ran was whatever that tag pointed at on the day. `v4` also declares
