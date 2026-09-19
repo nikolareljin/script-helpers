@@ -2,7 +2,7 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
-## [Unreleased]
+## 2026-09-19 — v0.31.0-rc1
 
 ### Fixed
 
