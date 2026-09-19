@@ -162,8 +162,13 @@ scripts/pin_production.sh 0.10.0 --dry-run        # report, push nothing
 
 Moving `production` forward needs no flag. Moving it **backward** — a rollback — is not a
 fast-forward, so it needs `--allow-rewind`; without the flag the move is refused rather than
-attempted. Other options: `--remote <name>`, `--branch <name>` (`main`, `master` and `HEAD` are
-refused). The end state is read back from the remote before the script reports success.
+attempted. Other options: `--remote <name>`, `--branch <name>` (`main`, `master` and `HEAD` are refused),
+`--repo <path>`. The end state is read back from the remote before the script reports success.
+
+It acts on **the repository you are standing in**, not on the one the script lives in, and prints
+which repository and remote it is about to touch. That matters when script-helpers is vendored as a
+submodule: running `scripts/script-helpers/scripts/pin_production.sh` from your own repository moves
+*your* `production`, not the library's. A refused move exits `3`, distinct from `1` for an error.
 
 Loader and modules
 ------------------

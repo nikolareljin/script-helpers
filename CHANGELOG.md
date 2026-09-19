@@ -55,10 +55,35 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
     the script no longer runs `git checkout -B production`, which left the
     caller standing on a local `production` branch as a side effect, and no
     longer needs to refuse a dirty tree.
-  - New options `--dry-run`, `--remote`, `--branch`; `main`, `master` and `HEAD`
-    are refused as targets. `tests/pin_production_test.sh` covers all of it —
-    four of its assertions fail against the previous implementation, including
-    one that names the silent no-op directly.
+  - **It acts on the repository the caller is standing in**, not on the one the
+    script lives in, and says which repository and remote it is about to touch
+    before it touches them. Consumers vendor script-helpers as a submodule, so
+    resolving the target from the script's own path meant running the vendored
+    copy from a consumer repository targeted *script-helpers itself* — which,
+    now that `--allow-rewind` can force-move a branch, would have rewound the
+    library's own `production` and broken every downstream consumer while
+    reporting success. `--repo <path>` overrides.
+  - **An option given without a value is a usage error.** `--remote` or
+    `--branch` as the last argument hit `shift 2` with one argument left, which
+    returns non-zero and, under `set -e`, ended the script with exit 1 and *no
+    output whatsoever* — indistinguishable from a deliberate refusal.
+  - **A refused move exits `3`**, distinct from `1` (an error) and `2` (bad
+    arguments), so a wrapper can tell "this needs a human decision" from
+    "something is broken".
+  - The move summary labels the pre-move SHA `before` rather than `is now`. On
+    the moving path it was printing a stale value in the present tense — the
+    same class of defect as the one above.
+  - New options `--dry-run`, `--remote`, `--branch`, `--repo`; `main`, `master`
+    and `HEAD` are refused as targets.
+  - `tests/pin_production_test.sh` covers all of it in 13 cases. **16
+    assertions fail against the previous implementation**, including one that
+    names the silent no-op directly. Several of those failures are downstream
+    of the old implementation checking out `production`, which in the fixture
+    predates the script's own commit and so removed the script from the working
+    tree mid-run — a vivid demonstration of the side effect this change
+    removes. Assertions are on observed state and on the message text, not on
+    exit codes alone: a test that checked only the forward move, or only a
+    non-zero exit, passes against the bug.
 
 - **An upstream git submodule was detected as a project to lint, test and
   install into.** Sibling detection removed the clause that had been hiding

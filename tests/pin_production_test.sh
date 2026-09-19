@@ -28,6 +28,9 @@ script="$root_dir/scripts/pin_production.sh"
 # sitting on the middle one.
 make_fixture() {
   fixture="$(mktemp -d)"
+  export HOME="$fixture/home" GIT_CONFIG_GLOBAL="$fixture/home/.gitconfig" GIT_CONFIG_NOSYSTEM=1
+  mkdir -p "$HOME"
+  : > "$GIT_CONFIG_GLOBAL"
   ( cd "$fixture"
     git init -q --bare remote.git
     git init -q work
@@ -62,7 +65,12 @@ tag_commit() {
   git -C "$work" rev-parse "$1^{commit}"
 }
 
-cleanup() { [[ -n "${fixture:-}" ]] && rm -rf "$fixture"; }
+cleanup() {
+  if [[ -n "${fixture:-}" ]]; then
+    rm -rf "$fixture"
+  fi
+  return 0
+}
 trap cleanup EXIT
 
 # ---------------------------------------------------------------------------
@@ -127,27 +135,35 @@ fi
 cleanup
 
 # ---------------------------------------------------------------------------
-note "5. re-pinning to the tag it already points at is a truthful no-op"
+note "5. re-pinning to the tag it already points at says so, and is a no-op"
 make_fixture
-if ( cd "$work" && bash scripts/pin_production.sh 1.1.0 >/dev/null 2>&1 ); then
-  if [[ "$(remote_production)" == "$(tag_commit 1.1.0)" ]]; then
-    ok "still on 1.1.0, exit 0"
-  else
-    error "production is at $(remote_production)"
-  fi
+out="$( cd "$work" && bash scripts/pin_production.sh 1.1.0 2>&1 )" && rc=0 || rc=$?
+if [[ "$rc" -eq 0 ]]; then
+  ok "exit 0"
 else
-  error "no-op re-pin exited non-zero"
+  error "no-op re-pin exited $rc"
 fi
+# Assert the message, not just the ref: asserting only that production is where
+# it already was passes against a script that does nothing at all.
+case "$out" in
+  *"Nothing to do"*) ok "reported it as a no-op" ;;
+  *) error "expected a 'Nothing to do' message, got: $out" ;;
+esac
+case "$out" in
+  *"Moving production"*) error "claimed to move production when it was already there" ;;
+  *) ok "did not claim to move anything" ;;
+esac
 cleanup
 
 # ---------------------------------------------------------------------------
-note "6. a missing tag is refused"
+note "6. a missing tag is refused, by name"
 make_fixture
-if ( cd "$work" && bash scripts/pin_production.sh 9.9.9 >/dev/null 2>&1 ); then
-  error "a nonexistent tag was accepted"
-else
-  ok "refused"
-fi
+out="$( cd "$work" && bash scripts/pin_production.sh 9.9.9 2>&1 )" && rc=0 || rc=$?
+if [[ "$rc" -ne 0 ]]; then ok "non-zero exit"; else error "a nonexistent tag was accepted"; fi
+case "$out" in
+  *"Tag not found: 9.9.9"*) ok "said which tag was missing" ;;
+  *) error "expected 'Tag not found: 9.9.9', got: $out" ;;
+esac
 cleanup
 
 # ---------------------------------------------------------------------------
@@ -166,15 +182,89 @@ fi
 cleanup
 
 # ---------------------------------------------------------------------------
-note "8. protected branch names are refused"
+note "8. protected branch names are refused, by name"
 make_fixture
 for b in main master HEAD; do
-  if ( cd "$work" && bash scripts/pin_production.sh 1.2.0 --branch "$b" >/dev/null 2>&1 ); then
+  out="$( cd "$work" && bash scripts/pin_production.sh 1.2.0 --branch "$b" 2>&1 )" && rc=0 || rc=$?
+  if [[ "$rc" -eq 0 ]]; then
     error "--branch $b was accepted"
   else
-    ok "--branch $b refused"
+    case "$out" in
+      *"Refusing to move branch '$b'"*) ok "--branch $b refused, with a reason" ;;
+      *) error "--branch $b exited $rc but not with the refusal message: $out" ;;
+    esac
   fi
 done
+cleanup
+
+# --branch must actually work, or the assertions above pass for a flag that
+# does nothing.
+note "9. --branch moves the named branch and leaves production alone"
+make_fixture
+before="$(remote_production)"
+if ( cd "$work" && bash scripts/pin_production.sh 1.2.0 --branch staging >/dev/null 2>&1 ); then
+  got="$(git -C "$work" ls-remote origin refs/heads/staging | awk '{print $1}')"
+  [[ "$got" == "$(tag_commit 1.2.0)" ]] && ok "staging created at 1.2.0" || error "staging is at ${got:-<missing>}"
+  [[ "$(remote_production)" == "$before" ]] && ok "production untouched" || error "production moved too"
+else
+  error "--branch staging failed"
+fi
+cleanup
+
+note "10. an option given without a value is a usage error, not a silent exit"
+make_fixture
+for opt in --remote --branch --repo; do
+  out="$( cd "$work" && bash scripts/pin_production.sh 1.2.0 "$opt" 2>&1 )" && rc=0 || rc=$?
+  case "$out" in
+    *"requires a value"*) ok "$opt without a value explains itself" ;;
+    *) error "$opt without a value produced: '${out}' (rc=$rc)" ;;
+  esac
+done
+cleanup
+
+note "11. --remote is honoured"
+make_fixture
+( cd "$work" && git remote rename origin upstream >/dev/null 2>&1 )
+if ( cd "$work" && bash scripts/pin_production.sh 1.2.0 --remote upstream >/dev/null 2>&1 ); then
+  got="$(git -C "$work" ls-remote upstream refs/heads/production | awk '{print $1}')"
+  [[ "$got" == "$(tag_commit 1.2.0)" ]] && ok "moved via --remote upstream" || error "production is at ${got:-<missing>}"
+else
+  error "--remote upstream failed"
+fi
+cleanup
+
+note "12. a refused move exits 3, distinctly from an error"
+make_fixture
+( cd "$work" && bash scripts/pin_production.sh 1.0.0 >/dev/null 2>&1 ) && rc=0 || rc=$?
+[[ "$rc" -eq 3 ]] && ok "refusal exits 3" || error "refusal exited $rc, expected 3"
+( cd "$work" && bash scripts/pin_production.sh 9.9.9 >/dev/null 2>&1 ) && rc=0 || rc=$?
+[[ "$rc" -eq 1 ]] && ok "a missing tag exits 1" || error "missing tag exited $rc, expected 1"
+cleanup
+
+note "13. it acts on the repository the caller stands in, not the script's own"
+make_fixture
+# Run the copy vendored inside the fixture from a DIFFERENT repo, and confirm it
+# targets that other repo. Before this was fixed the script resolved its target
+# from its own path, so a vendored copy moved the library's own production.
+other="$(mktemp -d)"
+( cd "$other"
+  git init -q --bare remote.git
+  git init -q w && cd w
+  git config user.email t@example.com && git config user.name T
+  git remote add origin ../remote.git
+  git commit -q --allow-empty -m one && git tag 5.0.0
+  git push -q origin HEAD:main --tags
+)
+if ( cd "$other/w" && bash "$work/scripts/pin_production.sh" 5.0.0 >/dev/null 2>&1 ); then
+  got="$(git -C "$other/w" ls-remote origin refs/heads/production | awk '{print $1}')"
+  want="$(git -C "$other/w" rev-parse '5.0.0^{commit}')"
+  [[ "$got" == "$want" ]] && ok "moved the caller's repo" || error "caller's production is at ${got:-<missing>}"
+  [[ "$(remote_production)" == "$(tag_commit 1.1.0)" ]] && ok "the script's own repo was untouched" \
+    || error "it moved the repo the script lives in"
+else
+  error "running the vendored copy from another repo failed"
+fi
+rm -rf "$other"
 cleanup
 
 # ---------------------------------------------------------------------------
