@@ -6,6 +6,19 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ### Fixed
 
+- **`actions/checkout` was unpinned, on a runtime that is being removed.** All
+  five uses across four workflows said `@v4` — a mutable tag, so what actually
+  ran was whatever that tag pointed at on the day. `v4` also declares
+  `using: node20`, and Node 20 actions are removed as of September 2026.
+
+  Pinned to `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1`
+  (`v7.0.1`, `node24`) with a dated comment, matching the convention and the
+  exact SHA already in use in ci-helpers.
+
+  The `nikolareljin/ci-helpers/...@production` references are deliberately left
+  floating: consumers track that ref by design, and pinning it to a SHA is the
+  opposite of what it is for.
+
 - **`scripts/pin_production.sh` could not roll back, and said it had.** Rolling
   `production` back to an earlier tag was documented in two places as a
   supported use. The move was `git merge --ff-only "$TAG"`, and when the target
