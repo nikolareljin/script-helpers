@@ -12,6 +12,7 @@
 #   --repo <path>       Repository to scan (default: cwd).
 #   --only-public       Do nothing unless this repository is public, per the list.
 #   --for-repo <name>   Judge visibility by this repository name, not the git remote.
+#   --write-baseline    Record the current ambiguous matches as known, and exit.
 #   -h, --help          Show this help message.
 # EXIT_CODES:
 #   0  no private name found
@@ -60,6 +61,18 @@
 # of them the English word, and one line in .git/private-names-allow silences
 # them per repository -- visibly, and without a hole anyone can forget about.
 #
+# THE BASELINE. An ambiguous name that is an everyday word will already appear
+# in a repository's prose, and some of those uses cannot be reworded: `trust
+# anchor` is a command, and a configuration key is whatever the tool calls it.
+# Allowing the word outright would then be the only option, and that hides a
+# real reference as effectively as the exemption this replaced.
+#
+# So --write-baseline records what is there now, by hash, and those occurrences
+# stop blocking. Anything new still does. The baseline holds only hashes -- no
+# names, no lines -- so the file itself discloses nothing, and it lives in .git
+# where it cannot be committed. A line that moves is unaffected; a line that
+# changes is new again, which is the right way round for text being edited.
+#
 # THE OVERRIDE. The check will sometimes be wrong -- that is a certainty, not a
 # risk, given the dictionary words above. Three ways past it, loudest last:
 #
@@ -97,6 +110,7 @@ REPO=""
 LIST=""
 ONLY_PUBLIC=false
 FOR_REPO=""
+WRITE_BASELINE=false
 NAMES=""
 COMMITS=""
 FILE=""
@@ -113,6 +127,7 @@ while [[ $# -gt 0 ]]; do
     --repo) REPO="${2:?--repo needs a path}"; shift 2 ;;
     --only-public) ONLY_PUBLIC=true; shift ;;
     --for-repo) FOR_REPO="${2:?--for-repo needs a name}"; shift 2 ;;
+    --write-baseline) WRITE_BASELINE=true; shift ;;
     -h|--help) sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) log_error "Unknown argument: $1"; exit 2 ;;
   esac
@@ -320,6 +335,49 @@ matched_names() { # matched_names <names-file> <hits-file>
   done < "$1"
 }
 
+# ---- the baseline ---------------------------------------------------------
+# Resolution order: an explicit path, then a committed baseline at the repo
+# root, then one inside .git.
+#
+# A committed baseline is safe and is usually what a team wants. It holds only
+# hashes, and each hash is over a line that is already in the public tree, so it
+# discloses nothing that a reader could not simply go and look at -- while a
+# baseline inside .git has to be rebuilt in every clone and on every machine,
+# which is friction on exactly the people who did nothing wrong.
+BASELINE="${PRIVATE_NAMES_BASELINE:-}"
+if [[ -z "$BASELINE" ]]; then
+  _git_dir="$(git rev-parse --git-dir 2>/dev/null)"
+  _top="$(git rev-parse --show-toplevel 2>/dev/null)"
+  if [[ -n "$_top" && -f "$_top/.private-names-baseline" ]]; then
+    BASELINE="$_top/.private-names-baseline"
+  else
+    BASELINE="${_git_dir}/private-names-baseline"
+  fi
+fi
+
+# One hash per occurrence, over the path and the line's text with the line
+# number removed: an occurrence that merely moves keeps its hash, and one whose
+# text changes is treated as new. python3 rather than sha256sum, which the
+# portability suite forbids outside lib/file.sh and which BSD spells shasum.
+hash_hits() { # hash_hits <hits-file>
+  python3 -c '
+import hashlib, sys
+for raw in open(sys.argv[1], encoding="utf-8", errors="replace"):
+    line = raw.rstrip("\n").strip()
+    if not line:
+        continue
+    # "path:12:text" in a tree scan, "12:text" otherwise. Drop the number only.
+    parts = line.split(":", 2)
+    if len(parts) == 3 and parts[1].isdigit():
+        key = parts[0] + "\t" + parts[2]
+    elif len(parts) >= 2 and parts[0].isdigit():
+        key = line.split(":", 1)[1]
+    else:
+        key = line
+    print(hashlib.sha256(key.strip().encode("utf-8")).hexdigest())
+' "$1"
+}
+
 # ---- the subject ----------------------------------------------------------
 subject="$work/subject"
 case "$MODE" in
@@ -401,16 +459,69 @@ fi
 # the header for the leak that exemption let through.
 if [[ -s "$ambiguous" ]]; then
   if search "$ambiguous" "ambiguous names" token > "$hits_file"; then
-    found=1
-    cat "$hits_file" >&2
-    matched_names "$ambiguous" "$hits_file" >&2
-    log_error "A word above is both an ordinary English word and the name of a"
-    log_error "private repository, so this needs a person, not a rule."
-    log_error "If you meant the English word, allow it and run again:"
-    log_error "  PRIVATE_NAMES_ALLOW=<word> <your command>"
-    log_error "  or add it to .git/private-names-allow for this repository,"
-    log_error "  or to ${XDG_CACHE_HOME:-$HOME/.cache}/script-helpers/private-names-allow for every"
-    log_error "  repository on this machine."
+
+    if [[ "$WRITE_BASELINE" == true ]]; then
+      if [[ -z "${BASELINE%/private-names-baseline}" ]]; then
+        log_error "not in a git repository, so there is nowhere to keep a baseline"
+        exit 2
+      fi
+      {
+        echo "# private-names baseline: occurrences of an ambiguous name that a"
+        echo "# person has read and accepted. Hashes only -- of lines already in"
+        echo "# this tree -- so committing it discloses nothing and saves every"
+        echo "# clone from rebuilding it. A new or edited occurrence is not in"
+        echo "# here and still fails. Rebuild with --write-baseline."
+        hash_hits "$hits_file" | sort -u
+      } > "$BASELINE"
+      log_info "recorded $(grep -cv '^#' "$BASELINE" | tr -d ' ') known match(es) in $BASELINE"
+      log_info "these stop blocking; anything new still will."
+      exit 0
+    fi
+
+    # Split the matches into those the baseline already knows and the rest.
+    # A hit is kept only when its hash is absent, so a baseline that fails to
+    # load leaves every match blocking rather than silently clearing them.
+    new_hits="$work/new-hits"
+    : > "$new_hits"
+    known=0
+    if [[ -s "$BASELINE" ]]; then
+      # Hash and hit side by side, then one pass with the baseline in memory.
+      # Looking each hash up separately re-read the baseline once per hit, which
+      # is fine for nine and silly for a thousand.
+      hash_hits "$hits_file" > "$work/hashes"
+      known="$(paste -d"$(printf '\t')" "$work/hashes" "$hits_file" \
+        | awk -F"$(printf '\t')" -v base="$BASELINE" -v out="$new_hits" '
+            BEGIN { while ((getline line < base) > 0) if (line !~ /^#/) seen[line] = 1 }
+            {
+              h = $1
+              sub(/^[^\t]*\t/, "")
+              if (h in seen) { n++ } else { print > out }
+            }
+            END { print n + 0 }')"
+    else
+      cp "$hits_file" "$new_hits"
+    fi
+
+    if [[ "$known" -gt 0 ]]; then
+      log_info "$known ambiguous match(es) are in the baseline and were not blocked"
+    fi
+
+    if [[ -s "$new_hits" ]]; then
+      found=1
+      cat "$new_hits" >&2
+      matched_names "$ambiguous" "$new_hits" >&2
+      log_error "A word above is both an ordinary English word and the name of a"
+      log_error "private repository, so this needs a person, not a rule."
+      log_error "If it is the ordinary word:"
+      log_error "  scripts/check_private_names.sh --write-baseline   (record what is"
+      log_error "    here now as known; anything new still blocks)"
+      log_error "  PRIVATE_NAMES_ALLOW=<word> <your command>         (this run only)"
+      log_error "  .git/private-names-allow                          (this repository)"
+      log_error "  ${XDG_CACHE_HOME:-$HOME/.cache}/script-helpers/private-names-allow  (this machine)"
+    fi
+  elif [[ "$WRITE_BASELINE" == true ]]; then
+    log_info "no ambiguous matches to record"
+    exit 0
   fi
 fi
 

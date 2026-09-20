@@ -4,6 +4,37 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ## Unreleased
 
+### Fixed
+
+- **`lib/env.sh` parses a large value in about a second instead of five.**
+  bash 3.2 -- the floor this library supports -- is quadratic in
+  `${var%pattern}`. Measured on a 40KB value, stripping a trailing carriage
+  return cost 4 seconds, the four stray-quote trims 8 seconds between them, and
+  cutting a quoted value at its closing quote another 4. None of that work was
+  necessary: a glob test and a substring say the same thing for nothing, and the
+  one genuinely scanning step -- finding the closing quote -- goes to `awk`,
+  whose `index()` is C-level, for values over 2KB. End to end that is 4-5
+  seconds down to 0-1.
+
+  The first attempt at this read `awk`'s output through `< <(...)`. Process
+  substitution combined with `read` **hangs in a background job under bash 3.2**,
+  so the parse never returned -- only from a background caller, only on the old
+  shell. A here-document has neither problem.
+
+- **`tests/env_test.sh`'s timeout could expire before any time passed.** It
+  counted 50 iterations of `sleep 0.1`, and busybox's `sleep` ignores the
+  fraction, so on the bash 3.2 image the whole budget elapsed instantly. It also
+  tested liveness with `kill -0`, which **succeeds on a child that has exited
+  and not been reaped** -- so a command that finished immediately still looked
+  alive. Whether the test passed depended on when the shell happened to reap the
+  child, which is what made it come and go. It now blocks on `wait` with a
+  watchdog, and the failing direction is exercised: a 30-second command under a
+  3-second budget returns the timeout status in 3 seconds.
+
+  This mattered beyond the flake. With the budget honest, the original parser
+  fails all three assertions -- the slowness was real, and the test that was
+  supposed to catch it had been reporting whatever the scheduler decided.
+
 ### Added
 
 - **`scripts/check_private_names.sh` — refuse text that names one of your
@@ -68,6 +99,20 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   a private repository — where its name belongs — is unaffected. It also refuses
   `--no-verify` on commit and push: an agent has no legitimate reason to skip a
   local gate, and a human at a terminal never sees this hook at all.
+
+- **A baseline, so an ambiguous name can be grandfathered without being
+  allowed.** `--write-baseline` records the ambiguous matches a repository
+  already has, by hash, and those stop blocking; anything new still fails. It is
+  the difference between "this word appears in nine places here, and I have
+  looked at them" and "never check this word again" — and the second is how the
+  first design lost a real leak.
+
+  The file holds hashes only, each over a line already in the tree, so it
+  discloses nothing a reader could not go and look at — which is why it may be
+  **committed**. A baseline at the repository root is preferred over one in
+  `.git`, so a clone and a CI run start clean rather than each rebuilding it.
+  This repository ships one covering the nine ordinary-English uses in its own
+  prose.
 
 - **An override, because the check will sometimes be wrong.**
   `PRIVATE_NAMES_ALLOW="term,term"` allows named terms for one run and prints

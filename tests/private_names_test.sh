@@ -207,6 +207,52 @@ git_t -C "$repo" remote add origin "git@github.com:example/$(basename "$repo").g
 printf 'about bluewidget' | bash "$GATE" --stdin --names "bluewidget,other" >/dev/null 2>&1
 [[ $? == 1 ]] && ok "--names refuses without a list file" || error "--names did not refuse"
 
+# --- the baseline ----------------------------------------------------------
+# Grandfathering what is already there, without ever allowing the word.
+base_repo="$tmp/baserepo"
+mkdir -p "$base_repo"
+git_t -C "$base_repo" init -q .
+printf 'the beacon is lit\n' > "$base_repo/notes.md"
+git_t -C "$base_repo" add notes.md
+git_t -C "$base_repo" commit -q -m "docs: notes"
+
+( cd "$base_repo" && bash "$GATE" --tree --list "$list" >/dev/null 2>&1 )
+[[ $? == 1 ]] && ok "an ambiguous match blocks before a baseline exists" \
+              || error "the ambiguous match did not block"
+
+( cd "$base_repo" && bash "$GATE" --tree --list "$list" --write-baseline >/dev/null 2>&1 )
+[[ $? == 0 ]] && ok "--write-baseline records the known matches" \
+              || error "--write-baseline failed"
+[[ -s "$base_repo/.git/private-names-baseline" ]] && ok "the baseline file is written inside .git" \
+              || error "no baseline file was written"
+# Hashes only: the file must not carry the name it is about.
+if grep -qi "beacon" "$base_repo/.git/private-names-baseline" 2>/dev/null; then
+  error "the baseline contains the name in clear"
+else
+  ok "the baseline holds hashes, not names"
+fi
+
+( cd "$base_repo" && bash "$GATE" --tree --list "$list" >/dev/null 2>&1 )
+[[ $? == 0 ]] && ok "a baselined match stops blocking" \
+              || error "the baseline did not take effect"
+
+# The point of a baseline rather than an allowlist: new text still fails.
+printf 'cloned from owner/beacon today\n' >> "$base_repo/notes.md"
+git_t -C "$base_repo" add notes.md
+git_t -C "$base_repo" commit -q -m "docs: more"
+( cd "$base_repo" && bash "$GATE" --tree --list "$list" >/dev/null 2>&1 )
+[[ $? == 1 ]] && ok "a new match still blocks with a baseline in place" \
+              || error "the baseline hid a new match"
+
+# A hard name is never grandfathered, whatever the baseline says.
+printf 'bluewidget is wired in\n' >> "$base_repo/notes.md"
+git_t -C "$base_repo" add notes.md
+git_t -C "$base_repo" commit -q -m "docs: widget"
+( cd "$base_repo" && bash "$GATE" --tree --list "$list" --write-baseline >/dev/null 2>&1 )
+( cd "$base_repo" && bash "$GATE" --tree --list "$list" >/dev/null 2>&1 )
+[[ $? == 1 ]] && ok "a baseline never grandfathers an unambiguous private name" \
+              || error "the baseline suppressed a hard name"
+
 # --- the hooks -------------------------------------------------------------
 # The gate is only worth having if the hooks actually call it. These drive the
 # hook files themselves rather than re-implementing what they do.

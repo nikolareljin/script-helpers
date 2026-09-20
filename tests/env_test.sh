@@ -83,21 +83,31 @@ note "quoted values are not read one character at a time"
 # Parsing a quoted value indexed it character by character, which is quadratic:
 # a 20KB value took about 9 seconds and a 40KB one well over half a minute.
 # run_bounded <seconds> <cmd...>: sets rc, 124 when the command had to be killed.
+# Blocks on `wait` rather than polling, and lets a watchdog do the killing.
+#
+# Two bugs lived in the polling version, and both made the budget a fiction.
+# It counted 50 iterations of `sleep 0.1`, which assumes the sleep honours a
+# fraction -- busybox's does not, so in the bash 3.2 image the whole loop ran in
+# no measurable time. And it tested liveness with `kill -0`, which SUCCEEDS on a
+# child that has exited and not yet been reaped: a command that finished
+# instantly still looked alive, so the loop ran to its limit and reported a
+# timeout. Whether it did depended on when the shell happened to reap the child,
+# which is what made the failure come and go.
+#
+# `wait` cannot be fooled by either: it returns when the child is done, and the
+# watchdog is the only thing that can end it early.
 run_bounded() {
-  local limit="$1" pid waited=0; shift
+  local limit="$1" pid killer; shift
   "$@" >/dev/null 2>&1 &
   pid=$!
-  while kill -0 "$pid" 2>/dev/null; do
-    if [[ "$waited" -ge $((limit * 10)) ]]; then
-      kill -9 "$pid" 2>/dev/null || true
-      wait "$pid" 2>/dev/null || true
-      rc=124
-      return 0
-    fi
-    sleep 0.1
-    waited=$((waited + 1))
-  done
-  rc=0; wait "$pid" || rc=$?
+  ( sleep "$limit"; kill -9 "$pid" 2>/dev/null ) &
+  killer=$!
+  rc=0
+  wait "$pid" 2>/dev/null || rc=$?
+  kill -9 "$killer" 2>/dev/null || true
+  wait "$killer" 2>/dev/null || true
+  # 137 is SIGKILL, which here can only have come from the watchdog.
+  [[ "$rc" -eq 137 ]] && rc=124
   return 0
 }
 big="$(printf '%40000s' '' | tr ' ' 'x')"

@@ -123,9 +123,26 @@ Bundled CLIs
 
   | override | scope |
   |---|---|
+  | `--write-baseline` | the matches that exist **now**, by hash; anything new still blocks |
   | `PRIVATE_NAMES_ALLOW="term,term"` | one run |
   | `.git/private-names-allow` | one repository (inside `.git`, so it cannot be committed) |
   | `<cache>/script-helpers/private-names-allow` | every repository on this machine |
+
+  The baseline is the one to reach for first, and the only one that does not
+  widen the check. An ambiguous name that is an everyday word will already be in
+  a repository's prose, and some of those uses cannot be reworded — a command
+  named after the word, a configuration key the tool defines. Allowing the word
+  outright would then be the only option, and that hides a genuine reference as
+  effectively as not checking at all. `--write-baseline` records what is there
+  now and lets anything new keep failing.
+
+  It stores hashes only, and each hash is over a line that is already in the
+  tree, so the file discloses nothing a reader could not simply go and look at.
+  That is why it can be **committed**: a baseline at the repository root
+  (`.private-names-baseline`) is used in preference to one in `.git`, so a clone
+  and a CI run start clean instead of each rebuilding it. Keep it in `.git` --
+  the default when no committed one exists — if you would rather it stayed
+  local. `PRIVATE_NAMES_BASELINE` overrides both.
 
   The machine-level one matters more than it looks: a word that is also everyday
   English recurs
