@@ -66,20 +66,10 @@ check_table unchanged \
   './models/ollama-data' './models/ollama-data'
 
 note "values that used to come back wrong"
-# Two of these read as credentials at a glance and are not. They are here
-# because of the characters in them, not the shape: the base64 string ends in
-# `==` and the connection string carries `:`, `@`, `?` and `=`, which are the
-# delimiters this parser used to truncate at. Both sides of each pair are
-# identical, because the assertion is "comes back unchanged".
-#
-# The base64 decodes to the word below rather than anything key-shaped, so the
-# next person to scan this file can see what it is without decoding it. Keep
-# the `==`: dropping it drops the case.
 check_table fixed \
   '"quoted" # a comment' 'quoted' \
-  'bm90cmVhbA==' 'bm90cmVhbA==' \
-  'postgres://user:not-a-password@localhost/db?sslmode=require' \
-  'postgres://user:not-a-password@localhost/db?sslmode=require' \
+  'dGVzdGtleQ==' 'dGVzdGtleQ==' \
+  'postgres://u:p@h/db?sslmode=require' 'postgres://u:p@h/db?sslmode=require' \
   'ab#cd' 'ab#cd' \
   '"a #b"' 'a #b' \
   "'x#y' # note" 'x#y' \
