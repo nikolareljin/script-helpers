@@ -89,6 +89,81 @@ Bundled CLIs
   the meantime is kept. Run `scripts/prune_branches.sh --help` for details.
   See [`modules/git_branches.md`](modules/git_branches.md).
 
+- `scripts/check_private_names.sh` — refuses text that names a private
+  repository of yours, before it becomes public. Scans the tracked tree
+  (`--tree`), the messages of commits about to be pushed (`--commits <range>`),
+  a pull request or issue body written to a file (`--file`), or standard input
+  (`--stdin`).
+
+  **The rule is about what becomes public.** With `--only-public` the check does
+  nothing at all in a repository your list marks private — a private repository
+  naming another private repository is fine, and only the public ones are
+  gated. A repository the list has never heard of *is* checked rather than
+  assumed private: an unknown repository is most likely one created since the
+  list was made, and those are exactly where a wrong guess would hide a leak.
+  That is what lets one hook be installed everywhere instead of only where
+  someone remembered to configure it.
+
+  Matching is `grep -iF`, deliberately not `-w`: a hyphen is a word boundary, so
+  `-w` misses a name inside a longer path or a possessive. A name your list
+  flags `ambiguous` — one that is also an ordinary word — must instead appear as
+  a whole token, not preceded or followed by a letter or digit, so `beaconed`
+  and `unbeaconed` stop matching while `beacon`, `owner/beacon` and
+  `<beacon>/path` still do. Ambiguous names are checked everywhere, including
+  the tree; an earlier version exempted the tree and the hole swallowed a real
+  path naming a private repository.
+
+  Exit codes: `0` clean, `1` a name was found, `2` it could not check. A missing
+  or empty list is a failure, never a pass, because a green line from a check
+  that scanned nothing is read as evidence.
+
+  Sometimes it will be wrong — certainly so, for a name that is also an everyday
+  word. Three ways past it, and each says what it allowed rather than shrinking
+  the check silently:
+
+  | override | scope |
+  |---|---|
+  | `PRIVATE_NAMES_ALLOW="term,term"` | one run |
+  | `.git/private-names-allow` | one repository (inside `.git`, so it cannot be committed) |
+  | `<cache>/script-helpers/private-names-allow` | every repository on this machine |
+
+  The machine-level one matters more than it looks: a word that is also everyday
+  English recurs
+  in prose everywhere, and a gate that has to be re-appeased in every fresh
+  clone is one somebody eventually removes. `--no-verify` remains git's own
+  escape. Run `scripts/check_private_names.sh --help` for details.
+
+- `scripts/refresh_private_names.sh` — builds that list from **your** GitHub
+  account or organisation:
+
+  ```bash
+  scripts/refresh_private_names.sh --owner <your-user-or-org>   # or omit --owner
+  scripts/refresh_private_names.sh --check                      # compare, change nothing
+  ```
+
+  It writes `${XDG_CACHE_HOME:-~/.cache}/script-helpers/private-names.tsv`: one
+  file per machine serving every repository on it, and outside every working
+  tree, because a file listing your private repositories is precisely what the
+  gate exists to keep out of public ones. Without `--owner` it takes the owner
+  from the current repository's `origin` remote. It needs `gh`, authenticated,
+  and exits `3` when that is missing — distinctly from "your account has no
+  private repositories", which is exit `2` and writes nothing, since an empty
+  list would leave a check that scans for nothing and reports success.
+
+  **This is the only part that touches the network, and that is deliberate.** A
+  check that called GitHub would add a round trip to every commit and every
+  push, to catch an event — a repository being created, or changing visibility —
+  that you perform deliberately a few times a month. Refresh after one of those,
+  or on a cadence of days. The list carries a `# generated:` header and the gate
+  reads its age from that, never from mtime, which any copy or restore rewrites:
+  past seven days it says so, past thirty it says so loudly, and **age alone
+  never refuses a push**, because a month-old list still holds nearly every name
+  and blocking work over a stale file is how a gate gets uninstalled.
+
+  The `code` column is for citing a private repository in public text without
+  naming it. If you have no such scheme it stays `-` and the gate simply names
+  what it found instead of advising a convention you do not have.
+
 Shared include and dependency check
 -----------------------------------
 
@@ -271,6 +346,41 @@ falls back to the submodule path (`scripts/script-helpers/scripts/git-hooks`)
 or the local `scripts/git-hooks` directory. Shared hooks still defer to a
 matching repo-local `.githooks/pre-commit` or `.githooks/pre-push` when one
 is present (same-file recursion guard included).
+
+### Stopping a private repository's name before it is published
+
+Three hooks call `scripts/check_private_names.sh`, covering three surfaces:
+
+| hook | surface | stops |
+|---|---|---|
+| `commit-msg` | the commit message | the message becoming a commit object |
+| `pre-push` | the tracked tree, and every commit message being pushed | it reaching the remote |
+| `claude-hooks/pretooluse_private_names.sh` | a pull request or issue body | the tool call running at all |
+
+The commit check is a `commit-msg` hook rather than part of `pre-commit` for a
+mechanical reason: a `pre-commit` hook runs before the message is written and
+cannot see it.
+
+The third is not a git hook. `gh pr create --body ...` never touches git, so no
+git hook can see a pull request body — and that is the surface where this rule
+has actually been broken. It is a Claude Code `PreToolUse` hook that inspects
+the title, body and message arguments of a publishing command and blocks the
+call before it runs. It checks only the text being published, not the whole
+command line, so `gh pr create --repo <a-private-repo>` still works: a pull
+request *into* the private repository is exactly where its name belongs. It
+also refuses `--no-verify` on commit and push, since an agent has no legitimate
+reason to skip a local gate — a human at a terminal is unaffected, because the
+hook only ever sees an agent's calls. Wire it up with:
+
+```json
+"hooks": { "PreToolUse": [ { "matcher": "Bash", "hooks": [ { "type": "command",
+  "command": "bash <path>/script-helpers/scripts/claude-hooks/pretooluse_private_names.sh" } ] } ] }
+```
+
+A hook that cannot check — no name list on this machine — says so and lets the
+commit or push through. That is deliberate and is why "could not check" has its
+own exit code: a setup problem must not look like a clean tree, and it must not
+block every commit on a new machine either.
 
 The shared `pre-commit` hook refuses a staged `.env` or `.env.*` file anywhere
 in the tree; the committed templates `.env.example`, `.env.sample`,

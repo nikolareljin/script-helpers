@@ -2,6 +2,88 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## Unreleased
+
+### Added
+
+- **`scripts/check_private_names.sh` — refuse text that names one of your
+  private repositories, before it is published.** A public repository must never
+  carry the name of a private one, and not only in its tree: commit messages,
+  pull request and issue bodies and review replies all land publicly around it.
+  Unlike most mistakes this one cannot be undone — GitHub keeps the edit history
+  of every pull request and issue body publicly, and rewriting commits changes
+  every tag — so the only version of the fix that works happens before the push.
+
+  **The rule is about what becomes public**, so `--only-public` makes the check
+  a no-op in a repository your list marks private: a private repository naming
+  another private repository is fine. A repository the list has never heard of
+  is checked rather than assumed private, since an unknown repository is most
+  likely a new one, and that is exactly where a wrong guess would hide a leak.
+
+  Matching is `grep -iF` and deliberately **not** `-w`: a hyphen is a word
+  boundary, so `-w` misses a name inside a longer path or a possessive, which is
+  how a name travels in real text. A name flagged `ambiguous` — one that is also
+  an ordinary word — must appear as a whole token instead, so `beaconed` stops
+  matching while `owner/beacon` still does. Measured on two real public
+  repositories that is 8 matches rather than 28, all of them the English word,
+  and one line in `.git/private-names-allow` silences them per repository.
+
+  The first version of this instead skipped ambiguous names in the tree
+  entirely. That was wrong in the direction that matters: the exemption
+  swallowed a real leak — a path naming a private repository, written into the
+  gate's own source, which the gate then declared the tree clean of. An
+  exemption you cannot see is not a quieter gate, it is a blind one.
+
+  A missing or empty list exits `2`, never `0`. A check that scanned nothing and
+  reported success is worse than no check, because the green line is taken as
+  evidence. A *stale* list still checks and merely says its age: refusing a push
+  because a file is old punishes the wrong thing.
+
+- **`scripts/refresh_private_names.sh` — build that list from your own account.**
+  `gh repo list <owner>` into
+  `${XDG_CACHE_HOME:-~/.cache}/script-helpers/private-names.tsv`: one file per
+  machine, outside every working tree, because a file listing your private
+  repositories is precisely what the gate exists to keep out of public ones.
+  Exit `3` when `gh` is missing or unauthenticated, distinctly from exit `2`
+  when the account has no private repositories — in which case nothing is
+  written, rather than leaving a list that would check for nothing.
+
+  This is the only part that touches the network. A check that called GitHub
+  would add a round trip to every commit and push to catch an event — a
+  repository created, or its visibility changed — that happens deliberately a
+  few times a month.
+
+- **Three hooks that call it, covering three different surfaces.** A new
+  `commit-msg` hook checks the message: a `pre-commit` hook runs before the
+  message exists and cannot see it. The shared `pre-push` hook checks the
+  tracked tree and the messages of the commits actually being pushed, reading
+  the ref lines from a captured copy since git only offers them once.
+
+  And `scripts/claude-hooks/pretooluse_private_names.sh`, which is not a git
+  hook: `gh pr create --body ...` never touches git, so no git hook can see a
+  pull request body — the surface where this goes wrong in practice. It is a
+  Claude Code `PreToolUse` hook that reads the title, body and message arguments
+  of a publishing command and blocks the call before it runs. It inspects only
+  the text being published, not the whole command line, so a pull request *into*
+  a private repository — where its name belongs — is unaffected. It also refuses
+  `--no-verify` on commit and push: an agent has no legitimate reason to skip a
+  local gate, and a human at a terminal never sees this hook at all.
+
+- **An override, because the check will sometimes be wrong.**
+  `PRIVATE_NAMES_ALLOW="term,term"` allows named terms for one run and prints
+  which it allowed, so an override is never silent; `.git/private-names-allow`
+  does the same per repository and lives inside `.git`, where it cannot be
+  committed anywhere; and a file of the same name beside the cached list covers
+  every repository on the machine. That last one is not a convenience: a name
+  that is also everyday English recurs in prose everywhere, and a gate that must
+  be re-appeased in every fresh clone is one somebody eventually removes. `--no-verify` remains
+  git's own escape for a human.
+
+  A refusal names only the repositories that actually matched. Printing the
+  whole list on every hit would put your entire private inventory into a
+  terminal, a CI log or a pasted error — publishing by accident the thing the
+  gate exists to keep unpublished.
+
 ## 2026-09-19 — v0.31.0
 
 ### Fixed
