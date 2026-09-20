@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SCRIPT: check_private_names.sh
 # DESCRIPTION: Fail when the name of a private repository appears in text that is about to become public.
-# USAGE: scripts/check_private_names.sh [--tree] [--commits <range>] [--file <path>] [--stdin] [--list <path>] [--names <a,b>] [--repo <path>] [-h]
+# USAGE: scripts/check_private_names.sh [--tree|--commits <range>|--file <path>|--stdin] [--list <path>] [--names <a,b>] [--repo <path>] [--only-public] [--for-repo <name>] [--write-baseline] [-h]
 # PARAMETERS:
 #   --tree              Scan tracked files (the default when nothing else is given).
 #   --commits <range>   Scan commit messages in a range, e.g. origin/main..HEAD.
@@ -102,6 +102,11 @@ type log_info >/dev/null 2>&1 || log_info() { printf '[INFO] %s\n' "$*"; }
 type log_warn >/dev/null 2>&1 || log_warn() { printf '[WARN] %s\n' "$*" >&2; }
 type log_error >/dev/null 2>&1 || log_error() { printf '[ERROR] %s\n' "$*" >&2; }
 
+# Paths are printed through this, never raw: an absolute default carries the
+# account name into every message, and these messages end up in CI logs and
+# pasted into issues.
+tilde() { case "$1" in "$HOME"/*) printf '~%s' "${1#"$HOME"}" ;; *) printf '%s' "$1" ;; esac; }
+
 DEFAULT_LIST="${XDG_CACHE_HOME:-$HOME/.cache}/script-helpers/private-names.tsv"
 STALE_DAYS="${PRIVATE_NAMES_STALE_DAYS:-7}"
 LOUD_DAYS="${PRIVATE_NAMES_LOUD_DAYS:-30}"
@@ -181,26 +186,30 @@ if [[ -n "$NAMES" ]]; then
 else
   [[ -z "$LIST" ]] && LIST="${PRIVATE_NAMES_FILE:-$DEFAULT_LIST}"
   if [[ ! -f "$LIST" ]]; then
-    log_error "No private-name list at: $LIST"
+    log_error "No private-name list at: $(tilde "$LIST")"
     log_error "Without it this check would scan for nothing and report success."
     log_error "Generate one from your own account:"
     log_error "  scripts/refresh_private_names.sh --owner <your-user-or-org>"
     log_error "or point PRIVATE_NAMES_FILE at a list you already have."
     exit 2
   fi
-  # visibility<TAB>name<TAB>code<TAB>flags
-  while IFS="$(printf '\t')" read -r visibility name code flags; do
-    case "$visibility" in \#*|"") continue ;; esac
-    [[ "$visibility" != "private" ]] && continue
-    [[ -z "$name" ]] && continue
-    case "$flags" in
-      *ambiguous*) printf '%s\t%s\n' "$name" "${code:--}" >> "$ambiguous" ;;
-      *)           printf '%s\t%s\n' "$name" "${code:--}" >> "$hard" ;;
-    esac
-  done < "$LIST"
+  # visibility<TAB>name<TAB>code<TAB>flags, read with awk rather than `read`.
+  # With IFS set to a tab, bash still collapses runs of delimiters, because a
+  # tab is whitespace -- so a row with an empty column would shift every later
+  # field and could land a name in the wrong tier. awk splits positionally.
+  awk -F'\t' -v amb="$ambiguous" -v hardf="$hard" '
+    $1 ~ /^#/ { next }
+    $1 != "private" { next }
+    $2 == "" { next }
+    {
+      code = ($3 == "" ? "-" : $3)
+      if ($4 ~ /ambiguous/) print $2 "\t" code >> amb
+      else                  print $2 "\t" code >> hardf
+    }
+  ' "$LIST"
 
   if [[ ! -s "$hard" && ! -s "$ambiguous" ]]; then
-    log_error "The private-name list has no private names in it: $LIST"
+    log_error "The private-name list has no private names in it: $(tilde "$LIST")"
     log_error "An empty list cannot be told from a clean tree, so this is a failure."
     exit 2
   fi
@@ -321,16 +330,20 @@ ere_patterns() { # ere_patterns <names-file> -> a pattern file for grep -E
 # name on every hit would put the entire private inventory into a terminal, a
 # CI log or a pasted error message -- publishing by accident the thing this
 # gate exists to keep unpublished.
-matched_names() { # matched_names <names-file> <hits-file>
-  local name code
+matched_names() { # matched_names <names-file> <hits-file> [fixed|token]
+  local name code kind="${3:-fixed}" hit
   while IFS="$(printf '\t')" read -r name code; do
     [[ -z "$name" ]] && continue
-    if grep -qi -F -- "$name" "$2"; then
-      if [[ "$code" == "-" || -z "$code" ]]; then
-        printf '        %s\n' "$name"
-      else
-        printf '        %s -> %s\n' "$name" "$code"
-      fi
+    if [[ "$kind" == token ]]; then
+      hit="(^|[^A-Za-z0-9])$(printf '%s' "$name" | sed 's/[][\.^$*+?(){}|\\]/\\&/g')([^A-Za-z0-9]|$)"
+      grep -qiE -- "$hit" "$2" || continue
+    else
+      grep -qi -F -- "$name" "$2" || continue
+    fi
+    if [[ "$code" == "-" || -z "$code" ]]; then
+      printf '        %s\n' "$name"
+    else
+      printf '        %s -> %s\n' "$name" "$code"
     fi
   done < "$1"
 }
@@ -360,11 +373,23 @@ fi
 # text changes is treated as new. python3 rather than sha256sum, which the
 # portability suite forbids outside lib/file.sh and which BSD spells shasum.
 hash_hits() { # hash_hits <hits-file>
+  if ! command -v python3 >/dev/null 2>&1; then
+    # Every hit then looks new and keeps blocking, which is the safe direction
+    # -- but silently losing the baseline would look like the gate had suddenly
+    # turned strict for no reason.
+    log_warn "python3 is not available, so the baseline cannot be read;"
+    log_warn "known matches will be reported again until it is."
+    return 1
+  fi
   python3 -c '
 import hashlib, sys
+# One output line per input line, always: the caller pairs these with the hits
+# by position, and skipping a line here would pair every later hash with the
+# wrong hit -- silently clearing some matches and inventing others.
 for raw in open(sys.argv[1], encoding="utf-8", errors="replace"):
     line = raw.rstrip("\n").strip()
     if not line:
+        print("")
         continue
     # "path:12:text" in a tree scan, "12:text" otherwise. Drop the number only.
     parts = line.split(":", 2)
@@ -473,8 +498,16 @@ if [[ -s "$ambiguous" ]]; then
         echo "# here and still fails. Rebuild with --write-baseline."
         hash_hits "$hits_file" | sort -u
       } > "$BASELINE"
-      log_info "recorded $(grep -cv '^#' "$BASELINE" | tr -d ' ') known match(es) in $BASELINE"
+      log_info "recorded $(grep -cv '^#' "$BASELINE" | tr -d ' ') known match(es) in $(tilde "$BASELINE")"
       log_info "these stop blocking; anything new still will."
+      # A baseline covers ambiguous names only. If an unambiguous private name
+      # was found above, writing the baseline must not turn that into a success
+      # -- the caller would read exit 0 as "this tree is clean".
+      if [[ "$found" -eq 1 ]]; then
+        log_error "A private repository is still named in this tree; a baseline does"
+        log_error "not cover that, and nothing above was suppressed."
+        exit 1
+      fi
       exit 0
     fi
 
@@ -488,7 +521,9 @@ if [[ -s "$ambiguous" ]]; then
       # Hash and hit side by side, then one pass with the baseline in memory.
       # Looking each hash up separately re-read the baseline once per hit, which
       # is fine for nine and silly for a thousand.
-      hash_hits "$hits_file" > "$work/hashes"
+      if ! hash_hits "$hits_file" > "$work/hashes"; then
+        : > "$work/hashes"
+      fi
       known="$(paste -d"$(printf '\t')" "$work/hashes" "$hits_file" \
         | awk -F"$(printf '\t')" -v base="$BASELINE" -v out="$new_hits" '
             BEGIN { while ((getline line < base) > 0) if (line !~ /^#/) seen[line] = 1 }
@@ -502,6 +537,7 @@ if [[ -s "$ambiguous" ]]; then
       cp "$hits_file" "$new_hits"
     fi
 
+    known="${known:-0}"
     if [[ "$known" -gt 0 ]]; then
       log_info "$known ambiguous match(es) are in the baseline and were not blocked"
     fi
@@ -509,7 +545,7 @@ if [[ -s "$ambiguous" ]]; then
     if [[ -s "$new_hits" ]]; then
       found=1
       cat "$new_hits" >&2
-      matched_names "$ambiguous" "$new_hits" >&2
+      matched_names "$ambiguous" "$new_hits" token >&2
       log_error "A word above is both an ordinary English word and the name of a"
       log_error "private repository, so this needs a person, not a rule."
       log_error "If it is the ordinary word:"
@@ -517,10 +553,11 @@ if [[ -s "$ambiguous" ]]; then
       log_error "    here now as known; anything new still blocks)"
       log_error "  PRIVATE_NAMES_ALLOW=<word> <your command>         (this run only)"
       log_error "  .git/private-names-allow                          (this repository)"
-      log_error "  ${XDG_CACHE_HOME:-$HOME/.cache}/script-helpers/private-names-allow  (this machine)"
+      log_error "  $(tilde "$machine_allow")  (this machine)"
     fi
   elif [[ "$WRITE_BASELINE" == true ]]; then
     log_info "no ambiguous matches to record"
+    [[ "$found" -eq 1 ]] && exit 1
     exit 0
   fi
 fi

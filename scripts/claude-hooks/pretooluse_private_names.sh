@@ -60,7 +60,14 @@ if not command:
     sys.exit(0)
 
 try:
-    args = shlex.split(command)
+    # punctuation_chars, so `;` and `&&` come back as their own tokens: plain
+    # shlex.split yields "/tmp;" as one word, and a command after a semicolon
+    # would never be seen. commenters is cleared because a body legitimately
+    # contains "#", and the default lexer would truncate the line there.
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    args = list(lexer)
 except ValueError:
     # An unparseable command is not a licence to publish: fall back to checking
     # the whole string rather than letting it through unread.
@@ -70,29 +77,50 @@ except ValueError:
     print(command)
     sys.exit(0)
 
-lowered = [a.lower() for a in args]
-
-# --no-verify, on a commit or a push, from an agent.
-if "--no-verify" in lowered and "git" in lowered:
-    for i, a in enumerate(lowered):
-        if a == "git":
-            rest = lowered[i + 1:]
-            if any(v in rest for v in ("commit", "push")):
-                print("VERDICT\tno-verify")
-                print("REPO\t")
-                print("TEXT")
-                sys.exit(0)
+# One shell line can hold several commands, and the interesting one is rarely
+# first: `cd repo && gh pr create --body ...` is the ordinary shape. Judging
+# only the first word let exactly that through. Split on the separators and
+# consider each command on its own.
+SEPARATORS = {"&&", "||", ";", "|", "&", "\n"}
+segments, current = [], []
+for token in args:
+    if token in SEPARATORS:
+        if current:
+            segments.append(current)
+        current = []
+    else:
+        current.append(token)
+if current:
+    segments.append(current)
 
 PUBLISHES = (("gh", "pr", "create"), ("gh", "pr", "edit"), ("gh", "pr", "comment"),
              ("gh", "issue", "create"), ("gh", "issue", "edit"), ("gh", "issue", "comment"),
              ("gh", "release", "create"), ("gh", "api"))
-def starts_with(seq):
-    return len(lowered) >= len(seq) and tuple(lowered[:len(seq)]) == seq
 
-publishing = any(starts_with(seq) for seq in PUBLISHES) or (
-    len(lowered) >= 2 and lowered[0] == "git" and lowered[1] == "commit")
-if not publishing:
+def is_publishing(seg):
+    low = [a.lower() for a in seg]
+    for seq in PUBLISHES:
+        if len(low) >= len(seq) and tuple(low[:len(seq)]) == seq:
+            return True
+    return len(low) >= 2 and low[0] == "git" and low[1] == "commit"
+
+def skips_hooks(seg):
+    low = [a.lower() for a in seg]
+    return (low[:1] == ["git"] and len(low) > 1 and low[1] in ("commit", "push")
+            and "--no-verify" in low)
+
+if any(skips_hooks(seg) for seg in segments):
+    print("VERDICT\tno-verify")
+    print("REPO\t")
+    print("TEXT")
     sys.exit(0)
+
+publishing_segments = [seg for seg in segments if is_publishing(seg)]
+if not publishing_segments:
+    sys.exit(0)
+# Only the publishing commands' own arguments: a `--repo` belonging to some
+# other command on the line is not this one's destination.
+args = [a for seg in publishing_segments for a in seg]
 
 TEXT_FLAGS = {"-b", "--body", "-t", "--title", "-m", "--message", "-c", "--comment", "-f", "--field"}
 FILE_FLAGS = {"-F", "--body-file", "--file"}

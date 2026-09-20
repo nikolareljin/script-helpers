@@ -253,6 +253,13 @@ git_t -C "$base_repo" commit -q -m "docs: widget"
 [[ $? == 1 ]] && ok "a baseline never grandfathers an unambiguous private name" \
               || error "the baseline suppressed a hard name"
 
+# Writing a baseline must not report success while an unambiguous name is
+# present. A baseline covers ambiguous names only, and exit 0 from the command
+# a person runs to "clear" the noise would read as "this tree is clean".
+( cd "$base_repo" && bash "$GATE" --tree --list "$list" --write-baseline >/dev/null 2>&1 )
+[[ $? == 1 ]] && ok "--write-baseline still fails when a private name is present" \
+              || error "--write-baseline reported success with a private name in the tree"
+
 # --- the hooks -------------------------------------------------------------
 # The gate is only worth having if the hooks actually call it. These drive the
 # hook files themselves rather than re-implementing what they do.
@@ -310,6 +317,22 @@ if command -v python3 >/dev/null 2>&1; then
   agent 2 "the agent hook blocks a commit message naming one" \
           'git commit -m "feat: wire bluewidget in"'
   agent 2 "the agent hook refuses --no-verify"          "git push --no-verify origin main"
+  # One shell line usually holds several commands and the interesting one is
+  # rarely first. Judging only the first word let `cd repo && gh pr create`
+  # through, which is the ordinary shape, not an exotic one.
+  agent 2 "a chained gh pr create is still seen" \
+          'cd /tmp && gh pr create --body "aligns with bluewidget"'
+  agent 2 "a semicolon-separated command is still seen" \
+          'cd /tmp; gh issue comment 5 --body "bluewidget"'
+  agent 2 "a chained git commit is still seen" \
+          'cd /tmp && git add -A && git commit -m "wire bluewidget in"'
+  agent 2 "--no-verify is refused after a chain"        "cd /tmp && git push --no-verify origin main"
+  agent 0 "a chained clean body passes"                 'cd /tmp && gh pr create --body "aligns with R-111"'
+  # A body legitimately contains "#", and a lexer treating it as a comment
+  # would read half the text and call the rest clean.
+  agent 2 "a body with a # heading is read in full" \
+          'gh pr create --body "# Title
+mentions bluewidget"' 
   # A pull request *into* the private repository is exactly where its name
   # belongs. Blocking it would get the hook removed within a day.
   agent 0 "the agent hook allows a pull request into the private repository itself" \

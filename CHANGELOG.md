@@ -6,6 +6,36 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ### Fixed
 
+- **The agent hook now sees a command that is not first on the line.** It
+  matched a publishing command only at the start of the shell line, so
+  `cd repo && gh pr create --body ...` — the ordinary shape, not an exotic one —
+  was never examined. The line is split on `&&`, `||`, `;`, `|` and `&`, and
+  each command judged on its own, so a `--repo` belonging to a different command
+  cannot be mistaken for the destination either. Its lexer also keeps `#`,
+  which a body legitimately contains and which the default would have treated as
+  a comment, reading half the text and calling the rest clean.
+
+- **`--write-baseline` no longer exits 0 while an unambiguous private name is
+  present.** A baseline covers ambiguous names only, so the command a person
+  runs to clear the noise would have reported success over a real leak.
+
+- **The name list is parsed positionally.** `read` with `IFS` set to a tab still
+  collapses runs of delimiters, because a tab is whitespace, so a row with an
+  empty column shifted every later field and could land a name in the wrong
+  tier. `awk` splits on position.
+
+- **A refusal names a repository by the same rule that matched it.** Attribution
+  was a substring test even for the token tier, so it could name a repository
+  whose name merely appears inside a longer word — the distinction that tier
+  exists to draw.
+
+- **Messages no longer print an absolute home path.** Paths are rendered with
+  `$HOME` collapsed to `~`; these end up in CI logs and pasted into issues.
+
+- **A missing `python3` says so rather than silently ignoring the baseline**, and
+  the hash list is written one line per input line so a blank line cannot pair a
+  hash with the wrong occurrence.
+
 - **`lib/env.sh` parses a large value in about a second instead of five.**
   bash 3.2 -- the floor this library supports -- is quadratic in
   `${var%pattern}`. Measured on a 40KB value, stripping a trailing carriage
