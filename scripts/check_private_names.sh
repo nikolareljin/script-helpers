@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SCRIPT: check_private_names.sh
 # DESCRIPTION: Fail when the name of a private repository appears in text that is about to become public.
-# USAGE: scripts/check_private_names.sh [--tree|--commits <range>|--file <path>|--stdin] [--list <path>] [--names <a,b>] [--repo <path>] [--only-public] [--for-repo <name>] [--write-baseline] [-h]
+# USAGE: scripts/check_private_names.sh [--tree|--commits <range>|--file <path>|--stdin] [--list <path>] [--names <a,b>] [--repo <path>] [--only-public] [--for-repo <name>] [-h]
 # PARAMETERS:
 #   --tree              Scan tracked files (the default when nothing else is given).
 #   --commits <range>   Scan commit messages in a range, e.g. origin/main..HEAD.
@@ -12,7 +12,6 @@
 #   --repo <path>       Repository to scan (default: cwd).
 #   --only-public       Do nothing unless this repository is public, per the list.
 #   --for-repo <name>   Judge visibility by this repository name, not the git remote.
-#   --write-baseline    Record the current ambiguous matches as known, and exit.
 #   -h, --help          Show this help message.
 # EXIT_CODES:
 #   0  no private name found
@@ -61,18 +60,6 @@
 # of them the English word, and one line in .git/private-names-allow silences
 # them per repository -- visibly, and without a hole anyone can forget about.
 #
-# THE BASELINE. An ambiguous name that is an everyday word will already appear
-# in a repository's prose, and some of those uses cannot be reworded: `trust
-# anchor` is a command, and a configuration key is whatever the tool calls it.
-# Allowing the word outright would then be the only option, and that hides a
-# real reference as effectively as the exemption this replaced.
-#
-# So --write-baseline records what is there now, by hash, and those occurrences
-# stop blocking. Anything new still does. The baseline holds only hashes -- no
-# names, no lines -- so the file itself discloses nothing, and it lives in .git
-# where it cannot be committed. A line that moves is unaffected; a line that
-# changes is new again, which is the right way round for text being edited.
-#
 # THE OVERRIDE. The check will sometimes be wrong -- that is a certainty, not a
 # risk, given the dictionary words above. Three ways past it, loudest last:
 #
@@ -107,7 +94,11 @@ type log_error >/dev/null 2>&1 || log_error() { printf '[ERROR] %s\n' "$*" >&2; 
 # pasted into issues.
 tilde() { case "$1" in "$HOME"/*) printf '~%s' "${1#"$HOME"}" ;; *) printf '%s' "$1" ;; esac; }
 
-DEFAULT_LIST="${XDG_CACHE_HOME:-$HOME/.cache}/script-helpers/private-names.tsv"
+# One location, and it is config rather than cache: a cache is regenerable and
+# disposable, and this file may be maintained by hand. It sits outside every working
+# tree, so it cannot be committed by accident, and one file serves every repository on
+# the machine.
+DEFAULT_LIST="${XDG_CONFIG_HOME:-$HOME/.config}/script-helpers/private-names.tsv"
 STALE_DAYS="${PRIVATE_NAMES_STALE_DAYS:-7}"
 LOUD_DAYS="${PRIVATE_NAMES_LOUD_DAYS:-30}"
 
@@ -115,7 +106,6 @@ REPO=""
 LIST=""
 ONLY_PUBLIC=false
 FOR_REPO=""
-WRITE_BASELINE=false
 NAMES=""
 COMMITS=""
 FILE=""
@@ -132,7 +122,6 @@ while [[ $# -gt 0 ]]; do
     --repo) REPO="${2:?--repo needs a path}"; shift 2 ;;
     --only-public) ONLY_PUBLIC=true; shift ;;
     --for-repo) FOR_REPO="${2:?--for-repo needs a name}"; shift 2 ;;
-    --write-baseline) WRITE_BASELINE=true; shift ;;
     -h|--help) sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) log_error "Unknown argument: $1"; exit 2 ;;
   esac
@@ -147,6 +136,10 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 hard="$work/hard"
 ambiguous="$work/ambiguous"
+entries="$work/entries"
+qualified="$work/qualified"
+: > "$entries"
+: > "$qualified"
 : > "$hard"
 : > "$ambiguous"
 
@@ -193,20 +186,90 @@ else
     log_error "or point PRIVATE_NAMES_FILE at a list you already have."
     exit 2
   fi
-  # visibility<TAB>name<TAB>code<TAB>flags, read with awk rather than `read`.
-  # With IFS set to a tab, bash still collapses runs of delimiters, because a
-  # tab is whitespace -- so a row with an empty column would shift every later
-  # field and could land a name in the wrong tier. awk splits positionally.
-  awk -F'\t' -v amb="$ambiguous" -v hardf="$hard" '
-    $1 ~ /^#/ { next }
-    $1 != "private" { next }
-    $2 == "" { next }
+  # The file is self-describing: its `# visibility<TAB>namespace<TAB>...` line names the
+  # columns, and they are located by name rather than by position.
+  #
+  # This is not ceremony. The format gained a `namespace` column, and a parser reading the
+  # new file by the old positions matched namespaces instead of repository names -- so it
+  # reported "no private repository is named" over text that named one. A silent pass is
+  # the worst failure this tool has, and column order is exactly the kind of thing that
+  # changes underneath a positional reader. A file with no header is read as the documented
+  # v1 order.
+  #
+  # Rows are emitted as: kind, needle, display, code, flags
+  #   bare  a name matched as a whole token anywhere
+  #   qual  matched only as namespace/name -- see the header for why
+  #   ns    a namespace's own name
+  awk -F'\t' -v out="$entries" '
+    # Whether a bare mention can be a reference is a property of the NAME, so it is
+    # decided here rather than trusted from the file. A generator that forgot to flag a
+    # one-character repository would otherwise make this check match that letter
+    # everywhere -- and the gate would be blamed, not the generator.
+    function generic(n,   low) {
+      low = tolower(n)
+      if (length(n) <= 4) return 1              # too short to carry meaning on its own
+      if (substr(low, 1, 1) == ".") return 1    # .github and friends: in every path
+      return (low in GENERIC)
+    }
+    BEGIN {
+      split(".github .gitlab docs doc test tests src web www api app lib bin scripts " \
+            "config assets images data tools infra common core shared utils examples " \
+            "demo sandbox template templates main public static build dist site blog " \
+            "home admin server client frontend backend mobile", g, " ")
+      for (i in g) GENERIC[g[i]] = 1
+    }
+    /^# *visibility/ {
+      if (have_header) next
+      for (i = 1; i <= NF; i++) {
+        h = $i; sub(/^# */, "", h); gsub(/^[ \t]+|[ \t]+$/, "", h)
+        col[h] = i
+      }
+      # The first header wins. A file carrying two -- which a generator briefly did
+      # here -- would otherwise have its columns redefined by the last one, silently
+      # shifting every field and matching namespaces instead of names.
+      if (!have_header) have_header = 1
+      next
+    }
+    /^#/ { next }
+    NF == 0 { next }
     {
-      code = ($3 == "" ? "-" : $3)
-      if ($4 ~ /ambiguous/) print $2 "\t" code >> amb
-      else                  print $2 "\t" code >> hardf
+      vi = have_header && ("visibility" in col) ? col["visibility"] : 1
+      ni = have_header && ("namespace"  in col) ? col["namespace"]  : 2
+      mi = have_header && ("name"       in col) ? col["name"]       : 3
+      ci = have_header && ("code"       in col) ? col["code"]       : 4
+      fi = have_header && ("flags"      in col) ? col["flags"]      : 5
+
+      if ($vi != "private") next
+      ns = $ni; name = $mi; code = ($ci == "" ? "-" : $ci); flags = $fi
+      if (name == "") next
+
+      if (name == "*") { print "ns\t" ns "\t" ns "\t" code "\t" flags > out; next }
+      # A name that is also an everyday word is matched ONLY when qualified.
+      #
+      # Measured on a real dictionary: matching those names bare produced 50 hits in this
+      # repository alone -- "search", "core", "beacon" and friends as ordinary prose and
+      # as identifiers in code -- and it blocked a commit whose only sin was a shell
+      # function called search(). Requiring `namespace/name` takes the same tree to zero.
+      #
+      # The coverage given up is coverage that never existed: a bare "search" in English
+      # is indistinguishable from a reference to a repository of that name, which is
+      # precisely why it fired fifty times. A rule that cannot separate the two is not
+      # protection, it is noise, and noise is what gets a gate switched off.
+      if (flags ~ /qualified-only/ || flags ~ /ambiguous/ || generic(name)) {
+        print "qual\t" ns "/" name "\t" ns "/" name "\t" code "\t" flags > out
+        next
+      }
+      print "bare\t" name "\t" ns "/" name "\t" code "\t" flags > out
     }
   ' "$LIST"
+
+  # Kept for the tiers the rest of the script still reads.
+  awk -F'\t' -v amb="$ambiguous" -v hardf="$hard" -v qf="$qualified" '
+    $1 == "bare" { if ($5 ~ /ambiguous/) print $2 "\t" $4 >> amb; else print $2 "\t" $4 >> hardf; next }
+    # A qualified entry and a namespace are searched for the whole string they are, so
+    # they share the tier that matches a needle as a token.
+    { print $2 "\t" $4 >> qf }
+  ' "$entries"
 
   if [[ ! -s "$hard" && ! -s "$ambiguous" ]]; then
     log_error "The private-name list has no private names in it: $(tilde "$LIST")"
@@ -215,6 +278,13 @@ else
   fi
 
   age="$(list_age_days "$LIST")"
+  # A non-numeric age must not be compared with -ge. `[[ "$age" -ge 5 ]]` resolves a
+  # non-numeric operand as a variable name, finds nothing, evaluates 0, and reads as
+  # "fresh" -- so a broken age parser would silently report a current dictionary for ever.
+  if [[ -n "$age" && ! "$age" =~ ^-?[0-9]+$ ]]; then
+    log_warn "could not read the dictionary's age (got '${age}'); treating it as unknown."
+    age=""
+  fi
   if [[ -z "$age" ]]; then
     log_warn "The list has no '# generated:' header, so its age is unknown."
   elif [[ "$age" -ge "$LOUD_DAYS" ]]; then
@@ -249,8 +319,21 @@ if [[ "$ONLY_PUBLIC" == true && -z "$NAMES" ]]; then
       origin_name="${origin_name##*/}"
     fi
     if [[ -n "$origin_name" ]]; then
-      visibility="$(awk -F'\t' -v want="$(printf '%s' "$origin_name" | tr 'A-Z' 'a-z')" \
-        'tolower($2) == want { print $1; exit }' "$LIST")"
+      # Column 3 is the repository name; column 2 is its namespace. Reading the wrong one
+      # here does not merely mis-report -- it decides whether the check runs at all, so it
+      # would quietly skip every public repository whose name is not also a namespace.
+      # Located by header, as everywhere else.
+      visibility="$(awk -F'\t' -v want="$(printf '%s' "$origin_name" | tr 'A-Z' 'a-z')" '
+        /^# *visibility/ {
+          for (i = 1; i <= NF; i++) { h = $i; sub(/^# */, "", h); col[h] = i }
+          hdr = 1; next
+        }
+        /^#/ { next }
+        {
+          vi = (hdr && ("visibility" in col)) ? col["visibility"] : 1
+          mi = (hdr && ("name" in col))       ? col["name"]       : 3
+          if (tolower($mi) == want) { print $vi; exit }
+        }' "$LIST")"
       if [[ "$visibility" == "private" ]]; then
         log_info "$origin_name is private; a private name here does not become public."
         exit 0
@@ -274,7 +357,7 @@ fi
 # allowed again in every fresh clone on every machine, and a gate that has to be
 # re-appeased that often is a gate someone eventually removes. It lives in the
 # cache directory, never in a tree.
-machine_allow="${XDG_CACHE_HOME:-$HOME/.cache}/script-helpers/private-names-allow"
+machine_allow="${XDG_CONFIG_HOME:-$HOME/.config}/script-helpers/private-names-allow"
 if [[ -f "$machine_allow" ]]; then
   cat "$machine_allow" >> "$allowed"
 fi
@@ -348,61 +431,6 @@ matched_names() { # matched_names <names-file> <hits-file> [fixed|token]
   done < "$1"
 }
 
-# ---- the baseline ---------------------------------------------------------
-# Resolution order: an explicit path, then a committed baseline at the repo
-# root, then one inside .git.
-#
-# A committed baseline is safe and is usually what a team wants. It holds only
-# hashes, and each hash is over a line that is already in the public tree, so it
-# discloses nothing that a reader could not simply go and look at -- while a
-# baseline inside .git has to be rebuilt in every clone and on every machine,
-# which is friction on exactly the people who did nothing wrong.
-BASELINE="${PRIVATE_NAMES_BASELINE:-}"
-if [[ -z "$BASELINE" ]]; then
-  _git_dir="$(git rev-parse --git-dir 2>/dev/null)"
-  _top="$(git rev-parse --show-toplevel 2>/dev/null)"
-  if [[ -n "$_top" && -f "$_top/.private-names-baseline" ]]; then
-    BASELINE="$_top/.private-names-baseline"
-  else
-    BASELINE="${_git_dir}/private-names-baseline"
-  fi
-fi
-
-# One hash per occurrence, over the path and the line's text with the line
-# number removed: an occurrence that merely moves keeps its hash, and one whose
-# text changes is treated as new. python3 rather than sha256sum, which the
-# portability suite forbids outside lib/file.sh and which BSD spells shasum.
-hash_hits() { # hash_hits <hits-file>
-  if ! command -v python3 >/dev/null 2>&1; then
-    # Every hit then looks new and keeps blocking, which is the safe direction
-    # -- but silently losing the baseline would look like the gate had suddenly
-    # turned strict for no reason.
-    log_warn "python3 is not available, so the baseline cannot be read;"
-    log_warn "known matches will be reported again until it is."
-    return 1
-  fi
-  python3 -c '
-import hashlib, sys
-# One output line per input line, always: the caller pairs these with the hits
-# by position, and skipping a line here would pair every later hash with the
-# wrong hit -- silently clearing some matches and inventing others.
-for raw in open(sys.argv[1], encoding="utf-8", errors="replace"):
-    line = raw.rstrip("\n").strip()
-    if not line:
-        print("")
-        continue
-    # "path:12:text" in a tree scan, "12:text" otherwise. Drop the number only.
-    parts = line.split(":", 2)
-    if len(parts) == 3 and parts[1].isdigit():
-        key = parts[0] + "\t" + parts[2]
-    elif len(parts) >= 2 and parts[0].isdigit():
-        key = line.split(":", 1)[1]
-    else:
-        key = line
-    print(hashlib.sha256(key.strip().encode("utf-8")).hexdigest())
-' "$1"
-}
-
 # ---- the subject ----------------------------------------------------------
 subject="$work/subject"
 case "$MODE" in
@@ -435,134 +463,135 @@ esac
 # grep's exit codes are load-bearing: 0 matched, 1 no match (the good case),
 # 2+ it failed. Collapsing them with `|| true` is how a gate stops checking
 # without anyone noticing.
-search() {        # search <names-file> <label> <fixed|token>
-  local names="$1" label="$2" kind="$3" pat hits status=0 flag="-F"
+# Two stages, and both are necessary.
+#
+# Stage one is a fixed-string filter, which is fast even with thousands of names: measured
+# on a real dictionary of 1,488, `grep -F` over one repository takes 0.58s and yields 86
+# candidate lines. Stage two applies the real rule to those candidates only.
+#
+# The alternative -- one `grep -E` with a boundary-anchored pattern per name -- gives the
+# same answers and took over TWO MINUTES on the same repository, because the cost is
+# compiling 1,488 regexes, not scanning. A check that slow is one people remove.
+#
+# Stage two is awk with index() and a character test, so nothing is compiled at all.
+search() {        # search <names-file> <label>
+  local names="$1" label="$2" pat hits status=0
   [[ -s "$names" ]] || return 1
-  if [[ "$kind" == "token" ]]; then
-    pat="$(ere_patterns "$names")"
-    flag="-E"
-  else
-    pat="$(patterns "$names")"
-  fi
+  pat="$(patterns "$names")"
   [[ -s "$pat" ]] || return 1
+
   if [[ "$MODE" == "tree" ]]; then
-    hits="$(git grep -nI -i "$flag" -f "$pat" -- .)" || status=$?
+    hits="$(git grep -nI -i -F -f "$pat" -- .)" || status=$?
   else
-    hits="$(grep -nI -i "$flag" -f "$pat" "$subject")" || status=$?
+    hits="$(grep -nI -i -F -f "$pat" "$subject")" || status=$?
   fi
   if [[ "$status" -gt 1 ]]; then
     log_error "the search failed (exit $status) while checking $label"
     exit 2
   fi
   [[ -z "$hits" ]] && return 1
-  printf '%s\n' "$hits" | sed 's/^/      /'
+
+  # Stage two: a name counts only as a whole token -- not preceded or followed by a letter
+  # or a digit. `/` and `-` are boundaries, so a name still matches inside a path, a URL or
+  # a possessive; what stops matching is a name inside a longer word. Substring matching
+  # was measured at 508 hits on one public repository against this dictionary, essentially
+  # all of them one organisation repository named `.github`, which is in every workflow
+  # path. Token matching takes the same subject to zero.
+  printf '%s\n' "$hits" | awk -F'\t' -v namesfile="$names" '
+    function hit(line, needle,   n, pos, before, after) {
+      n = length(needle); pos = index(line, needle)
+      while (pos > 0) {
+        before = (pos == 1) ? "" : substr(line, pos - 1, 1)
+        after  = substr(line, pos + n, 1)
+        if (before !~ /[a-z0-9]/ && after !~ /[a-z0-9]/) return 1
+        line = substr(line, pos + 1); pos = index(line, needle)
+      }
+      return 0
+    }
+    BEGIN {
+      while ((getline row < namesfile) > 0) {
+        split(row, f, "\t")
+        if (f[1] != "") needle[tolower(f[1])] = 1
+      }
+    }
+    { low = tolower($0); for (n in needle) if (hit(low, n)) { print; next } }
+  ' | sed "s/^/      /" > "$work/stage2"
+
+  [[ -s "$work/stage2" ]] || return 1
+  cat "$work/stage2"
   return 0
 }
 
 found=0
-hits_file="$work/hits"
+hard_hits="$work/hits-hard"
+qual_hits="$work/hits-qual"
+amb_hits="$work/hits-amb"
+all_hits="$work/all-hits"
+: > "$hard_hits"; : > "$qual_hits"; : > "$amb_hits"; : > "$all_hits"
 
-if search "$hard" "tracked text" fixed > "$hits_file"; then
+# Every tier is searched before anything is reported, so one pass covers all of them.
+search "$hard"      "tracked text"    > "$hard_hits" || true
+search "$qualified" "qualified names" > "$qual_hits" || true
+search "$ambiguous" "ambiguous names" > "$amb_hits"  || true
+cat "$hard_hits" "$qual_hits" "$amb_hits" > "$all_hits"
+
+# ---- report ---------------------------------------------------------------
+if [[ -s "$hard_hits" ]]; then
   found=1
-  cat "$hits_file" >&2
+  cat "$hard_hits" >&2
   log_error "A private repository is named above."
-  # awk, not grep: a tab has to be a tab. `grep '\t-$'` is the literal letter t
-  # in a basic regular expression, so the test silently inverted and every list
-  # looked as though it carried codes.
-  if awk -F'\t' '$2 != "-" && $2 != "" { found = 1 } END { exit !found }' "$hard"; then
-    # The list carries codes, so there is something to say instead of the name.
+  # An organisation's repository has no acceptable public form at all -- not its name and
+  # not a code -- so offering a citation would be advising a quieter version of the
+  # disclosure being prevented. A hit mixing both kinds takes the stricter advice.
+  if grep -qF "never-name" "$entries" 2>/dev/null && \
+     awk -F'\t' -v hits="$hard_hits" '
+      function hit(line, needle,   n, pos, b, a) {
+        n = length(needle); pos = index(line, needle)
+        while (pos > 0) {
+          b = (pos == 1) ? "" : substr(line, pos - 1, 1); a = substr(line, pos + n, 1)
+          if (b !~ /[a-z0-9]/ && a !~ /[a-z0-9]/) return 1
+          line = substr(line, pos + 1); pos = index(line, needle)
+        }
+        return 0
+      }
+      BEGIN { while ((getline l < hits) > 0) lines[++n] = tolower(l) }
+      $5 ~ /never-name/ { for (i = 1; i <= n; i++) if (hit(lines[i], tolower($2))) { f = 1; exit } }
+      END { exit !f }' "$entries"; then
+    log_error "At least one is owned by an organisation, which has no public form at all"
+    log_error "-- not its name, and not a code. Remove the reference."
+  elif awk -F'\t' '$2 != "-" && $2 != "" { found = 1 } END { exit !found }' "$hard"; then
     log_error "Refer to it by its code instead:"
   else
-    # No code scheme in this list: say what was found and leave the wording to
-    # the author, rather than advising a convention they do not have.
     log_error "Remove or reword the reference before this becomes public:"
   fi
-  matched_names "$hard" "$hits_file" >&2
+  matched_names "$hard" "$hard_hits" >&2
 fi
 
-# The ambiguous tier, everywhere, as whole tokens. Not skipped in the tree: see
-# the header for the leak that exemption let through.
-if [[ -s "$ambiguous" ]]; then
-  if search "$ambiguous" "ambiguous names" token > "$hits_file"; then
+if [[ -s "$qual_hits" ]]; then
+  found=1
+  cat "$qual_hits" >&2
+  log_error "An organisation, or a private repository named with its namespace, is above."
+  log_error "There is no public form of it -- remove the reference."
+  matched_names "$qualified" "$qual_hits" >&2
+fi
 
-    if [[ "$WRITE_BASELINE" == true ]]; then
-      if [[ -z "${BASELINE%/private-names-baseline}" ]]; then
-        log_error "not in a git repository, so there is nowhere to keep a baseline"
-        exit 2
-      fi
-      {
-        echo "# private-names baseline: occurrences of an ambiguous name that a"
-        echo "# person has read and accepted. Hashes only -- of lines already in"
-        echo "# this tree -- so committing it discloses nothing and saves every"
-        echo "# clone from rebuilding it. A new or edited occurrence is not in"
-        echo "# here and still fails. Rebuild with --write-baseline."
-        hash_hits "$hits_file" | sort -u
-      } > "$BASELINE"
-      log_info "recorded $(grep -cv '^#' "$BASELINE" | tr -d ' ') known match(es) in $(tilde "$BASELINE")"
-      log_info "these stop blocking; anything new still will."
-      # A baseline covers ambiguous names only. If an unambiguous private name
-      # was found above, writing the baseline must not turn that into a success
-      # -- the caller would read exit 0 as "this tree is clean".
-      if [[ "$found" -eq 1 ]]; then
-        log_error "A private repository is still named in this tree; a baseline does"
-        log_error "not cover that, and nothing above was suppressed."
-        exit 1
-      fi
-      exit 0
-    fi
-
-    # Split the matches into those the baseline already knows and the rest.
-    # A hit is kept only when its hash is absent, so a baseline that fails to
-    # load leaves every match blocking rather than silently clearing them.
-    new_hits="$work/new-hits"
-    : > "$new_hits"
-    known=0
-    if [[ -s "$BASELINE" ]]; then
-      # Hash and hit side by side, then one pass with the baseline in memory.
-      # Looking each hash up separately re-read the baseline once per hit, which
-      # is fine for nine and silly for a thousand.
-      if ! hash_hits "$hits_file" > "$work/hashes"; then
-        : > "$work/hashes"
-      fi
-      known="$(paste -d"$(printf '\t')" "$work/hashes" "$hits_file" \
-        | awk -F"$(printf '\t')" -v base="$BASELINE" -v out="$new_hits" '
-            BEGIN { while ((getline line < base) > 0) if (line !~ /^#/) seen[line] = 1 }
-            {
-              h = $1
-              sub(/^[^\t]*\t/, "")
-              if (h in seen) { n++ } else { print > out }
-            }
-            END { print n + 0 }')"
-    else
-      cp "$hits_file" "$new_hits"
-    fi
-
-    known="${known:-0}"
-    if [[ "$known" -gt 0 ]]; then
-      log_info "$known ambiguous match(es) are in the baseline and were not blocked"
-    fi
-
-    if [[ -s "$new_hits" ]]; then
-      found=1
-      cat "$new_hits" >&2
-      matched_names "$ambiguous" "$new_hits" token >&2
-      log_error "A word above is both an ordinary English word and the name of a"
-      log_error "private repository, so this needs a person, not a rule."
-      log_error "If it is the ordinary word:"
-      log_error "  scripts/check_private_names.sh --write-baseline   (record what is"
-      log_error "    here now as known; anything new still blocks)"
-      log_error "  PRIVATE_NAMES_ALLOW=<word> <your command>         (this run only)"
-      log_error "  .git/private-names-allow                          (this repository)"
-      log_error "  $(tilde "$machine_allow")  (this machine)"
-    fi
-  elif [[ "$WRITE_BASELINE" == true ]]; then
-    log_info "no ambiguous matches to record"
-    [[ "$found" -eq 1 ]] && exit 1
-    exit 0
-  fi
+if [[ -s "$amb_hits" ]]; then
+  found=1
+  cat "$amb_hits" >&2
+  matched_names "$ambiguous" "$amb_hits" token >&2
+  log_error "That is both an everyday word and a private repository, so it needs a person."
 fi
 
 if [[ "$found" -eq 1 ]]; then
+  log_error "Nothing was changed -- this only reports. If it is a false positive:"
+  log_error "  PRIVATE_NAMES_ALLOW=<name> <your command>      this run only"
+  log_error "  $(tilde "$(git rev-parse --git-dir 2>/dev/null)/private-names-allow")   this repository"
+  log_error "  $(tilde "$machine_allow")   every repository here"
+  if [[ -n "${LIST:-}" && -f "${LIST:-}" ]]; then
+    log_error "Checked against $(tilde "$LIST")$(
+      awk -F'\t' '!/^#/ && $1=="private" {c++} END {printf " -- %d private names", c+0}' "$LIST")$(
+      sed -n 's/^# generated: \([0-9-]*\).*/, generated \1/p' "$LIST" | head -1)."
+  fi
   exit 1
 fi
 

@@ -123,32 +123,12 @@ Bundled CLIs
 
   | override | scope |
   |---|---|
-  | `--write-baseline` | the matches that exist **now**, by hash; anything new still blocks |
   | `PRIVATE_NAMES_ALLOW="term,term"` | one run |
   | `.git/private-names-allow` | one repository (inside `.git`, so it cannot be committed) |
-  | `<cache>/script-helpers/private-names-allow` | every repository on this machine |
+  | `<config>/script-helpers/private-names-allow` | every repository on this machine |
 
-  The baseline is the one to reach for first, and the only one that does not
-  widen the check. An ambiguous name that is an everyday word will already be in
-  a repository's prose, and some of those uses cannot be reworded — a command
-  named after the word, a configuration key the tool defines. Allowing the word
-  outright would then be the only option, and that hides a genuine reference as
-  effectively as not checking at all. `--write-baseline` records what is there
-  now and lets anything new keep failing.
-
-  It stores hashes only, and each hash is over a line that is already in the
-  tree, so the file discloses nothing a reader could not simply go and look at.
-  That is why it can be **committed**: a baseline at the repository root
-  (`.private-names-baseline`) is used in preference to one in `.git`, so a clone
-  and a CI run start clean instead of each rebuilding it. Keep it in `.git` --
-  the default when no committed one exists — if you would rather it stayed
-  local. `PRIVATE_NAMES_BASELINE` overrides both.
-
-  The machine-level one matters more than it looks: a word that is also everyday
-  English recurs
-  in prose everywhere, and a gate that has to be re-appeased in every fresh
-  clone is one somebody eventually removes. `--no-verify` remains git's own
-  escape. Run `scripts/check_private_names.sh --help` for details.
+  Each prints what it allowed, so an override is never silent. `git push --no-verify`
+  remains git's own escape. Run `scripts/check_private_names.sh --help` for details.
 
 - `scripts/refresh_private_names.sh` — builds that list from **your** GitHub
   account or organisation:
@@ -158,11 +138,47 @@ Bundled CLIs
   scripts/refresh_private_names.sh --check                      # compare, change nothing
   ```
 
-  It writes `${XDG_CACHE_HOME:-~/.cache}/script-helpers/private-names.tsv`: one
+  It writes `${XDG_CONFIG_HOME:-~/.config}/script-helpers/private-names.tsv`: one
   file per machine serving every repository on it, and outside every working
   tree, because a file listing your private repositories is precisely what the
-  gate exists to keep out of public ones. Without `--owner` it takes the owner
-  from the current repository's `origin` remote. It needs `gh`, authenticated,
+  gate exists to keep out of public ones.
+
+  **The format**, tab-separated with `#` comments, one row per repository:
+
+  ```
+  # private-names v1
+  # generated: 2026-09-20  source: <namespaces>
+  # visibility	namespace	name	code	flags
+  private	acme-corp	widget-core	-	never-name
+  private	someuser	beacon	R-588	ambiguous
+  public	someuser	script-helpers	-
+  ```
+
+  The columns are located by that **header line**, not by position. That is not
+  ceremony: the format gained the `namespace` column, and a parser reading the new
+  file by the old positions matched namespaces instead of repository names — so it
+  reported "no private repository is named" over text that named one. A silent pass
+  is the worst failure this check has, and a self-describing file makes that
+  particular mistake unrepresentable. A file with no header is read as the v1 order.
+
+  `flags` is space-separated. `never-name` — no acceptable public reference exists at
+  all, so the refusal says to remove it rather than offering a code. `ambiguous` — also
+  an everyday word. `qualified-only` — a bare mention is not a reference.
+
+  **`ambiguous` and `qualified-only` mean the same thing to the matcher: only
+  `namespace/name` counts.** A bare "search" or "core" in English cannot be told from a
+  reference to a repository of that name — measured, matching those bare produced 50 hits
+  in this repository alone, in prose and in identifiers, and blocked a commit whose only
+  sin was a shell function called `search()`. Requiring the qualified form takes the same
+  tree to zero. The matcher also applies that rule to any name of four characters or
+  fewer, anything beginning with a dot, and well-known directory names, whatever the file
+  says — because whether a bare mention can be a reference is a property of the name, and
+  a generator that forgot to flag one should not silently turn this check into noise.
+
+  A row whose `name` is `*` marks the namespace itself. It takes `--owner` repeatably, or
+  `PRIVATE_NAMES_OWNERS`; it does **not** infer the owner from the repository you
+  happen to be in, because a refresh run inside a third party's repository would
+  rebuild your machine-wide dictionary from *their* namespace. It needs `gh`, authenticated,
   and exits `3` when that is missing — distinctly from "your account has no
   private repositories", which is exit `2` and writes nothing, since an empty
   list would leave a check that scans for nothing and reports success.
