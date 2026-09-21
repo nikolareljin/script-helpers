@@ -710,7 +710,10 @@ So after editing that file, check it the only way that means anything:
 # plant a random secret in one of the ignored files, confirm it is still caught
 printf '\napi_key="%s"\n' "$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 40)" \
   >> scripts/ci_pimcore_bundle_check.sh
-docker run --rm -v "$PWD:/repo" -w /repo zricethezav/gitleaks:v8.30.0 \
+# the pinned image and version live in lib/ci_defaults.sh, so this does not go stale
+. lib/ci_defaults.sh
+docker run --rm -v "$PWD:/repo" -w /repo \
+  "${CI_DEFAULT_GITLEAKS_IMAGE}:${CI_DEFAULT_GITLEAKS_VERSION}" \
   detect --source=. --no-git --redact
 git checkout -- scripts/ci_pimcore_bundle_check.sh
 ```
