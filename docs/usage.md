@@ -89,55 +89,6 @@ Bundled CLIs
   the meantime is kept. Run `scripts/prune_branches.sh --help` for details.
   See [`modules/git_branches.md`](modules/git_branches.md).
 
-Secret scanning
----------------
-
-`.gitleaksignore` carries one line per finding a person has looked at and
-accepted, as `path:rule:line`. Two entries today, both false positives on a
-variable *name* rather than a value: an empty `db_password=""` default, and a
-dummy tap token in a test whose whole point is asserting the token never
-reaches `argv` or `.git/config`.
-
-**Fingerprints, not allowlists, and that distinction is measured rather than
-assumed.** A `.gitleaks.toml` allowlist keyed on a path excludes that entire
-file from every rule — even with `condition = "AND"`, which reads as though it
-should narrow it. Two randomly generated secrets planted in the allowlisted
-files took this repository from 4 findings to **0**. The same two planted with
-the fingerprint file in place are still reported. A fingerprint names one rule
-at one line and cannot do anything else.
-
-So after editing that file, check it the only way that means anything:
-
-```bash
-# plant a random secret in one of the ignored files, confirm it is still caught
-printf '\napi_key="%s"\n' "$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 40)" \
-  >> scripts/ci_pimcore_bundle_check.sh
-docker run --rm -v "$PWD:/repo" -w /repo zricethezav/gitleaks:v8.30.0 \
-  detect --source=. --no-git --redact
-git checkout -- scripts/ci_pimcore_bundle_check.sh
-```
-
-Scan with `--source=.` rather than an absolute path: a fingerprint records the
-path as the scanner saw it, and `--source=/repo` writes `/repo/...` into it,
-which then matches nothing anywhere else.
-
-TruffleHog has no fingerprint file, and its only narrow control is a
-`trufflehog:ignore` comment on the offending line — which a line ending in a
-`\` continuation cannot carry. Rather than excluding whole paths, run it
-against the working tree and read the unverified results:
-
-```bash
-trufflehog filesystem . --exclude-paths <(echo '^\.git/')   # commit SHAs are 40 hex
-                                                            # chars and match the
-                                                            # Cloudflare key shape
-```
-
-Excluding `.git` is not suppression of content — it is scanning the working
-tree rather than the object store, and it removed 18 of 19 findings here. The
-one that remains is the dotenv parser's connection-string fixture, reported
-unverified. Leaving it visible and triaged is the intended state; a gate that
-blocks should use `--results=verified`.
-
 Shared include and dependency check
 -----------------------------------
 
@@ -735,3 +686,52 @@ Two behaviours worth knowing before you automate anything:
 - The smoke test asserts the **version**, not just a 200. Give it
   `--status-path`; without one it only proves something answered, which is the
   failure it exists to catch, and it warns saying so.
+
+Secret scanning
+---------------
+
+`.gitleaksignore` carries one line per finding a person has looked at and
+accepted, as `path:rule:line`. Two entries today, both false positives on a
+variable *name* rather than a value: an empty `db_password=""` default, and a
+dummy tap token in a test whose whole point is asserting the token never
+reaches `argv` or `.git/config`.
+
+**Fingerprints, not allowlists, and that distinction is measured rather than
+assumed.** A `.gitleaks.toml` allowlist keyed on a path excludes that entire
+file from every rule — even with `condition = "AND"`, which reads as though it
+should narrow it. Two randomly generated secrets planted in the allowlisted
+files took this repository from 4 findings to **0**. The same two planted with
+the fingerprint file in place are still reported. A fingerprint names one rule
+at one line and cannot do anything else.
+
+So after editing that file, check it the only way that means anything:
+
+```bash
+# plant a random secret in one of the ignored files, confirm it is still caught
+printf '\napi_key="%s"\n' "$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 40)" \
+  >> scripts/ci_pimcore_bundle_check.sh
+docker run --rm -v "$PWD:/repo" -w /repo zricethezav/gitleaks:v8.30.0 \
+  detect --source=. --no-git --redact
+git checkout -- scripts/ci_pimcore_bundle_check.sh
+```
+
+Scan with `--source=.` rather than an absolute path: a fingerprint records the
+path as the scanner saw it, and `--source=/repo` writes `/repo/...` into it,
+which then matches nothing anywhere else.
+
+TruffleHog has no fingerprint file, and its only narrow control is a
+`trufflehog:ignore` comment on the offending line — which a line ending in a
+`\` continuation cannot carry. Rather than excluding whole paths, run it
+against the working tree and read the unverified results:
+
+```bash
+trufflehog filesystem . --exclude-paths <(echo '^\.git/')   # commit SHAs are 40 hex
+                                                            # chars and match the
+                                                            # Cloudflare key shape
+```
+
+Excluding `.git` is not suppression of content — it is scanning the working
+tree rather than the object store, and it removed 18 of 19 findings here. The
+one that remains is the dotenv parser's connection-string fixture, reported
+unverified. Leaving it visible and triaged is the intended state; a gate that
+blocks should use `--results=verified`.
