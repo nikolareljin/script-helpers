@@ -7,11 +7,11 @@ Centralized defaults for Docker images used by `scripts/ci_*.sh` helpers.
 All values can be overridden by setting the variable before invoking a script.
 
 ### Node.js
-- `CI_DEFAULT_NODE_VERSION` (default: `20-bullseye`)
+- `CI_DEFAULT_NODE_VERSION` (default: `24-bookworm`)
 - `CI_DEFAULT_NODE_IMAGE` (default: `node`)
 
 ### Python
-- `CI_DEFAULT_PYTHON_VERSION` (default: `3.11-slim`)
+- `CI_DEFAULT_PYTHON_VERSION` (default: `3.12-slim`)
 - `CI_DEFAULT_PYTHON_IMAGE` (default: `python`)
 
 ### Flutter

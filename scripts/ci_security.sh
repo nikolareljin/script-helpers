@@ -116,7 +116,7 @@ if [[ "$USE_DOCKER" == "true" ]]; then
     fi
     if [[ -n "$PYTHON_REQ" ]]; then
       # bash -c, not -lc: see ci_go.sh. A login shell replaces the image's PATH
-      # with /etc/profile's default. Measured 2026-09-22 on python:3.11-slim.
+      # with /etc/profile's default. Measured 2026-09-22 on python:3.12-slim.
       docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$ABS_WORKDIR":/work -w /work "$PY_IMAGE" \
         bash -c "python -m pip install --user --upgrade pip pip-audit safety bandit && export PATH=\"/tmp/.local/bin:\$PATH\" && pip-audit -r \"$PYTHON_REQ\" || true && safety check -r \"$PYTHON_REQ\" --full-report || true && bandit -r . -ll || true"
     else
@@ -124,7 +124,7 @@ if [[ "$USE_DOCKER" == "true" ]]; then
     fi
   fi
   if [[ "$SKIP_NODE" == "false" ]]; then
-    # bash -c, not -lc: see ci_go.sh. Measured 2026-09-22 on node:20-bullseye.
+    # bash -c, not -lc: see ci_go.sh. Measured 2026-09-22 on node:24-bookworm.
     docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -e NPM_CONFIG_CACHE=/tmp/.npm -v "$ABS_WORKDIR":/work -w /work "$NODE_IMAGE" \
       bash -c "$NODE_CMD" || true
   fi
