@@ -37,6 +37,41 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   which BSD grep reads literally rather than as alternation, so on macOS the
   assertion could never have matched and would have passed on any output.
 
+- **Every other Docker helper handed the container a login shell too (#886).**
+  `ci_go.sh` was fixed alone; this is the audit of the rest. Each was run
+  against its real default image on 2026-09-22 and the result recorded:
+
+  | helper | image | survived `-lc` |
+  |---|---|---|
+  | `ci_node.sh` | `node:20-bullseye` | yes |
+  | `ci_python.sh` | `python:3.11-slim` | yes |
+  | `ci_gradle.sh` | `gradle:8.7-jdk17` | yes |
+  | `ci_flutter.sh` | `ghcr.io/cirruslabs/flutter:3.38.8` | yes |
+  | `ci_security.sh` | both of the above | yes |
+
+  None were broken, so nothing was on fire. All are switched to `bash -c`
+  anyway: they survived because their toolchains happen to sit in directories
+  `/etc/profile` keeps, which is luck, and every one of these helpers takes an
+  `--image` override where that luck does not apply. A container already has
+  the environment its image set; a login shell there can only replace it.
+
+  The audit's own list was short. It named four helpers, found by grepping for
+  the `DOCKER_CMD+=(...)` shape. `ci_security.sh` builds its `docker run` inline
+  and carries two more, which that grep could not see. Six call sites, not four.
+
+  `tests/ci_docker_shell_test.sh` now reads the argv handed to `docker` rather
+  than the command string, which is what let this survive the first time. It
+  checks statically across every `scripts/ci_*.sh`, so a helper added later is
+  covered without anyone remembering to add it, and dynamically per helper
+  against a `docker` stand-in. An empty recording is a failure, not a pass.
+
+  Reviewing that test found two holes in it. Its static check keyed on the
+  literal `DOCKER_CMD`, so a helper assembling its argv under any other array
+  name evaded it and the test still reported OK; it now keys on any `DOCKER`
+  token. And it grepped for `bash` and for `-c` separately, which passes on an
+  argv where the two are unrelated; it now requires `-c` to be the argument
+  immediately after `bash`.
+
 - **`ci_go.sh` could not run in Docker mode at all, in any consumer.** Two
   defects in one `docker run`, each hiding the next.
 
@@ -323,7 +358,6 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   that copy would have silently removed the only check on it. A branch that
   announces itself as a release and then does not parse now fails, in CI and in
   the pre-commit hook alike.
-
 
 ### Fixed
 
