@@ -81,7 +81,7 @@ if [[ "$USE_DOCKER" == "true" ]]; then
   # image keeps its toolchain in /usr/local/go/bin, which the profile default
   # does not carry, so every run exited 127.
   #
-  # Measured 2026-09-22 against python:3.11-slim: the toolchain resolves under -c.
+  # Measured 2026-09-22 against python:3.12-slim: the toolchain resolves under -c.
   DOCKER_CMD+=("$IMAGE" bash -c)
 
   # Build a single command string so pip-installed packages persist within

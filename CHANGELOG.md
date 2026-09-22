@@ -23,6 +23,11 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   been overridable and neither helper gained a floor. Node 20 and Python 3.11
   remain supported, they are simply no longer what you get by default.
 
+  The four comments #886 added naming the image each helper was measured
+  against move with the defaults, in `ci_node.sh`, `ci_python.sh` and both legs
+  of `ci_security.sh`. A comment recording a measurement against an image the
+  helper no longer uses is worse than none: it reads as evidence.
+
 ### Fixed
 
 - **`ci_wp_plugin_check.sh` passed WP-CLI an argument it does not have (#81).**

@@ -87,7 +87,7 @@ if [[ "$USE_DOCKER" == "true" ]]; then
   # image keeps its toolchain in /usr/local/go/bin, which the profile default
   # does not carry, so every run exited 127.
   #
-  # Measured 2026-09-22 against node:20-bullseye: the toolchain resolves under -c.
+  # Measured 2026-09-22 against node:24-bookworm: the toolchain resolves under -c.
   DOCKER_CMD+=("$IMAGE" bash -c)
   if [[ "$NO_INSTALL" == "false" ]]; then
     log_info "$INSTALL_CMD"
