@@ -6,6 +6,30 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ### Fixed
 
+- **`ci_wp_plugin_check.sh` passed WP-CLI an argument it does not have (#81).**
+  Four `wp` invocations used `wp --config=<path>`, which WP-CLI refuses before
+  running anything:
+
+  ```
+  $ wp --config=/tmp/wp-cli.yml core version
+  Error: Parameter errors:
+   unknown --config parameter
+  ```
+
+  The supported mechanism is `WP_CLI_CONFIG_PATH`, which the helper already
+  exported on every `docker run` while also passing the argument that broke it.
+  Dropping the argument is the whole fix.
+
+  Not every command surfaces it: `wp cli version` accepts `--config` without
+  complaint, which is why this survived and why the new smoke test runs
+  `wp core version`.
+
+  `tests/ci_wp_plugin_check_test.sh` extracts the payload the helper actually
+  ships and runs it in `wordpress:cli`, so editing the helper cannot leave the
+  test passing against old text. It also asserts every invocation that writes a
+  config file exports the path to it: removing `--config` without that would
+  trade a loud failure for a silent one, with WP-CLI quietly using defaults.
+
 - **`ci_go.sh` could not run in Docker mode at all, in any consumer.** Two
   defects in one `docker run`, each hiding the next.
 
