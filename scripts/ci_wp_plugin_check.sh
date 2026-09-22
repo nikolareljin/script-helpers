@@ -377,8 +377,14 @@ def parse_file_sections(text):
     for index in range(1, len(parts) - 1, 2):
         path = parts[index]
         body = parts[index + 1].strip()
-        if body:
-            sections.append((path, json.loads(body)))
+        if not body:
+            continue
+        entries = json.loads(body)
+        if not isinstance(entries, list):
+            # Counting a dict here iterates its keys, so an object with three
+            # keys reported three errors.
+            raise ValueError(f"the section for {path} is not a list of entries")
+        sections.append((path, entries))
     return sections
 
 
@@ -394,13 +400,18 @@ if plugin_check.exists():
         # into a pass. It exited 5 here before this block could parse sections.
         parse_errors.append("plugin-check.json is empty; the check produced no output")
     elif raw is not None:
+        sections = None
         try:
             sections = parse_file_sections(raw)
-        except json.JSONDecodeError as exc:
-            sections = []
+        except (json.JSONDecodeError, ValueError) as exc:
             parse_errors.append(f"plugin-check.json has a FILE section that is not valid JSON: {exc}")
 
-        if sections:
+        if sections is None:
+            # The sections were there and did not parse. Falling through to the
+            # whole-document branch only adds a second, misleading message
+            # about the first line not being JSON.
+            pass
+        elif sections:
             file_count = len(sections)
             for _path, items in sections:
                 errors, warnings = count_entries(items)

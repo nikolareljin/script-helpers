@@ -75,6 +75,12 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   report in place to be parsed and reported as its own. Both now fail, and both
   have a test that was checked by breaking it.
 
+  Two smaller ones from the same review. A section body that is not a list was
+  counted by iterating it, so a three-key object reported three errors; it is
+  refused by name instead. And a section that failed to parse fell through to
+  the whole-document branch, printing a second, misleading message about the
+  first line not being JSON; one failure now reports once.
+
 
 - **`ci_wp_plugin_check.sh` passed WP-CLI an argument it does not have (#81).**
   Four `wp` invocations used `wp --config=<path>`, which WP-CLI refuses before

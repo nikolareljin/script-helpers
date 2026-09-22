@@ -117,6 +117,30 @@ else
   error "an empty report exited $rc, expected 5: $out"
 fi
 
+# 7) A section body that is not a list. Counting a dict iterates its keys, so
+#    a three-key object reported three errors.
+case_dir="$tmp/object"; mkdir -p "$case_dir"
+printf 'FILE: a.php\n{"a":1,"b":2,"c":3}\n' > "$case_dir/plugin-check.json"
+out="$(run_report "$case_dir" true)"; rc=$?
+if [[ $rc -eq 5 && "$out" == *"not a list of entries"* ]]; then
+  note "a non-list section is refused by name"
+else
+  error "a non-list section exited $rc: $out"
+fi
+
+# 8) One failure, one message. A failed section parse used to fall through to
+#    the whole-document branch and print a second, misleading error about the
+#    first line not being JSON.
+case_dir="$tmp/onemsg"; mkdir -p "$case_dir"
+printf 'FILE: a.php\n[{"type":"ERROR"}]\ntrailing note\n' > "$case_dir/plugin-check.json"
+out="$(run_report "$case_dir" true)"; rc=$?
+lines=$(grep -c "not valid JSON" <<<"$out")
+if [[ $rc -eq 5 && $lines -eq 1 ]]; then
+  note "a failed section parse reports once"
+else
+  error "expected exit 5 with one message, got exit $rc and $lines: $out"
+fi
+
 if [[ $failures -gt 0 ]]; then
   echo "[ci_wp_plugin_check_report_test] FAILED ($failures)" >&2
   exit 1
