@@ -30,6 +30,58 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ### Fixed
 
+- **`ci_wp_plugin_check.sh` threw away every plugin-check result (#88).**
+  `wp plugin check --format=json` does not emit one JSON document. It emits one
+  section per file:
+
+  ```
+  FILE: includes/foo.php
+  [{"line":33,"column":13,"type":"WARNING","code":"...","message":"..."}]
+  FILE: includes/bar.php
+  [...]
+  ```
+
+  The report block read the whole file with `json.loads`, so every run that had
+  findings ended with `plugin-check.json is not valid JSON` and exit 5. The
+  checks had run and produced results; the helper reported a parse failure
+  instead of them. Both the plugin slug and the plugin basename produce this
+  format, so no caller could avoid it.
+
+  Second defect in the same block: the whole-document fallback did
+  `error_count += len(data)`, counting every entry as an error. On the plugin
+  this was reproduced against that is 58 errors where there are 8; the other 50
+  are warnings. Entries are now counted by severity, and warnings are reported
+  without failing the build.
+
+  Against that plugin the helper now exits 4 with
+
+  ```
+  Plugin checks reported 8 error(s), 50 warning(s) across 12 file(s)
+  ```
+
+  where it previously exited 5 having parsed nothing.
+
+  `tests/ci_wp_plugin_check_report_test.sh` extracts the report block from the
+  script rather than retyping it, and asserts against a fixture of real output
+  from a twelve-file plugin, with the names replaced. It also asserts that
+  malformed input is still a parse failure: a parser that swallows everything
+  would be worse than the bug it replaces.
+
+  Two more found reviewing this change. Parsing sections lazily turned an empty
+  `plugin-check.json` into `No plugin-check errors detected` and exit 0, where
+  reading the whole file as JSON had exited 5: a checker that produced nothing
+  would have read as a clean run. And `out_dir` was only created, never
+  cleared, so a run whose check produced no output left the previous run's
+  report in place to be parsed and reported as its own. Both now fail, and both
+  have a test that was checked by breaking it.
+
+  Two smaller ones from the same review. A section body that is not a list was
+  counted by iterating it, so a three-key object reported three errors; it is
+  refused by name instead. And a section that failed to parse fell through to
+  the whole-document branch, printing a second, misleading message about the
+  first line not being JSON; one failure now reports once.
+
+
 - **`ci_wp_plugin_check.sh` passed WP-CLI an argument it does not have (#81).**
   Four `wp` invocations used `wp --config=<path>`, which WP-CLI refuses before
   running anything:

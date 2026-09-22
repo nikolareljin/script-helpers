@@ -47,7 +47,16 @@ else
   error "$wp_runs invocations write a config but only $wp_paths say where to read it"
 fi
 
-# 3. Smoke test: the payload the helper actually ships, run in the real image.
+# 3. Last run's reports must be cleared. out_dir persists between runs, and a
+#    run whose check produces nothing discards its output rather than
+#    installing it, so a stale file would be read as this run's findings.
+if grep -q 'rm -f "${out_dir}/plugin-check.json"' "$SCRIPT"; then
+  note "previous reports are cleared before the run"
+else
+  error "$SCRIPT never removes a previous plugin-check.json; stale findings would be reported as current"
+fi
+
+# 4. Smoke test: the payload the helper actually ships, run in the real image.
 #    Extracted from the script rather than retyped, so editing the helper
 #    without editing this test cannot leave the test passing on old text.
 payload="$(sed -n "s/.*sh -lc '\(.*\)' -- \"\\\$@\".*/\1/p" "$SCRIPT" | head -1)"
