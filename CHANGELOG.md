@@ -23,11 +23,12 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   been overridable and neither helper gained a floor. Node 20 and Python 3.11
   remain supported, they are simply no longer what you get by default.
 
-  The four comments the Docker login-shell audit added, each naming the image
-  its helper was measured against, move with the defaults: in `ci_node.sh`,
-  `ci_python.sh` and both legs of `ci_security.sh`. A comment recording a
-  measurement against an image the helper no longer uses is worse than none:
-  it reads as evidence.
+  Four of the six comments the Docker login-shell audit added, each naming the
+  image its helper was measured against, move with the defaults: in
+  `ci_node.sh`, `ci_python.sh` and both legs of `ci_security.sh`. The `gradle`
+  and `flutter` ones name images this change does not touch. A comment
+  recording a measurement against an image the helper no longer uses is worse
+  than none: it reads as evidence.
 
 ### Fixed
 
