@@ -2,6 +2,44 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## Unreleased
+
+### Fixed
+
+- **`ci_go.sh` could not run in Docker mode at all, in any consumer.** Two
+  defects in one `docker run`, each hiding the next.
+
+  It passed the command to `bash -lc`. A login shell sources `/etc/profile`,
+  which replaces `PATH` with its own default, and the `golang` image keeps the
+  toolchain in `/usr/local/go/bin` -- not in that default. Every run exited 127:
+
+  ```
+  docker run --rm golang:1.22 bash -c  'go version'  -> go version go1.22.12
+  docker run --rm golang:1.22 bash -lc 'go version'  -> bash: go: command not found
+  ```
+
+  A container takes its environment from the image, so the login shell had
+  nothing to add and one thing to destroy. The host path still uses `-l`, where
+  a developer's own profile is what puts `go` on `PATH`.
+
+  Fixing that revealed the second: the container runs as the host user, who has
+  no home inside it, so `HOME` is `/` and Go's build cache lands at `/.cache`.
+
+  ```
+  failed to initialize build cache at /.cache/go-build: mkdir /.cache: permission denied
+  ```
+
+  `GOMODCACHE` had been redirected for this reason years ago; `GOCACHE` was
+  missed, so the failure moved rather than went away. Both now point under
+  `/tmp`, and both are mounted from the host: the build cache is the one that
+  costs time, since compiling the dependency graph is most of a Go lint or test
+  run. On a real module here, 13s with a cold build cache against 2s with a warm
+  one.
+
+  `tests/ci_go_test.sh` reads the argv handed to `docker`, not just the command
+  string, and asserts the shell flag and both cache variables. No test read the
+  argv before, which is why a helper that could never work looked fine.
+
 ## 2026-09-21 — v0.32.0
 
 ### Fixed
