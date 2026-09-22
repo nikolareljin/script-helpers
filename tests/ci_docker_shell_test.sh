@@ -52,7 +52,10 @@ for script in scripts/ci_*.sh; do
       sub(/^[[:space:]]*/, "", line)
       if (line ~ /^#/) { cont = 0; next }
 
-      docker_ctx = ($0 ~ /docker run/ || $0 ~ /DOCKER_CMD/)
+      # Any DOCKER-ish token, not just DOCKER_CMD. A helper assembling its
+      # argv under another array name (DOCKER_RUN, DOCKER_ARGS) evaded this
+      # check entirely and the test still reported OK.
+      docker_ctx = ($0 ~ /docker run/ || $0 ~ /DOCKER/)
       if (docker_ctx || cont) {
         if ($0 ~ /bash[[:space:]]+-lc/) print NR "|" line
       }
@@ -110,8 +113,11 @@ run_case() {
     error "$name: no bash shell flag reached docker:"
     sed 's/^/    /' "$tmp/argv" >&2
   fi
-  if ! grep -qx -- 'bash' "$tmp/argv"; then
-    error "$name: 'bash' is not in the docker argv"
+  # bash must be the argument immediately before the flag. Grepping for each
+  # separately passes on an argv where they are unrelated.
+  if ! grep -A1 -x -- 'bash' "$tmp/argv" | grep -qx -- '-c'; then
+    error "$name: 'bash' is not immediately followed by -c in the docker argv:"
+    sed 's/^/    /' "$tmp/argv" >&2
   fi
 }
 

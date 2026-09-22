@@ -65,6 +65,13 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   covered without anyone remembering to add it, and dynamically per helper
   against a `docker` stand-in. An empty recording is a failure, not a pass.
 
+  Reviewing that test found two holes in it. Its static check keyed on the
+  literal `DOCKER_CMD`, so a helper assembling its argv under any other array
+  name evaded it and the test still reported OK; it now keys on any `DOCKER`
+  token. And it grepped for `bash` and for `-c` separately, which passes on an
+  argv where the two are unrelated; it now requires `-c` to be the argument
+  immediately after `bash`.
+
 - **`ci_go.sh` could not run in Docker mode at all, in any consumer.** Two
   defects in one `docker run`, each hiding the next.
 
