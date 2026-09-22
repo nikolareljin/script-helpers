@@ -308,6 +308,7 @@ if [[ "$fail_on_findings" == "true" ]]; then
   OUT_DIR="$out_dir" PLUGIN_CHECK_AVAILABLE="$plugin_check_available" python3 - <<'PY'
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -328,23 +329,95 @@ def load_json(path: Path, label: str):
         parse_errors.append(f"{label} could not be read: {exc}")
     return None
 
+ERROR_LEVELS = {"error", "critical", "fatal"}
+warning_count = 0
+file_count = 0
+
+
+def entry_level(item):
+    if not isinstance(item, dict):
+        return "error"
+    for key in ("severity", "level", "type"):
+        value = item.get(key)
+        if value:
+            return str(value).lower()
+    return "error"
+
+
+def count_entries(items):
+    """Return (errors, warnings) for one list of plugin-check entries."""
+    errors = warnings = 0
+    for item in items:
+        if entry_level(item) in ERROR_LEVELS:
+            errors += 1
+        else:
+            warnings += 1
+    return errors, warnings
+
+
+def parse_file_sections(text):
+    """`wp plugin check --format=json` writes one section per file:
+
+        FILE: includes/foo.php
+        [{"line": 33, "type": "WARNING", ...}]
+        FILE: includes/bar.php
+        [...]
+
+    It is not one JSON document, and reading it as one threw away every
+    result and reported a parse failure instead.
+    """
+    # Split on the headers rather than matching whole sections: one regex for
+    # both needs re.S, and then "." swallows the newlines that separate them.
+    parts = re.split(r"^FILE:[ \t]*(.+?)[ \t]*$", text, flags=re.M)
+    sections = []
+    for index in range(1, len(parts) - 1, 2):
+        path = parts[index]
+        body = parts[index + 1].strip()
+        if body:
+            sections.append((path, json.loads(body)))
+    return sections
+
+
 if plugin_check.exists():
-    data = load_json(plugin_check, "plugin-check.json")
-    if isinstance(data, dict):
-        if isinstance(data.get("errors"), int):
-            error_count += data.get("errors", 0)
-        for key in ("results", "issues", "messages"):
-            items = data.get(key)
-            if isinstance(items, list):
-                for item in items:
-                    if isinstance(item, dict):
-                        level = str(item.get("severity") or item.get("level") or item.get("type") or "").lower()
-                        if level in {"error", "critical", "fatal"}:
-                            error_count += 1
-                    else:
-                        error_count += 1
-    elif isinstance(data, list):
-        error_count += len(data)
+    try:
+        raw = plugin_check.read_text(encoding="utf-8")
+    except OSError as exc:
+        raw = None
+        parse_errors.append(f"plugin-check.json could not be read: {exc}")
+
+    if raw is not None and raw.strip():
+        try:
+            sections = parse_file_sections(raw)
+        except json.JSONDecodeError as exc:
+            sections = []
+            parse_errors.append(f"plugin-check.json has a FILE section that is not valid JSON: {exc}")
+
+        if sections:
+            file_count = len(sections)
+            for _path, items in sections:
+                errors, warnings = count_entries(items)
+                error_count += errors
+                warning_count += warnings
+        else:
+            # Older wp-cli, or a build that emits a single document.
+            data = load_json(plugin_check, "plugin-check.json")
+            if isinstance(data, dict):
+                if isinstance(data.get("errors"), int):
+                    error_count += data["errors"]
+                if isinstance(data.get("warnings"), int):
+                    warning_count += data["warnings"]
+                for key in ("results", "issues", "messages"):
+                    items = data.get(key)
+                    if isinstance(items, list):
+                        errors, warnings = count_entries(items)
+                        error_count += errors
+                        warning_count += warnings
+            elif isinstance(data, list):
+                # Counting the whole list as errors made every warning fail the
+                # build: 58 errors reported where 8 were errors and 50 warnings.
+                errors, warnings = count_entries(data)
+                error_count += errors
+                warning_count += warnings
 elif plugin_check_available:
     parse_errors.append("plugin-check.json was not created even though wp plugin check is available")
 
@@ -361,10 +434,14 @@ if parse_errors:
         print(message, file=sys.stderr)
     sys.exit(5)
 
+summary = f"{error_count} error(s), {warning_count} warning(s)"
+if file_count:
+    summary += f" across {file_count} file(s)"
+
 if error_count > 0:
-    print(f"Plugin checks reported {error_count} error(s)")
+    print(f"Plugin checks reported {summary}")
     sys.exit(4)
 
-print("No plugin-check errors detected.")
+print(f"No plugin-check errors detected ({summary}).")
 PY
 fi
