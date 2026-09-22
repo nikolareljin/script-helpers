@@ -189,6 +189,10 @@ if [[ -n "$php_lint_command" || -n "$phpcs_warning_command" || -n "$phpunit_comm
 fi
 
 mkdir -p "$out_dir"
+# Reports from a previous run, not this one. out_dir persists between runs, and
+# when `wp plugin check` produces nothing its output is discarded rather than
+# installed -- so without this the last run's findings are read as this run's.
+rm -f "${out_dir}/plugin-check.json" "${out_dir}/meta-check.json"
 wp_site_url="http://localhost:${host_port}"
 cat > "${out_dir}/wp-cli.yml" <<WPCLI
 path: /var/www/html
@@ -385,7 +389,11 @@ if plugin_check.exists():
         raw = None
         parse_errors.append(f"plugin-check.json could not be read: {exc}")
 
-    if raw is not None and raw.strip():
+    if raw is not None and not raw.strip():
+        # Reading it as "no findings" turns a checker that produced nothing
+        # into a pass. It exited 5 here before this block could parse sections.
+        parse_errors.append("plugin-check.json is empty; the check produced no output")
+    elif raw is not None:
         try:
             sections = parse_file_sections(raw)
         except json.JSONDecodeError as exc:

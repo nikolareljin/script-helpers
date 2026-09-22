@@ -105,6 +105,18 @@ else
   error "missing report exited $rc, expected 5: $out"
 fi
 
+# 6) An empty report is a failure, not a clean run. Parsing sections lazily
+#    made this exit 0 saying "No plugin-check errors detected", where reading
+#    the whole file as JSON had exited 5.
+case_dir="$tmp/empty"; mkdir -p "$case_dir"
+: > "$case_dir/plugin-check.json"
+out="$(run_report "$case_dir" true)"; rc=$?
+if [[ $rc -eq 5 ]]; then
+  note "an empty report is a failure, not a pass"
+else
+  error "an empty report exited $rc, expected 5: $out"
+fi
+
 if [[ $failures -gt 0 ]]; then
   echo "[ci_wp_plugin_check_report_test] FAILED ($failures)" >&2
   exit 1

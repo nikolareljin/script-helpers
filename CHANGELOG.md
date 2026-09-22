@@ -67,6 +67,14 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   malformed input is still a parse failure: a parser that swallows everything
   would be worse than the bug it replaces.
 
+  Two more found reviewing this change. Parsing sections lazily turned an empty
+  `plugin-check.json` into `No plugin-check errors detected` and exit 0, where
+  reading the whole file as JSON had exited 5: a checker that produced nothing
+  would have read as a clean run. And `out_dir` was only created, never
+  cleared, so a run whose check produced no output left the previous run's
+  report in place to be parsed and reported as its own. Both now fail, and both
+  have a test that was checked by breaking it.
+
 
 - **`ci_wp_plugin_check.sh` passed WP-CLI an argument it does not have (#81).**
   Four `wp` invocations used `wp --config=<path>`, which WP-CLI refuses before
