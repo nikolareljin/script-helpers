@@ -4,6 +4,25 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ## Unreleased
 
+### Changed
+
+- **Node default 20-bullseye -> 24-bookworm, Python default 3.11-slim ->
+  3.12-slim.** Both were set 2026-01-29 and Node 20 left active LTS since.
+  Node 24 is the current LTS line; `node:24` ships no bullseye variant, so the
+  base moves to bookworm with it.
+
+  Verified end to end through the helpers, not only by pulling the images:
+
+  ```
+  ci_node.sh   --test-cmd 'node --version'    -> v24.21.0     exit 0
+  ci_python.sh --test-cmd 'python --version'  -> Python 3.12.14  exit 0
+  ```
+
+  A consumer needing the old versions sets `CI_DEFAULT_NODE_VERSION` or
+  `CI_DEFAULT_PYTHON_VERSION`, or passes `--version`; both defaults have always
+  been overridable and neither helper gained a floor. Node 20 and Python 3.11
+  remain supported, they are simply no longer what you get by default.
+
 ### Fixed
 
 - **`ci_wp_plugin_check.sh` passed WP-CLI an argument it does not have (#81).**

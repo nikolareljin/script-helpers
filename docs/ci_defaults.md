@@ -49,8 +49,8 @@ export CI_DEFAULT_NODE_VERSION="22-bookworm"
 
 | Service   | Variable                       | Default       | Image                              |
 |-----------|--------------------------------|---------------|------------------------------------|
-| Node.js   | `CI_DEFAULT_NODE_VERSION`      | `20-bullseye` | `node:20-bullseye`                 |
-| Python    | `CI_DEFAULT_PYTHON_VERSION`    | `3.11-slim`   | `python:3.11-slim`                 |
+| Node.js   | `CI_DEFAULT_NODE_VERSION`      | `24-bookworm` | `node:24-bookworm`                 |
+| Python    | `CI_DEFAULT_PYTHON_VERSION`    | `3.12-slim`   | `python:3.12-slim`                 |
 | Flutter   | `CI_DEFAULT_FLUTTER_VERSION`   | `3.38.8`      | `ghcr.io/cirruslabs/flutter:3.38.8`|
 | Gradle    | `CI_DEFAULT_GRADLE_VERSION`    | `8.7-jdk17`   | `gradle:8.7-jdk17`                 |
 | Go        | `CI_DEFAULT_GO_VERSION`        | `1.22`        | `golang:1.22`                      |
@@ -148,7 +148,7 @@ For stronger guarantees, pin images to an immutable digest:
 To find the current digest for an image:
 
 ```bash
-docker manifest inspect node:20-bullseye | jq -r '.manifests[0].digest'
+docker manifest inspect node:24-bookworm | jq -r '.manifests[0].digest'
 # or
-docker pull node:20-bullseye && docker inspect node:20-bullseye | jq -r '.[0].RepoDigests[0]'
+docker pull node:24-bookworm && docker inspect node:24-bookworm | jq -r '.[0].RepoDigests[0]'
 ```
