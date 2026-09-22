@@ -53,8 +53,12 @@ fi
 payload="$(sed -n "s/.*sh -lc '\(.*\)' -- \"\\\$@\".*/\1/p" "$SCRIPT" | head -1)"
 if [[ -z "$payload" ]]; then
   error "could not extract the wp payload from $SCRIPT; the test would assert nothing"
-elif ! command -v docker >/dev/null 2>&1; then
-  error "docker is not available, so the smoke test did not run; the static checks above are not a substitute"
+elif ! docker info >/dev/null 2>&1; then
+  # The macOS runner has no Docker daemon, and the repository's convention for
+  # that is to skip rather than fail -- see docker_install_test.sh. The smoke
+  # test is not optional, it is enforced on the Linux leg, which has one. A
+  # host where docker exists but the run fails is a failure, not a skip.
+  note "SKIP the smoke test -- Docker is not usable on this host; the Linux leg is where it runs"
 else
   out="$(docker run --rm --entrypoint sh \
     -e WP_CLI_CONFIG_CONTENTS='color: false' \
@@ -63,7 +67,9 @@ else
   # `wp core version` on a container with no WordPress installed still fails,
   # and should: the assertion is about which failure. A parameter error means
   # the command never ran at all.
-  if grep -qi 'unknown --config parameter\|Parameter errors' <<<"$out"; then
+  # -E, not a BRE with \|: BSD grep does not read that as alternation, so on
+  # macOS the pattern would be taken literally and never match -- a false pass.
+  if grep -qiE 'unknown --config parameter|Parameter errors' <<<"$out"; then
     error "wp rejected the command before running it:"
     sed 's/^/    /' <<<"$out" >&2
   else

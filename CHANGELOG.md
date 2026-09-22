@@ -30,6 +30,13 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   config file exports the path to it: removing `--config` without that would
   trade a loud failure for a silent one, with WP-CLI quietly using defaults.
 
+  Two defects in that test, both found by CI rather than by reading it. It
+  failed the macOS leg, which has no Docker daemon, where the repository's
+  convention is to skip; the smoke test is still enforced on the Linux leg,
+  which has one. And it matched the expected error with a BRE using `\|`,
+  which BSD grep reads literally rather than as alternation, so on macOS the
+  assertion could never have matched and would have passed on any output.
+
 - **`ci_go.sh` could not run in Docker mode at all, in any consumer.** Two
   defects in one `docker run`, each hiding the next.
 
