@@ -70,7 +70,17 @@ for var in GOMODCACHE GOCACHE; do
   fi
 done
 
-# 4. The lint command still reaches the container intact.
+# 4. And both are mounted from the host, or every run is a cold one: the build
+#    cache is where the time goes, 13s against 2s on a real module here.
+for mount in /tmp/go-cache /tmp/go-build; do
+  if grep -q -- ":${mount}\$" "$tmp/argv" 2>/dev/null; then
+    note "${mount} is mounted from the host"
+  else
+    error "${mount} is not mounted; the cache would be discarded after every run"
+  fi
+done
+
+# 5. The lint command still reaches the container intact.
 got="$(cat "$tmp/cmd" 2>/dev/null)"
 want='go mod tidy && test -z "$(gofmt -l .)" && go vet ./...'
 if [[ "$got" == "$want" ]]; then
