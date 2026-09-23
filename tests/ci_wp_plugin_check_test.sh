@@ -86,6 +86,44 @@ else
   fi
 fi
 
+# 5. The exclusion flags must reach `wp plugin check`, and must be absent when
+#    nothing was asked for. `--exclude-files=` with an empty value makes
+#    plugin-check treat the empty string as a filename and skip nothing, which
+#    looks like it worked.
+argv_case() {   # <label> <expect: yes|no> [extra args...]
+  local label="$1" expect="$2"; shift 2
+  local dir; dir="$(mktemp -d)"
+  mkdir -p "$dir/bin" "$dir/proj"
+  # The helper refuses a compose file that is not there, before it ever builds
+  # the check command. A stub is enough: docker is the stand-in below.
+  printf 'services:\n  wpcli:\n    image: wordpress:cli\n' > "$dir/compose.yml"
+  cat > "$dir/bin/docker" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$@" >> "$dir/argv"
+EOF
+  chmod +x "$dir/bin/docker"
+  : > "$dir/argv"
+  PATH="$dir/bin:$PATH" bash "$SCRIPT" \
+    --compose-file "$dir/compose.yml" --plugin-slug "p/p.php" \
+    --plugin-src "$dir/proj" --out-dir "$dir/out" --db-wait-seconds 1 \
+    --cleanup false "$@" >/dev/null 2>&1
+
+  local found=no
+  grep -q -- '--exclude-directories=' "$dir/argv" 2>/dev/null && found=yes
+  if [[ "$found" == "$expect" ]]; then
+    note "$label: exclusion flag present=$found, as expected"
+  else
+    error "$label: exclusion flag present=$found, expected $expect"
+  fi
+  if [[ "$expect" == "no" ]] && grep -qE -- '--exclude-(files|directories)=$' "$dir/argv" 2>/dev/null; then
+    error "$label: an empty exclusion flag was passed; plugin-check would skip nothing"
+  fi
+  rm -rf "$dir"
+}
+
+argv_case "with exclusions" yes --exclude-directories "vendor,test" --exclude-files ".gitignore"
+argv_case "without exclusions" no
+
 if [[ $failures -gt 0 ]]; then
   echo "[ci_wp_plugin_check_test] FAILED ($failures)" >&2
   exit 1
