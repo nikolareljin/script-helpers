@@ -108,6 +108,15 @@ EOF
     --plugin-src "$dir/proj" --out-dir "$dir/out" --db-wait-seconds 1 \
     --cleanup false "$@" >/dev/null 2>&1
 
+  # The run must have reached `wp plugin check` at all. Asserting only that a
+  # flag is absent passes just as well when the helper died before that step,
+  # and `[[ -n "$x" ]] && arr+=(...)` under `set -e` is exactly that shape.
+  if grep -qx -- 'check' "$dir/argv" 2>/dev/null; then
+    note "$label: the run reached wp plugin check"
+  else
+    error "$label: the run never reached wp plugin check, so the flag assertions prove nothing"
+  fi
+
   # Both flags, separately. Asserting only one meant the other could be
   # dropped entirely with the suite still green -- checked by doing it.
   local flag found

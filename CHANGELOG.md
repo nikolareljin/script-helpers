@@ -37,6 +37,12 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   `docs/usage.md` gains them on the `--plugin-src .` example, which is the case
   that produces the finding.
 
+  The same review found the negative case could pass vacuously: asserting a
+  flag is absent is equally true when the helper died before reaching
+  `wp plugin check`, and `[[ -n "$x" ]] && arr+=(...)` under `set -e` is that
+  shape. Both cases now assert the run got there, checked by making it exit
+  early.
+
 ## 2026-09-22 — v0.33.0
 
 ### Changed
