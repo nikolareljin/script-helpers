@@ -609,8 +609,21 @@ Use a compose file from the consuming repository; `test/docker-compose.yml` belo
   --wpcli-service wpcli \
   --wordpress-service wordpress \
   --db-service db \
-  --out-dir test/tmp
+  --out-dir test/tmp \
+  --exclude-directories ".script-helpers,vendor,node_modules,test" \
+  --exclude-files ".gitignore,.gitattributes"
 ```
+
+`--plugin-src .` scans the repository, and a repository is more than the
+plugin. `wp plugin check` reports every file it is given, so a `vendor/` tree,
+a `test/` harness and the dotfiles git needs all become findings -- the
+`hidden_files` check fires once per file under a dot directory. Exclude what is
+not shipped.
+
+The `.script-helpers` entry matters when this runs from `ci-helpers`'
+`wp-plugin-check.yml`, which clones this library into the caller's workspace.
+On one plugin that alone was 145 of 146 errors. Both options default to empty,
+so a caller scanning an already-packaged plugin passes neither.
 
 Common snippets
 ---------------

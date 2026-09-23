@@ -108,13 +108,18 @@ EOF
     --plugin-src "$dir/proj" --out-dir "$dir/out" --db-wait-seconds 1 \
     --cleanup false "$@" >/dev/null 2>&1
 
-  local found=no
-  grep -q -- '--exclude-directories=' "$dir/argv" 2>/dev/null && found=yes
-  if [[ "$found" == "$expect" ]]; then
-    note "$label: exclusion flag present=$found, as expected"
-  else
-    error "$label: exclusion flag present=$found, expected $expect"
-  fi
+  # Both flags, separately. Asserting only one meant the other could be
+  # dropped entirely with the suite still green -- checked by doing it.
+  local flag found
+  for flag in --exclude-directories --exclude-files; do
+    found=no
+    grep -q -- "${flag}=" "$dir/argv" 2>/dev/null && found=yes
+    if [[ "$found" == "$expect" ]]; then
+      note "$label: ${flag} present=$found, as expected"
+    else
+      error "$label: ${flag} present=$found, expected $expect"
+    fi
+  done
   if [[ "$expect" == "no" ]] && grep -qE -- '--exclude-(files|directories)=$' "$dir/argv" 2>/dev/null; then
     error "$label: an empty exclusion flag was passed; plugin-check would skip nothing"
   fi

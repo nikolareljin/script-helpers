@@ -29,6 +29,14 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   asserts both the flag reaching `docker` and its absence when nothing was
   asked for, and both were checked by breaking them.
 
+  Reviewing that test found it asserted `--exclude-directories` only, so the
+  `--exclude-files` passthrough could be deleted outright with the suite still
+  green. Verified by deleting it. Both flags are asserted separately now, and
+  removing either fails.
+
+  `docs/usage.md` gains them on the `--plugin-src .` example, which is the case
+  that produces the finding.
+
 ## 2026-09-22 — v0.33.0
 
 ### Changed
