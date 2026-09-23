@@ -2,6 +2,47 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## Unreleased
+
+### Added
+
+- **`ci_wp_plugin_check.sh` takes `--exclude-directories` and `--exclude-files`,
+  passed through to `wp plugin check`.** The check runs against whatever is in
+  the plugin directory, and for a repository checkout that is more than the
+  plugin. `ci-helpers`' `wp-plugin-check.yml` clones this library to
+  `.script-helpers` inside the caller's workspace, which is usually the plugin
+  source, so every file of it was scanned and `hidden_files` fired once each:
+
+  ```
+  without .script-helpers   1 error,   10 files
+  with .script-helpers      146 errors, 155 files
+  with it, excluded         0 errors,    9 files
+  ```
+
+  Measured on a real plugin. The middle row is exactly what that plugin's CI
+  reported, so the reproduction is the same defect and not a lookalike.
+
+  Both default to empty: a caller scanning a packaged plugin wants everything
+  checked. The flags are built as an array, so an empty value passes no flag at
+  all -- `--exclude-files=` with nothing after it makes plugin-check treat the
+  empty string as a filename and skip nothing, which reads as working. A test
+  asserts both the flag reaching `docker` and its absence when nothing was
+  asked for, and both were checked by breaking them.
+
+  Reviewing that test found it asserted `--exclude-directories` only, so the
+  `--exclude-files` passthrough could be deleted outright with the suite still
+  green. Verified by deleting it. Both flags are asserted separately now, and
+  removing either fails.
+
+  `docs/usage.md` gains them on the `--plugin-src .` example, which is the case
+  that produces the finding.
+
+  The same review found the negative case could pass vacuously: asserting a
+  flag is absent is equally true when the helper died before reaching
+  `wp plugin check`, and `[[ -n "$x" ]] && arr+=(...)` under `set -e` is that
+  shape. Both cases now assert the run got there, checked by making it exit
+  early.
+
 ## 2026-09-22 — v0.33.0
 
 ### Changed
