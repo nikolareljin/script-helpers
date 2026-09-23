@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 340" width="1200" height="340" role="img" aria-labelledby="t d">
   <title id="t">script-helpers</title>
-  <desc id="d">Reusable Bash and PowerShell helpers: logging, docker, dialog, files, JSON, ports, devices, packaging. 36 Bash modules, 29 PowerShell mirrors, runs unchanged on the bash 3.2 macOS ships.</desc>
+  <desc id="d">Reusable Bash and PowerShell helpers: logging, docker, dialog, files, JSON, ports, devices, packaging. 37 Bash modules, 29 PowerShell mirrors, runs unchanged on the bash 3.2 macOS ships.</desc>
   <!--
     Hero banner for the README and the documentation site.
 
@@ -66,7 +66,7 @@
   <!-- Facts. Counted at 0.30.0. -->
   <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17">
     <rect x="290" y="258" width="180" height="34" rx="6" fill="#11161f" stroke="#222a36"/>
-    <text x="304" y="281" fill="#e3b341">36</text>
+    <text x="304" y="281" fill="#e3b341">37</text>
     <text x="333" y="281" fill="#8b98a8">Bash modules</text>
 
     <rect x="484" y="258" width="241" height="34" rx="6" fill="#11161f" stroke="#222a36"/>

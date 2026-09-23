@@ -58,6 +58,7 @@ Modules overview
 - deps — install utilities and AI Runner tooling profile.
 - json — escape strings, extract fields, markdown-friendly formatting.
 - svg — rasterize SVG artwork to square PNGs and icon-size sets.
+- webshot: web page screenshots from a JSON spec (login, actions, element clips) and HTML-to-PDF, with Playwright.
 - python — resolve Python 3 executables and ensure local virtualenvs.
 - ports — list port listeners, detect conflicts from env variables.
 - version — semantic version helpers for bumping and comparing.

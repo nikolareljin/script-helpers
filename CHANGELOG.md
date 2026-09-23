@@ -68,6 +68,21 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   failed the whole run with `port is already allocated`, for a port nothing was
   going to use. It is published only for a host run now.
 
+- **`webshot` module and `bin/webshot`: screenshots of a web app and
+  HTML-to-PDF, with Playwright.** `webshot_capture <spec.json> <out_dir>` reads a
+  list of pages from a JSON spec, logs in once per auth profile (an API token
+  written to `localStorage`, or a form filled in), runs clicks and fills, hides
+  elements such as dev banners, and saves the viewport, the whole page or one
+  element as a PNG, plus a `manifest.json` with sizes and any console errors.
+  `webshot_pdf` prints an HTML file to PDF with backgrounds and an optional
+  page-number footer. Playwright lives in a venv under
+  `~/.cache/nr-webshot`, created by `webshot_ensure`, never in the repository.
+  `${VAR}` in a spec is expanded from the environment so credentials stay out of
+  spec files. Exit codes follow the library: 2 for a bad spec, 3 when Playwright
+  is missing. `tests/webshot_test.sh` checks arguments and the spec everywhere
+  and, where Playwright is installed, renders a fixture page and checks the
+  element clip size, the hide rule, an action's effect and a PDF.
+
 ## 2026-09-23 — v0.34.0
 
 ### Added
