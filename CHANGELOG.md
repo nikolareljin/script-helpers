@@ -57,6 +57,12 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   refused with what to pass instead, rather than failing later as a connection
   refused with nothing to say why.
 
+  The test container runs as the invoking user. PHPUnit writes
+  `.phpunit.cache` into the working directory, and owned by root it cannot be
+  deleted afterwards without Docker -- the same undeletable tree this session
+  produced twice by other means. `--docker-user ""` restores the image default
+  for an image that needs root to install extensions.
+
   A third: the database port was published to the host even when the tests run
   in a container and reach it by name. Anything else holding that port then
   failed the whole run with `port is already allocated`, for a port nothing was

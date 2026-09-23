@@ -151,6 +151,33 @@ else
   error "the port was not published for a host run, so the tests cannot reach the database"
 fi
 
+# 9. The test container runs as the invoking user by default. PHPUnit writes
+#    .phpunit.cache into the working directory; owned by root it cannot be
+#    deleted afterwards without Docker, which leaves undeletable files in the
+#    caller's repository.
+: > "$tmp/argv"
+PATH="$tmp/bin:$PATH" bash "$SCRIPT" \
+  --skip-provision true --wp-tests-dir "$tmp/lib" --wp-core-dir "$tmp/core" \
+  --workdir "$tmp/proj" --php-image php:8.3-cli --db-host db.example \
+  --test-command 'true' >/dev/null 2>&1
+if grep -qx -- '-u' "$tmp/argv" && grep -qx -- "$(id -u):$(id -g)" "$tmp/argv"; then
+  note "the test container runs as the invoking user"
+else
+  error "no -u reached docker; files written into the workdir would be root-owned"
+fi
+
+# And the escape hatch, for an image that needs root to install extensions.
+: > "$tmp/argv"
+PATH="$tmp/bin:$PATH" bash "$SCRIPT" \
+  --skip-provision true --wp-tests-dir "$tmp/lib" --wp-core-dir "$tmp/core" \
+  --workdir "$tmp/proj" --php-image php:8.3-cli --db-host db.example \
+  --docker-user "" --test-command 'true' >/dev/null 2>&1
+if grep -qx -- '-u' "$tmp/argv"; then
+  error "--docker-user '' still passed -u"
+else
+  note "--docker-user '' runs as the image default"
+fi
+
 if [[ $failures -gt 0 ]]; then
   echo "[ci_wp_phpunit_test] FAILED ($failures)" >&2
   exit 1

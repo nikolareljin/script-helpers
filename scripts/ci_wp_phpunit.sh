@@ -18,6 +18,8 @@
 #   --workdir <path>              Plugin directory to run the tests from (default: .).
 #   --php-image <image>           Run the tests in this PHP image instead of on the host. Empty
 #                                 uses the host's PHP (default: empty).
+#   --docker-user <user>          User for --php-image, as uid:gid or a name. Empty runs as the
+#                                 image's default, usually root (default: the invoking user).
 #   --test-command <command>      Command that runs the tests (default: ./vendor/bin/phpunit).
 #   --skip-provision <true|false> Reuse an existing test library rather than downloading (default: false).
 #   -h, --help                    Show this help message.
@@ -60,6 +62,7 @@ db_image=""
 db_wait_seconds="60"
 workdir="."
 php_image=""
+docker_user="$(id -u):$(id -g)"
 test_command="./vendor/bin/phpunit"
 skip_provision="false"
 
@@ -78,6 +81,7 @@ while [[ $# -gt 0 ]]; do
     --db-wait-seconds) db_wait_seconds="$2"; shift 2 ;;
     --workdir) workdir="$2"; shift 2 ;;
     --php-image) php_image="$2"; shift 2 ;;
+    --docker-user) docker_user="$2"; shift 2 ;;
     --test-command) test_command="$2"; shift 2 ;;
     --skip-provision) skip_provision="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -320,7 +324,18 @@ if [[ -z "$php_image" ]]; then
   )
 else
   abs_workdir="$(cd "$workdir" && pwd -P)"
+  # As the invoking user, not root. PHPUnit writes .phpunit.cache into the
+  # working directory; owned by root it cannot be deleted afterwards without
+  # Docker, which leaves undeletable files in the caller's repository.
+  # HOME with it: a uid the image does not know has no home, and composer and
+  # phpunit both want somewhere to write.
+  user_args=()
+  if [[ -n "$docker_user" ]]; then
+    user_args=(-u "$docker_user" -e HOME=/tmp)
+  fi
+
   docker_args=(docker run --rm -t
+    ${user_args[@]+"${user_args[@]}"}
     -v "${abs_workdir}":/work
     -v "${wp_tests_dir}":/wp-tests
     -v "${wp_core_dir}":/wp-core
