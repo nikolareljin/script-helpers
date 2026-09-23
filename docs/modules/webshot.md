@@ -42,8 +42,9 @@ Functions
   - Args: path to a spec file (format below) and an output directory, created if missing.
   - Returns: 0; 1 when a login, navigation, action or selector fails; 2 for a missing or invalid spec;
     3 without Playwright.
-  - Env: `${VAR}` references inside the spec are expanded from the environment, so credentials stay out
-    of spec files.
+  - Env: `${VAR}` references in `base_url`, auth profiles, shot `path`/`url` and action `value`s are
+    expanded from the environment, so credentials and IDs stay out of spec files. Selectors and `eval`
+    code are never expanded, so a JavaScript template literal is left as written.
   - Example: `APP_PASSWORD=... webshot_capture docs/shots.json build/shots`
 
 - `webshot_pdf input.html output.pdf [--format Letter|A4|A3|Legal|Tabloid] [--landscape] [--footer TEXT] [--wait-ms N]`

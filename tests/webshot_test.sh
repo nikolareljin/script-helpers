@@ -92,7 +92,8 @@ if py="$(webshot_python 2>/dev/null)"; then
     {"name": "card", "url": "$fixture", "selector": "[data-shot=card]", "padding": 4,
      "actions": [{"fill": "#name", "value": "\${WEBSHOT_TEST_VALUE}"}, {"click": "#reveal"},
                  {"wait_for": "#extra"},
-                 {"eval": "() => { if (document.querySelector('#name').value !== 'expanded') throw new Error('env not expanded') }"}]}
+                 {"eval": "() => { if (document.querySelector('#name').value !== 'expanded') throw new Error('env not expanded') }"},
+                 {"eval": "() => { if ('\${HOME}' !== '$' + '{HOME}') throw new Error('eval code was expanded') }"}]}
   ]
 }
 EOF

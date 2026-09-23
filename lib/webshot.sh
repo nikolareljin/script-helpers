@@ -181,6 +181,31 @@ def expand(value):
     return value
 
 
+def expand_spec(spec):
+    """Expand ${VAR} only where data goes: URLs, auth profiles and filled-in values.
+    Selectors and eval code are left alone, so a JS template literal stays intact."""
+    def steps(items):
+        return [dict(s, value=expand(s["value"])) if "value" in s else s for s in items or []]
+
+    spec = dict(spec)
+    if "base_url" in spec:
+        spec["base_url"] = expand(spec["base_url"])
+    spec["auth"] = {
+        name: dict(expand({k: v for k, v in prof.items() if k != "steps"}), steps=steps(prof.get("steps")))
+        for name, prof in (spec.get("auth") or {}).items()
+    }
+    shots = []
+    for shot in spec["shots"]:
+        shot = dict(shot)
+        for key in ("path", "url"):
+            if key in shot:
+                shot[key] = expand(shot[key])
+        shot["actions"] = steps(shot.get("actions"))
+        shots.append(shot)
+    spec["shots"] = shots
+    return spec
+
+
 def dig(data, path):
     for part in path.split("."):
         if isinstance(data, list) and part.isdigit():
@@ -273,7 +298,7 @@ def capture():
     except (OSError, ValueError) as exc:
         fail(2, f"cannot read spec {spec_path}: {exc}")
     validate(spec)
-    spec = expand(spec)
+    spec = expand_spec(spec)
 
     base = spec.get("base_url", "")
     timeout = int(spec.get("timeout_ms", 15000))

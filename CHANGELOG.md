@@ -77,8 +77,9 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   `webshot_pdf` prints an HTML file to PDF with backgrounds and an optional
   page-number footer. Playwright lives in a venv under
   `~/.cache/nr-webshot`, created by `webshot_ensure`, never in the repository.
-  `${VAR}` in a spec is expanded from the environment so credentials stay out of
-  spec files. Exit codes follow the library: 2 for a bad spec, 3 when Playwright
+  `${VAR}` in URLs, auth profiles and filled-in values is expanded from the
+  environment so credentials stay out of spec files; selectors and `eval` code
+  are left as written. Exit codes follow the library: 2 for a bad spec, 3 when Playwright
   is missing. `tests/webshot_test.sh` checks arguments and the spec everywhere
   and, where Playwright is installed, renders a fixture page and checks the
   element clip size, the hide rule, an action's effect and a PDF.
