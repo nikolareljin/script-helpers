@@ -161,16 +161,29 @@ start_database() {
     docker network create "$db_network" >/dev/null
     net_args=(--network "$db_network")
   fi
-  log_info "Starting ${db_image} as ${db_container} on ${db_host}:${db_port}"
+  # Publish the port only when the tests run on the host and need to reach it.
+  # With --php-image they reach the database by container name on the shared
+  # network, and publishing anyway fails the whole run with "port is already
+  # allocated" whenever something else holds that port -- for a port nothing
+  # was going to use.
+  local publish=()
+  if [[ -z "$php_image" ]]; then
+    publish=(-p "${db_host}:${db_port}:3306")
+    log_info "Starting ${db_image} as ${db_container} on ${db_host}:${db_port}"
+  else
+    log_info "Starting ${db_image} as ${db_container} on the ${db_network} network"
+  fi
+
   # ${arr[@]+"${arr[@]}"}: bash 3.2, which macOS still ships, treats an empty
-  # array as an unbound variable under `set -u`. net_args is empty whenever
-  # --db-image is used without --php-image.
-  docker run -d --name "$db_container" ${net_args[@]+"${net_args[@]}"} \
+  # array as an unbound variable under `set -u`. Both arrays are empty in one
+  # mode or the other.
+  docker run -d --name "$db_container" \
+    ${net_args[@]+"${net_args[@]}"} \
+    ${publish[@]+"${publish[@]}"} \
     -e MYSQL_DATABASE="$db_name" \
     -e MYSQL_USER="$db_user" \
     -e MYSQL_PASSWORD="$db_password" \
     -e MYSQL_ROOT_PASSWORD="root" \
-    -p "${db_host}:${db_port}:3306" \
     "$db_image" >/dev/null
 
   # Poll rather than sleep: the image is ready when it answers, and a fixed

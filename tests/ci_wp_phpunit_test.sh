@@ -126,6 +126,31 @@ else
   error "a loopback database with --php-image was accepted: $out"
 fi
 
+# 8. The database port is published only when the tests run on the host. With
+#    --php-image they reach it by container name, and publishing anyway fails
+#    the whole run with "port is already allocated" for a port nothing needed.
+: > "$tmp/argv"
+PATH="$tmp/bin:$PATH" bash "$SCRIPT" \
+  --skip-provision true --db-image mysql:8.0 --db-wait-seconds 0 --db-port 3999 \
+  --wp-tests-dir "$tmp/lib" --wp-core-dir "$tmp/core" \
+  --workdir "$tmp/proj" --php-image php:8.3-cli --test-command 'true' >/dev/null 2>&1
+if grep -q -- '3999:3306' "$tmp/argv" 2>/dev/null; then
+  error "the port is published even though the tests run in a container"
+else
+  note "no port is published when the tests run in a container"
+fi
+
+: > "$tmp/argv"
+PATH="$tmp/bin:$PATH" bash "$SCRIPT" \
+  --skip-provision true --db-image mysql:8.0 --db-wait-seconds 0 --db-port 3999 \
+  --wp-tests-dir "$tmp/lib" --wp-core-dir "$tmp/core" \
+  --workdir "$tmp/proj" --test-command 'true' >/dev/null 2>&1
+if grep -q -- '3999:3306' "$tmp/argv" 2>/dev/null; then
+  note "the port is published when the tests run on the host"
+else
+  error "the port was not published for a host run, so the tests cannot reach the database"
+fi
+
 if [[ $failures -gt 0 ]]; then
   echo "[ci_wp_phpunit_test] FAILED ($failures)" >&2
   exit 1

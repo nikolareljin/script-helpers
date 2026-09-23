@@ -57,6 +57,11 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   refused with what to pass instead, rather than failing later as a connection
   refused with nothing to say why.
 
+  A third: the database port was published to the host even when the tests run
+  in a container and reach it by name. Anything else holding that port then
+  failed the whole run with `port is already allocated`, for a port nothing was
+  going to use. It is published only for a host run now.
+
 ## 2026-09-23 — v0.34.0
 
 ### Added
