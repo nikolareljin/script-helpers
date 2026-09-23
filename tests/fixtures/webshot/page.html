@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webshot fixture</title>
+<style>
+  @page { size: Letter; margin: 15mm; }
+  body { font-family: sans-serif; margin: 0; background: #f4f6f8; }
+  #banner { background: #c0392b; color: #fff; padding: 12px; }
+  #card { margin: 40px; width: 300px; padding: 20px; background: #fff; border: 1px solid #ccd; }
+  #extra { display: none; }
+  #extra.shown { display: block; }
+</style>
+</head>
+<body>
+<div id="banner">This banner is hidden in captures</div>
+<h1>Fixture</h1>
+<div id="card" data-shot="card">
+  <p>Card content</p>
+  <input id="name" placeholder="name">
+  <button id="reveal" onclick="document.getElementById('extra').classList.add('shown')">Reveal</button>
+  <p id="extra">Revealed by an action</p>
+</div>
+<script>
+  window.localStorage.getItem("token") && document.body.setAttribute("data-token", window.localStorage.getItem("token"));
+</script>
+</body>
+</html>

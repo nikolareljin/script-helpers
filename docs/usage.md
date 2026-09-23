@@ -79,6 +79,16 @@ Bundled CLIs
   `uninstall <serial> <package>`. Run `scripts/adb_tool.sh --help` for details.
   See [`modules/adb.md`](modules/adb.md).
 
+- `bin/webshot`: screenshots of a running web app and HTML-to-PDF, with Playwright.
+  `bin/webshot ensure` installs Playwright into a cached venv once;
+  `bin/webshot capture <spec.json> <out_dir>` saves one PNG per page listed in the
+  spec (login profiles, clicks and fills before the capture, element clips, hidden
+  elements, `${VAR}` expansion for credentials) plus a `manifest.json`;
+  `bin/webshot pdf <in.html> <out.pdf> [--format Letter|A4] [--footer TEXT]` prints
+  a document with backgrounds and page numbers. Keep the spec next to the app so the
+  same screenshots can be rebuilt after every UI change.
+  See [`modules/webshot.md`](modules/webshot.md).
+
 - `scripts/prune_branches.sh` — removes branches whose work has already landed,
   including the squash and rebase merges `git branch --merged` cannot see, and
   only when the branch gained nothing afterwards. A dry run by default; `--apply`
