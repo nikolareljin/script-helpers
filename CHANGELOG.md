@@ -2,6 +2,72 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## Unreleased
+
+### Added
+
+- **`ci_wp_phpunit.sh`: a WordPress plugin's tests, in CI or on a laptop.** A
+  plugin's `tests/bootstrap.php` is written against the WordPress test library,
+  which expects `WP_TESTS_DIR` to hold `includes/functions.php` and a
+  `wp-tests-config.php` naming a real database. Plugins carry a
+  `bin/install-wp-tests.sh` to provide that; this replaces it, so the same
+  provisioning runs in both places rather than once in CI and once by hand.
+
+  Library and core come from one `wordpress-develop` tarball, so they cannot
+  disagree about the version under test. Those tags are always `X.Y.Z`, so a
+  bare minor like `7.1` is resolved to its newest patch: requesting it as a tag
+  answers 404 with a message about a missing ref, which says nothing about
+  versions.
+
+  `--db-image` starts the database in Docker and removes it on exit.
+  `--php-image` runs the tests in a PHP container. With both, nothing is needed
+  on the machine but Docker:
+
+  ```
+  PHPUnit 9.6.37
+  ..                                    2 / 2 (100%)
+  OK (2 tests, 2 assertions)
+  ```
+
+  That is a real run with no PHP and no MySQL on the host. The two containers
+  share a user-defined network and the database is addressed by container name,
+  rather than `--network host`, which would only work on Linux. The config
+  therefore names the database differently depending on where the tests run;
+  writing `127.0.0.1` and then running them in a container points them at the
+  container itself.
+
+  `--wp-tests-dir` and `--wp-core-dir` reach `rm -rf`, so they must be absolute
+  and `/` and the working directory are refused: `--wp-tests-dir .` would
+  otherwise delete the plugin under test. `--skip-provision` refuses to proceed
+  when the library it is told to reuse is absent, because reporting success
+  over a missing test library is how a green run comes to mean nothing.
+
+  Readiness is polled rather than slept for. A fixed sleep is either too short
+  on a loaded machine or wasted time on a fast one.
+
+  Two defects found reviewing it, neither visible on the machine it was written
+  on. `"${arr[@]}"` on an empty array is an unbound variable under `set -u` in
+  bash 3.2, which macOS ships, and that array is empty whenever `--db-image` is
+  used without `--php-image` -- so it would have failed on macOS only. The
+  repository's own `${arr[@]+"${arr[@]}"}` idiom fixes it, and the bash 3.2
+  gate now covers that path: the earlier cases never reached `start_database`.
+
+  And `--php-image` with a database that is not ours wrote `127.0.0.1` into the
+  config, which inside a container is that container. The combination is
+  refused with what to pass instead, rather than failing later as a connection
+  refused with nothing to say why.
+
+  The test container runs as the invoking user. PHPUnit writes
+  `.phpunit.cache` into the working directory, and owned by root it cannot be
+  deleted afterwards without Docker -- the same undeletable tree this session
+  produced twice by other means. `--docker-user ""` restores the image default
+  for an image that needs root to install extensions.
+
+  A third: the database port was published to the host even when the tests run
+  in a container and reach it by name. Anything else holding that port then
+  failed the whole run with `port is already allocated`, for a port nothing was
+  going to use. It is published only for a host run now.
+
 ## 2026-09-23 — v0.34.0
 
 ### Added
