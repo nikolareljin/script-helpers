@@ -2,6 +2,44 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## [Unreleased]
+
+### Added
+
+- **`ci_wp_build.sh`: the package a plugin ships, built the same way everywhere.**
+  What ships is not what is in the repository. A plugin needs its production
+  dependencies vendored and its front-end assets built, and everything that
+  exists only to develop it left out. Doing that per plugin is how two of them
+  end up shipping different things.
+
+  It reads the version from the plugin header, runs `composer install --no-dev`
+  and an asset build when there is a `package.json`, stages the tree with rsync
+  and writes `<slug>-<version>.zip`:
+
+  ```
+  [INFO] Building my-plugin 1.1.0
+  [INFO] Production dependencies (php:8.3-cli): composer install --no-dev --optimize-autoloader --prefer-dist
+  [INFO] Front-end assets: skipped (no package.json)
+  [INFO] No .distignore; excluding: .git .github .gitignore ... composer.lock package-lock.json build
+  [INFO] Staged 56 file(s) in /src/build/my-plugin
+  [INFO] Wrote /src/build/my-plugin-1.1.0.zip (56K)
+  ```
+
+  Excludes come from `.distignore` when the plugin has one, which is what
+  WordPress tooling already reads, so a plugin does not learn a new file for
+  this. Without one a default list applies and is named in the log, because a
+  silent exclusion is worse than a wrong one. `.distignore` replaces that list
+  rather than adding to it.
+
+  Two things are refused rather than shipped: a staged tree with no PHP file at
+  its root, which installs and does nothing because WordPress reads the header
+  from a file directly inside the plugin directory, and an `--out-dir` that is
+  or contains the plugin, which would `rm -rf` the source.
+
+  `--php-image` and `--node-image` run the toolchain steps in containers, as the
+  invoking user, so a laptop needs neither installed and the build leaves no
+  root-owned `vendor/` in the caller's repository.
+
 ## 2026-09-23 — v0.35.0
 
 ### Added
