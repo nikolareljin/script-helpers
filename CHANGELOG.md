@@ -31,10 +31,17 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   silent exclusion is worse than a wrong one. `.distignore` replaces that list
   rather than adding to it.
 
-  Two things are refused rather than shipped: a staged tree with no PHP file at
-  its root, which installs and does nothing because WordPress reads the header
-  from a file directly inside the plugin directory, and an `--out-dir` that is
-  or contains the plugin, which would `rm -rf` the source.
+  What is refused rather than shipped: a staged tree with no PHP file at its
+  root, which installs and does nothing because WordPress reads the header from
+  a file directly inside the plugin directory; an `--out-dir` that is or
+  contains the plugin, and a `--slug` or `Version:` carrying path characters,
+  all three of which reach `rm -rf` or `rm -f`; and a `--zip` value that is
+  neither `true` nor `false`, which previously produced no archive and still
+  reported success.
+
+  `rsync` and `zip` are checked up front, because a slim PHP image ships
+  neither and finding out after the dependency install says only
+  `command not found`.
 
   `--php-image` and `--node-image` run the toolchain steps in containers, as the
   invoking user, so a laptop needs neither installed and the build leaves no

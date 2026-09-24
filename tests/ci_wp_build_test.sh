@@ -78,6 +78,70 @@ else
   error "a missing --exclude-from was accepted: $out"
 fi
 
+# --slug is appended to the validated --out-dir to form the path that is
+# rm -rf'd, so a slash in it walks back out: --slug ../keepme removed a sibling
+# directory that --out-dir was never allowed to name. The assertion is that the
+# bystander is still there, not that the message changed.
+mkdir -p "$tmp/trav/keepme"
+: > "$tmp/trav/keepme/important.txt"
+make_plugin "$tmp/trav/p"
+bash "$SCRIPT" --workdir "$tmp/trav/p" --slug "../keepme" --out-dir "$tmp/trav/stage" \
+  --composer-command '' --zip false >/dev/null 2>&1
+rc=$?
+if [[ -f "$tmp/trav/keepme/important.txt" && $rc -ne 0 ]]; then
+  note "a --slug containing a slash is refused, and the sibling directory survives"
+elif [[ ! -f "$tmp/trav/keepme/important.txt" ]]; then
+  error "--slug ../keepme removed a directory outside --out-dir"
+else
+  error "--slug ../keepme was not refused (exit ${rc})"
+fi
+
+for bad in "." ".." "a/b" ".hidden"; do
+  if bash "$SCRIPT" --workdir "$tmp/trav/p" --slug "$bad" --out-dir "$tmp/trav/stage" \
+       --composer-command '' --zip false >/dev/null 2>&1; then
+    error "--slug '${bad}' was accepted"
+  else
+    note "--slug '${bad}' is refused"
+  fi
+done
+
+# An empty --slug is not an error: it falls back to the directory name.
+out="$(bash "$SCRIPT" --workdir "$tmp/trav/p" --slug "" --out-dir "$tmp/trav/stage2" \
+        --composer-command '' --zip false 2>&1)"
+if [[ -d "$tmp/trav/stage2/p" ]]; then
+  note "an empty --slug falls back to the plugin directory name"
+else
+  error "an empty --slug did not fall back to the directory name: $out"
+fi
+
+# The version reaches the zip path, which is rm -f'd, and it arrives from a
+# plugin header this script did not write.
+out="$(bash "$SCRIPT" --workdir "$tmp/trav/p" --version "../evil" --out-dir "$tmp/trav/stage3" \
+        --composer-command '' 2>&1)"
+if grep -q -- "--version must not contain path characters" <<<"$out"; then
+  note "a --version carrying path characters is refused"
+else
+  error "a --version carrying path characters was accepted: $out"
+fi
+
+make_plugin "$tmp/badhdr" "../../evil"
+out="$(bash "$SCRIPT" --workdir "$tmp/badhdr" --out-dir "$tmp/obh" --composer-command '' 2>&1)"
+if grep -q "not usable in a file name" <<<"$out"; then
+  note "a Version: header carrying path characters is refused"
+else
+  error "a Version: header carrying path characters was accepted: $out"
+fi
+
+# --zip took any value and made a zip only for "true", so --zip yes silently
+# produced no archive and still reported success.
+out="$(bash "$SCRIPT" --workdir "$tmp/trav/p" --out-dir "$tmp/trav/stage4" \
+        --composer-command '' --zip yes 2>&1)"
+if grep -q -- "--zip must be true or false" <<<"$out"; then
+  note "--zip with a value that is not true or false is refused"
+else
+  error "--zip yes was accepted and silently produced no archive: $out"
+fi
+
 # ---------------------------------------------------------------------------
 # 2. The version. It names the zip, so the wrong one ships under the wrong name.
 # ---------------------------------------------------------------------------
@@ -182,6 +246,79 @@ if [[ $rc -ne 0 ]] && grep -q "would not load as a plugin" <<<"$out"; then
   note "a staged tree with no root PHP file fails the build"
 else
   error "a tree with no root PHP file was packaged (exit ${rc})"
+fi
+
+# rsync and zip produce the package. Missing, they used to fail after the
+# dependency install had already run, with "command not found" and no clue
+# which step wanted them. Slim PHP images ship neither.
+#
+# The PATH is built with `type -P`, not `command -v`: for a shell function --
+# and some environments wrap grep and find -- `command -v` prints the name
+# rather than a path, and the symlink is dangling. The control run below is
+# what proves the minimal PATH is usable at all; without it every assertion
+# here passes for the wrong reason.
+minbin="$tmp/minbin"
+mkdir -p "$minbin"
+min_tools="bash grep sed rsync find wc tr du mkdir rm basename id dirname cat zip"
+min_absent=""
+for c in $min_tools; do
+  src="$(type -P "$c" 2>/dev/null)"
+  if [[ -n "$src" ]]; then
+    ln -sf "$src" "$minbin/$c"
+  else
+    min_absent="${min_absent} ${c}"
+  fi
+done
+
+# A failing control is a finding unless this machine is genuinely missing one
+# of the tools. Treating it as a skip either way is how a regression hides: the
+# check went back to calling `ls`, the control failed, and the suite reported
+# a clean pass because it read that as an incomplete machine.
+make_plugin "$tmp/minp"
+if ! minout="$(PATH="$minbin" bash "$SCRIPT" --workdir "$tmp/minp" --out-dir "$tmp/minout" \
+     --composer-command '' 2>&1)"; then
+  if [[ -n "$min_absent" ]]; then
+    note "not on this machine:${min_absent} -- skipping the preflight assertions"
+  else
+    error "a valid plugin failed to build on a PATH holding only ${min_tools// /, }: ${minout##*$'\n'}"
+  fi
+else
+  note "control: a build succeeds on the minimal PATH"
+
+  # The size comes from `du -h` trimmed in the shell. Piping it through cut
+  # printed an empty size where cut was absent, and did not fail the build,
+  # because the failure was inside a command substitution.
+  if grep -qE 'Wrote .*\([0-9]' <<<"$minout"; then
+    note "the zip size is reported, with no external cut"
+  else
+    error "the zip size is empty: $(grep Wrote <<<"$minout")"
+  fi
+
+  rm -f "$minbin/zip"
+  out="$(PATH="$minbin" bash "$SCRIPT" --workdir "$tmp/minp" --out-dir "$tmp/minout2" \
+          --composer-command '' 2>&1)"
+  if grep -q "Missing on PATH: zip" <<<"$out"; then
+    note "a missing zip is reported before the dependency install runs"
+  else
+    error "a missing zip was not reported up front: $out"
+  fi
+
+  # ...and only when a zip was asked for.
+  if PATH="$minbin" bash "$SCRIPT" --workdir "$tmp/minp" --out-dir "$tmp/minout3" \
+       --composer-command '' --zip false >/dev/null 2>&1; then
+    note "a missing zip does not block a build that was not going to zip"
+  else
+    error "--zip false still required zip on PATH"
+  fi
+
+  rm -f "$minbin/rsync"
+  out="$(PATH="$minbin" bash "$SCRIPT" --workdir "$tmp/minp" --out-dir "$tmp/minout4" \
+          --composer-command '' --zip false 2>&1)"
+  if grep -q "Missing on PATH: rsync" <<<"$out"; then
+    note "a missing rsync is reported up front"
+  else
+    error "a missing rsync was not reported up front: $out"
+  fi
 fi
 
 # ---------------------------------------------------------------------------

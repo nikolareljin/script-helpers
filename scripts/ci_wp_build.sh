@@ -77,6 +77,42 @@ done
 abs_workdir="$(cd "$workdir" && pwd -P)"
 [[ -n "$slug" ]] || slug="$(basename "$abs_workdir")"
 
+# The slug is the directory name inside the package, and it is appended to
+# --out-dir to form a path that is `rm -rf`'d. Anything with a slash walks out
+# of the validated --out-dir: `--slug ../keepme` removed a sibling directory.
+# It is also what WordPress installs the plugin as, where only a plain name is
+# meaningful.
+case "$slug" in
+  *[!A-Za-z0-9._-]* | "" | "." | ".." | .* )
+    log_error "--slug must be a plain directory name (letters, digits, dot, dash, underscore): ${slug}"
+    exit 2 ;;
+esac
+
+# The version is appended to the zip path, which is `rm -f`'d, and reaches it
+# from a plugin header this script did not write.
+case "$version" in
+  "" ) : ;;
+  *[!A-Za-z0-9._+-]* | "." | ".." )
+    log_error "--version must not contain path characters: ${version}"
+    exit 2 ;;
+esac
+
+case "$make_zip" in
+  true|false ) : ;;
+  * ) log_error "--zip must be true or false: ${make_zip}"; exit 2 ;;
+esac
+
+# rsync and zip are how the package is produced. Missing, they fail after the
+# dependency install has already run, with "command not found" and no clue
+# which step wanted them.
+missing=()
+command -v rsync >/dev/null 2>&1 || missing+=("rsync")
+[[ "$make_zip" == "true" ]] && { command -v zip >/dev/null 2>&1 || missing+=("zip"); }
+if [[ ${#missing[@]} -gt 0 ]]; then
+  log_error "Missing on PATH: ${missing[*]}"
+  exit 2
+fi
+
 # The staging tree is removed and rebuilt, and out_dir is caller input. Refuse
 # anything that would take the source with it.
 abs_out="$(mkdir -p "$out_dir" && cd "$out_dir" && pwd -P)"
@@ -121,6 +157,12 @@ if [[ -z "$version" ]]; then
     log_error "No Version: header found in ${abs_workdir}; pass --version."
     exit 2
   fi
+  # A header is plugin input, so it gets the check --version got above.
+  case "$version" in
+    *[!A-Za-z0-9._+-]* | "." | ".." )
+      log_error "The Version: header is not usable in a file name: ${version}"
+      exit 2 ;;
+  esac
 fi
 log_info "Building ${slug} ${version}"
 
@@ -201,7 +243,14 @@ rsync -a ${excludes[@]+"${excludes[@]}"} "${abs_workdir}/" "${stage}/"
 files="$(find "$stage" -type f | wc -l | tr -d ' ')"
 log_info "Staged ${files} file(s) in ${stage}"
 
-if [[ ! -f "${stage}/${slug}.php" ]] && ! ls "${stage}"/*.php >/dev/null 2>&1; then
+# A bash glob, not `ls`: `! ls "$stage"/*.php` is non-zero both when there is
+# no PHP file and when ls itself is unavailable, so on a slim image this
+# refused a package whose plugin file was sitting right there. A check that
+# fires on correct input gets switched off.
+shopt -s nullglob
+root_php=("${stage}"/*.php)
+shopt -u nullglob
+if [[ ${#root_php[@]} -eq 0 ]]; then
   log_error "The staged tree has no PHP file at its root; it would not load as a plugin."
   exit 1
 fi
@@ -220,7 +269,12 @@ if [[ "$make_zip" == "true" ]]; then
   zip_path="${abs_out}/${slug}-${version}.zip"
   rm -f "$zip_path"
   ( cd "$abs_out" && zip -qr "$zip_path" "$slug" )
-  log_info "Wrote ${zip_path} ($(du -h "$zip_path" | cut -f1))"
+  # du prints "4.0K<tab>path". Trimming it here rather than piping through cut
+  # keeps one more tool off the dependency list, and a missing one would not
+  # have failed the build: inside a command substitution it printed an empty
+  # size and carried on.
+  zip_size="$(du -h "$zip_path")"
+  log_info "Wrote ${zip_path} (${zip_size%%[[:space:]]*})"
 fi
 
 log_info "Build complete: ${stage}"
