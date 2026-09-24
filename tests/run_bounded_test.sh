@@ -23,7 +23,17 @@
 # one in five under load, which is why a re-run always "fixed" it.
 #
 # The fix is on the trap, not on the subshells: only the shell that set it may
-# run it. Clearing the trap inside the watchdog alone was tried and is not
+# run it.
+#
+# The guard compares against `$$`, which is the top-level shell's pid and stays
+# that in every subshell -- so it is only correct for a trap set at top level.
+# A trap set *inside* a subshell needs the owner captured at the time:
+#
+#   owner=${BASHPID-$$}
+#   trap 'if [[ ${BASHPID-$$} == "$owner" ]]; then ...; fi' EXIT
+#
+# With `$$` there it never matches and the cleanup silently never runs, so the
+# placement is checked below rather than left to whoever copies the line. Clearing the trap inside the watchdog alone was tried and is not
 # enough, because the backgrounded command subshell carries it too.
 set -uo pipefail
 
@@ -139,6 +149,26 @@ for f in tests/*.sh; do
       esac ;;
   esac
 done
+
+# 3a) ...and that they stay at top level. `$$` is the top-level shell's pid in
+#     every subshell, so a guarded trap set inside a subshell or a function
+#     never matches its own owner and the cleanup silently never runs.
+indented=""
+for f in tests/*.sh; do
+  [[ "$(basename "$f")" == "run_bounded_test.sh" ]] && continue
+  if grep -qE "^[[:space:]]+trap .*BASHPID.* EXIT" "$f"; then
+    indented="${indented} $(basename "$f")"
+  fi
+  # A named handler is registered by a trap line; that line must be top level too.
+  if grep -qE "^[[:space:]]+trap [A-Za-z_][A-Za-z0-9_]* EXIT" "$f"; then
+    indented="${indented} $(basename "$f")(fn)"
+  fi
+done
+if [[ -z "$indented" ]]; then
+  note "every cleanup trap is registered at top level, where \$\$ is its owner"
+else
+  error "a guarded trap is set inside a subshell or function, where \$\$ is not its owner:${indented}"
+fi
 
 # 3b) The second half of the fix, which is what protects bash 3.2: SIGKILL
 #     cannot run a trap, on any bash, and needs no version-specific variable.
