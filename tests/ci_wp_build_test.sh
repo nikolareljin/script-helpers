@@ -96,7 +96,7 @@ else
   error "--slug ../keepme was not refused (exit ${rc})"
 fi
 
-for bad in "." ".." "a/b" ".hidden"; do
+for bad in "." ".." "a/b" ".hidden" "-rf"; do
   if bash "$SCRIPT" --workdir "$tmp/trav/p" --slug "$bad" --out-dir "$tmp/trav/stage" \
        --composer-command '' --zip false >/dev/null 2>&1; then
     error "--slug '${bad}' was accepted"
@@ -118,7 +118,7 @@ fi
 # plugin header this script did not write.
 out="$(bash "$SCRIPT" --workdir "$tmp/trav/p" --version "../evil" --out-dir "$tmp/trav/stage3" \
         --composer-command '' 2>&1)"
-if grep -q -- "--version must not contain path characters" <<<"$out"; then
+if grep -q -- "--version must not contain a path" <<<"$out"; then
   note "a --version carrying path characters is refused"
 else
   error "a --version carrying path characters was accepted: $out"
@@ -130,6 +130,26 @@ if grep -q "not usable in a file name" <<<"$out"; then
   note "a Version: header carrying path characters is refused"
 else
   error "a Version: header carrying path characters was accepted: $out"
+fi
+
+# The other direction. The first version of this guard demanded letters,
+# digits, dot, dash and underscore, which refused a checkout in a directory
+# called "My Plugin" and a header reading "1.0 beta" -- correct input, and a
+# check that fires on correct input gets switched off. Only a path, an empty
+# name and a leading dash are dangerous.
+mkdir -p "$tmp/sp/My Plugin"
+cat > "$tmp/sp/My Plugin/my-plugin.php" <<'EOF'
+<?php
+/**
+ * Plugin Name: My Plugin
+ * Version: 1.0 beta
+ */
+EOF
+out="$(bash "$SCRIPT" --workdir "$tmp/sp/My Plugin" --out-dir "$tmp/spout" --composer-command '' 2>&1)"
+if [[ -f "$tmp/spout/My Plugin-1.0 beta.zip" ]]; then
+  note "a directory name and a version carrying a space are built, not refused"
+else
+  error "a space in the directory name or the version was refused: ${out##*$'\n'}"
 fi
 
 # --zip took any value and made a zip only for "true", so --zip yes silently

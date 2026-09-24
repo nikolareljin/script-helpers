@@ -34,8 +34,9 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   What is refused rather than shipped: a staged tree with no PHP file at its
   root, which installs and does nothing because WordPress reads the header from
   a file directly inside the plugin directory; an `--out-dir` that is or
-  contains the plugin, and a `--slug` or `Version:` carrying path characters,
-  all three of which reach `rm -rf` or `rm -f`; and a `--zip` value that is
+  contains the plugin, a `--slug` that is a path or starts with a dash, and a
+  version carrying a path, all of which reach `rm -rf`, `rm -f` or an argument
+  position where `zip` reads a name as an option; and a `--zip` value that is
   neither `true` nor `false`, which previously produced no archive and still
   reported success.
 

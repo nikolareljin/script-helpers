@@ -78,22 +78,26 @@ abs_workdir="$(cd "$workdir" && pwd -P)"
 [[ -n "$slug" ]] || slug="$(basename "$abs_workdir")"
 
 # The slug is the directory name inside the package, and it is appended to
-# --out-dir to form a path that is `rm -rf`'d. Anything with a slash walks out
-# of the validated --out-dir: `--slug ../keepme` removed a sibling directory.
-# It is also what WordPress installs the plugin as, where only a plain name is
-# meaningful.
+# --out-dir to form a path that is `rm -rf`'d. A slash walks out of the
+# validated --out-dir: `--slug ../keepme` removed a sibling directory. A
+# leading dash is read as an option by zip and rsync rather than as a name.
+#
+# Only those are refused. An earlier version demanded letters, digits, dot,
+# dash and underscore, which refused a checkout in a directory called "My
+# Plugin" -- correct input, rejected. A check that fires on correct input gets
+# switched off.
 case "$slug" in
-  *[!A-Za-z0-9._-]* | "" | "." | ".." | .* )
-    log_error "--slug must be a plain directory name (letters, digits, dot, dash, underscore): ${slug}"
+  "" | "." | ".." | */* | -* | .* )
+    log_error "--slug must be a plain directory name, with no '/' and no leading '-' or '.': ${slug}"
     exit 2 ;;
 esac
 
 # The version is appended to the zip path, which is `rm -f`'d, and reaches it
-# from a plugin header this script did not write.
+# from a plugin header this script did not write. A slash is the danger; a
+# space is not, and headers do carry things like "1.0 beta".
 case "$version" in
-  "" ) : ;;
-  *[!A-Za-z0-9._+-]* | "." | ".." )
-    log_error "--version must not contain path characters: ${version}"
+  "." | ".." | */* )
+    log_error "--version must not contain a path: ${version}"
     exit 2 ;;
 esac
 
@@ -159,7 +163,7 @@ if [[ -z "$version" ]]; then
   fi
   # A header is plugin input, so it gets the check --version got above.
   case "$version" in
-    *[!A-Za-z0-9._+-]* | "." | ".." )
+    "." | ".." | */* )
       log_error "The Version: header is not usable in a file name: ${version}"
       exit 2 ;;
   esac
