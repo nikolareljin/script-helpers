@@ -22,7 +22,8 @@ note()  { echo "[dev_deploy_ios_test] $*"; }
 error() { echo "[dev_deploy_ios_test][ERROR] $*" >&2; failures=$((failures+1)); }
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 # A stand-in consumer repo running the real template: the bootstrap finds the
 # library through scripts/script-helpers, which is the canonical layout.

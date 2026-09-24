@@ -54,7 +54,8 @@ ok "protected-name matching"
 # It is injected rather than required, so the fixture always runs -- including
 # in CI, which has no identity of its own.
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 cd "$tmp"
 
 # The fixture supplies its own identity per invocation with `git -c`, the same

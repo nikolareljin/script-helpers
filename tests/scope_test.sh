@@ -47,7 +47,8 @@ port_in_use_by 65001 >/dev/null 2>&1 || true
 assert_no_leak "port_in_use_by"
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 printf 'API_PORT=65002\n' > "$tmp/.env"
 check_required_ports_available "$tmp/.env" >/dev/null 2>&1 || true
 assert_no_leak "check_required_ports_available"

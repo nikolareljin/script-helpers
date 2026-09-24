@@ -34,7 +34,8 @@ error() { echo "[lint_docs_test][ERROR] $*" >&2; failures=$((failures+1)); }
 ok()    { echo "[lint_docs_test]   ok  $*"; }
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 [[ -f scripts/lint_docs.sh ]] || { error "scripts/lint_docs.sh is missing — there is nothing to test"; exit 1; }
 

@@ -26,7 +26,7 @@ run_bounded() {
   "$@" & local pid=$!
   ( sleep "$secs"; kill -9 "$pid" 2>/dev/null ) >/dev/null 2>&1 & local w=$!
   wait "$pid" 2>/dev/null; local rc=$?
-  kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
+  kill -9 "$w" 2>/dev/null; wait "$w" 2>/dev/null
   return $rc
 }
 
@@ -56,7 +56,8 @@ set -e
 note "bad arguments return 2"
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 # 3) a missing directory is an argument error, checked before the SDK lookup
 set +e

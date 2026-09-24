@@ -15,7 +15,8 @@ note()  { echo "[release_notes_test] $*"; }
 error() { echo "[release_notes_test][ERROR] $*" >&2; failures=$((failures+1)); }
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 notes="$root_dir/scripts/release_notes.sh"
 gate="$root_dir/scripts/check_changelog_section.sh"

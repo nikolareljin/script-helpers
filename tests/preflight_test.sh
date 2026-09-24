@@ -13,7 +13,8 @@ note()  { echo "[preflight_test] $*"; }
 error() { echo "[preflight_test][ERROR] $*" >&2; failures=$((failures+1)); }
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 PF="$ROOT_DIR/scripts/preflight.sh"
 # preflight refuses to run under CI by design; these are detection tests.

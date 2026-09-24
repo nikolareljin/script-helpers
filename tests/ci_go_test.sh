@@ -21,7 +21,8 @@ note()  { echo "[ci_go_test] $*"; }
 error() { echo "[ci_go_test][ERROR] $*" >&2; failures=$((failures+1)); }
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 # A docker stand-in recording every argument, so the shell flags are visible and
 # not just the command string.
