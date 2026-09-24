@@ -13,7 +13,10 @@
 #                                 (default: npm ci && npm run build).
 #   --exclude-from <path>         File of rsync-style excludes (default: .distignore when present).
 #   --php-image <image>           Run the composer step in this image instead of on the host.
+#                                 The image must have bash: an alpine variant fails with
+#                                 exit 127 and "bash: executable file not found".
 #   --node-image <image>          Run the asset step in this image instead of on the host.
+#                                 Same bash requirement.
 #   --docker-user <user>          User for those images, as uid:gid (default: the invoking user).
 #   --zip <true|false>            Also produce <out-dir>/<slug>-<version>.zip (default: true).
 #   -h, --help                    Show this help message.
@@ -177,10 +180,12 @@ run_step() {   # <label> <image-or-empty> <command>
   local label="$1" image="$2" command="$3"
   [[ -n "$command" ]] || { log_info "${label}: skipped (no command)"; return 0; }
 
+  local rc=0
   if [[ -z "$image" ]]; then
     log_info "${label} (host): ${command}"
-    ( cd "$abs_workdir" && eval "$command" )
-    return
+    ( cd "$abs_workdir" && eval "$command" ) || rc=$?
+    step_failed "$label" "$command" "$rc"
+    return 0
   fi
 
   # As the invoking user, or the build leaves root-owned files in the caller's
@@ -193,7 +198,19 @@ run_step() {   # <label> <image-or-empty> <command>
   docker run --rm -t \
     ${user_args[@]+"${user_args[@]}"} \
     -v "${abs_workdir}":/work -w /work \
-    "$image" bash -c "$command"
+    "$image" bash -c "$command" || rc=$?
+  step_failed "$label" "$command" "$rc"
+}
+
+# Without this, `set -e` ends the run on the INFO line that announced the
+# command and nothing says which step failed: composer exiting 3 left a log
+# whose last line was "Production dependencies (host): composer install ...".
+# The command's own exit code is kept, because a caller reading 3 rather than 1
+# can tell a failed install from a failed build.
+step_failed() {   # <label> <command> <rc>
+  [[ "$3" -eq 0 ]] && return 0
+  log_error "${1} failed (exit ${3}): ${2}"
+  exit "$3"
 }
 
 run_step "Production dependencies" "$php_image" "$composer_command"
@@ -247,6 +264,72 @@ fi
 
 # A trailing slash on the source copies its contents, not the directory.
 rsync -a ${excludes[@]+"${excludes[@]}"} "${abs_workdir}/" "${stage}/"
+
+# ---------------------------------------------------------------------------
+# Symlinks. The staged tree and the zip do not represent them the same way, so
+# left alone the two artifacts are different plugins:
+#
+#   - `zip` without -y follows a symlink and stores the target's CONTENT. A
+#     link to a file outside the plugin therefore put that file's content in
+#     the distributed archive, while the directory held only a link.
+#   - A broken link is skipped by zip entirely, with no message. The file is
+#     in the staged tree and simply absent from the archive.
+#
+# So: refuse a link that leaves the plugin or points at nothing, and resolve
+# the rest into real files. WordPress's own installer extracts with ZipArchive,
+# which writes a symlink entry as a regular file holding the target path, so a
+# package containing symlinks is broken there whatever this script intends.
+# ---------------------------------------------------------------------------
+stage_phys="$(cd "$stage" && pwd -P)"
+
+# readlink -f is GNU; macOS only grew it in 12.3, and this library still
+# supports bash 3.2. dirname + `pwd -P` is portable and resolves `..` in the
+# path by actually walking it.
+resolve_existing() {   # <path> -> physical path, or non-zero when it does not exist
+  local p="$1" d b
+  if [[ -d "$p" ]]; then ( cd "$p" 2>/dev/null && pwd -P ); return; fi
+  [[ -e "$p" ]] || return 1
+  d="$(dirname "$p")"; b="$(basename "$p")"
+  ( cd "$d" 2>/dev/null && printf '%s/%s' "$(pwd -P)" "$b" )
+}
+
+unsafe_links=""
+have_links=0
+while IFS= read -r link; do
+  [[ -n "$link" ]] || continue
+  have_links=1
+  target="$(readlink "$link")"
+  case "$target" in
+    /*) candidate="$target" ;;
+    *)  candidate="$(dirname "$link")/${target}" ;;
+  esac
+  rel="${link#"$stage_phys"/}"
+  if ! resolved="$(resolve_existing "$candidate")" || [[ -z "$resolved" ]]; then
+    unsafe_links="${unsafe_links}
+  ${rel} -> ${target} (points at nothing; zip drops it silently)"
+    continue
+  fi
+  case "$resolved" in
+    "$stage_phys"/*) : ;;
+    *) unsafe_links="${unsafe_links}
+  ${rel} -> ${target} (outside the plugin; its content would be copied into the zip)" ;;
+  esac
+done < <(find "$stage_phys" -type l)
+
+if [[ -n "$unsafe_links" ]]; then
+  log_error "Symlinks that cannot be packaged:${unsafe_links}"
+  exit 1
+fi
+
+# Every remaining link is internal and resolves, so a second pass with -L turns
+# them into regular files. Skipped entirely when there were none, which is the
+# usual case, so this costs nothing for a plugin without symlinks.
+if [[ "$have_links" -eq 1 ]]; then
+  log_info "Resolving internal symlinks into regular files"
+  rm -rf "$stage"
+  mkdir -p "$stage"
+  rsync -aL ${excludes[@]+"${excludes[@]}"} "${abs_workdir}/" "${stage}/"
+fi
 
 files="$(find "$stage" -type f | wc -l | tr -d ' ')"
 log_info "Staged ${files} file(s) in ${stage}"

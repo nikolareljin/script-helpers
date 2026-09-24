@@ -353,6 +353,91 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 3b. A failing toolchain step, and symlinks.
+# ---------------------------------------------------------------------------
+# `set -e` ended the run on the INFO line that announced the command, so the
+# log's last line was "Production dependencies (host): composer install ..."
+# and nothing said it had failed. The command's own exit code is kept: a caller
+# reading 3 rather than 1 can tell a failed install from a failed build.
+make_plugin "$tmp/failstep"
+out="$(bash "$SCRIPT" --workdir "$tmp/failstep" --out-dir "$tmp/ofail" \
+        --composer-command 'exit 3' 2>&1)"
+rc=$?
+if [[ $rc -eq 3 ]] && grep -q "Production dependencies failed (exit 3)" <<<"$out"; then
+  note "a failing dependency step is named, and its exit code is kept"
+else
+  error "a failing dependency step gave exit ${rc} and: ${out##*$'\n'}"
+fi
+if [[ -f "$tmp/ofail/failstep-1.2.3.zip" ]]; then
+  error "a package was produced although the dependency install failed"
+else
+  note "no package is produced when a step fails"
+fi
+
+printf '{"name":"x"}\n' > "$tmp/failstep/package.json"
+out="$(bash "$SCRIPT" --workdir "$tmp/failstep" --out-dir "$tmp/ofail2" \
+        --composer-command '' --asset-command 'exit 4' 2>&1)"
+rc=$?
+if [[ $rc -eq 4 ]] && grep -q "Front-end assets failed (exit 4)" <<<"$out"; then
+  note "a failing asset build is named, and its exit code is kept"
+else
+  error "a failing asset build gave exit ${rc} and: ${out##*$'\n'}"
+fi
+rm -f "$tmp/failstep/package.json"
+
+# The staged tree and the zip do not represent a symlink the same way, so left
+# alone the two artifacts are different plugins. `zip` without -y follows a
+# link and stores the target's content, and skips a broken one with no message.
+make_plugin "$tmp/lnk"
+mkdir -p "$tmp/lnk/lib"
+printf 'OUTSIDE\n' > "$tmp/outside-secret.txt"
+ln -s "$tmp/outside-secret.txt" "$tmp/lnk/lib/config.txt"
+out="$(bash "$SCRIPT" --workdir "$tmp/lnk" --out-dir "$tmp/olnk" --composer-command '' 2>&1)"
+rc=$?
+if [[ $rc -ne 0 ]] && grep -q "outside the plugin" <<<"$out"; then
+  note "a symlink leaving the plugin is refused"
+elif [[ -f "$tmp/olnk/lnk-1.2.3.zip" ]] \
+     && unzip -p "$tmp/olnk/lnk-1.2.3.zip" 'lnk/lib/config.txt' 2>/dev/null | grep -q OUTSIDE; then
+  error "the zip carries the content of a file from outside the plugin"
+else
+  error "a symlink leaving the plugin was not refused (exit ${rc})"
+fi
+
+rm -f "$tmp/lnk/lib/config.txt"
+ln -s "../../nowhere.txt" "$tmp/lnk/lib/gone.txt"
+out="$(bash "$SCRIPT" --workdir "$tmp/lnk" --out-dir "$tmp/olnk2" --composer-command '' 2>&1)"
+if grep -q "points at nothing" <<<"$out"; then
+  note "a broken symlink is refused rather than silently dropped by zip"
+else
+  error "a broken symlink was packaged: ${out##*$'\n'}"
+fi
+
+# An internal link is legitimate, and becomes a real file so the tree and the
+# archive hold the same thing. WordPress extracts with ZipArchive, which writes
+# a symlink entry as a regular file holding the target path.
+rm -f "$tmp/lnk/lib/gone.txt"
+ln -s "../my-plugin.php" "$tmp/lnk/lib/alias.php"
+out="$(bash "$SCRIPT" --workdir "$tmp/lnk" --out-dir "$tmp/olnk3" --composer-command '' 2>&1)"
+if [[ ! -f "$tmp/olnk3/lnk-1.2.3.zip" ]]; then
+  error "a plugin with an internal symlink did not build: ${out##*$'\n'}"
+elif [[ -L "$tmp/olnk3/lnk/lib/alias.php" ]]; then
+  error "the package still contains a symlink; ZipArchive would write it as a text file"
+elif ! unzip -p "$tmp/olnk3/lnk-1.2.3.zip" 'lnk/lib/alias.php' 2>/dev/null | grep -q "Plugin Name"; then
+  error "the zip entry for the resolved link does not carry the file's content"
+else
+  note "an internal symlink is resolved into a regular file in both the tree and the zip"
+fi
+
+# The second pass only runs when there was a link to resolve.
+make_plugin "$tmp/nolnk"
+out="$(bash "$SCRIPT" --workdir "$tmp/nolnk" --out-dir "$tmp/onolnk" --composer-command '' 2>&1)"
+if grep -q "Resolving internal symlinks" <<<"$out"; then
+  error "the resolve pass ran for a plugin with no symlinks"
+else
+  note "the resolve pass is skipped when there are no symlinks"
+fi
+
+# ---------------------------------------------------------------------------
 # 4. The docker argv, when the toolchains run in containers.
 # ---------------------------------------------------------------------------
 mkdir -p "$tmp/bin"

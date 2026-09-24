@@ -46,6 +46,20 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   neither and finding out after the dependency install says only
   `command not found`.
 
+  Symlinks are refused when they leave the plugin or point at nothing, and
+  resolved into regular files when they do not. `zip` follows a link and
+  stores the target's content, and skips a broken one without a message, so a
+  package left as-is is a different plugin from the staged tree it was made
+  from -- a link to a file outside the plugin put that file's content in the
+  archive. WordPress extracts with `ZipArchive`, which writes a symlink entry
+  as a regular file holding the target path, so a package containing symlinks
+  is broken there regardless.
+
+  A failing step names itself and keeps the command's exit code:
+  `[ERROR] Production dependencies failed (exit 3): composer install ...`.
+  Before, `set -e` ended the run on the line that announced the command and
+  nothing said it had failed.
+
   `--php-image` and `--node-image` run the toolchain steps in containers, as the
   invoking user, so a laptop needs neither installed and the build leaves no
   root-owned `vendor/` in the caller's repository.
