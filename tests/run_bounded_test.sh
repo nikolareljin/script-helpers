@@ -34,67 +34,76 @@ failures=0
 note()  { echo "[run_bounded_test] $*"; }
 error() { echo "[run_bounded_test][ERROR] $*" >&2; failures=$((failures+1)); }
 
-# A scratch dir for the two probe scripts below and the parallel logs at the end.
+# A scratch dir for the probes and the parallel logs at the end.
 work="$(mktemp -d)"
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$work"; fi' EXIT
 
-# The probe: set a cleanup trap, signal a subshell, report whether the tree
-# survived. Written twice, once with the guard and once without.
-write_probe() {   # <path> <trap-body>
-  cat > "$1" <<PROBE
-deleted=0
-for i in \$(seq 1 40); do
-  tmp="\$(mktemp -d)"
-  trap '$2' EXIT
-  ( sleep 5; true ) >/dev/null 2>&1 & w=\$!
-  kill "\$w" 2>/dev/null; wait "\$w" 2>/dev/null
-  [ -d "\$tmp" ] || deleted=\$((deleted+1))
-  /bin/rm -rf "\$tmp" 2>/dev/null
-done
-echo "\$deleted"
-PROBE
-}
-# shellcheck disable=SC2016  # the trap body is written out literally, not expanded here
-write_probe "$work/unguarded.sh" 'rm -rf "$tmp"'
-# shellcheck disable=SC2016  # the trap body is written out literally, not expanded here
-write_probe "$work/guarded.sh"   'if [ "${BASHPID-$$}" = "$$" ]; then rm -rf "$tmp"; fi'
-
-# 1) The control. Without it, case 2 passes whether or not the guard does
-#    anything: a test that cannot reproduce the bug cannot show a fix works.
+# 1) The guard's semantics, with no signals and no timing: run the trap body in
+#    a subshell and in the owning shell, and check which one removes the tree.
 #
-#    It is bash 4+ only. bash 3.2 -- what macOS ships, and what the macos job
-#    runs this under -- does not run an inherited EXIT trap when the subshell
-#    is signalled: 0/20 there against 10/20 on 5.2. So what to expect depends
-#    on the shell, and both directions are asserted rather than one skipped.
-#
-#    "$BASH", not `bash`: the shell that matters is the one running this suite,
-#    and a macOS runner with Homebrew has a 5.x `bash` ahead of /bin/bash.
-# shellcheck disable=SC2016  # $BASHPID must be evaluated by that shell, not this one
-has_bashpid="$("$BASH" -c 'echo "${BASHPID-}"')"
-unguarded="$("$BASH" "$work/unguarded.sh" 2>/dev/null)"
-
-if [[ -n "$has_bashpid" ]]; then
-  if [[ "${unguarded:-0}" -gt 0 ]]; then
-    note "control: an unguarded trap deletes the caller's tree when a subshell is signalled (${unguarded}/40)"
-  else
-    error "the mechanism did not reproduce in 40 tries on bash ${BASH_VERSION}, so the assertion below proves nothing"
-  fi
+#    The control is the first case. An unguarded body deletes from a subshell,
+#    so if that stopped being true this file would be asserting nothing.
+ctl="$(mktemp -d)"
+( rm -rf "$ctl" )
+if [[ -d "$ctl" ]]; then
+  error "control: an unguarded cleanup body did not delete from a subshell, so nothing below is meaningful"
 else
-  if [[ "${unguarded:-1}" -eq 0 ]]; then
-    note "bash ${BASH_VERSION} does not run an inherited EXIT trap on a signalled subshell (0/40); the race cannot happen here"
-  else
-    error "bash ${BASH_VERSION} was expected not to reproduce this, but it did ${unguarded}/40"
-  fi
+  note "control: an unguarded cleanup body deletes the tree from a subshell"
 fi
+rm -rf "$ctl"
 
-# 2) The guard, with the watchdog left exactly as the suites have it. Expected
-#    to hold on every shell: on bash 4+ because the guard refuses, on bash 3.2
-#    because there is nothing to refuse.
-guarded="$("$BASH" "$work/guarded.sh" 2>/dev/null)"
-if [[ "${guarded:-1}" -eq 0 ]]; then
-  note "a guarded trap leaves the caller's tree alone (0/40)"
+guarded_body() { if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$1"; fi; }
+
+# bash 3.2 has no $BASHPID, so the guard cannot tell a subshell from the owner
+# there. That costs nothing: see the note below -- 3.2 never runs an inherited
+# EXIT trap on a signalled subshell in the first place.
+subj="$(mktemp -d)"
+( guarded_body "$subj" )
+if [[ -n "${BASHPID-}" ]]; then
+  if [[ -d "$subj" ]]; then
+    note "the guarded body is a no-op in a subshell"
+  else
+    error "the guarded body deleted the tree from a subshell"
+  fi
 else
-  error "a guarded trap still deleted the tree ${guarded}/40 times"
+  note "bash ${BASH_VERSION} has no \$BASHPID, so the guard does not discriminate here (see below)"
+fi
+rm -rf "$subj"
+
+# ...and it must still clean up when the owner runs it, or every suite leaks.
+own="$(mktemp -d)"
+guarded_body "$own"
+if [[ -d "$own" ]]; then
+  error "the guarded body did not remove the tree in the shell that owns it: every suite would leak"
+else
+  note "the guarded body still removes the tree in the owning shell"
+fi
+rm -rf "$own"
+
+# 2) The trigger, for the record. A subshell runs the inherited EXIT trap only
+#    when the signal lands during its startup, not once it is blocked in the
+#    command -- so the rate is a property of the machine, not of the fix, and
+#    it is reported rather than asserted. Two runners disagreed about it: this
+#    is what made the original failures look random.
+#
+#    "$BASH", not `bash`: a macOS runner with Homebrew has a 5.x bash ahead of
+#    /bin/bash on PATH, and the shell that matters is the one running the suite.
+cat > "$work/race.sh" <<'PROBE'
+fired=0
+for i in $(seq 1 40); do
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+  ( sleep 5; true ) >/dev/null 2>&1 & w=$!
+  kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
+  [ -d "$tmp" ] || fired=$((fired+1))
+  /bin/rm -rf "$tmp" 2>/dev/null
+done
+echo "$fired"
+PROBE
+rate="$("$BASH" "$work/race.sh" 2>/dev/null)"
+note "observed trigger rate on this machine: ${rate:-0}/40 (bash ${BASH_VERSION})"
+if [[ -z "${BASHPID-}" && "${rate:-0}" -gt 0 ]]; then
+  error "bash ${BASH_VERSION} has no \$BASHPID and was expected not to reproduce this, but it did ${rate}/40"
 fi
 
 # 3) And that the guard is actually on every suite. A new file copying the old
