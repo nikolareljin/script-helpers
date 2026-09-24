@@ -26,7 +26,11 @@ ok()    { echo "[rust_test]   ok  $*"; }
 
 tmp="$(mktemp -d)"
 # shellcheck disable=SC2317
-cleanup() { rm -rf "$tmp"; }
+cleanup() {
+  # Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+  [[ ${BASHPID-$$} == "$$" ]] || return 0
+  rm -rf "$tmp"
+}
 trap cleanup EXIT
 
 # shellcheck source=/dev/null

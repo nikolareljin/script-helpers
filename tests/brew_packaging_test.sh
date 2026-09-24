@@ -15,7 +15,8 @@ note()  { echo "[brew_packaging_test] $*"; }
 error() { echo "[brew_packaging_test][ERROR] $*" >&2; failures=$((failures+1)); }
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 SHA="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 

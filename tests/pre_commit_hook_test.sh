@@ -20,7 +20,8 @@ if ! command -v git >/dev/null 2>&1; then
 fi
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 HOOK="$ROOT_DIR/scripts/git-hooks/pre-commit"
 
 # hook_rc <path>: stage one file in a fresh repo and print the hook's exit code.

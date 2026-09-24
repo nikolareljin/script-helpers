@@ -29,7 +29,8 @@ error() { echo "[dev_deploy_cloudflare_test][ERROR] $*" >&2; failures=$((failure
 ok()    { echo "[dev_deploy_cloudflare_test]   ok  $*"; }
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 repo="$tmp/repo"
 mkdir -p "$repo/scripts"

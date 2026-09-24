@@ -15,7 +15,8 @@ note()  { echo "[ci_python_test] $*"; }
 error() { echo "[ci_python_test][ERROR] $*" >&2; failures=$((failures+1)); }
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 # A docker stand-in that records the command string it was asked to run.
 mkdir -p "$tmp/bin" "$tmp/home" "$tmp/proj"

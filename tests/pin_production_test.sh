@@ -66,6 +66,8 @@ tag_commit() {
 }
 
 cleanup() {
+  # Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+  [[ ${BASHPID-$$} == "$$" ]] || return 0
   if [[ -n "${fixture:-}" ]]; then
     rm -rf "$fixture"
   fi

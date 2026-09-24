@@ -30,7 +30,8 @@ note()  { echo "[ci_wp_plugin_check_report_test] $*"; }
 error() { echo "[ci_wp_plugin_check_report_test][ERROR] $*" >&2; failures=$((failures+1)); }
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 # Extracted from the script, not retyped, so editing the report block without
 # editing this test cannot leave the test asserting old behaviour.

@@ -21,7 +21,8 @@ note()  { echo "[ci_wp_phpunit_test] $*"; }
 error() { echo "[ci_wp_phpunit_test][ERROR] $*" >&2; failures=$((failures+1)); }
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 # 1. Anything that is not an absolute path is refused, before any removal.
 for bad in "." "/" "relative/path" ""; do

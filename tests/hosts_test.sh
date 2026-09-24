@@ -16,7 +16,8 @@ note()  { echo "[hosts_test] $*"; }
 error() { echo "[hosts_test][ERROR] $*" >&2; failures=$((failures+1)); }
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 HOSTS_FILE="$tmp/hosts"; export HOSTS_FILE
 printf '127.0.0.1\tlocalhost\n' > "$HOSTS_FILE"
 

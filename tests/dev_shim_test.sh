@@ -18,7 +18,8 @@ note()  { echo "[dev_shim_test] $*"; }
 error() { echo "[dev_shim_test][ERROR] $*" >&2; failures=$((failures+1)); }
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 # A stand-in interpreter: answers the version probe, and otherwise reports that
 # it was the one chosen to run the CLI.

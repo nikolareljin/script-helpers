@@ -25,6 +25,8 @@ server_pid=""
 # Invoked only by the EXIT trap, so shellcheck reads it as unreachable.
 # shellcheck disable=SC2317
 cleanup() {
+  # Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+  [[ ${BASHPID-$$} == "$$" ]] || return 0
   if [[ -n "$server_pid" ]]; then kill "$server_pid" 2>/dev/null || true; fi
   rm -rf "$tmp"
 }

@@ -4,6 +4,37 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ## 2026-09-23 — v0.36.0
 
+### Fixed
+
+- **The test suite deleted its own working tree, intermittently.** Every suite
+  ends with `trap 'rm -rf "$tmp"' EXIT`, and nine of them bound a call with a
+  watchdog:
+
+  ```
+  ( sleep "$secs"; kill -9 "$pid" ) & w=$!
+  wait "$pid"; kill "$w"
+  ```
+
+  A subshell inherits that trap, and bash runs it there when `kill "$w"`
+  arrives as SIGTERM -- so the suite removed `$tmp` while still using it.
+  Everything after that failed for unrelated-looking reasons:
+  `gradle_assemble release ran ''` in `android_test`, a write to a vanished
+  directory in `manifest_test`. About 26 runs in 40 in isolation, 1 in 5 under
+  load, which is why a re-run always cleared it.
+
+  Cleanup traps are guarded with `${BASHPID-$$}`, so only the shell that set
+  one runs it, and the watchdogs use `kill -9`, which cannot run a trap on any
+  bash.
+
+  It is a bash 4+ race. bash 3.2, which macOS ships and which
+  `local_test_bash32.sh` runs the suite under, does not run an inherited EXIT
+  trap when the subshell is signalled at all: 0 in 20 there against 10 in 20 on
+  5.2. So `${BASHPID-$$}` degrading to "always the owner" on 3.2 costs nothing
+  -- there is nothing to refuse -- and cleanup still happens there.
+
+  `tests/run_bounded_test.sh` covers it: the mechanism reproduced as a control,
+  the guard, and a scan of `tests/` so a new suite copying the old idiom fails.
+
 ### Added
 
 - **`ci_wp_build.sh`: the package a plugin ships, built the same way everywhere.**
