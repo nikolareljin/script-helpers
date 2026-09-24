@@ -295,15 +295,23 @@ resolve_existing() {   # <path> -> physical path, or non-zero when it does not e
 
 unsafe_links=""
 have_links=0
-while IFS= read -r link; do
+# NUL-delimited, because a newline in a file name makes `find` print what
+# looks like two paths. readlink then failed on the fragment and `set -e` ended
+# the build with exit 1 and no message at all -- and a link that should have
+# been refused was never examined.
+while IFS= read -r -d '' link; do
   [[ -n "$link" ]] || continue
   have_links=1
-  target="$(readlink "$link")"
+  rel="${link#"$stage_phys"/}"
+  if ! target="$(readlink "$link")"; then
+    unsafe_links="${unsafe_links}
+  ${rel} (could not be read)"
+    continue
+  fi
   case "$target" in
     /*) candidate="$target" ;;
     *)  candidate="$(dirname "$link")/${target}" ;;
   esac
-  rel="${link#"$stage_phys"/}"
   if ! resolved="$(resolve_existing "$candidate")" || [[ -z "$resolved" ]]; then
     unsafe_links="${unsafe_links}
   ${rel} -> ${target} (points at nothing; zip drops it silently)"
@@ -314,7 +322,7 @@ while IFS= read -r link; do
     *) unsafe_links="${unsafe_links}
   ${rel} -> ${target} (outside the plugin; its content would be copied into the zip)" ;;
   esac
-done < <(find "$stage_phys" -type l)
+done < <(find "$stage_phys" -type l -print0)
 
 if [[ -n "$unsafe_links" ]]; then
   log_error "Symlinks that cannot be packaged:${unsafe_links}"

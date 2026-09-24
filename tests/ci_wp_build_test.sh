@@ -428,6 +428,32 @@ else
   note "an internal symlink is resolved into a regular file in both the tree and the zip"
 fi
 
+# A newline in a file name made `find` print what looked like two paths.
+# readlink then failed on the fragment and `set -e` ended the build with exit 1
+# and no message at all, while the link that should have been refused was never
+# examined. The assertion is that the reason is reported, not merely that the
+# exit code is non-zero -- a silent exit 1 satisfies the second.
+nl_name="$(printf 'evil\nname.txt')"
+rm -f "$tmp/lnk/lib/alias.php"
+ln -s "$tmp/outside-secret.txt" "$tmp/lnk/lib/${nl_name}"
+out="$(bash "$SCRIPT" --workdir "$tmp/lnk" --out-dir "$tmp/olnk4" --composer-command '' 2>&1)"
+if grep -q "outside the plugin" <<<"$out"; then
+  note "a newline in the file name does not hide an unsafe symlink"
+else
+  error "an unsafe symlink named with a newline was not reported: ${out##*$'\n'}"
+fi
+
+# ...and the same name on a safe link still builds.
+rm -f "$tmp/lnk/lib/${nl_name}"
+ln -s "../my-plugin.php" "$tmp/lnk/lib/$(printf 'odd\nname.php')"
+out="$(bash "$SCRIPT" --workdir "$tmp/lnk" --out-dir "$tmp/olnk5" --composer-command '' 2>&1)"
+if [[ -f "$tmp/olnk5/lnk-1.2.3.zip" ]]; then
+  note "a safe symlink named with a newline is packaged"
+else
+  error "a safe symlink named with a newline broke the build: ${out##*$'\n'}"
+fi
+rm -f "$tmp/lnk/lib/$(printf 'odd\nname.php')"
+
 # The second pass only runs when there was a link to resolve.
 make_plugin "$tmp/nolnk"
 out="$(bash "$SCRIPT" --workdir "$tmp/nolnk" --out-dir "$tmp/onolnk" --composer-command '' 2>&1)"

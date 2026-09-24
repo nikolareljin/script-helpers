@@ -55,6 +55,11 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   as a regular file holding the target path, so a package containing symlinks
   is broken there regardless.
 
+  The scan is NUL-delimited: a newline in a file name made `find` print what
+  looked like two paths, `readlink` failed on the fragment, and `set -e` ended
+  the build with exit 1 and no message while the link that should have been
+  refused went unexamined.
+
   A failing step names itself and keeps the command's exit code:
   `[ERROR] Production dependencies failed (exit 3): composer install ...`.
   Before, `set -e` ended the run on the line that announced the command and
