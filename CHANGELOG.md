@@ -2,6 +2,73 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## [Unreleased]
+
+### Added
+
+- **`ci_wp_build.sh`: the package a plugin ships, built the same way everywhere.**
+  What ships is not what is in the repository. A plugin needs its production
+  dependencies vendored and its front-end assets built, and everything that
+  exists only to develop it left out. Doing that per plugin is how two of them
+  end up shipping different things.
+
+  It reads the version from the plugin header, runs `composer install --no-dev`
+  and an asset build when there is a `package.json`, stages the tree with rsync
+  and writes `<slug>-<version>.zip`:
+
+  ```
+  [INFO] Building my-plugin 1.1.0
+  [INFO] Production dependencies (php:8.3-cli): composer install --no-dev --optimize-autoloader --prefer-dist
+  [INFO] Front-end assets: skipped (no package.json)
+  [INFO] No .distignore; excluding: .git .github .gitignore ... composer.lock package-lock.json build
+  [INFO] Staged 56 file(s) in /src/build/my-plugin
+  [INFO] Wrote /src/build/my-plugin-1.1.0.zip (56K)
+  ```
+
+  Excludes come from `.distignore` when the plugin has one, which is what
+  WordPress tooling already reads, so a plugin does not learn a new file for
+  this. Without one a default list applies and is named in the log, because a
+  silent exclusion is worse than a wrong one. `.distignore` replaces that list
+  rather than adding to it, except for `.git` and the exclude file itself,
+  which are excluded either way: a `.distignore` that forgets `.git` ships the
+  repository history inside the plugin, and that is never what was meant.
+
+  What is refused rather than shipped: a staged tree with no PHP file at its
+  root, which installs and does nothing because WordPress reads the header from
+  a file directly inside the plugin directory; an `--out-dir` that is or
+  contains the plugin, a `--slug` that is a path or starts with a dash, and a
+  version carrying a path, all of which reach `rm -rf`, `rm -f` or an argument
+  position where `zip` reads a name as an option; and a `--zip` value that is
+  neither `true` nor `false`, which previously produced no archive and still
+  reported success.
+
+  `rsync` and `zip` are checked up front, because a slim PHP image ships
+  neither and finding out after the dependency install says only
+  `command not found`.
+
+  Symlinks are refused when they leave the plugin or point at nothing, and
+  resolved into regular files when they do not. `zip` follows a link and
+  stores the target's content, and skips a broken one without a message, so a
+  package left as-is is a different plugin from the staged tree it was made
+  from -- a link to a file outside the plugin put that file's content in the
+  archive. WordPress extracts with `ZipArchive`, which writes a symlink entry
+  as a regular file holding the target path, so a package containing symlinks
+  is broken there regardless.
+
+  The scan is NUL-delimited: a newline in a file name made `find` print what
+  looked like two paths, `readlink` failed on the fragment, and `set -e` ended
+  the build with exit 1 and no message while the link that should have been
+  refused went unexamined.
+
+  A failing step names itself and keeps the command's exit code:
+  `[ERROR] Production dependencies failed (exit 3): composer install ...`.
+  Before, `set -e` ended the run on the line that announced the command and
+  nothing said it had failed.
+
+  `--php-image` and `--node-image` run the toolchain steps in containers, as the
+  invoking user, so a laptop needs neither installed and the build leaves no
+  root-owned `vendor/` in the caller's repository.
+
 ## 2026-09-23 — v0.35.0
 
 ### Added
