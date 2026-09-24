@@ -40,7 +40,8 @@ fi
 
 # 3) invalid sizes return exactly 2 (before any rasterizer is needed)
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 cat > "$tmp/in.svg" <<'EOF'
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#1D3A5F"/></svg>
 EOF

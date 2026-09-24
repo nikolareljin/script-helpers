@@ -51,7 +51,8 @@ run_installer() {
 }
 
 tmp_root="$(mktemp -d)"
-trap 'rm -rf "$tmp_root"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp_root"; fi' EXIT
 
 # 1) First install backs the original up and leaves a shim behind.
 repo="$tmp_root/once"

@@ -35,7 +35,8 @@ expect_status() {
 }
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 # 1) functions defined after import
 for fn in webshot_venv_dir webshot_python webshot_ensure webshot_capture webshot_pdf; do

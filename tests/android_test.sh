@@ -26,7 +26,7 @@ run_bounded() {
   "$@" & local pid=$!
   ( sleep "$secs"; kill -9 "$pid" 2>/dev/null ) >/dev/null 2>&1 & local w=$!
   wait "$pid" 2>/dev/null; local rc=$?
-  kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
+  kill -9 "$w" 2>/dev/null; wait "$w" 2>/dev/null
   return $rc
 }
 
@@ -73,7 +73,8 @@ note "bad arguments return 2"
 # /private/var/folders/... . gradle_wrapper deliberately returns a resolved
 # path, so an unresolved fixture path fails the comparison on macOS only.
 tmp="$(cd "$(mktemp -d)" && pwd -P)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 # 3) signing: a missing keystore is an error, unless the caller opted into the
 #    debug-signed fallback. This is the branch a local build depends on.

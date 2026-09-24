@@ -32,7 +32,11 @@ ok()    { echo "[cloudflare_test]   ok  $*"; }
 tmp="$(mktemp -d)"
 # Invoked only by the EXIT trap, so shellcheck reads it as unreachable.
 # shellcheck disable=SC2317
-cleanup() { rm -rf "$tmp"; }
+cleanup() {
+  # Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+  [[ ${BASHPID-$$} == "$$" ]] || return 0
+  rm -rf "$tmp"
+}
 trap cleanup EXIT
 
 # shellcheck source=/dev/null
@@ -334,7 +338,7 @@ run_bounded() {
   "$@" & cmd_pid=$!
   ( sleep "$secs"; kill -9 "$cmd_pid" 2>/dev/null ) & watch_pid=$!
   wait "$cmd_pid" 2>/dev/null || rc=$?
-  kill "$watch_pid" 2>/dev/null || true
+  kill -9 "$watch_pid" 2>/dev/null || true
   wait "$watch_pid" 2>/dev/null || true
   # 128+9 from the watchdog's SIGKILL is a deadline hit, not a real status.
   [[ $rc -eq 137 ]] && rc=124

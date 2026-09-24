@@ -24,7 +24,8 @@ if ! command -v git >/dev/null 2>&1; then
 fi
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 # A stand-in consumer repo running the real template.
 repo="$tmp/repo"

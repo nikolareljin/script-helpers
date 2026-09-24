@@ -22,7 +22,8 @@ note()  { echo "[ci_wp_build_test] $*"; }
 error() { echo "[ci_wp_build_test][ERROR] $*" >&2; failures=$((failures+1)); }
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 # A plugin, as the script expects to find one: a header at the root, plus the
 # development files a package must not carry.

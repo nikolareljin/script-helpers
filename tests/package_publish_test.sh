@@ -28,7 +28,8 @@ for fn in pkg_require_cmds pkg_run_prebuild pkg_set_series pkg_build_deb_artifac
 done
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 # 1) a lone .changes file is still found, as before
 mkdir -p "$tmp/one/app"

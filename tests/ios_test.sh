@@ -25,7 +25,12 @@ boot_reveals=""
 # orphaned the ones before it. One handler, one list appended to as each
 # temporary appears, so a new one cannot introduce that bug again.
 _cleanup_paths=()
-_cleanup() { [[ ${#_cleanup_paths[@]} -gt 0 ]] && rm -rf "${_cleanup_paths[@]+"${_cleanup_paths[@]}"}"; return 0; }
+_cleanup() {
+  # Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+  [[ ${BASHPID-$$} == "$$" ]] || return 0
+  [[ ${#_cleanup_paths[@]} -gt 0 ]] && rm -rf "${_cleanup_paths[@]+"${_cleanup_paths[@]}"}"
+  return 0
+}
 trap _cleanup EXIT
 
 boot_poll_file="$(mktemp)"

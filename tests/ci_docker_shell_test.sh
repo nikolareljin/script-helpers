@@ -73,7 +73,8 @@ fi
 #    argv, and read the flag that actually reached docker.
 # ---------------------------------------------------------------------------
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 mkdir -p "$tmp/bin" "$tmp/home"
 
 cat > "$tmp/bin/docker" <<EOF

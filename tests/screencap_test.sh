@@ -27,7 +27,7 @@ run_bounded() {
   "$@" & local pid=$!
   ( sleep "$secs"; kill -9 "$pid" 2>/dev/null ) >/dev/null 2>&1 & local w=$!
   wait "$pid" 2>/dev/null; local rc=$?
-  kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
+  kill -9 "$w" 2>/dev/null; wait "$w" 2>/dev/null
   return $rc
 }
 
@@ -66,7 +66,8 @@ note "bad arguments return 2"
 
 # 4) a missing input file is an argument error, not a crash
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 set +e
 screencap_frame "$tmp/nope.mp4" "$tmp/out.png" >/dev/null 2>&1
 status=$?

@@ -23,7 +23,8 @@ command -v git >/dev/null 2>&1 || { note "SKIP: git not available"; exit 0; }
 command -v python3 >/dev/null 2>&1 || { note "SKIP: python3 not available"; exit 0; }
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 # CI has no git identity, so it is injected per command rather than configured.
 # A test that skipped silently here would be worse than no test.
