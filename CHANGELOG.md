@@ -29,7 +29,9 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   WordPress tooling already reads, so a plugin does not learn a new file for
   this. Without one a default list applies and is named in the log, because a
   silent exclusion is worse than a wrong one. `.distignore` replaces that list
-  rather than adding to it.
+  rather than adding to it, except for `.git` and the exclude file itself,
+  which are excluded either way: a `.distignore` that forgets `.git` ships the
+  repository history inside the plugin, and that is never what was meant.
 
   What is refused rather than shipped: a staged tree with no PHP file at its
   root, which installs and does nothing because WordPress reads the header from

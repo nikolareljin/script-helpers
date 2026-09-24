@@ -254,6 +254,17 @@ else
   note ".distignore replaces the default exclude list"
 fi
 
+# .git and the exclude file itself are excluded whichever list is in use. A
+# .distignore that forgets .git shipped the whole repository history inside the
+# plugin, and the package carried the .distignore as well.
+for floor in ".git" ".distignore"; do
+  if [[ -e "$tmp/odi/di/$floor" ]]; then
+    error "${floor} is in the package built from a .distignore that does not list it"
+  else
+    note "${floor} is excluded even though .distignore does not list it"
+  fi
+done
+
 # A tree with no PHP file at its root does not load as a plugin. WordPress
 # reads the header from a file directly inside the plugin directory; without
 # one the package installs and does nothing.

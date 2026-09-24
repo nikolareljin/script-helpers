@@ -211,11 +211,15 @@ if [[ -z "$exclude_from" && -f "${abs_workdir}/.distignore" ]]; then
   exclude_from="${abs_workdir}/.distignore"
 fi
 
-excludes=()
+# A floor that applies whichever list is in use. A .distignore that forgets
+# .git ships the whole repository history inside the plugin, and the exclude
+# file itself is not part of the plugin. Neither omission is ever intentional,
+# so this is not overriding the plugin's list, it is closing an oversight.
+excludes=(--exclude=".git" --exclude=".distignore")
 if [[ -n "$exclude_from" ]]; then
   [[ -f "$exclude_from" ]] || { log_error "--exclude-from not found: ${exclude_from}"; exit 2; }
-  log_info "Excludes from ${exclude_from}"
-  excludes=(--exclude-from="$exclude_from")
+  log_info "Excludes from ${exclude_from}, plus .git and .distignore"
+  excludes+=(--exclude-from="$exclude_from")
 else
   # Named rather than silent: a reader can see what was dropped and override
   # it with a .distignore. node_modules is here because the built assets are
