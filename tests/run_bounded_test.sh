@@ -34,41 +34,65 @@ failures=0
 note()  { echo "[run_bounded_test] $*"; }
 error() { echo "[run_bounded_test][ERROR] $*" >&2; failures=$((failures+1)); }
 
+# A scratch dir for the two probe scripts below and the parallel logs at the end.
+work="$(mktemp -d)"
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$work"; fi' EXIT
+
+# The probe: set a cleanup trap, signal a subshell, report whether the tree
+# survived. Written twice, once with the guard and once without.
+write_probe() {   # <path> <trap-body>
+  cat > "$1" <<PROBE
+deleted=0
+for i in \$(seq 1 40); do
+  tmp="\$(mktemp -d)"
+  trap '$2' EXIT
+  ( sleep 5; true ) >/dev/null 2>&1 & w=\$!
+  kill "\$w" 2>/dev/null; wait "\$w" 2>/dev/null
+  [ -d "\$tmp" ] || deleted=\$((deleted+1))
+  /bin/rm -rf "\$tmp" 2>/dev/null
+done
+echo "\$deleted"
+PROBE
+}
+# shellcheck disable=SC2016  # the trap body is written out literally, not expanded here
+write_probe "$work/unguarded.sh" 'rm -rf "$tmp"'
+# shellcheck disable=SC2016  # the trap body is written out literally, not expanded here
+write_probe "$work/guarded.sh"   'if [ "${BASHPID-$$}" = "$$" ]; then rm -rf "$tmp"; fi'
+
 # 1) The control. Without it, case 2 passes whether or not the guard does
 #    anything: a test that cannot reproduce the bug cannot show a fix works.
-#    40 iterations, because one reproduces about two times in three -- "not once
-#    in 40" would mean the mechanism is gone, not that this run was lucky.
-unguarded="$(bash -c '
-  deleted=0
-  for i in $(seq 1 40); do
-    tmp="$(mktemp -d)"
-    trap "rm -rf \"$tmp\"" EXIT
-    ( sleep 5; true ) >/dev/null 2>&1 & w=$!
-    kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
-    [ -d "$tmp" ] || deleted=$((deleted+1))
-    /usr/bin/rm -rf "$tmp" 2>/dev/null
-  done
-  echo "$deleted"')"
-if [[ "${unguarded:-0}" -gt 0 ]]; then
-  note "control: an unguarded trap deletes the caller's tree when a subshell is signalled (${unguarded}/40)"
+#
+#    It is bash 4+ only. bash 3.2 -- what macOS ships, and what the macos job
+#    runs this under -- does not run an inherited EXIT trap when the subshell
+#    is signalled: 0/20 there against 10/20 on 5.2. So what to expect depends
+#    on the shell, and both directions are asserted rather than one skipped.
+#
+#    "$BASH", not `bash`: the shell that matters is the one running this suite,
+#    and a macOS runner with Homebrew has a 5.x `bash` ahead of /bin/bash.
+# shellcheck disable=SC2016  # $BASHPID must be evaluated by that shell, not this one
+has_bashpid="$("$BASH" -c 'echo "${BASHPID-}"')"
+unguarded="$("$BASH" "$work/unguarded.sh" 2>/dev/null)"
+
+if [[ -n "$has_bashpid" ]]; then
+  if [[ "${unguarded:-0}" -gt 0 ]]; then
+    note "control: an unguarded trap deletes the caller's tree when a subshell is signalled (${unguarded}/40)"
+  else
+    error "the mechanism did not reproduce in 40 tries on bash ${BASH_VERSION}, so the assertion below proves nothing"
+  fi
 else
-  error "the mechanism did not reproduce in 40 tries, so the assertion below proves nothing"
+  if [[ "${unguarded:-1}" -eq 0 ]]; then
+    note "bash ${BASH_VERSION} does not run an inherited EXIT trap on a signalled subshell (0/40); the race cannot happen here"
+  else
+    error "bash ${BASH_VERSION} was expected not to reproduce this, but it did ${unguarded}/40"
+  fi
 fi
 
-# 2) The guard, with the watchdog left exactly as the suites have it.
-guarded="$(bash -c '
-  deleted=0
-  for i in $(seq 1 40); do
-    tmp="$(mktemp -d)"
-    trap "if [[ \$BASHPID == \$\$ ]]; then rm -rf \"$tmp\"; fi" EXIT
-    ( sleep 5; true ) >/dev/null 2>&1 & w=$!
-    kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
-    [ -d "$tmp" ] || deleted=$((deleted+1))
-    /usr/bin/rm -rf "$tmp" 2>/dev/null
-  done
-  echo "$deleted"')"
+# 2) The guard, with the watchdog left exactly as the suites have it. Expected
+#    to hold on every shell: on bash 4+ because the guard refuses, on bash 3.2
+#    because there is nothing to refuse.
+guarded="$("$BASH" "$work/guarded.sh" 2>/dev/null)"
 if [[ "${guarded:-1}" -eq 0 ]]; then
-  note "a \$BASHPID-guarded trap leaves the caller's tree alone (0/40)"
+  note "a guarded trap leaves the caller's tree alone (0/40)"
 else
   error "a guarded trap still deleted the tree ${guarded}/40 times"
 fi
@@ -126,18 +150,16 @@ fi
 
 # 4) The two suites this was found in, run several ways at once -- the condition
 #    that made the race visible rather than rare.
-tmpd="$(mktemp -d)"
-trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmpd"; fi' EXIT
 for i in 1 2 3 4 5 6; do
-  ( bash tests/manifest_test.sh > "$tmpd/m$i.log" 2>&1 ) &
-  ( bash tests/android_test.sh  > "$tmpd/a$i.log" 2>&1 ) &
+  ( bash tests/manifest_test.sh > "$work/m$i.log" 2>&1 ) &
+  ( bash tests/android_test.sh  > "$work/a$i.log" 2>&1 ) &
 done
 wait 2>/dev/null
-hit="$(grep -lE '\[ERROR\]|No such file or directory' "$tmpd"/m*.log "$tmpd"/a*.log 2>/dev/null | wc -l | tr -d ' ')"
+hit="$(grep -lE '\[ERROR\]|No such file or directory' "$work"/m*.log "$work"/a*.log 2>/dev/null | wc -l | tr -d ' ')"
 if [[ "$hit" -eq 0 ]]; then
   note "manifest_test and android_test each pass 6 ways in parallel"
 else
-  error "${hit}/12 parallel runs failed: $(grep -hE '\[ERROR\]|No such file' "$tmpd"/m*.log "$tmpd"/a*.log 2>/dev/null | head -1)"
+  error "${hit}/12 parallel runs failed: $(grep -hE '\[ERROR\]|No such file' "$work"/m*.log "$work"/a*.log 2>/dev/null | head -1)"
 fi
 
 if [[ $failures -gt 0 ]]; then

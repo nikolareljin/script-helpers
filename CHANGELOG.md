@@ -22,12 +22,15 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   directory in `manifest_test`. About 26 runs in 40 in isolation, 1 in 5 under
   load, which is why a re-run always cleared it.
 
-  Two changes, because one of them is not portable. Cleanup traps are guarded
-  with `${BASHPID-$$}`, so only the shell that set one runs it; and the
-  watchdogs now use `kill -9`, which cannot run a trap on any bash. bash 3.2 --
-  what macOS ships, and what `local_test_bash32.sh` runs -- has no `$BASHPID`,
-  where the guard degrades to "always the owner" and the SIGKILL is the whole
-  protection.
+  Cleanup traps are guarded with `${BASHPID-$$}`, so only the shell that set
+  one runs it, and the watchdogs use `kill -9`, which cannot run a trap on any
+  bash.
+
+  It is a bash 4+ race. bash 3.2, which macOS ships and which
+  `local_test_bash32.sh` runs the suite under, does not run an inherited EXIT
+  trap when the subshell is signalled at all: 0 in 20 there against 10 in 20 on
+  5.2. So `${BASHPID-$$}` degrading to "always the owner" on 3.2 costs nothing
+  -- there is nothing to refuse -- and cleanup still happens there.
 
   `tests/run_bounded_test.sh` covers it: the mechanism reproduced as a control,
   the guard, and a scan of `tests/` so a new suite copying the old idiom fails.
