@@ -2,6 +2,46 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## [Unreleased]
+
+### Added
+
+- **`ci_laravel.sh`: a Laravel application's tests, in CI or on a laptop.** The
+  same command in both places, which is the point: a failure on a runner can be
+  reproduced without guessing at what CI did differently.
+
+  Laravel needs three things a generic PHP runner does not provide -- a `.env`,
+  an `APP_KEY` in it, and a database its config can reach. Without the key every
+  test fails with "No application encryption key has been specified", which says
+  nothing about the real problem. The script creates `.env` from `.env.testing`
+  or `.env.example` when there is none, generates a key only when one is
+  missing, and leaves an existing file alone.
+
+  sqlite in memory is the default, so the script is useful with no
+  infrastructure at all. `--db-image` swaps in a real server:
+
+  ```
+  [INFO] Starting mysql:8.0 as laravel-db-875660 on the laravel-net-875660 network
+  [INFO] Database ready after 12s
+  [INFO] Schema (local/php84-mysql): php artisan migrate --force
+    0001_01_01_000000_create_users_table ......................... 152.02ms DONE
+  Tests:    2 passed (2 assertions)
+  [INFO] Removing database container laravel-db-875660
+  ```
+
+  The engine is read from the image name, so `postgres:16` brings `pgsql`,
+  `POSTGRES_*` variables and `pg_isready` without the caller saying so twice.
+
+  The database settings are passed as real environment rather than written into
+  `.env`: Laravel's `env()` reads the process environment first, so a developer's
+  own file survives the run unedited.
+
+  One refusal is worth naming. The official `php` images ship **no database
+  drivers**, so `php:8.4-cli` against a started MySQL fails inside artisan with
+  "could not find driver" and a stack trace about `Connector.php` -- which reads
+  like a Laravel problem and is an image problem. The driver is checked before
+  anything uses it, and the message names the cause and the fix.
+
 ## 2026-09-24 — v0.36.0
 
 ### Fixed
