@@ -157,7 +157,13 @@ cleanup() {
     docker network rm "$db_network" >/dev/null 2>&1 || true
   fi
 }
-trap cleanup EXIT
+# Guarded: a subshell inherits an EXIT trap, and bash runs it there when the
+# subshell is signalled -- so this could tear down the caller's stack, or
+# delete a directory, while the run is still using it. ${BASHPID-$$} rather
+# than $BASHPID alone: bash 3.2, which macOS ships, does not define BASHPID,
+# and $$ is the top-level shell's pid in every subshell, so the comparison
+# degrades to always-true there rather than to always-false.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then cleanup; fi' EXIT
 
 start_database() {
   db_container="wp-phpunit-db-$$"
@@ -261,7 +267,13 @@ else
   mkdir -p "$wp_tests_dir" "$wp_core_dir"
 
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"; cleanup' EXIT
+  # Guarded: a subshell inherits an EXIT trap, and bash runs it there when the
+  # subshell is signalled -- so this could tear down the caller's stack, or
+  # delete a directory, while the run is still using it. ${BASHPID-$$} rather
+  # than $BASHPID alone: bash 3.2, which macOS ships, does not define BASHPID,
+  # and $$ is the top-level shell's pid in every subshell, so the comparison
+  # degrades to always-true there rather than to always-false.
+  trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; cleanup; fi' EXIT
   curl -fsSL -o "${tmp}/wordpress-develop.tar.gz" \
     "https://github.com/WordPress/wordpress-develop/archive/refs/tags/${wp_tag}.tar.gz"
   tar -xzf "${tmp}/wordpress-develop.tar.gz" -C "$tmp"

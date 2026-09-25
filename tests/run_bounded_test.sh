@@ -116,6 +116,31 @@ if [[ -z "${BASHPID-}" && "${rate:-0}" -gt 0 ]]; then
   error "bash ${BASH_VERSION} has no \$BASHPID and was expected not to reproduce this, but it did ${rate}/40"
 fi
 
+# 3a) The same rule, where the code actually ships. This scanner read tests/*.sh
+#     only, so ten unguarded EXIT traps sat in scripts/ and lib/ while it
+#     reported the rule enforced -- including two in ci_wp_phpunit.sh that
+#     removed a database container and deleted an in-use download directory, and
+#     two that ran `docker compose down -v` against the caller's stack. A gate
+#     that checks the practice file and not the shipped file is the weaker half
+#     of the rule.
+shipped_unguarded=""
+shipped_checked=0
+while IFS= read -r hit; do
+  shipped_checked=$((shipped_checked + 1))
+  case "$hit" in
+    *BASHPID*) : ;;
+    *) shipped_unguarded="${shipped_unguarded}
+    ${hit%%:*}:$(cut -d: -f2 <<<"$hit")" ;;
+  esac
+done < <(grep -rnE "^[[:space:]]*trap .* EXIT" scripts/ lib/ bin/ 2>/dev/null || true)
+if (( shipped_checked == 0 )); then
+  error "no EXIT traps were found in scripts/, lib/ or bin/; this scan is reading nothing"
+elif [[ -z "$shipped_unguarded" ]]; then
+  note "all ${shipped_checked} EXIT trap(s) in scripts/, lib/ and bin/ are guarded"
+else
+  error "unguarded EXIT trap in shipped code:${shipped_unguarded}"
+fi
+
 # 3) And that the guard is actually on every suite. A new file copying the old
 #    idiom is how this comes back, so it is checked in the tree.
 # The literal name to look for; matches both $BASHPID and ${BASHPID-$$}.
