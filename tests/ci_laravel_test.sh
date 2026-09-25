@@ -138,7 +138,7 @@ run --workdir "$app" --php-image php:8.4-cli --db-image mysql:8.0 --db-wait-seco
 if [[ ! -s "$tmp/argv" ]]; then
   error "docker was never called for the mysql run"
 else
-  for want in 'MYSQL_DATABASE=laravel' 'MYSQL_USER=laravel' 'DB_CONNECTION=mysql'; do
+  for want in 'MYSQL_DATABASE=laravel' 'MYSQL_USER=laravel' 'MYSQL_ROOT_PASSWORD=root' 'DB_CONNECTION=mysql'; do
     grep -qx -- "$want" "$tmp/argv" || error "the mysql run is missing ${want}"
   done
   note "a mysql run passes the server's own variables and DB_CONNECTION=mysql"
@@ -166,6 +166,7 @@ fi
 # probe. Guessed from the image name, so a caller does not have to say twice.
 : > "$tmp/argv"
 run --workdir "$app" --php-image php:8.4-cli --db-image postgres:16 --db-wait-seconds 2 \
+    --db-root-password 'forwarded-anyway' \
     --install-command '' --migrate-command '' --test-command 'true'
 if [[ ! -s "$tmp/argv" ]]; then
   error "docker was never called for the postgres run"
@@ -177,6 +178,91 @@ else
   if grep -q 'MYSQL_' "$tmp/argv"; then
     error "the postgres run also passed MySQL variables"
   fi
+fi
+
+# --- an option written last, with no value ---------------------------------
+#
+# Every option read "$2" with no check that it was there. Under `set -u` that
+# is a bash internal error -- "line 82: $2: unbound variable", exit 1 -- where
+# this script's own EXIT_CODES promise 2 for a bad argument.
+#
+# The list comes from every parser line that consumes a value, NOT from the
+# lines that call need_value. Keying it on the guard would have made the test
+# blind to exactly the change it exists to catch: delete a guard and that
+# option simply drops out of the list, and the run stays green.
+# read, not mapfile: mapfile is bash 4+ and macOS ships 3.2. portability_test
+# catches this, which is how this line was caught.
+opts=()
+while IFS= read -r opt; do opts+=("$opt"); done < <(
+  sed -n 's/^    \(--[a-z-]*\)).*"\$2"; shift 2.*/\1/p' "$SCRIPT")
+if (( ${#opts[@]} < 10 )); then
+  error "only ${#opts[@]} value-taking options were found in the parser; the extraction is wrong"
+else
+  unguarded=0
+  for opt in "${opts[@]}"; do
+    out="$(run_out "$opt")"; rc=$?
+    if [[ $rc -ne 2 ]] || ! grep -q -- "$opt requires a value" <<<"$out"; then
+      error "${opt} with no value: exit ${rc}, said: $(head -1 <<<"$out")"
+      unguarded=$((unguarded+1))
+    fi
+  done
+  (( unguarded == 0 )) && note "all ${#opts[@]} value-taking options refuse a missing value with exit 2"
+fi
+
+# And the other direction: an empty value is legitimate for several of these,
+# so the guard must check that the argument exists, not that it is non-empty.
+# --php-image so the steps go through the stubbed docker: this machine has no
+# php, and without it the run stops at the "install PHP" refusal before any
+# step is reached, which would make this assertion pass or fail for an
+# unrelated reason.
+out="$(run_out --workdir "$app" --php-image php:8.4-cli --install-command '' --migrate-command '' --test-command 'true')"
+if grep -q "skipped (no command)" <<<"$out"; then
+  note "an empty --install-command still skips the step rather than being refused"
+else
+  error "an empty value was refused, or the step ran anyway: ${out##*$'\n'}"
+fi
+
+# --- the MySQL root password -----------------------------------------------
+#
+# ci-helpers' laravel.yml declares db_root_password and forwards it here. It
+# was hard-coded to "root" in this script, so the input was accepted and
+# discarded -- a caller setting it got a database with a different root
+# password than the one it asked for, and nothing said so.
+#
+# The failure it causes is remote from its cause: the image will not initialise
+# without a root password (or MYSQL_ALLOW_EMPTY_PASSWORD), and it exits during
+# its entrypoint, so what the caller sees is the readiness poll timing out.
+
+: > "$tmp/argv"
+run --workdir "$app" --db-image mysql:8.0 --db-wait-seconds 2 --db-root-password 's3cr3t' \
+    --install-command '' --migrate-command '' --test-command 'true'
+if [[ ! -s "$tmp/argv" ]]; then
+  error "docker was never called for the root-password run"
+else
+  if grep -qx -- 'MYSQL_ROOT_PASSWORD=s3cr3t' "$tmp/argv"; then
+    note "--db-root-password reaches the image"
+  else
+    error "--db-root-password did not reach the image: $(grep -m1 MYSQL_ROOT "$tmp/argv")"
+  fi
+  # The assertion above would also pass if the hard-coded value were still
+  # being sent alongside, and MySQL takes the last -e it is given.
+  if grep -qx -- 'MYSQL_ROOT_PASSWORD=root' "$tmp/argv"; then
+    error "the hard-coded root password is still passed as well"
+  fi
+fi
+
+# Empty is not "no password" to the MySQL image -- it is a refusal to start.
+# MYSQL_ALLOW_EMPTY_PASSWORD is how it is spelled.
+: > "$tmp/argv"
+run --workdir "$app" --db-image mysql:8.0 --db-wait-seconds 2 --db-root-password '' \
+    --install-command '' --migrate-command '' --test-command 'true'
+if grep -qx -- 'MYSQL_ALLOW_EMPTY_PASSWORD=yes' "$tmp/argv" 2>/dev/null; then
+  note "an empty --db-root-password starts the image with an empty root password"
+else
+  error "an empty --db-root-password sends nothing the image accepts, so it would never initialise"
+fi
+if grep -q -- 'MYSQL_ROOT_PASSWORD=' "$tmp/argv" 2>/dev/null; then
+  error "an empty --db-root-password still passed MYSQL_ROOT_PASSWORD, which the image rejects"
 fi
 
 # --- .env, and the key Laravel refuses to boot without ---------------------

@@ -635,6 +635,45 @@ The `.script-helpers` entry matters when this runs from `ci-helpers`'
 On one plugin that alone was 145 of 146 errors. Both options default to empty,
 so a caller scanning an already-packaged plugin passes neither.
 
+Run a Laravel application's tests, locally or in CI:
+
+```bash
+# sqlite, no infrastructure at all
+./scripts/ci_laravel.sh --workdir .
+
+# against a real server; the image name decides mysql or pgsql
+./scripts/ci_laravel.sh --workdir . --db-image mysql:8.0 --db-name app_test
+./scripts/ci_laravel.sh --workdir . --db-image postgres:16
+```
+
+- `.env` is created from `.env.testing`, then `.env.example`, only when there is
+  none, and `key:generate` runs only when `APP_KEY` is missing. Laravel refuses
+  to boot without the key, and the error it gives says nothing about the cause.
+- sqlite is a file under `database/`, named for the run and removed afterwards,
+  not `:memory:`. Each step is a separate process -- a separate container with
+  `--php-image` -- so an in-memory database dies with the step that migrated it.
+- `--db-root-password` is the MySQL image's root account, not the application's.
+  Empty starts the image with `MYSQL_ALLOW_EMPTY_PASSWORD`; postgres ignores it.
+  Without one of the two the image exits during its entrypoint, and what the
+  caller sees is the readiness poll timing out with nothing about a password.
+- `--php-image` runs every step in that image instead of on the host, on a
+  shared docker network with the database. The official `php` images ship no
+  composer and no PDO drivers; the script names which one is missing and how to
+  supply it rather than failing with exit 127.
+
+Build the package a WordPress plugin ships, and run a plugin's own test suite:
+
+```bash
+./scripts/ci_wp_build.sh --workdir . --slug my-plugin --out-dir build
+./scripts/ci_wp_phpunit.sh --wp-version 7.1 --workdir . --test-command './vendor/bin/phpunit'
+```
+
+- `ci_wp_build.sh` stages what ships (production dependencies vendored, built
+  assets in, development files out, honouring `.distignore`) and zips it.
+- `ci_wp_phpunit.sh` provisions the WordPress test library and core, starts the
+  database, runs the suite and removes the database. `--wp-tests-dir` reaches
+  `rm -rf`, so it must be an absolute path outside the application.
+
 Common snippets
 ---------------
 
