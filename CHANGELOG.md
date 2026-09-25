@@ -2,6 +2,64 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## [Unreleased]
+
+### Added
+
+- **`ci_laravel.sh`: a Laravel application's tests, in CI or on a laptop.** The
+  same command in both places, which is the point: a failure on a runner can be
+  reproduced without guessing at what CI did differently.
+
+  Laravel needs three things a generic PHP runner does not provide -- a `.env`,
+  an `APP_KEY` in it, and a database its config can reach. Without the key every
+  test fails with "No application encryption key has been specified", which says
+  nothing about the real problem. The script creates `.env` from `.env.testing`
+  or `.env.example` when there is none, generates a key only when one is
+  missing, and leaves an existing file alone.
+
+  sqlite is the default, so the script is useful with no infrastructure at all.
+  It is a file inside the application rather than `:memory:`, because each step
+  is its own process -- a separate container when `--php-image` is used -- and
+  an in-memory database dies with the step that made it. `migrate` reported
+  every migration DONE and the next step answered "Migration table not found".
+  The file is named for the run and removed on the way out.
+
+  `--db-image` swaps in a real server:
+
+  ```
+  [INFO] Starting mysql:8.0 as laravel-db-875660 on the laravel-net-875660 network
+  [INFO] Database ready after 12s
+  [INFO] Schema (local/php84-mysql): php artisan migrate --force
+    0001_01_01_000000_create_users_table ......................... 152.02ms DONE
+  Tests:    2 passed (2 assertions)
+  [INFO] Removing database container laravel-db-875660
+  ```
+
+  The engine is read from the image name, so `postgres:16` brings `pgsql`,
+  `POSTGRES_*` variables and `pg_isready` without the caller saying so twice.
+
+  The database settings are passed as real environment rather than written into
+  `.env`: Laravel's `env()` reads the process environment first, so a developer's
+  own file survives the run unedited.
+
+  Three refusals are worth naming, because the official `php` images ship
+  neither composer nor any database driver, and without either the run dies at
+  the first step with exit 127 and a message that names the step rather than the
+  cause. `php`, the install command and the PDO driver are each checked in the
+  environment the step will actually run in, before anything uses them:
+
+  ```
+  [ERROR] Dependencies: 'composer' is not on PATH in php:8.4-cli.
+  [ERROR] The official php images ship no composer. Use an image that has it,
+  [ERROR] install the dependencies beforehand and pass --install-command '',
+  [ERROR] or build one:  FROM php:8.4-cli
+  [ERROR]                COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+  ```
+
+  `--env-file` is resolved as given and then relative to the application. It was
+  resolved only against the application, so an absolute path was refused with
+  "not found" naming a path nobody had passed.
+
 ## 2026-09-24 — v0.36.0
 
 ### Fixed
