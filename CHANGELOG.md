@@ -2,6 +2,22 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## [Unreleased]
+
+### Fixed
+
+- **`ci_laravel.sh` and `ci_wp_phpunit.sh` left the database's data directory
+  behind on every run.** The `mysql` and `postgres` images declare a `VOLUME`,
+  so `docker run -d` creates an anonymous volume per container, and `docker rm
+  -f` removes the container without it. Seven runs on one laptop left 1.4 GB of
+  orphaned MySQL data directories, referenced by nothing and invisible unless
+  someone goes looking with `docker volume ls -qf dangling=true`.
+
+  Both now remove with `docker rm -f -v`, which takes anonymous volumes and
+  leaves a named one alone. Found by running `ci_laravel.sh` against a real
+  application three times; the stub tests could not see it, because a stub
+  records the argv it is given rather than what Docker does with it.
+
 ## 2026-09-25 — v0.38.0
 
 ### Added
