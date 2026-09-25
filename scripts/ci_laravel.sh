@@ -52,6 +52,16 @@ shlib_import logging help
 
 usage() { show_help "${BASH_SOURCE[0]}"; }
 
+# Existence, not non-emptiness: several options here take an empty value on
+# purpose (--install-command '' skips the install, --db-root-password '' means
+# an empty root password). Without this, a flag written last with no value
+# reached `"$2"` under `set -u` and the script died with
+# "line 82: $2: unbound variable" and exit 1 -- a bash internal error where its
+# own EXIT_CODES promise 2 and a sentence naming the option.
+need_value() {
+  [[ $# -ge 2 ]] || { log_error "$1 requires a value"; usage >&2; exit 2; }
+}
+
 workdir="."
 db_connection=""
 db_image=""
@@ -71,22 +81,22 @@ docker_user="$(id -u):$(id -g)"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --workdir) workdir="$2"; shift 2 ;;
-    --db-connection) db_connection="$2"; shift 2 ;;
-    --db-image) db_image="$2"; shift 2 ;;
-    --db-host) db_host="$2"; shift 2 ;;
-    --db-port) db_port="$2"; shift 2 ;;
-    --db-name) db_name="$2"; shift 2 ;;
-    --db-user) db_user="$2"; shift 2 ;;
-    --db-password) db_password="$2"; shift 2 ;;
-    --db-root-password) db_root_password="$2"; shift 2 ;;
-    --db-wait-seconds) db_wait_seconds="$2"; shift 2 ;;
-    --install-command) install_command="$2"; shift 2 ;;
-    --migrate-command) migrate_command="$2"; shift 2 ;;
-    --test-command) test_command="$2"; shift 2 ;;
-    --env-file) env_file="$2"; shift 2 ;;
-    --php-image) php_image="$2"; shift 2 ;;
-    --docker-user) docker_user="$2"; shift 2 ;;
+    --workdir) need_value "$@"; workdir="$2"; shift 2 ;;
+    --db-connection) need_value "$@"; db_connection="$2"; shift 2 ;;
+    --db-image) need_value "$@"; db_image="$2"; shift 2 ;;
+    --db-host) need_value "$@"; db_host="$2"; shift 2 ;;
+    --db-port) need_value "$@"; db_port="$2"; shift 2 ;;
+    --db-name) need_value "$@"; db_name="$2"; shift 2 ;;
+    --db-user) need_value "$@"; db_user="$2"; shift 2 ;;
+    --db-password) need_value "$@"; db_password="$2"; shift 2 ;;
+    --db-root-password) need_value "$@"; db_root_password="$2"; shift 2 ;;
+    --db-wait-seconds) need_value "$@"; db_wait_seconds="$2"; shift 2 ;;
+    --install-command) need_value "$@"; install_command="$2"; shift 2 ;;
+    --migrate-command) need_value "$@"; migrate_command="$2"; shift 2 ;;
+    --test-command) need_value "$@"; test_command="$2"; shift 2 ;;
+    --env-file) need_value "$@"; env_file="$2"; shift 2 ;;
+    --php-image) need_value "$@"; php_image="$2"; shift 2 ;;
+    --docker-user) need_value "$@"; docker_user="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) log_error "Unknown argument: $1"; usage; exit 2 ;;
   esac

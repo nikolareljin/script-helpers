@@ -180,6 +180,44 @@ else
   fi
 fi
 
+# --- an option written last, with no value ---------------------------------
+#
+# Every option read "$2" with no check that it was there. Under `set -u` that
+# is a bash internal error -- "line 82: $2: unbound variable", exit 1 -- where
+# this script's own EXIT_CODES promise 2 for a bad argument.
+#
+# The list comes from every parser line that consumes a value, NOT from the
+# lines that call need_value. Keying it on the guard would have made the test
+# blind to exactly the change it exists to catch: delete a guard and that
+# option simply drops out of the list, and the run stays green.
+mapfile -t opts < <(sed -n 's/^    \(--[a-z-]*\)).*"\$2"; shift 2.*/\1/p' "$SCRIPT")
+if (( ${#opts[@]} < 10 )); then
+  error "only ${#opts[@]} value-taking options were found in the parser; the extraction is wrong"
+else
+  unguarded=0
+  for opt in "${opts[@]}"; do
+    out="$(run_out "$opt")"; rc=$?
+    if [[ $rc -ne 2 ]] || ! grep -q -- "$opt requires a value" <<<"$out"; then
+      error "${opt} with no value: exit ${rc}, said: $(head -1 <<<"$out")"
+      unguarded=$((unguarded+1))
+    fi
+  done
+  (( unguarded == 0 )) && note "all ${#opts[@]} value-taking options refuse a missing value with exit 2"
+fi
+
+# And the other direction: an empty value is legitimate for several of these,
+# so the guard must check that the argument exists, not that it is non-empty.
+# --php-image so the steps go through the stubbed docker: this machine has no
+# php, and without it the run stops at the "install PHP" refusal before any
+# step is reached, which would make this assertion pass or fail for an
+# unrelated reason.
+out="$(run_out --workdir "$app" --php-image php:8.4-cli --install-command '' --migrate-command '' --test-command 'true')"
+if grep -q "skipped (no command)" <<<"$out"; then
+  note "an empty --install-command still skips the step rather than being refused"
+else
+  error "an empty value was refused, or the step ran anyway: ${out##*$'\n'}"
+fi
+
 # --- the MySQL root password -----------------------------------------------
 #
 # ci-helpers' laravel.yml declares db_root_password and forwards it here. It

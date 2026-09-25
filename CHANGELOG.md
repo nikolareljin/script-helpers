@@ -20,6 +20,19 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   postgres ignores the option rather than refusing it, because a preset
   forwards its inputs whatever engine the caller picked.
 
+### Fixed
+
+- **`ci_laravel.sh`: an option written last with no value is an argument error,
+  not a bash crash.** Every one of the sixteen read `"$2"` unchecked, so
+  `--db-name` at the end of a command line died with
+  `ci_laravel.sh: line 82: $2: unbound variable` and exit 1 -- where the
+  script's own `EXIT_CODES` promise 2 for a bad argument, and where nothing
+  names the option.
+
+  The guard checks that the argument exists, not that it is non-empty: several
+  of these options take an empty value on purpose, `--install-command ''` to
+  skip the install among them.
+
 ### Documentation
 
 - **`ci_laravel.sh`, `ci_wp_build.sh` and `ci_wp_phpunit.sh` in `docs/usage.md`.**
