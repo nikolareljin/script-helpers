@@ -132,6 +132,31 @@ else
   error "--env did not reach the steps"
 fi
 
+
+# --- asking for a database on a machine without docker ---------------------
+#
+# The first failure used to be `docker network create`, so the message blamed
+# the network and sent a reader after a problem they did not have. And cleanup
+# then announced removing a container that was never created.
+nodock="$tmp/nodocker"
+mkdir -p "$nodock/bin"
+for t in bash sh env grep sed awk id mkdir printf cat tr cut sort head tail \
+         date dirname basename pwd rm cp mv sleep uname tee wc find xargs; do
+  src="$(command -v "$t" 2>/dev/null)" && ln -sf "$src" "$nodock/bin/$t"
+done
+out="$(CI="" HOME="$tmp/home" PATH="$nodock/bin" bash scripts/ci_python.sh \
+  --workdir "$tmp/proj" --no-install --db-image postgres:16 --test-cmd 'true' 2>&1)"
+if grep -q "docker is not on PATH" <<<"$out"; then
+  note "a database on a machine without docker is refused by name"
+else
+  error "the docker-less refusal does not name docker: ${out##*$'\n'}"
+fi
+if grep -q "Removing database container" <<<"$out"; then
+  error "cleanup announced removing a container that was never created"
+else
+  note "cleanup says nothing about a container that was never created"
+fi
+
 if [[ "$failures" -eq 0 ]]; then
   note "ALL PASSED"; exit 0
 fi

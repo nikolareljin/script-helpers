@@ -26,6 +26,18 @@
   respectively rather than interpolated into a command string, so a password
   containing a quote cannot break the quoting or run as code.
 
+### Fixed
+
+- **Two messages in `lib/ci_stack.sh` that described something other than what
+  happened.** Asking for a database on a machine without docker failed at
+  `docker network create`, so the error blamed the network -- a reader would
+  chase a networking problem they do not have. It refuses first and names
+  docker now.
+
+  And cleanup announced `Removing database container ...` for a container that
+  was never created, because a caller sets the name before the start attempt.
+  It says nothing unless there is something to remove.
+
 ## 2026-09-25 — v0.40.0
 
 ### Added
