@@ -1,46 +1,4 @@
-Changelog
-
-This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
-
-## [Unreleased]
-
-### Changed
-
-- **`ci_laravel.sh` and `ci_wp_phpunit.sh` use `lib/ci_stack.sh` instead of
-  carrying their own copies.** Both had their own `start_database` and
-  `cleanup`, and the two had drifted until only one guarded its EXIT trap --
-  the difference between a signalled subshell removing the caller's database
-  container mid-run and not. The module shipped with `ci_django.sh` as its first
-  consumer; these are the second and third.
-
-  | | before | after |
-  |---|---|---|
-  | `ci_laravel.sh` | 488 | 424 |
-  | `ci_wp_phpunit.sh` | 368 | 328 |
-  | `lib/ci_stack.sh` | — | 167, once |
-
-  Neither script now contains `docker run -d`, `docker rm -f`,
-  `docker network create`, `mysqladmin ping` or `pg_isready`. Engine inference
-  and the default port come from the module too, so `postgres` means 5432 in one
-  place rather than four.
-
-  No behaviour change is intended, and the existing suites are the evidence:
-  both pass unchanged. Beyond that, run against real containers -- sqlite,
-  MySQL with a non-default root password, and postgres -- with the volume count
-  identical before and after, and the database container removed even on the run
-  that refused for a missing PDO driver.
-
-### Fixed
-
-- **`ci_wp_phpunit_test.sh` asserted through a path that always failed.** Four
-  cases passed `--db-wait-seconds 0`, where the readiness loop runs no polls at
-  all: the old inline `start_database` fell straight through to "did not become
-  ready" and exit 1, and the assertions passed anyway because they read the argv
-  `docker run` had already recorded on the way to a guaranteed failure.
-
-  `ci_stack_start_database` refuses 0 outright, which is what exposed it. The
-  cases now use 2, and the file records why. `ci_laravel_test.sh` already
-  carried this lesson.
+## 2026-09-25 — v0.39.0
 
 ### Added
 
@@ -85,7 +43,44 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   is a file rather than `:memory:` for the reason `ci_laravel.sh` learned the
   hard way: each step is its own process, and an in-memory database dies with
   the step that migrated it.
+
+### Changed
+
+- **`ci_laravel.sh` and `ci_wp_phpunit.sh` use `lib/ci_stack.sh` instead of
+  carrying their own copies.** Both had their own `start_database` and
+  `cleanup`, and the two had drifted until only one guarded its EXIT trap --
+  the difference between a signalled subshell removing the caller's database
+  container mid-run and not. The module shipped with `ci_django.sh` as its first
+  consumer; these are the second and third.
+
+  | | before | after |
+  |---|---|---|
+  | `ci_laravel.sh` | 488 | 424 |
+  | `ci_wp_phpunit.sh` | 368 | 328 |
+  | `lib/ci_stack.sh` | — | 167, once |
+
+  Neither script now contains `docker run -d`, `docker rm -f`,
+  `docker network create`, `mysqladmin ping` or `pg_isready`. Engine inference
+  and the default port come from the module too, so `postgres` means 5432 in one
+  place rather than four.
+
+  No behaviour change is intended, and the existing suites are the evidence:
+  both pass unchanged. Beyond that, run against real containers -- sqlite,
+  MySQL with a non-default root password, and postgres -- with the volume count
+  identical before and after, and the database container removed even on the run
+  that refused for a missing PDO driver.
+
 ### Fixed
+
+- **`ci_wp_phpunit_test.sh` asserted through a path that always failed.** Four
+  cases passed `--db-wait-seconds 0`, where the readiness loop runs no polls at
+  all: the old inline `start_database` fell straight through to "did not become
+  ready" and exit 1, and the assertions passed anyway because they read the argv
+  `docker run` had already recorded on the way to a guaranteed failure.
+
+  `ci_stack_start_database` refuses 0 outright, which is what exposed it. The
+  cases now use 2, and the file records why. `ci_laravel_test.sh` already
+  carried this lesson.
 
 - **Every EXIT trap in shipped code is guarded against running in an inherited
   subshell.** A subshell inherits an EXIT trap, and bash runs it there when the
@@ -114,6 +109,7 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   in shipped code, because it read the practice files and not the shipping
   ones. It also fails when it finds no EXIT traps at all, since a scan that
   matches nothing otherwise reports success having examined nothing.
+
 
 ## 2026-09-25 — v0.38.1
 
