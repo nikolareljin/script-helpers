@@ -685,6 +685,11 @@ Run a Django project's tests, locally or in CI:
   root-owned.
 - `scripts/ci_python.sh` remains the runner for a project that needs neither a
   database nor migrations.
+- With `--python-image`, every step is its own container, so packages are
+  installed into `.ci-python-packages` inside the project and `PYTHONPATH`
+  points there. A plain `pip install` would otherwise land in a container that
+  is discarded, and the next step would fail with `ModuleNotFoundError` after
+  the install step reported success. The directory is removed on the way out.
 
 Build the package a WordPress plugin ships, and run a plugin's own test suite:
 

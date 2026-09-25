@@ -28,6 +28,20 @@ Functions
     `--network` or `--publish` (see below), `--db`, `--user`, `--password`,
     `--root-password`, `--wait-seconds` (default 60).
 
+- ci_stack_command_program
+  - Purpose: Echo the program a step command would run, or nothing when the
+    command is a shell construct. Environment prefixes are stepped over, so
+    `DJANGO_SETTINGS_MODULE=x python manage.py test` answers `python`.
+
+- ci_stack_command_available
+  - Purpose: Whether that program can be run. 0 yes, 1 no.
+  - Arguments: `<workdir> <image-or-empty> <docker-user-or-empty> <program>`.
+  - The probe runs **with the workdir as its current directory**. It did not,
+    and a step command naming a path inside the project -- `bin/thing`,
+    `.venv/bin/python`, `vendor/bin/phpunit` -- was refused before it ran, while
+    the step itself would have `cd`-ed there and run it. A check that fires on
+    correct input is worse than no check, because it gets switched off.
+
 - ci_stack_remove
   - Purpose: Remove the container and, if given, the network. Never fails: it is
     called from an EXIT trap, where a non-zero return would replace the script's

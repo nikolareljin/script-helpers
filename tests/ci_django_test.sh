@@ -181,6 +181,78 @@ else
   error "--db-wait-seconds 0 was accepted: ${out##*$'\n'}"
 fi
 
+# --- packages installed in one step have to exist in the next --------------
+#
+# Every step is its own `docker run --rm`, so a plain `pip install` puts
+# packages in a container that is then discarded and the next step fails with
+# ModuleNotFoundError -- after the install step reported success. Composer does
+# not have this problem because it writes into the mounted vendor/. PIP_TARGET
+# and PYTHONPATH point at a directory inside the mounted workdir instead.
+: > "$tmp/argv"
+run --workdir "$app" --python-image python:3.12-slim --install-command 'pip install x' \
+    --migrate-command '' --test-command 'true'
+if [[ ! -s "$tmp/argv" ]]; then
+  error "docker was never called, so the pip assertions prove nothing"
+else
+  for want in 'PIP_TARGET=/app/.ci-python-packages' 'PYTHONPATH=/app/.ci-python-packages'; do
+    if grep -qx -- "$want" "$tmp/argv"; then
+      note "argv carries ${want%%=*}, so an install survives into the next step"
+    else
+      error "argv is missing ${want}"
+    fi
+  done
+fi
+
+# --- a step command that lives inside the project --------------------------
+#
+# The probe used to run `command -v` in the script's own directory, so a command
+# naming a path inside the project -- bin/thing, .venv/bin/python,
+# vendor/bin/phpunit -- was refused before it ran, while the step itself would
+# have cd-ed to the workdir and run it happily. A check that fires on correct
+# input is worse than no check, because it gets switched off.
+#
+# And an environment prefix used to skip the check altogether rather than look
+# past it, so `FOO=bar definitely-not-real` was accepted.
+mkdir -p "$app/bin"
+printf '#!/bin/sh\nexit 0\n' > "$app/bin/thing"
+chmod +x "$app/bin/thing"
+
+probe_case() {   # <label> <expect-ok|expect-refused> <command>
+  local label="$1" expect="$2" command="$3" out rc
+  out="$(run_out --workdir "$app" --install-command "$command" --test-command 'true' \
+        --migrate-command '' 2>&1)"; rc=$?
+  if [[ "$expect" == "expect-ok" ]]; then
+    if grep -q "is not on PATH" <<<"$out"; then
+      error "${label}: refused a command that is valid in the project"
+    else
+      note "$label"
+    fi
+  else
+    if grep -q "is not on PATH" <<<"$out"; then
+      note "$label"
+    else
+      error "${label}: accepted a command that does not exist (exit ${rc})"
+    fi
+  fi
+}
+
+probe_case "a relative command inside the project is accepted"      expect-ok      'bin/thing'
+probe_case "an environment prefix is looked past, not skipped"      expect-ok      'FOO=bar bin/thing'
+probe_case "env FOO=1 <program> is looked past too"                 expect-ok      'env FOO=1 bin/thing'
+probe_case "a command that does not exist is still refused"         expect-refused 'definitely-not-a-program'
+probe_case "an environment prefix does not hide a missing program"  expect-refused 'FOO=bar definitely-not-a-program'
+# A quoted program path cannot be split on whitespace without a shell. The
+# space is what makes it fail: splitting `"/opt/my tools/python" manage.py`
+# yields `"/opt/my`, and probing that produces a bash syntax error -- an
+# unbalanced quote -- which reads as "not available" and refuses a command that
+# works. A quoted path without a space survives either way, so it is not the
+# case to test.
+mkdir -p "$app/my tools"
+printf '#!/bin/sh\nexit 0\n' > "$app/my tools/thing"
+chmod +x "$app/my tools/thing"
+probe_case "a quoted program path with a space is not mangled"      expect-ok      '"my tools/thing" --flag'
+probe_case "a relative ./program is accepted"                       expect-ok      './bin/thing'
+
 if [[ $failures -gt 0 ]]; then
   echo "[ci_django_test] FAILED ($failures)" >&2
   exit 1
