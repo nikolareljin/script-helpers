@@ -2,6 +2,38 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## [Unreleased]
+
+### Fixed
+
+- **Every EXIT trap in shipped code is guarded against running in an inherited
+  subshell.** A subshell inherits an EXIT trap, and bash runs it there when the
+  subshell is signalled. Fourteen traps had no guard, and several of them do
+  real damage from a subshell:
+
+  | Script | What the trap does |
+  |---|---|
+  | `ci_wp_phpunit.sh` | `docker rm -f -v` the database container, and `rm -rf` the WordPress download the run is still reading |
+  | `ci_wp_plugin_check.sh`, `ci_pimcore_bundle_check.sh` | `docker compose down -v --remove-orphans` against the caller's stack, volumes included |
+  | `lib/ollama.sh` | `rm -f` a log file, installed immediately before `"$@" &` -- a background job inherits it and would delete the file it is writing |
+  | `publish_homebrew.sh`, `docs_site.sh`, `check_private_names.sh`, `refresh_private_names.sh`, `git-hooks/pre-push` | `rm -rf` or `rm -f` a working directory |
+
+  This is the same defect that made this repository's own test suite flaky: a
+  watchdog `kill` made bash run the inherited `rm -rf "$tmp"` and the suite
+  deleted its own working tree. That was fixed in `tests/`; the shipped scripts
+  carried it untouched.
+
+  `${BASHPID-$$}` rather than `$BASHPID`: bash 3.2, which macOS ships, does not
+  define `BASHPID`, and `$$` is the top-level shell's pid in every subshell, so
+  the comparison degrades to always-true there rather than silently disabling
+  cleanup.
+
+- **`tests/run_bounded_test.sh` now scans `scripts/`, `lib/` and `bin/`, not
+  only `tests/`.** It reported the rule enforced while ten unguarded traps sat
+  in shipped code, because it read the practice files and not the shipping
+  ones. It also fails when it finds no EXIT traps at all, since a scan that
+  matches nothing otherwise reports success having examined nothing.
+
 ## 2026-09-25 — v0.38.1
 
 ### Fixed
