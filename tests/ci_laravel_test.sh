@@ -81,15 +81,25 @@ run --workdir "$app" --php-image php:8.4-cli --install-command '' --migrate-comm
 if [[ ! -s "$tmp/argv" ]]; then
   error "docker was never called, so the argv assertions prove nothing"
 else
-  # sqlite in memory: nothing to create, nothing to clean up, no state carried
-  # between runs.
-  for want in 'DB_CONNECTION=sqlite' 'DB_DATABASE=:memory:' 'APP_ENV=testing'; do
+  # sqlite as a file under the application, not :memory:. Each step is its own
+  # process, so an in-memory database dies with the step that made it: migrate
+  # reported every migration DONE and the next step answered "Migration table
+  # not found".
+  for want in 'DB_CONNECTION=sqlite' 'APP_ENV=testing'; do
     if grep -qx -- "$want" "$tmp/argv"; then
       note "the default run passes ${want}"
     else
       error "argv is missing ${want}"
     fi
   done
+  if grep -qx -- 'DB_DATABASE=:memory:' "$tmp/argv"; then
+    error "sqlite is in memory, so the schema cannot outlive the step that creates it"
+  elif grep -q -- 'DB_DATABASE=/app/database/ci_laravel_' "$tmp/argv"; then
+    note "sqlite is a file the steps share, at the path the container sees"
+  else
+    error "no usable DB_DATABASE reached the steps: $(grep -m1 DB_DATABASE "$tmp/argv")"
+  fi
+
   # A login shell sources /etc/profile and replaces PATH, losing the PHP the
   # image put there. Same lesson as ci_go.sh.
   if grep -qx -- '-lc' "$tmp/argv"; then
@@ -340,6 +350,19 @@ if [[ $rc -eq 3 ]] && grep -q "Dependencies failed (exit 3)" <<<"$out"; then
   note "a failing step is named, and its exit code is kept"
 else
   error "a failing step gave exit ${rc} and: ${out##*$'\n'}"
+fi
+
+# The sqlite file is created inside the application; a run that leaves it there
+# puts a stray database in someone's repository.
+sqliteapp="$tmp/sqliteapp"
+mkdir -p "$sqliteapp"; : > "$sqliteapp/artisan"
+run --workdir "$sqliteapp" --php-image php:8.4-cli --install-command '' \
+    --migrate-command '' --test-command 'true'
+left="$(find "$sqliteapp" -name 'ci_laravel_*.sqlite' 2>/dev/null | wc -l | tr -d ' ')"
+if [[ "$left" -eq 0 ]]; then
+  note "the sqlite file is removed on the way out"
+else
+  error "${left} sqlite file(s) left in the application"
 fi
 
 if [[ $failures -gt 0 ]]; then

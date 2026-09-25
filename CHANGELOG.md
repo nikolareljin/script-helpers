@@ -17,8 +17,14 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   or `.env.example` when there is none, generates a key only when one is
   missing, and leaves an existing file alone.
 
-  sqlite in memory is the default, so the script is useful with no
-  infrastructure at all. `--db-image` swaps in a real server:
+  sqlite is the default, so the script is useful with no infrastructure at all.
+  It is a file inside the application rather than `:memory:`, because each step
+  is its own process -- a separate container when `--php-image` is used -- and
+  an in-memory database dies with the step that made it. `migrate` reported
+  every migration DONE and the next step answered "Migration table not found".
+  The file is named for the run and removed on the way out.
+
+  `--db-image` swaps in a real server:
 
   ```
   [INFO] Starting mysql:8.0 as laravel-db-875660 on the laravel-net-875660 network

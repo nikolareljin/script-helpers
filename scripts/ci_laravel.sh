@@ -123,10 +123,33 @@ if [[ -z "$db_port" ]]; then
   [[ "$db_connection" == "pgsql" ]] && db_port=5432 || db_port=3306
 fi
 
+# The sqlite file lives inside the application, because that is the directory
+# the container mounts -- anywhere else and the steps would not share it. Named
+# for this run so a concurrent one cannot collide, and removed on the way out.
+sqlite_file=""
+sqlite_path_in_env=""
+
+if [[ "$db_connection" == "sqlite" ]]; then
+  mkdir -p "${abs_workdir}/database"
+  sqlite_file="${abs_workdir}/database/ci_laravel_$$.sqlite"
+  : > "$sqlite_file"
+  # The path as the steps will see it: the mount point inside the container, or
+  # the real path when they run on the host.
+  if [[ -n "$php_image" ]]; then
+    sqlite_path_in_env="/app/database/$(basename "$sqlite_file")"
+  else
+    sqlite_path_in_env="$sqlite_file"
+  fi
+fi
+
 db_container=""
 db_network=""
 
+
 cleanup() {
+  if [[ -n "$sqlite_file" && -f "$sqlite_file" ]]; then
+    rm -f "$sqlite_file"
+  fi
   if [[ -n "$db_container" ]]; then
     log_info "Removing database container ${db_container}"
     docker rm -f "$db_container" >/dev/null 2>&1 || true
@@ -240,9 +263,12 @@ app_env_args() {
     "APP_ENV=testing" \
     "DB_CONNECTION=${db_connection}"
   if [[ "$db_connection" == "sqlite" ]]; then
-    # :memory: rather than a file: nothing to create, nothing to clean up, and
-    # no state carried between runs.
-    printf '%s\n' "DB_DATABASE=:memory:"
+    # A file, not :memory:. Each step is its own process -- a separate container
+    # when --php-image is used -- so an in-memory database dies with the step
+    # that made it: `migrate` reported every migration DONE and the very next
+    # step answered "Migration table not found". The schema has to outlive the
+    # step that creates it, exactly as it does for a real server.
+    printf '%s\n' "DB_DATABASE=${sqlite_path_in_env}"
   else
     printf '%s\n' \
       "DB_HOST=${effective_db_host}" \
@@ -257,21 +283,24 @@ run_step() {   # <label> <command>
   local label="$1" command="$2" rc=0
   [[ -n "$command" ]] || { log_info "${label}: skipped (no command)"; return 0; }
 
-  local env_args=()
+  # Read once. The host form is NAME=value for `env`; the container form is the
+  # same pairs each behind -e. Building both every time meant the host branch
+  # assembled a docker array it then returned without using.
+  local pairs=()
   while IFS= read -r pair; do
-    [[ -n "$pair" ]] && env_args+=(-e "$pair")
+    [[ -n "$pair" ]] && pairs+=("$pair")
   done < <(app_env_args)
 
   if [[ -z "$php_image" ]]; then
     log_info "${label} (host): ${command}"
-    local exports=()
-    while IFS= read -r pair; do
-      [[ -n "$pair" ]] && exports+=("$pair")
-    done < <(app_env_args)
-    ( cd "$abs_workdir" && env "${exports[@]}" bash -c "$command" ) || rc=$?
+    ( cd "$abs_workdir" && env "${pairs[@]}" bash -c "$command" ) || rc=$?
     step_failed "$label" "$command" "$rc"
     return 0
   fi
+
+  local env_args=()
+  local p
+  for p in "${pairs[@]}"; do env_args+=(-e "$p"); done
 
   local user_args=()
   # As the invoking user, or composer and artisan leave root-owned files in the
