@@ -22,6 +22,12 @@
   declines to guess at a pipeline or a chain, and probes with the workdir as its
   current directory.
 
+  It also declines a quoted program path. Splitting
+  `"/opt/my tools/python" manage.py test` on whitespace yields `"/opt/my`, and
+  probing that is a bash syntax error -- an unbalanced quote -- which reads as
+  "not available" and refuses a command that works. The space is what breaks it;
+  a quoted path without one survives either way.
+
 - **`ci_django.sh --python-image` lost every installed package between
   steps.** Each step is its own `docker run --rm`, so `pip install` put packages
   in a container that was then discarded and the next step failed with

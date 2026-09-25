@@ -148,6 +148,11 @@ ci_stack_command_program() {
   # guessing at which part to check is worse than not checking.
   case "$command" in
     *\;*|*\|*|*\&*|'('*|'{'*|*'>'*|*'<'*) return 0 ;;
+    # A quoted program -- `"/opt/my tools/python" manage.py test` -- cannot be
+    # split on whitespace without a shell, and splitting it anyway yields a
+    # token like `"/opt/my` that no probe can find. Skipping the check is the
+    # conservative answer; refusing a command that works is not.
+    '"'*|"'"*) return 0 ;;
   esac
   for word in $command; do
     case "$word" in
@@ -169,6 +174,10 @@ ci_stack_command_program() {
 ci_stack_command_available() {
   local workdir="${1:-.}" image="${2:-}" docker_user="${3:-}" program="${4:-}"
   [[ -n "$program" ]] || return 0
+  # docker refuses a relative bind-mount source with a message about the source
+  # path, which says nothing about the probe. Both shipped callers pass an
+  # absolute path; normalise anyway so a future one cannot be surprised.
+  [[ "$workdir" == /* ]] || workdir="$(cd "$workdir" 2>/dev/null && pwd -P)" || return 1
   local probe="command -v -- ${program} >/dev/null 2>&1"
   if [[ -z "$image" ]]; then
     ( cd "$workdir" 2>/dev/null && bash -c "$probe" ) && return 0

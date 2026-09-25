@@ -241,6 +241,17 @@ probe_case "an environment prefix is looked past, not skipped"      expect-ok   
 probe_case "env FOO=1 <program> is looked past too"                 expect-ok      'env FOO=1 bin/thing'
 probe_case "a command that does not exist is still refused"         expect-refused 'definitely-not-a-program'
 probe_case "an environment prefix does not hide a missing program"  expect-refused 'FOO=bar definitely-not-a-program'
+# A quoted program path cannot be split on whitespace without a shell. The
+# space is what makes it fail: splitting `"/opt/my tools/python" manage.py`
+# yields `"/opt/my`, and probing that produces a bash syntax error -- an
+# unbalanced quote -- which reads as "not available" and refuses a command that
+# works. A quoted path without a space survives either way, so it is not the
+# case to test.
+mkdir -p "$app/my tools"
+printf '#!/bin/sh\nexit 0\n' > "$app/my tools/thing"
+chmod +x "$app/my tools/thing"
+probe_case "a quoted program path with a space is not mangled"      expect-ok      '"my tools/thing" --flag'
+probe_case "a relative ./program is accepted"                       expect-ok      './bin/thing'
 
 if [[ $failures -gt 0 ]]; then
   echo "[ci_django_test] FAILED ($failures)" >&2
