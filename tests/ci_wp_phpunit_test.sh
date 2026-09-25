@@ -61,6 +61,13 @@ else
   error "--skip-provision accepted an absent test library: $out"
 fi
 
+# --db-wait-seconds is 2, not 0, in every case below. At 0 the readiness loop
+# runs no polls at all: the old inline start_database fell straight through to
+# "did not become ready" and exit 1, and these assertions passed anyway because
+# they read the argv `docker run` had already recorded on the way to a
+# guaranteed failure. lib/ci_stack.sh refuses 0 outright, which is what exposed
+# it. The stubbed docker answers the probe immediately, so 2 succeeds on the
+# first poll. ci_laravel_test.sh records the same lesson.
 # 5. The docker argv, when the tests run in a container. A login shell there
 #    replaces PATH with /etc/profile's default; see ci_go.sh.
 mkdir -p "$tmp/bin" "$tmp/lib/includes" "$tmp/proj"
@@ -105,7 +112,7 @@ fi
 #    only one that exercises it.
 : > "$tmp/argv"
 out="$(PATH="$tmp/bin:$PATH" bash "$SCRIPT" \
-  --skip-provision true --db-image mysql:8.0 --db-wait-seconds 0 \
+  --skip-provision true --db-image mysql:8.0 --db-wait-seconds 2 \
   --wp-tests-dir "$tmp/lib" --wp-core-dir "$tmp/core" \
   --workdir "$tmp/proj" --test-command 'true' 2>&1)"
 if grep -qi "unbound variable" <<<"$out"; then
@@ -132,7 +139,7 @@ fi
 #    the whole run with "port is already allocated" for a port nothing needed.
 : > "$tmp/argv"
 PATH="$tmp/bin:$PATH" bash "$SCRIPT" \
-  --skip-provision true --db-image mysql:8.0 --db-wait-seconds 0 --db-port 3999 \
+  --skip-provision true --db-image mysql:8.0 --db-wait-seconds 2 --db-port 3999 \
   --wp-tests-dir "$tmp/lib" --wp-core-dir "$tmp/core" \
   --workdir "$tmp/proj" --php-image php:8.3-cli --test-command 'true' >/dev/null 2>&1
 if grep -q -- '3999:3306' "$tmp/argv" 2>/dev/null; then
@@ -143,7 +150,7 @@ fi
 
 : > "$tmp/argv"
 PATH="$tmp/bin:$PATH" bash "$SCRIPT" \
-  --skip-provision true --db-image mysql:8.0 --db-wait-seconds 0 --db-port 3999 \
+  --skip-provision true --db-image mysql:8.0 --db-wait-seconds 2 --db-port 3999 \
   --wp-tests-dir "$tmp/lib" --wp-core-dir "$tmp/core" \
   --workdir "$tmp/proj" --test-command 'true' >/dev/null 2>&1
 if grep -q -- '3999:3306' "$tmp/argv" 2>/dev/null; then
@@ -184,7 +191,7 @@ fi
 #     ~200 MB data directory behind on every run, referenced by nothing.
 : > "$tmp/argv"
 PATH="$tmp/bin:$PATH" bash "$SCRIPT" \
-  --skip-provision true --db-image mysql:8.0 --db-wait-seconds 0 \
+  --skip-provision true --db-image mysql:8.0 --db-wait-seconds 2 \
   --wp-tests-dir "$tmp/lib" --wp-core-dir "$tmp/core" \
   --workdir "$tmp/proj" --test-command 'true' >/dev/null 2>&1
 if ! grep -qx -- 'rm' "$tmp/argv"; then
