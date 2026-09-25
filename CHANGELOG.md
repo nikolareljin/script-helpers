@@ -1,4 +1,4 @@
-## [Unreleased]
+## 2026-09-25 — v0.41.0
 
 ### Added
 
@@ -37,6 +37,7 @@
   And cleanup announced `Removing database container ...` for a container that
   was never created, because a caller sets the name before the start attempt.
   It says nothing unless there is something to remove.
+
 
 ## 2026-09-25 — v0.40.0
 
