@@ -661,6 +661,31 @@ Run a Laravel application's tests, locally or in CI:
   composer and no PDO drivers; the script names which one is missing and how to
   supply it rather than failing with exit 127.
 
+Run a Django project's tests, locally or in CI:
+
+```bash
+# sqlite, no infrastructure at all
+./scripts/ci_django.sh --workdir .
+
+# against a real server; the image name decides the engine
+./scripts/ci_django.sh --workdir . --db-image postgres:16 --db-name app_test
+./scripts/ci_django.sh --workdir . --db-image mysql:8.0
+```
+
+- The connection is exported as environment -- `DATABASE_URL` and the discrete
+  `DJANGO_DB_*` variables -- not written into a settings file. A settings module
+  that reads `os.environ` works unchanged in CI and on a laptop; one that CI
+  rewrites only works where CI rewrote it.
+- sqlite is a file beside `manage.py`, named for the run and removed afterwards,
+  not `:memory:`. Each step is its own process -- a separate container with
+  `--python-image` -- so an in-memory database dies with the step that migrated
+  it.
+- `--python-image` runs every step in that image, on a shared docker network
+  with the database, as the invoking user so nothing lands in the project
+  root-owned.
+- `scripts/ci_python.sh` remains the runner for a project that needs neither a
+  database nor migrations.
+
 Build the package a WordPress plugin ships, and run a plugin's own test suite:
 
 ```bash

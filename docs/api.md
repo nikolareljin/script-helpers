@@ -23,6 +23,7 @@ This index lists all modules and their functions. See the linked module pages fo
 - [certs](./modules/certs.md)
 - [hosts](./modules/hosts.md)
 - [clipboard](./modules/clipboard.md)
+- [ci_stack](./modules/ci_stack.md)
 - [traps](./modules/traps.md)
 - [ollama](./modules/ollama.md)
 - [package_publish](./modules/package_publish.md)
