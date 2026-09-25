@@ -4,6 +4,49 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 
 ## [Unreleased]
 
+### Added
+
+- **`lib/ci_stack.sh`: one copy of the disposable-database machinery.**
+  `ci_laravel.sh` and `ci_wp_phpunit.sh` each carried their own
+  `start_database` and `cleanup`. The two had drifted far enough that one
+  guarded its EXIT trap against inherited subshells and the other did not,
+  which removes the caller's database container mid-run. Adding a third and
+  fourth copy for Drupal and Django would have made that worse.
+
+  `ci_stack_start_database`, `ci_stack_remove`, `ci_stack_engine_for_image` and
+  `ci_stack_default_port` take their inputs as arguments rather than reading a
+  caller's variables, so a caller can be read without reading this file.
+
+  `ci_laravel.sh` and `ci_wp_phpunit.sh` move onto it next. They are untouched
+  here on purpose: a separate change has their trap lines open, and rebasing one
+  onto the other would have meant stacking two pull requests.
+
+- **`ci_django.sh`: a Django project's tests, in CI or on a laptop.** The first
+  consumer of `ci_stack`, rather than a module with no caller.
+
+  `ci_python.sh` installs and runs pytest. Django needs two things it has no
+  notion of: a database its settings can reach, and the migrations applied
+  before the suite runs.
+
+  ```
+  [INFO] Starting postgres:16 as django-db-2939605 on the django-net-2939605 network
+  [INFO] Database ready after 8s
+  [INFO] Schema (python:3.12-slim): python manage.py migrate --noinput
+    Applying app.0001_initial... OK
+  [INFO] Tests (python:3.12-slim): python manage.py test
+    Ran 2 tests  OK  [engine=pgsql]
+  [INFO] Removing database container django-db-2939605
+  ```
+
+  The connection is exported as environment -- `DATABASE_URL` and the discrete
+  `DJANGO_DB_*` variables -- not written into a settings file. A settings module
+  that reads `os.environ` works unchanged in both places; one that CI rewrites
+  works only where CI rewrote it.
+
+  sqlite is the default, so it is useful with no infrastructure at all, and it
+  is a file rather than `:memory:` for the reason `ci_laravel.sh` learned the
+  hard way: each step is its own process, and an in-memory database dies with
+  the step that migrated it.
 ### Fixed
 
 - **Every EXIT trap in shipped code is guarded against running in an inherited
