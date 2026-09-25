@@ -1,4 +1,19 @@
-## [Unreleased]
+## 2026-09-25 — v0.40.0
+
+### Added
+
+- **`ci_stack_command_program` and `ci_stack_command_available` in
+  `lib/ci_stack.sh`.** The step-command probe, as two functions a script can
+  call rather than a copy each script keeps. `ci_stack_command_program` answers
+  which program a step command would run -- stepping over environment prefixes
+  and `env FOO=1`, and declining to guess at a pipeline, chain, subshell,
+  redirect or quoted path. `ci_stack_command_available` answers whether it can
+  be run, probing **with the workdir as its current directory**.
+
+  They exist because the fix below had to land in two scripts at once, and a
+  rule written twice is a rule that drifts: the two copies had already diverged
+  on how they treated an environment prefix, and one of those behaviours reached
+  a ci-helpers preset. Documented in `docs/modules/ci_stack.md`.
 
 ### Fixed
 
@@ -38,6 +53,7 @@
   mounted workdir, and it is removed on the way out. Verified with the run that
   first failed: `pip install "psycopg[binary]"` in one container, used by the
   migrate and test containers after it, against a real postgres.
+
 
 ## 2026-09-25 — v0.39.0
 
