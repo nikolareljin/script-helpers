@@ -2,6 +2,31 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## [Unreleased]
+
+### Added
+
+- **`ci_laravel.sh --db-root-password`: the MySQL root account is the caller's
+  to choose.** It was hard-coded to `root`, so a caller that asked for another
+  one got `root` and was told nothing. ci-helpers' `laravel.yml` declares
+  `db_root_password` and will forward it here, which is how the gap was found.
+
+  Empty means `MYSQL_ALLOW_EMPTY_PASSWORD=yes`, not an empty
+  `MYSQL_ROOT_PASSWORD` -- the image rejects the latter. Either way the failure
+  it prevents is remote from its cause: without one of the two the container
+  exits during its entrypoint, so what a caller sees is the readiness poll
+  timing out after `--db-wait-seconds` with nothing about a password in it.
+
+  postgres ignores the option rather than refusing it, because a preset
+  forwards its inputs whatever engine the caller picked.
+
+### Documentation
+
+- **`ci_laravel.sh`, `ci_wp_build.sh` and `ci_wp_phpunit.sh` in `docs/usage.md`.**
+  All three shipped with no entry there, so the only way to find their options
+  was to read the script. `make lint-docs` does not catch this: it checks the
+  header block inside each script, not whether the manual mentions it.
+
 ## 2026-09-25 — v0.37.0
 
 ### Added

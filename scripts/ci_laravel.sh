@@ -13,6 +13,9 @@
 #   --db-name <name>              Database name (default: laravel).
 #   --db-user <user>              Database user (default: laravel).
 #   --db-password <password>      Database password (default: laravel).
+#   --db-root-password <password> Root password for a started MySQL image (default: root).
+#                                 Empty starts it with MYSQL_ALLOW_EMPTY_PASSWORD. Ignored
+#                                 by postgres, which has no separate root account.
 #   --db-wait-seconds <n>         How long to wait for it to answer (default: 60).
 #   --install-command <command>   Dependency install. Empty skips it
 #                                 (default: composer install --no-interaction --prefer-dist).
@@ -57,6 +60,7 @@ db_port=""
 db_name="laravel"
 db_user="laravel"
 db_password="laravel"
+db_root_password="root"
 db_wait_seconds=60
 install_command="composer install --no-interaction --prefer-dist"
 migrate_command="php artisan migrate --force"
@@ -75,6 +79,7 @@ while [[ $# -gt 0 ]]; do
     --db-name) db_name="$2"; shift 2 ;;
     --db-user) db_user="$2"; shift 2 ;;
     --db-password) db_password="$2"; shift 2 ;;
+    --db-root-password) db_root_password="$2"; shift 2 ;;
     --db-wait-seconds) db_wait_seconds="$2"; shift 2 ;;
     --install-command) install_command="$2"; shift 2 ;;
     --migrate-command) migrate_command="$2"; shift 2 ;;
@@ -193,7 +198,15 @@ start_database() {
     env_args=(-e POSTGRES_DB="$db_name" -e POSTGRES_USER="$db_user" -e POSTGRES_PASSWORD="$db_password")
   else
     env_args=(-e MYSQL_DATABASE="$db_name" -e MYSQL_USER="$db_user"
-              -e MYSQL_PASSWORD="$db_password" -e MYSQL_ROOT_PASSWORD="root")
+              -e MYSQL_PASSWORD="$db_password")
+    # The image refuses to initialise without one of these, and it dies during
+    # entrypoint rather than on connect -- so the symptom is the readiness poll
+    # timing out after --db-wait-seconds with nothing about a password in it.
+    if [[ -n "$db_root_password" ]]; then
+      env_args+=(-e MYSQL_ROOT_PASSWORD="$db_root_password")
+    else
+      env_args+=(-e MYSQL_ALLOW_EMPTY_PASSWORD=yes)
+    fi
   fi
 
   # ${arr[@]+"${arr[@]}"}: bash 3.2, which macOS still ships, treats an empty
