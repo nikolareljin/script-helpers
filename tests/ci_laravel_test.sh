@@ -190,7 +190,11 @@ fi
 # lines that call need_value. Keying it on the guard would have made the test
 # blind to exactly the change it exists to catch: delete a guard and that
 # option simply drops out of the list, and the run stays green.
-mapfile -t opts < <(sed -n 's/^    \(--[a-z-]*\)).*"\$2"; shift 2.*/\1/p' "$SCRIPT")
+# read, not mapfile: mapfile is bash 4+ and macOS ships 3.2. portability_test
+# catches this, which is how this line was caught.
+opts=()
+while IFS= read -r opt; do opts+=("$opt"); done < <(
+  sed -n 's/^    \(--[a-z-]*\)).*"\$2"; shift 2.*/\1/p' "$SCRIPT")
 if (( ${#opts[@]} < 10 )); then
   error "only ${#opts[@]} value-taking options were found in the parser; the extraction is wrong"
 else
