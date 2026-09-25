@@ -661,6 +661,33 @@ Run a Laravel application's tests, locally or in CI:
   composer and no PDO drivers; the script names which one is missing and how to
   supply it rather than failing with exit 127.
 
+Run a Python project's tests, with a database when it needs one:
+
+```bash
+# no database: the default, and what five of six measured Flask apps want
+./scripts/ci_python.sh --workdir . --extra-install pytest
+
+# with one, for the sixth
+./scripts/ci_python.sh --workdir . --db-image postgres:16 --db-name app_test \
+  --extra-install 'pytest psycopg[binary]'
+
+# and anything else the steps need in their environment
+./scripts/ci_python.sh --workdir . --env FLASK_APP=web:app
+```
+
+- No database is started unless `--db-image` says so. Of the six Flask
+  applications this was measured against, one used a database and five did not,
+  so a runner that started postgres by default would be wrong five times in six.
+- The connection arrives as environment -- `DATABASE_URL` and the discrete
+  `DB_*` variables -- not written into a settings file. Code that reads
+  `os.environ` works unchanged in CI and locally.
+- In Docker mode the steps join a network with the database and reach it by
+  container name; with `--no-docker` the port is published to loopback instead.
+- `--env NAME=VALUE` is repeatable, and is how `FLASK_APP` or any other
+  per-project variable reaches the steps.
+- `scripts/ci_django.sh` remains the runner for a Django project: it also
+  creates `.env`, applies migrations and knows what `manage.py` is.
+
 Run a Django project's tests, locally or in CI:
 
 ```bash

@@ -24,6 +24,9 @@ Functions
 - ci_stack_start_database
   - Purpose: `docker run -d` the image, then poll until it answers. Returns 0
     when ready, 1 when it does not become ready, 2 on bad arguments.
+  - Refuses first, by name, when docker is not on PATH. Without that the
+    first failure is `docker network create` and the message blames the
+    network, sending a reader after a problem they do not have.
   - Options: `--image` and `--name` are required. `--engine` (default `mysql`),
     `--network` or `--publish` (see below), `--db`, `--user`, `--password`,
     `--root-password`, `--wait-seconds` (default 60).
@@ -46,6 +49,9 @@ Functions
   - Purpose: Remove the container and, if given, the network. Never fails: it is
     called from an EXIT trap, where a non-zero return would replace the script's
     real exit status with the cleanup's.
+  - Says nothing about a container that does not exist. A caller sets the
+    name before starting, so on a failed start this used to announce
+    removing something that was never created.
   - Options: `--container`, `--network`.
 
 Notes

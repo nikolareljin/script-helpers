@@ -1,3 +1,43 @@
+## [Unreleased]
+
+### Added
+
+- **`ci_python.sh` can start a database, and carry extra environment.**
+  `--db-image` starts one through `lib/ci_stack.sh` and exports the connection
+  as `DATABASE_URL` plus the discrete `DB_*` variables; `--env NAME=VALUE` is
+  repeatable and is how `FLASK_APP` or anything else reaches the steps.
+
+  **No database is started unless asked for**, and that default came from
+  counting rather than from symmetry. Of the six Flask applications in this
+  fleet, one uses a database and five do not; their entry points are named
+  `web.py`, `app.py`, `web_app.py` and `lesson_web.py`, and Flask has no
+  universal CLI like `artisan` or `manage.py`. A runner that started postgres by
+  default would have been wrong five times in six.
+
+  Which is also why there is no `ci_flask.sh`. A Flask-specific runner would
+  have duplicated this script's install-and-test machinery and differed only by
+  exporting `FLASK_APP`, so the framework got an option rather than a script.
+  `ci_django.sh` remains separate because Django genuinely has more: `.env`, a
+  migration step and `manage.py`.
+
+  In Docker mode the steps join a network with the database and reach it by
+  container name; with `--no-docker` the port is published to loopback. Both
+  modes get the same environment, passed as `-e` pairs and through `env`
+  respectively rather than interpolated into a command string, so a password
+  containing a quote cannot break the quoting or run as code.
+
+### Fixed
+
+- **Two messages in `lib/ci_stack.sh` that described something other than what
+  happened.** Asking for a database on a machine without docker failed at
+  `docker network create`, so the error blamed the network -- a reader would
+  chase a networking problem they do not have. It refuses first and names
+  docker now.
+
+  And cleanup announced `Removing database container ...` for a container that
+  was never created, because a caller sets the name before the start attempt.
+  It says nothing unless there is something to remove.
+
 ## 2026-09-25 — v0.40.0
 
 ### Added
