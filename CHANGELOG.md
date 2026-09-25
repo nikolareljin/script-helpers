@@ -1,3 +1,38 @@
+## [Unreleased]
+
+### Fixed
+
+- **A step command naming a path inside the project was refused before it
+  ran.** The probe ran `command -v` in the script's own directory, not the
+  workdir, so `bin/thing`, `.venv/bin/python` and `vendor/bin/phpunit` were all
+  reported as "not on PATH" while the step itself would have `cd`-ed to the
+  workdir and run them. A check that fires on correct input is worse than no
+  check, because it gets switched off.
+
+  An environment prefix was handled differently in each script, which is how it
+  reached a preset: `ci_laravel.sh` skipped the check entirely for anything
+  containing `=`, so `FOO=bar definitely-not-real` was accepted; `ci_django.sh`
+  read `FOO=bar` as the program name and refused the command outright. The
+  second cost a ci-helpers self-test leg a full CI cycle -- the database had
+  already started and the migration already run when the test step was refused
+  for a program called `EXPECT_DB_NAME=fixture_db`.
+
+  Both now use `ci_stack_command_program` and `ci_stack_command_available` from
+  `lib/ci_stack.sh`: one implementation, which steps over environment prefixes,
+  declines to guess at a pipeline or a chain, and probes with the workdir as its
+  current directory.
+
+- **`ci_django.sh --python-image` lost every installed package between
+  steps.** Each step is its own `docker run --rm`, so `pip install` put packages
+  in a container that was then discarded and the next step failed with
+  `ModuleNotFoundError` -- after the install step had reported success.
+  Composer never had this problem because it writes into the mounted `vendor/`.
+
+  `PIP_TARGET` and `PYTHONPATH` now point at `.ci-python-packages` inside the
+  mounted workdir, and it is removed on the way out. Verified with the run that
+  first failed: `pip install "psycopg[binary]"` in one container, used by the
+  migrate and test containers after it, against a real postgres.
+
 ## 2026-09-25 — v0.39.0
 
 ### Added

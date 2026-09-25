@@ -137,6 +137,50 @@ ci_stack_start_database() {
   return 1
 }
 
+# Usage: ci_stack_command_program <command>
+# Echoes the program a step command would run, or nothing when the command is a
+# shell construct rather than a plain invocation. Environment prefixes are
+# stepped over: `DJANGO_SETTINGS_MODULE=x python manage.py test` runs `python`.
+ci_stack_command_program() {
+  local command="${1:-}" word
+  [[ -n "$command" ]] || return 0
+  # A pipeline, a subshell, a redirect or a chain is not one program, and
+  # guessing at which part to check is worse than not checking.
+  case "$command" in
+    *\;*|*\|*|*\&*|'('*|'{'*|*'>'*|*'<'*) return 0 ;;
+  esac
+  for word in $command; do
+    case "$word" in
+      *=*) continue ;;          # an environment prefix, not the program
+      env) continue ;;          # `env FOO=bar prog`
+      *) printf '%s\n' "$word"; return 0 ;;
+    esac
+  done
+}
+
+# Usage: ci_stack_command_available <workdir> <image-or-empty> <docker-user-or-empty> <program>
+# Returns 0 when the program can be run, 1 when it cannot.
+#
+# The probe runs WITH THE WORKDIR AS ITS CURRENT DIRECTORY. It did not, and a
+# step command naming a path inside the project -- `bin/thing`,
+# `.venv/bin/python`, `vendor/bin/phpunit` -- was refused before it ran, while
+# the step itself would have `cd`-ed there and run it happily. A check that
+# fires on correct input is worse than no check: it gets switched off.
+ci_stack_command_available() {
+  local workdir="${1:-.}" image="${2:-}" docker_user="${3:-}" program="${4:-}"
+  [[ -n "$program" ]] || return 0
+  local probe="command -v -- ${program} >/dev/null 2>&1"
+  if [[ -z "$image" ]]; then
+    ( cd "$workdir" 2>/dev/null && bash -c "$probe" ) && return 0
+    return 1
+  fi
+  local user_args=()
+  [[ -n "$docker_user" ]] && user_args=(-u "$docker_user" -e HOME=/tmp)
+  docker run --rm ${user_args[@]+"${user_args[@]}"} \
+    -v "${workdir}:/work" -w /work "$image" bash -c "$probe" >/dev/null 2>&1 && return 0
+  return 1
+}
+
 # Usage: ci_stack_remove [--container <name>] [--network <name>]
 #
 # -v as well as -f: the mysql and postgres images declare a VOLUME, so every

@@ -345,7 +345,7 @@ cat > "$tmp/bin/docker" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$@" >> "$tmp/argv"
 for a in "\$@"; do
-  case "\$a" in *"command -v composer"*) exit 1 ;; esac
+  case "\$a" in *"command -v"*"composer"*) exit 1 ;; esac
 done
 exit 0
 EOF
@@ -364,7 +364,7 @@ cat > "$tmp/bin/docker" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$@" >> "$tmp/argv"
 for a in "\$@"; do
-  case "\$a" in *"command -v php"*) exit 1 ;; esac
+  case "\$a" in *"command -v"*"php"*) exit 1 ;; esac
 done
 exit 0
 EOF
@@ -473,6 +473,52 @@ if [[ "$left" -eq 0 ]]; then
 else
   error "${left} sqlite file(s) left in the application"
 fi
+
+# --- a step command that lives inside the project --------------------------
+#
+# The probe used to run `command -v` in the script's own directory, so
+# `vendor/bin/phpunit` or any other path inside the project was refused before
+# it ran, while the step itself would have cd-ed to the workdir and run it. A
+# check that fires on correct input is worse than no check.
+#
+# An environment prefix used to skip the check altogether rather than look past
+# it, so `FOO=bar definitely-not-real` was accepted.
+mkdir -p "$app/bin"
+printf '#!/bin/sh\nexit 0\n' > "$app/bin/thing"
+chmod +x "$app/bin/thing"
+
+# A stub that refuses exactly the program these cases expect to be missing, and
+# answers for everything else. A stub that says yes to every probe cannot show a
+# refusal, and one that says no to every probe fails at the PHP check first.
+cat > "$tmp/bin/docker" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$@" >> "$tmp/argv"
+for a in "\$@"; do
+  case "\$a" in *"command -v"*"definitely-not-a-program"*) exit 1 ;; esac
+done
+exit 0
+EOF
+chmod +x "$tmp/bin/docker"
+
+probe_case() {   # <label> <expect-ok|expect-refused> <install-command>
+  local label="$1" expect="$2" command="$3" out
+  out="$(run_out --workdir "$app" --php-image php:8.4-cli --install-command "$command" \
+        --migrate-command '' --test-command 'true' 2>&1)"
+  if [[ "$expect" == "expect-ok" ]]; then
+    grep -q "is not on PATH" <<<"$out" \
+      && error "${label}: refused a command that is valid in the project" \
+      || note "$label"
+  else
+    grep -q "is not on PATH" <<<"$out" \
+      && note "$label" \
+      || error "${label}: accepted a command that does not exist"
+  fi
+}
+
+probe_case "a relative command inside the project is accepted"      expect-ok      'bin/thing'
+probe_case "an environment prefix is looked past, not skipped"      expect-ok      'FOO=bar bin/thing'
+probe_case "a command that does not exist is still refused"         expect-refused 'definitely-not-a-program'
+probe_case "an environment prefix does not hide a missing program"  expect-refused 'FOO=bar definitely-not-a-program'
 
 if [[ $failures -gt 0 ]]; then
   echo "[ci_laravel_test] FAILED ($failures)" >&2
