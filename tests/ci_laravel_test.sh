@@ -222,6 +222,29 @@ else
   error "an empty value was refused, or the step ran anyway: ${out##*$'\n'}"
 fi
 
+# --- the database container's anonymous volume -----------------------------
+#
+# `docker run -d mysql:8.0` creates an anonymous volume, because the image
+# declares VOLUME /var/lib/mysql. `docker rm -f` removes the container and
+# leaves the volume: seven runs of this script and its tests left 1.4 GB of
+# orphaned MySQL data directories on a laptop, none of them referenced by
+# anything. -v removes an anonymous volume and leaves a named one alone.
+
+: > "$tmp/argv"
+run --workdir "$app" --db-image mysql:8.0 --db-wait-seconds 2 \
+    --install-command '' --migrate-command '' --test-command 'true'
+if ! grep -qx -- 'rm' "$tmp/argv"; then
+  error "docker rm was never called, so the cleanup assertion proves nothing"
+else
+  # The recorded argv is flat, so check the removal line rather than the file:
+  # -v anywhere in the run would otherwise satisfy this.
+  if grep -A2 -x -- 'rm' "$tmp/argv" | grep -qx -- '-v'; then
+    note "the database container is removed with its anonymous volume"
+  else
+    error "docker rm ran without -v; the container's volume would be orphaned"
+  fi
+fi
+
 # --- the MySQL root password -----------------------------------------------
 #
 # ci-helpers' laravel.yml declares db_root_password and forwards it here. It

@@ -179,6 +179,22 @@ else
   note "--docker-user '' runs as the image default"
 fi
 
+# 10. The database container is removed with its anonymous volume. The mysql
+#     image declares VOLUME /var/lib/mysql, so `docker rm -f` alone leaves a
+#     ~200 MB data directory behind on every run, referenced by nothing.
+: > "$tmp/argv"
+PATH="$tmp/bin:$PATH" bash "$SCRIPT" \
+  --skip-provision true --db-image mysql:8.0 --db-wait-seconds 0 \
+  --wp-tests-dir "$tmp/lib" --wp-core-dir "$tmp/core" \
+  --workdir "$tmp/proj" --test-command 'true' >/dev/null 2>&1
+if ! grep -qx -- 'rm' "$tmp/argv"; then
+  error "docker rm was never called, so the cleanup assertion proves nothing"
+elif grep -A2 -x -- 'rm' "$tmp/argv" | grep -qx -- '-v'; then
+  note "the database container is removed with its anonymous volume"
+else
+  error "docker rm ran without -v; the container's volume would be orphaned"
+fi
+
 if [[ $failures -gt 0 ]]; then
   echo "[ci_wp_phpunit_test] FAILED ($failures)" >&2
   exit 1
