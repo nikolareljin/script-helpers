@@ -305,9 +305,20 @@ if [[ ! -f "${abs_workdir}/.env" ]]; then
     done
   fi
   if [[ -n "$candidate" ]]; then
-    [[ -f "${abs_workdir}/${candidate}" ]] || { log_error "--env-file not found: ${candidate}"; exit 2; }
-    log_info "Creating .env from ${candidate}"
-    cp "${abs_workdir}/${candidate}" "${abs_workdir}/.env"
+    # Resolved as given first, then relative to the application. Prefixing the
+    # application directory unconditionally refused an absolute path -- and said
+    # "not found" about a file that was there, naming a path nobody had passed.
+    source_env=""
+    if [[ -f "$candidate" ]]; then
+      source_env="$candidate"
+    elif [[ -f "${abs_workdir}/${candidate}" ]]; then
+      source_env="${abs_workdir}/${candidate}"
+    else
+      log_error "--env-file not found, as given or under ${abs_workdir}: ${candidate}"
+      exit 2
+    fi
+    log_info "Creating .env from ${source_env}"
+    cp "$source_env" "${abs_workdir}/.env"
   else
     log_info "No .env, .env.testing or .env.example; creating an empty .env"
     : > "${abs_workdir}/.env"
@@ -323,6 +334,11 @@ fi
 # an image problem. Checked here so the message names the cause and the fix.
 # ---------------------------------------------------------------------------
 require_pdo_driver() {
+  # php itself first. Without it every step dies with 127 and a message that
+  # names the step rather than the cause -- "Application key failed (exit 127)"
+  # is true and unhelpful.
+  require_step_command "PHP" "php --version"
+
   [[ "$db_connection" == "sqlite" ]] && return 0
 
   local driver="$db_connection"
@@ -350,7 +366,56 @@ require_pdo_driver() {
   fi
 }
 
+# ---------------------------------------------------------------------------
+# The command that installs dependencies has to exist.
+#
+# The official php images ship no composer either, so the default
+# `composer install` against `php:8.4-cli` dies at the first step with
+# "composer: command not found" and exit 127. Checked in the environment the
+# step will actually run in, so the message can name the image.
+# ---------------------------------------------------------------------------
+require_step_command() {   # <label> <command>
+  local label="$1" command="$2"
+  [[ -n "$command" ]] || return 0
+
+  # The first word is what has to be on PATH; the rest is arguments.
+  local program="${command%% *}"
+  # A command that is a shell construct rather than a program is left alone.
+  case "$program" in
+    *=*|*\;*|'('|'{') return 0 ;;
+  esac
+
+  local probe="command -v ${program} >/dev/null 2>&1"
+  local ok=0
+  if [[ -z "$php_image" ]]; then
+    bash -c "$probe" || ok=$?
+  else
+    local user_args=()
+    [[ -n "$docker_user" ]] && user_args=(-u "$docker_user" -e HOME=/tmp)
+    docker run --rm ${user_args[@]+"${user_args[@]}"} "$php_image" \
+      bash -c "$probe" >/dev/null 2>&1 || ok=$?
+  fi
+
+  if [[ "$ok" -ne 0 ]]; then
+    local where="this machine"
+    [[ -n "$php_image" ]] && where="$php_image"
+    log_error "${label}: '${program}' is not on PATH in ${where}."
+    if [[ "$program" == "php" ]]; then
+      log_error "Run it in a container with --php-image, or install PHP on this machine."
+    elif [[ "$program" == "composer" ]]; then
+      log_error "The official php images ship no composer. Use an image that has it,"
+      log_error "install the dependencies beforehand and pass --install-command '',"
+      log_error "or build one:  FROM ${php_image:-php:8.4-cli}"
+      log_error "               COPY --from=composer:2 /usr/bin/composer /usr/bin/composer"
+    else
+      log_error "Pass a command the image has, or an empty one to skip the step."
+    fi
+    exit 2
+  fi
+}
+
 require_pdo_driver
+require_step_command "Dependencies" "$install_command"
 
 run_step "Dependencies" "$install_command"
 

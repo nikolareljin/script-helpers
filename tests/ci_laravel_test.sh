@@ -211,10 +211,130 @@ else
   error "APP_KEY was empty and key:generate did not run; Laravel would refuse to boot"
 fi
 
+# --- a step whose command the image does not have --------------------------
+#
+# The official php images ship neither composer nor any database driver, so the
+# defaults die at the first step with "command not found" and exit 127 -- a
+# message that names the step rather than the cause. Both are checked up front
+# now, and the message has to say which.
+
+# The stub answers `command -v` with exit 0, so a run that gets past the probes
+# proves nothing about them. A stub that refuses is what exercises the check.
+# Selective: php is present, composer is not. A stub that refuses every probe
+# would fail at the PHP check first and never reach the composer message.
+cat > "$tmp/bin/docker" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$@" >> "$tmp/argv"
+for a in "\$@"; do
+  case "\$a" in *"command -v composer"*) exit 1 ;; esac
+done
+exit 0
+EOF
+chmod +x "$tmp/bin/docker"
+
+out="$(run_out --workdir "$app" --php-image php:8.4-cli)"
+if grep -q "'composer' is not on PATH" <<<"$out" && grep -q "no composer" <<<"$out"; then
+  note "a missing composer is named, with the image and the fix"
+else
+  error "a missing composer was not reported: ${out##*$'\n'}"
+fi
+
+# php missing is the more fundamental case, and the one whose absence used to
+# surface as "Application key failed (exit 127)" -- true, and no help at all.
+cat > "$tmp/bin/docker" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$@" >> "$tmp/argv"
+for a in "\$@"; do
+  case "\$a" in *"command -v php"*) exit 1 ;; esac
+done
+exit 0
+EOF
+chmod +x "$tmp/bin/docker"
+
+out="$(run_out --workdir "$app" --php-image php:8.4-cli)"
+if grep -q "'php' is not on PATH" <<<"$out" && grep -q -- "--php-image" <<<"$out"; then
+  note "a missing php is named before anything tries to use it"
+else
+  error "a missing php was not reported: ${out##*$'\n'}"
+fi
+
+# Now php is present and composer irrelevant; only the driver probe refuses.
+cat > "$tmp/bin/docker" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$@" >> "$tmp/argv"
+for a in "\$@"; do
+  case "\$a" in *getAvailableDrivers*) exit 1 ;; esac
+done
+exit 0
+EOF
+chmod +x "$tmp/bin/docker"
+
+out="$(run_out --workdir "$app" --php-image php:8.4-cli --install-command '' --db-connection mysql --db-host db.example)"
+if grep -q "no pdo_mysql driver" <<<"$out"; then
+  note "a missing pdo driver is named, with the image and the fix"
+else
+  error "a missing pdo driver was not reported: ${out##*$'\n'}"
+fi
+
+# Restore the permissive stub for anything after this.
+cat > "$tmp/bin/docker" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$@" >> "$tmp/argv"
+exit 0
+EOF
+chmod +x "$tmp/bin/docker"
+
+# --- --env-file, as given rather than only under the app -------------------
+#
+# The path was resolved against the application directory unconditionally, so
+# an absolute one was refused with "not found" naming a path nobody passed.
+extapp="$tmp/extapp"
+mkdir -p "$extapp"; : > "$extapp/artisan"
+printf 'FROM_ELSEWHERE=1\n' > "$tmp/shared.env"
+run --workdir "$extapp" --env-file "$tmp/shared.env" --php-image php:8.4-cli \
+    --install-command '' --migrate-command '' --test-command 'true'
+if [[ -f "$extapp/.env" ]] && grep -q 'FROM_ELSEWHERE' "$extapp/.env"; then
+  note "--env-file is accepted as an absolute path"
+else
+  error "--env-file with an absolute path did not produce .env"
+fi
+
+relapp="$tmp/relapp"
+mkdir -p "$relapp"; : > "$relapp/artisan"
+printf 'FROM_INSIDE=1\n' > "$relapp/.env.ci"
+run --workdir "$relapp" --env-file ".env.ci" --php-image php:8.4-cli \
+    --install-command '' --migrate-command '' --test-command 'true'
+if [[ -f "$relapp/.env" ]] && grep -q 'FROM_INSIDE' "$relapp/.env"; then
+  note "--env-file is still accepted relative to the application"
+else
+  error "--env-file relative to the application stopped working"
+fi
+
+missapp="$tmp/missapp"
+mkdir -p "$missapp"; : > "$missapp/artisan"
+out="$(run_out --workdir "$missapp" --env-file "does-not-exist.env" --php-image php:8.4-cli)"
+if grep -q -- "--env-file not found" <<<"$out"; then
+  note "an --env-file that is nowhere is refused"
+else
+  error "a missing --env-file was accepted"
+fi
+
 # --- a failing step says so ------------------------------------------------
 
-out="$(PATH="$tmp/bin:$PATH" bash "$SCRIPT" --workdir "$app" --install-command 'exit 3' \
-       --migrate-command '' --test-command 'true' 2>&1)"
+# The stub has to fail for this one, or the step it is meant to fail at
+# succeeds and the assertion passes for the wrong reason.
+cat > "$tmp/bin/docker" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$@" >> "$tmp/argv"
+for a in "\$@"; do
+  case "\$a" in *"exit 3"*) exit 3 ;; esac
+done
+exit 0
+EOF
+chmod +x "$tmp/bin/docker"
+
+out="$(PATH="$tmp/bin:$PATH" bash "$SCRIPT" --workdir "$app" --php-image php:8.4-cli \
+       --install-command 'exit 3' --migrate-command '' --test-command 'true' 2>&1)"
 rc=$?
 if [[ $rc -eq 3 ]] && grep -q "Dependencies failed (exit 3)" <<<"$out"; then
   note "a failing step is named, and its exit code is kept"

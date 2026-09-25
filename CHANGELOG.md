@@ -36,11 +36,23 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
   `.env`: Laravel's `env()` reads the process environment first, so a developer's
   own file survives the run unedited.
 
-  One refusal is worth naming. The official `php` images ship **no database
-  drivers**, so `php:8.4-cli` against a started MySQL fails inside artisan with
-  "could not find driver" and a stack trace about `Connector.php` -- which reads
-  like a Laravel problem and is an image problem. The driver is checked before
-  anything uses it, and the message names the cause and the fix.
+  Three refusals are worth naming, because the official `php` images ship
+  neither composer nor any database driver, and without either the run dies at
+  the first step with exit 127 and a message that names the step rather than the
+  cause. `php`, the install command and the PDO driver are each checked in the
+  environment the step will actually run in, before anything uses them:
+
+  ```
+  [ERROR] Dependencies: 'composer' is not on PATH in php:8.4-cli.
+  [ERROR] The official php images ship no composer. Use an image that has it,
+  [ERROR] install the dependencies beforehand and pass --install-command '',
+  [ERROR] or build one:  FROM php:8.4-cli
+  [ERROR]                COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+  ```
+
+  `--env-file` is resolved as given and then relative to the application. It was
+  resolved only against the application, so an absolute path was refused with
+  "not found" naming a path nobody had passed.
 
 ## 2026-09-24 — v0.36.0
 
