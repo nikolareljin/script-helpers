@@ -1,3 +1,10 @@
+## [Unreleased]
+
+### Changed
+
+- **Internal repositories are cited by code in this file.** `R-765` rather
+  than a name, matching the convention the rest of the published text follows.
+
 ## 2026-09-26 — v0.42.0
 
 ### Added
@@ -7,7 +14,7 @@
 
   A model changed without a migration generated for it is invisible to the test
   suite: `migrate` applies the migrations that exist and the tests pass against
-  the schema they produce. It breaks a deployment rather than a test. keystone
+  the schema they produce. It breaks a deployment rather than a test. R-765
   E59 calls it "the highest-value new gate in the epic" across the eight
   repositories here with a Postgres driver.
 
