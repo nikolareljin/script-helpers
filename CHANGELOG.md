@@ -3,7 +3,7 @@
 ### Added
 
 - **`ci_django.sh --check-command`: schema drift as its own step.** Runs
-  `makemigrations --check --dry-run` between the schema and the tests.
+  `makemigrations --check --dry-run --noinput` between the schema and the tests.
 
   A model changed without a migration generated for it is invisible to the test
   suite: `migrate` applies the migrations that exist and the tests pass against
