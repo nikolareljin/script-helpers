@@ -187,7 +187,7 @@ PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
   PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
   PRIVATE_NAMES_CODES_FILE="$tmp/codes" \
   bash "$SCRIPT" --owner testns --out "$out_file" --force >/dev/null 2>&1
-if grep -qP '^private\totherorg\t\*\t' "$out_file"; then
+if awk -F'\t' '$1=="private" && $2=="otherorg" && $3=="*" {found=1} END{exit !found}' "$out_file"; then
   ok "an org-wide row survives a refresh"
 else
   error "the org-wide row was dropped, taking its never-name policy with it"
