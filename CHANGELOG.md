@@ -37,6 +37,16 @@
   whether a page was truncated, so a page that comes back exactly full is
   treated as one.
 
+- **An organisation's `*` row is derived, not inherited.** It was carried over
+  from the file being replaced, so a machine building its first list got none
+  at all and the namespaces themselves matched nothing. Every organisation the
+  token can see now gets one; your own account does not, because its
+  repositories have codes to cite.
+
+- **The first-run message told you to index one owner.** `--owner <you>` leaves
+  every organisation out, silently. With no arguments it indexes all of them,
+  and that is what the message says now.
+
 - **Org-wide `*` rows survive a refresh.** `gh` lists repositories, so it can
   never produce one; all three were dropped on every run, taking their
   `never-name` policy with them.

@@ -140,12 +140,13 @@ Bundled CLIs
   Each prints what it allowed, so an override is never silent. `git push --no-verify`
   remains git's own escape. Run `scripts/check_private_names.sh --help` for details.
 
-- `scripts/refresh_private_names.sh` — builds that list from **your** GitHub
-  account or organisation:
+- `scripts/refresh_private_names.sh` — builds that list from every account the
+  token can see: you, plus your organisations.
 
   ```bash
-  scripts/refresh_private_names.sh --owner <your-user-or-org>   # or omit --owner
-  scripts/refresh_private_names.sh --check                      # compare, change nothing
+  scripts/refresh_private_names.sh                  # all of them
+  scripts/refresh_private_names.sh --owner <o> --ttl 0   # re-index one, now
+  scripts/refresh_private_names.sh --check          # compare with GitHub, write nothing
   ```
 
   It writes `${XDG_CONFIG_HOME:-~/.config}/script-helpers/private-names.tsv`: one

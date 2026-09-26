@@ -192,8 +192,9 @@ else
   if [[ ! -f "$LIST" ]]; then
     log_error "No private-name list at: $(tilde "$LIST")"
     log_error "Without it this check would scan for nothing and report success."
-    log_error "Generate one from your own account:"
-    log_error "  scripts/refresh_private_names.sh --owner <your-user-or-org>"
+    log_error "Build one. With no arguments it indexes every account the token can"
+    log_error "see, which is what you want -- naming one owner leaves the others out:"
+    log_error "  scripts/refresh_private_names.sh"
     log_error "or point PRIVATE_NAMES_FILE at a list you already have."
     exit 2
   fi

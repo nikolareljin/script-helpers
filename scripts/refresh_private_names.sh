@@ -408,11 +408,23 @@ if (( status != 0 )); then
   exit 3
 fi
 
-# gh lists repositories, so it can never produce an org-wide `*` row. Those
-# carry never-name policy for a whole namespace, and a refresh dropped all
-# three of them. Carry them over from the file being replaced.
+# An organisation's namespace is never-name in its own right: there is no
+# public form of it, not even a code. gh lists repositories, so it cannot
+# produce that row -- it used to be carried over from the previous file, which
+# meant a fresh machine had none at all and the namespace itself matched
+# nothing. Derived from the owners instead, for every one that is not you.
+for one in $(printf '%s' "$OWNERS" | tr ',' ' '); do
+  [[ -z "$one" ]] && continue
+  [[ -n "$SELF_LOGIN" && "$one" == "$SELF_LOGIN" ]] && continue
+  printf 'private\t%s\t*\t-\tnever-name\n' "$one" >> "$tmp.body"
+done
+
+# Anything else in the old file that gh cannot produce, and this run did not
+# derive -- an organisation no longer discovered, a row added by hand.
 if [[ -f "$OUT" ]]; then
-  awk -F'\t' '!/^#/ && $3=="*"' "$OUT" >> "$tmp.body"
+  awk -F'\t' -v owners=",$OWNERS," '
+    !/^#/ && $3=="*" && index(owners, "," $2 ",") == 0
+  ' "$OUT" >> "$tmp.body"
 fi
 
 private_count="$(grep -c '^private' "$tmp.body")"
