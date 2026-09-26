@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # SCRIPT: refresh_private_names.sh
 # DESCRIPTION: Build the private-repository name list that check_private_names.sh reads, from your own GitHub account or organisation.
-# USAGE: scripts/refresh_private_names.sh [--owner <user-or-org>] [--out <path>] [--stdout] [--check] [--force] [-h]
+# USAGE: scripts/refresh_private_names.sh [--owner <user-or-org>] [--out <path>] [--stdout] [--check] [--force] [--codes <path>] [--limit <n>] [-h]
 # PARAMETERS:
 #   --owner <name>  GitHub user or organisation. Default: the owner of this repo's origin remote.
 #   --out <path>    Where to write. Default: ${XDG_CONFIG_HOME:-~/.config}/script-helpers/private-names.tsv
 #   --stdout        Print the list instead of writing it.
 #   --check         Compare the written list with GitHub; change nothing.
 #   --force         Write even if it would drop names or codes.
+#   --limit <n>     Repositories to ask gh for per owner (default 8000).
+#   --codes <path>  Two columns, `name<TAB>code`, used to fill the code column that
+#                   `gh repo list` cannot supply. Default:
+#                   ~/.config/script-helpers/private-names-codes.tsv
 #   -h, --help      Show this help message.
 # ENVIRONMENT:
 #   PRIVATE_NAMES_NEVER_AMBIGUOUS       Names to match bare even though they are dictionary
@@ -63,6 +67,8 @@ OUT="${XDG_CONFIG_HOME:-$HOME/.config}/script-helpers/private-names.tsv"
 TO_STDOUT=false
 CHECK=false
 FORCE=false
+GH_LIMIT="${PRIVATE_NAMES_GH_LIMIT:-8000}"
+CODES_FILE="${PRIVATE_NAMES_CODES_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/script-helpers/private-names-codes.tsv}"
 WORDLIST="${PRIVATE_NAMES_WORDLIST:-/usr/share/dict/words}"
 
 # Names that are dictionary words but never written as words in the repos this
@@ -81,6 +87,8 @@ while [[ $# -gt 0 ]]; do
     --stdout) TO_STDOUT=true; shift ;;
     --check) CHECK=true; shift ;;
     --force) FORCE=true; shift ;;
+    --codes) CODES_FILE="${2:?--codes needs a path}"; shift 2 ;;
+    --limit) GH_LIMIT="${2:?--limit needs a number}"; shift 2 ;;
     -h|--help) sed -n '2,15p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) log_error "Unknown argument: $1"; exit 2 ;;
   esac
@@ -133,11 +141,20 @@ owner_list="$(printf '%s' "$OWNERS" | tr ',' '\n')"
 while IFS= read -r one; do
   one="$(printf '%s' "$one" | tr -d '[:space:]')"
   [[ -z "$one" ]] && continue
-  raw="$(gh repo list "$one" --limit 1000 --json name,visibility,isArchived 2>/dev/null)"
+  raw="$(gh repo list "$one" --limit "$GH_LIMIT" --json name,visibility,isArchived 2>/dev/null)"
   status=$?
   if (( status != 0 )) || [[ -z "$raw" ]]; then
     log_error "gh repo list $one failed (exit $status)."
     log_error "Check the name, and that this account can see it."
+    exit 3
+  fi
+  # A page that comes back exactly full is probably truncated, and gh gives no
+  # way to tell. Silently dropping repos is the one failure this list cannot
+  # have: a name that is missing is a name nothing blocks.
+  got="$(printf '%s' "$raw" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))' 2>/dev/null || echo 0)"
+  if [[ "$got" == "$GH_LIMIT" ]]; then
+    log_error "gh returned exactly $GH_LIMIT repositories for $one, so the list is probably cut short."
+    log_error "Raise it: --limit <n>, or PRIVATE_NAMES_GH_LIMIT."
     exit 3
   fi
   printf '%s\t%s\n' "$one" "$raw" >> "$tmp.raw"
@@ -153,7 +170,7 @@ fi
 # One python pass: the JSON, the word list and the flagging. python3 is already
 # required by the gate for the same reason -- parsing JSON in bash is how a
 # quoted name with a bracket in it silently drops out of a security list.
-WORDLIST="$WORDLIST" NEVER_AMBIGUOUS="$NEVER_AMBIGUOUS" python3 - "$tmp.raw" <<'PY' > "$tmp.body"
+WORDLIST="$WORDLIST" NEVER_AMBIGUOUS="$NEVER_AMBIGUOUS" CODES_FILE="$CODES_FILE" python3 - "$tmp.raw" <<'PY' > "$tmp.body"
 import json, os, pathlib, sys
 
 wordlist = pathlib.Path(os.environ.get("WORDLIST", ""))
@@ -183,6 +200,21 @@ GENERIC = {
     "home", "admin", "server", "client", "frontend", "backend", "mobile",
 }
 
+# name -> code, for the column `gh repo list` cannot supply. Deliberately a
+# plain two-column file rather than an inventory format: this repository is
+# public and must build standalone, so it cannot know where the codes come
+# from. Whoever has the inventory produces the file.
+codes = {}
+codes_path = pathlib.Path(os.environ.get("CODES_FILE", ""))
+if codes_path.is_file():
+    for raw in codes_path.read_text(encoding="utf-8").splitlines():
+        raw = raw.strip()
+        if not raw or raw.startswith("#"):
+            continue
+        parts = raw.replace("\t", " ").split()
+        if len(parts) >= 2:
+            codes[parts[0].lower()] = parts[1]
+
 rows = []
 for line in open(sys.argv[1], encoding="utf-8"):
     ns, _, payload = line.partition("\t")
@@ -196,7 +228,7 @@ for line in open(sys.argv[1], encoding="utf-8"):
             continue
         visibility = "public" if str(repo.get("visibility", "")).upper() == "PUBLIC" \
             else "private"
-        rows.append([visibility, ns, name, "-", ""])
+        rows.append([visibility, ns, name, codes.get(name.lower(), "-"), ""])
 
 public_names = {r[2].lower() for r in rows if r[0] == "public"}
 out = []
@@ -221,6 +253,13 @@ status=$?
 if (( status != 0 )); then
   log_error "could not parse the repository list (exit $status)"
   exit 3
+fi
+
+# gh lists repositories, so it can never produce an org-wide `*` row. Those
+# carry never-name policy for a whole namespace, and a refresh dropped all
+# three of them. Carry them over from the file being replaced.
+if [[ -f "$OUT" ]]; then
+  awk -F'\t' '!/^#/ && $3=="*"' "$OUT" >> "$tmp.body"
 fi
 
 private_count="$(grep -c '^private' "$tmp.body")"
@@ -284,10 +323,20 @@ if [[ -f "$OUT" && "$FORCE" != true ]]; then
   new_n="$(awk -F'\t' '!/^#/ && $1=="private"{n++} END{print n+0}' "$tmp")"
   old_c="$(awk -F'\t' '!/^#/ && $1=="private" && $4!="-" && $4!=""{n++} END{print n+0}' "$OUT")"
   new_c="$(awk -F'\t' '!/^#/ && $1=="private" && $4!="-" && $4!=""{n++} END{print n+0}' "$tmp")"
-  if [[ "$new_n" -lt "$old_n" || "$new_c" -lt "$old_c" ]]; then
+  # Per namespace too. Totals hid a real loss: 59 names went and 64 arrived, so
+  # the count grew while the gate got weaker.
+  shrunk_ns="$(awk -F'\t' '
+    !/^#/ && $1=="private" { if (FILENAME==old) a[$2]++; else b[$2]++ }
+    END { for (ns in a) if (b[ns]+0 < a[ns]) printf "  %s: %d -> %d\n", ns, a[ns], b[ns]+0 }
+  ' old="$OUT" "$OUT" "$tmp")"
+  old_w="$(awk -F'\t' '!/^#/ && $3=="*"{n++} END{print n+0}' "$OUT")"
+  new_w="$(awk -F'\t' '!/^#/ && $3=="*"{n++} END{print n+0}' "$tmp")"
+  if [[ "$new_n" -lt "$old_n" || "$new_c" -lt "$old_c" || -n "$shrunk_ns" || "$new_w" -lt "$old_w" ]]; then
     log_error "This write would lose data, so nothing was written:"
     [[ "$new_n" -lt "$old_n" ]] && log_error "  names: ${old_n} -> ${new_n}"
     [[ "$new_c" -lt "$old_c" ]] && log_error "  names carrying a code: ${old_c} -> ${new_c}"
+    [[ "$new_w" -lt "$old_w" ]] && log_error "  org-wide rows: ${old_w} -> ${new_w}"
+    [[ -n "$shrunk_ns" ]] && { log_error "  namespaces that lost names:"; printf '%s\n' "$shrunk_ns" >&2; }
     log_error "Name every owner the file covers, or pass --force to overwrite."
     log_error "Owners in the current file:"
     awk -F'\t' '!/^#/ && $1=="private"{print "  " $2}' "$OUT" | sort -u >&2

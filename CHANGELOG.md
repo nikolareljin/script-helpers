@@ -22,10 +22,31 @@
   `~/.config/script-helpers/private-names-unambiguous`. A repo named after a
   word nobody writes was flagged and therefore never matched bare.
 
+- **`refresh_private_names.sh --codes <file>` fills the code column.** Two
+  columns, `name<TAB>code`, default
+  `~/.config/script-helpers/private-names-codes.tsv`. `gh repo list` returns
+  names and visibility but no codes, so a refresh wiped every one -- and the
+  code is what the gate tells people to cite instead of a name. Deliberately a
+  plain file, not an inventory format: this repository is public and builds
+  standalone, so it cannot know where the codes come from.
+
+- **`--limit` defaults to 8000, and a full page is refused.** It was 1000, and
+  one organisation here has 5042 repositories, so the list silently held 950 of
+  them: 4000 private repository names that no gate could match. Refreshing with
+  this in place took the list from 1499 names to 4847. `gh` gives no way to ask
+  whether a page was truncated, so a page that comes back exactly full is
+  treated as one.
+
+- **Org-wide `*` rows survive a refresh.** `gh` lists repositories, so it can
+  never produce one; all three were dropped on every run, taking their
+  `never-name` policy with them.
+
 - **`refresh_private_names.sh --owner X` refuses to shrink the list.** The file
   holds every account; `--owner` takes one. Re-running with a subset replaced
-  the lot: 1499 names became 66, and every `R-` code became `-` -- the code the
-  gate tells people to cite. `--force` overrides.
+  the lot. Counts alone were not enough -- one refresh lost 59 names and gained
+  64, so the total grew while the list got weaker -- so it now also refuses when
+  any single namespace loses names or an org-wide row disappears. `--force`
+  overrides.
 
 ### Changed
 

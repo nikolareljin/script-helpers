@@ -137,6 +137,30 @@ else
   error "the refusal did not say which of the two shrank: ${out}"
 fi
 
+# --codes fills the column gh cannot supply. Without it every code is "-", and
+# the gate loses the thing it tells people to cite instead of a name.
+printf '# name\tcode\nquarry\tR-002\nharbour\tR-003\n' > "$tmp/codes"
+rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/codes" \
+  bash "$SCRIPT" --owner testns --stdout 2>/dev/null)"
+code_for() { awk -F'\t' -v n="$1" '!/^#/ && $3 == n { print $4 }' <<<"$rows_out"; }
+
+[[ "$(code_for quarry)"  == "R-002" ]] && ok "a code from --codes reaches the row" \
+  || error "quarry got code '$(code_for quarry)', expected R-002"
+[[ "$(code_for harbour)" == "R-003" ]] && ok "every listed name gets its code" \
+  || error "harbour got code '$(code_for harbour)'"
+[[ "$(code_for zzqqxx)"  == "-" ]] && ok "a name absent from --codes keeps -" \
+  || error "zzqqxx got code '$(code_for zzqqxx)', expected -"
+
+# and without the file, nothing gains a code
+rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/no-such-file" \
+  bash "$SCRIPT" --owner testns --stdout 2>/dev/null)"
+[[ "$(code_for quarry)" == "-" ]] && ok "no --codes file means no codes, not an error" \
+  || error "a missing --codes file produced code '$(code_for quarry)'"
+
 if [[ $failures -gt 0 ]]; then
   echo "[refresh_private_names_test] FAILED ($failures)" >&2
   exit 1
