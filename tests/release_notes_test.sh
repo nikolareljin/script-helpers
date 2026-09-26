@@ -192,6 +192,29 @@ set -e
 grep -q -- "--version" <<<"$msg" || error "a missing option value was refused without naming the option"
 note "a missing option value or a malformed version returns 2"
 
+# The gate has to be wired into the release workflow, not only into the Makefile
+# and the local hook. It was not: check_release_version.sh compares the branch,
+# VERSION and the tags and says nothing about the CHANGELOG, so a heading that
+# did not match VERSION passed CI, and release_notes.sh fell back to the commit
+# range without failing -- the published Release body became a list of commit
+# subjects. A tested gate that nothing runs is not a gate.
+#
+# gate_script, not gate: `gate` holds the path to check_changelog_section.sh for
+# the rest of this file, and reusing the name here left later cases invoking a
+# bare filename and collecting exit 127.
+release_wf="$root_dir/.github/workflows/release-version-check.yml"
+if [[ ! -f "$release_wf" ]]; then
+  error "release-version-check.yml is missing, so the release gates run nowhere"
+else
+  for gate_script in check_release_version.sh check_changelog_section.sh; do
+    if grep -q "bash scripts/${gate_script}" "$release_wf"; then
+      note "the release workflow runs ${gate_script}"
+    else
+      error "the release workflow does not run ${gate_script}"
+    fi
+  done
+fi
+
 # ---------------------------------------------------------------------------
 # 9) Floating tags are not releases. This repository moves `production` to each
 #    release commit; describe used to return it as the "previous" tag, and the

@@ -29,3 +29,18 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/check_release_version.sh --branch "$HEAD_REF" --fetch-tags
+
+      # Wired in because it was not. check_release_version.sh compares the
+      # branch, VERSION and the tags -- it says nothing about the CHANGELOG, so
+      # a release whose heading did not match VERSION passed this workflow, and
+      # release_notes.sh then fell back to the commit range without failing:
+      # the published Release body became a list of commit subjects. The gate
+      # for that already existed, was tested, and README.md said it refused
+      # such a release. Only the Makefile and the local pre-commit hook ran it.
+      - name: Validate the CHANGELOG has a section for it
+        shell: bash
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          bash scripts/check_changelog_section.sh --branch "$HEAD_REF"

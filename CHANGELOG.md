@@ -27,6 +27,22 @@
 
 ### Fixed
 
+- **The release workflow runs the CHANGELOG gate.** It ran
+  `check_release_version.sh`, which compares the branch, `VERSION` and the
+  tags and says nothing about the CHANGELOG. A release branch whose heading
+  did not match `VERSION` passed CI, and `release_notes.sh` then fell back to
+  the commit range without failing, so the published Release body was a list
+  of commit subjects:
+
+  ```
+  [INFO] release_notes: 0.42.0 from commits in 0.41.0..HEAD
+  * release: 0.42.0
+  ```
+
+  `check_changelog_section.sh` already refused exactly that, had tests, and was
+  named in `README.md` as the gate for it. Only the `Makefile` and the local
+  pre-commit hook ran it; the workflow mentioned it in a comment.
+
 - **`ci_django.sh` names the option for the step that failed.** A step whose
   program is not on PATH said `Pass --test-command ...` whichever step it was,
   from when the tests were the only one likely to miss an interpreter. With the
