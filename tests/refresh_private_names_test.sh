@@ -267,7 +267,7 @@ else
   error "--check answered from a cache: it cannot compare with GitHub that way"
 fi
 
-# An organisation's namespace is never-name in its own right, and gh cannot
+# An organization's namespace is never-name in its own right, and gh cannot
 # produce that row. It used to be inherited from the previous file, so a fresh
 # machine had none and the namespace matched nothing.
 rm -rf "$tmp/wildcache"
@@ -278,7 +278,7 @@ PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
   PRIVATE_NAMES_CODES_FILE="$tmp/does-not-exist" \
   bash "$SCRIPT" --owner someorg --out "$out_w" >/dev/null 2>&1
 if awk -F'\t' '$1=="private" && $2=="someorg" && $3=="*" && $5 ~ /never-name/ {f=1} END{exit !f}' "$out_w"; then
-  ok "an organisation gets a never-name row on a machine with no previous file"
+  ok "an organization gets a never-name row on a machine with no previous file"
 else
   error "no org-wide row was derived, so the namespace itself matches nothing"
 fi
