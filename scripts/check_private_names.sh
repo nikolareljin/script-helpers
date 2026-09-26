@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SCRIPT: check_private_names.sh
 # DESCRIPTION: Fail when the name of a private repository appears in text that is about to become public.
-# USAGE: scripts/check_private_names.sh [--tree|--commits <range>|--file <path>|--stdin] [--list <path>] [--names <a,b>] [--repo <path>] [--only-public] [--for-repo <name>] [-h]
+# USAGE: scripts/check_private_names.sh [--tree|--commits <range>|--file <path>|--stdin] [--list <path>] [--names <a,b>] [--repo <path>] [--only-public] [--for-repo <name>] [--strict-ambiguous] [-h]
 # PARAMETERS:
 #   --tree              Scan tracked files (the default when nothing else is given).
 #   --commits <range>   Scan commit messages in a range, e.g. origin/main..HEAD.
@@ -12,6 +12,9 @@
 #   --repo <path>       Repository to scan (default: cwd).
 #   --only-public       Do nothing unless this repository is public, per the list.
 #   --for-repo <name>   Judge visibility by this repository name, not the git remote.
+#   --strict-ambiguous  Fail on a bare everyday-word name too, rather than warning, and
+#                       check the tree for one as well. For text about to be posted
+#                       publicly, where nobody will re-read it afterwards.
 #   -h, --help          Show this help message.
 # EXIT_CODES:
 #   0  no private name found
@@ -105,6 +108,7 @@ LOUD_DAYS="${PRIVATE_NAMES_LOUD_DAYS:-30}"
 REPO=""
 LIST=""
 ONLY_PUBLIC=false
+STRICT_AMBIGUOUS=false
 FOR_REPO=""
 NAMES=""
 COMMITS=""
@@ -121,6 +125,7 @@ while [[ $# -gt 0 ]]; do
     --names) NAMES="${2:?--names needs a comma-separated list}"; shift 2 ;;
     --repo) REPO="${2:?--repo needs a path}"; shift 2 ;;
     --only-public) ONLY_PUBLIC=true; shift ;;
+    --strict-ambiguous) STRICT_AMBIGUOUS=true; shift ;;
     --for-repo) FOR_REPO="${2:?--for-repo needs a name}"; shift 2 ;;
     -h|--help) sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) log_error "Unknown argument: $1"; exit 2 ;;
@@ -263,6 +268,18 @@ else
       # protection, it is noise, and noise is what gets a gate switched off.
       if (flags ~ /qualified-only/ || flags ~ /ambiguous/ || generic(name)) {
         print "qual\t" ns "/" name "\t" ns "/" name "\t" code "\t" flags > out
+        # An explicitly `ambiguous` name is ALSO emitted bare, into the tier
+        # that only warns. Demoting it to qualified-only was right -- bare
+        # matching of everyday words produced fifty hits here -- but it left
+        # the bare form passing silently, and the tier written to report it
+        # was never populated, so the branch that asks for a person could not
+        # run. A warning costs an exit code of 0 and puts the decision in
+        # front of someone. --strict-ambiguous makes it fail.
+        #
+        # generic(name) is deliberately not included: those are inferred, not
+        # declared, and warning on every one of them is the noise the
+        # demotion existed to remove.
+        if (flags ~ /ambiguous/) print "bare\t" name "\t" ns "/" name "\t" code "\t" flags > out
         next
       }
       print "bare\t" name "\t" ns "/" name "\t" code "\t" flags > out
@@ -281,6 +298,22 @@ else
     log_error "The private-name list has no private names in it: $(tilde "$LIST")"
     log_error "An empty list cannot be told from a clean tree, so this is a failure."
     exit 2
+  fi
+
+  # The bare-ambiguous warning is for text that is ABOUT TO BE PUBLISHED -- a
+  # commit message, a pull request body, an issue -- and not for the tree.
+  #
+  # Measured, with the real dictionary: --tree produces 54 hit lines in this
+  # repository and 77 in ci-helpers, almost all of them the words "search" and
+  # "anchor" in prose, in CSS class names and in `re.search(`. A warning that
+  # arrives 54 at a time is one nobody reads, which is the same failure as not
+  # warning at all. Over the thirty commits that introduced the leak this
+  # existed for, the same check produces one line, pointing at the line that
+  # was wrong.
+  #
+  # --strict-ambiguous still covers the tree, for a caller who asks for it.
+  if [[ "$MODE" == tree && "$STRICT_AMBIGUOUS" != true ]]; then
+    : > "$ambiguous"
   fi
 
   age="$(list_age_days "$LIST")"
@@ -582,10 +615,17 @@ if [[ -s "$qual_hits" ]]; then
 fi
 
 if [[ -s "$amb_hits" ]]; then
-  found=1
   cat "$amb_hits" >&2
   matched_names "$ambiguous" "$amb_hits" token >&2
-  log_error "That is both an everyday word and a private repository, so it needs a person."
+  if [[ "$STRICT_AMBIGUOUS" == true ]]; then
+    found=1
+    log_error "That is both an everyday word and a private repository, so it needs a person."
+  else
+    log_warn "That is both an everyday word and a private repository, so it needs a person."
+    log_warn "Read the lines above. If any of them means the repository, cite it by code."
+    log_warn "This does not fail on its own; --strict-ambiguous makes it."
+    ambiguous_seen=1
+  fi
 fi
 
 if [[ "$found" -eq 1 ]]; then
@@ -599,6 +639,19 @@ if [[ "$found" -eq 1 ]]; then
       sed -n 's/^# generated: \([0-9-]*\).*/, generated \1/p' "$LIST" | head -1)."
   fi
   exit 1
+fi
+
+# "no private repository is named" would be a false statement after a warning:
+# one may well be named, and a person was just asked to decide. Saying it anyway
+# is how a warning gets read as a pass.
+if [[ "${ambiguous_seen:-0}" == 1 ]]; then
+  case "$MODE" in
+    tree)    log_warn "no unambiguous private name in tracked files; the warnings above still need a person" ;;
+    commits) log_warn "no unambiguous private name in $COMMITS; the warnings above still need a person" ;;
+    file)    log_warn "no unambiguous private name in $FILE; the warnings above still need a person" ;;
+    stdin)   log_warn "no unambiguous private name in the given text; the warnings above still need a person" ;;
+  esac
+  exit 0
 fi
 
 case "$MODE" in

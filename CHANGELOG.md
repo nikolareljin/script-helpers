@@ -1,5 +1,39 @@
 ## [Unreleased]
 
+### Added
+
+- **`check_private_names.sh` warns about a bare everyday-word name, and
+  `--strict-ambiguous` fails on one.** A name the dictionary flags `ambiguous`
+  is matched only when qualified with its namespace. That demotion is right --
+  bare matching of words like `search` and `anchor` produces dozens of hits in
+  ordinary prose -- but the bare form was passing in complete silence, and the
+  tier written to report it was never populated, so the branch that asks for a
+  person could not run. No test covered it.
+
+  Where the warning fires is the whole design, and it was measured rather than
+  guessed:
+
+  | scanned | hit lines |
+  |---|---|
+  | `--tree`, this repository | 54 |
+  | `--tree`, a consumer repository | 77 |
+  | `--commits`, the range that carried a real one | 1 |
+
+  Almost every tree hit is `search` or `anchor` in prose, in a CSS class name
+  or in `re.search(`. A warning that arrives 54 at a time is one nobody reads,
+  which fails the same way as not warning. So the warning covers text about to
+  be published -- `--commits`, `--file`, `--stdin` -- and the tree only under
+  `--strict-ambiguous`.
+
+  The exit code is unchanged by default, so nothing that runs this gate starts
+  failing. What does change: after a warning the closing line no longer says
+  `no private repository is named`, because one may well be.
+
+- **The pull request hook runs the gate with `--strict-ambiguous`.** Nothing
+  reads a warning printed by a hook that then allows the call: the pull
+  request is created, the text is public, and the warning scrolls past. The
+  other two hooks still warn, because a person is at the terminal.
+
 ### Changed
 
 - **Internal repositories are cited by code in this file.** `R-765` rather

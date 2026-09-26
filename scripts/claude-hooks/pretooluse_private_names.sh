@@ -188,7 +188,13 @@ fi
 
 [[ "$verdict" == "check" ]] || exit 0
 
-gate_args=(--stdin --only-public)
+# --strict-ambiguous: a name that is also an everyday word fails here rather
+# than warning. Everywhere else a warning is right, because a person is at a
+# terminal and can read it. Nothing reads a warning printed by a hook that
+# then allows the call -- the pull request is created, the text is public, and
+# the warning scrolls past. This surface is the one where the rule has
+# actually been broken, and it was broken by exactly this class of name.
+gate_args=(--stdin --only-public --strict-ambiguous)
 [[ -n "$repo" ]] && gate_args+=(--for-repo "$repo")
 
 reason="$(printf '%s' "$text" | bash "$GATE" "${gate_args[@]}" 2>&1)"

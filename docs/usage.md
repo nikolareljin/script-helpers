@@ -420,6 +420,12 @@ hook only ever sees an agent's calls. Wire it up with:
   "command": "bash <path>/script-helpers/scripts/claude-hooks/pretooluse_private_names.sh" } ] } ] }
 ```
 
+The pull request hook passes `--strict-ambiguous`; the others do not. A name
+that is also an everyday word is reported as a warning by default, because a
+person is at a terminal and can read it. Nobody reads a warning printed by a
+hook that then allows the call: the pull request is created, the text is
+public, and the warning scrolls past.
+
 A hook that cannot check — no name list on this machine — says so and lets the
 commit or push through. That is deliberate and is why "could not check" has its
 own exit code: a setup problem must not look like a clean tree, and it must not
