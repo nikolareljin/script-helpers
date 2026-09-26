@@ -1,5 +1,116 @@
 ## [Unreleased]
 
+### Added
+
+- **`check_private_names.sh` warns on a bare everyday-word name;
+  `--strict-ambiguous` fails on one.** An `ambiguous` name was matched only
+  when qualified, so a bare mention passed in silence and the tier meant to
+  report it was never populated.
+
+  Scoped to published text. Measured: `--tree` gives 54 hit lines here and 77
+  in a consumer repo, nearly all ordinary prose; the commit range that carried
+  a real one gives 1. The tree is covered only under `--strict-ambiguous`.
+
+  Default exit codes are unchanged. After a warning the closing line no longer
+  says `no private repository is named`.
+
+- **The pull request hook runs strict.** Nothing reads a warning from a hook
+  that then allows the call.
+
+- **`refresh_private_names.sh` takes a never-ambiguous list.**
+  `PRIVATE_NAMES_NEVER_AMBIGUOUS[_FILE]`, default
+  `~/.config/script-helpers/private-names-unambiguous`. A repo named after a
+  word nobody writes was flagged and therefore never matched bare.
+
+- **`refresh_private_names.sh --codes <file>` fills the code column.** Two
+  columns, `name<TAB>code`, default
+  `~/.config/script-helpers/private-names-codes.tsv`. `gh repo list` returns
+  names and visibility but no codes, so a refresh wiped every one -- and the
+  code is what the gate tells people to cite instead of a name. Deliberately a
+  plain file, not an inventory format: this repository is public and builds
+  standalone, so it cannot know where the codes come from.
+
+- **`--limit` defaults to 8000, and a full page is refused.** It was 1000, and
+  one organisation here has 5042 repositories, so the list silently held 950 of
+  them: 4000 private repository names that no gate could match. Refreshing with
+  this in place took the list from 1499 names to 4847. `gh` gives no way to ask
+  whether a page was truncated, so a page that comes back exactly full is
+  treated as one.
+
+- **Org-wide `*` rows survive a refresh.** `gh` lists repositories, so it can
+  never produce one; all three were dropped on every run, taking their
+  `never-name` policy with them.
+
+- **`refresh_private_names.sh --owner X` refuses to shrink the list.** The file
+  holds every account; `--owner` takes one. Re-running with a subset replaced
+  the lot. Counts alone were not enough -- one refresh lost 59 names and gained
+  64, so the total grew while the list got weaker -- so it now also refuses when
+  any single namespace loses names or an org-wide row disappears. `--force`
+  overrides.
+
+- **`pre-push` runs a shell repository's tests (#84).** It detected Node, Go,
+  Python, Rust, Flutter, Gradle and PHP, none of which match a repo with no
+  manifest file, so it printed `No test runner detected -- skipping` and exited
+  0. Both shared libraries here are shell repos: a push with a red suite
+  reported success, twice in one afternoon.
+
+  Now, in order: a `Makefile` with a `test` target, `tests/*.bats` when `bats`
+  is installed, then `tests/*_test.sh`. A repo with none of those is still
+  allowed through.
+
+  Every runner also gained `|| return $?`. `run_tests` is now called as
+  `run_tests || rc=$?` so the failure can be reported, and that disables
+  `set -e` inside it -- without the explicit propagation a failing `npm test`
+  fell through to `return 0` and the push went ahead. That would have been a
+  regression for every stack, not just the new branch.
+
+- **The private-name index is discovered, cached per owner, and refreshed in
+  the background.** Owners came from whatever you typed on the command line;
+  now they come from the token (`gh api user`, `gh api user/orgs`), never from
+  the repository you are standing in. On this machine that found a fifth
+  account the hand-written list had missed.
+
+  One cache per owner, so a re-index touches what changed:
+
+  | | |
+  |---|---|
+  | cold, five owners, ~5700 repos | ~60s |
+  | everything cached | ~3s |
+  | one owner (`--owner X --ttl 0`) | ~5s |
+
+  `--owner X` refreshes that owner and rebuilds from **all** caches, so
+  indexing one organisation can no longer drop another. TTLs default to 1 day
+  for your own account and 14 for an organisation.
+
+  Listing moved to GraphQL: the same speed (45.8s against 49s for 5042
+  repositories -- 51 sequential pages, not payload) but real pagination, so
+  `--limit` and its "exactly full page" heuristic no longer decide anything.
+  `--no-graphql` falls back.
+
+  An organisation that reports repositories the token cannot list is now named
+  in a warning. One here claims 18 and returns none, which is 18 names no gate
+  can match.
+
+  `pre-push` refreshes in the background when the list ages past
+  `PRIVATE_NAMES_REFRESH_DAYS` (7): never blocking, never failing a push,
+  locked so two pushes start one refresh, and `PRIVATE_NAMES_AUTO_REFRESH=false`
+  turns it off. No scheduler, because git runs hooks under bash on all three
+  platforms.
+
+- **`--check` refetches instead of answering from a cache.** It exists to
+  compare the file with GitHub, and it reported `matches GitHub` having asked
+  GitHub about one owner in five.
+
+- **A listing that dies part-way is refused, not cached.** Only the output size
+  was checked, so `gh api graphql --paginate` failing on page 30 of 51 would
+  have cached 3000 of 5042 names as a complete answer.
+
+- **The Claude hook is strict only when it recognised a publishing command.**
+  An unparseable command falls back to checking the whole string, and with
+  strict ambiguity that blocked ordinary code -- a Python heredoc containing
+  `s.index(...)` matched a repository called `index`. A gate that fires on
+  correct input gets switched off.
+
 ### Changed
 
 - **Internal repositories are cited by code in this file.** `R-765` rather
