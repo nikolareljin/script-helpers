@@ -1,3 +1,25 @@
+## [Unreleased]
+
+### Added
+
+- **`ci_django.sh --check-command`: schema drift as its own step.** Runs
+  `makemigrations --check --dry-run` between the schema and the tests.
+
+  A model changed without a migration generated for it is invisible to the test
+  suite: `migrate` applies the migrations that exist and the tests pass against
+  the schema they produce. It breaks a deployment rather than a test. keystone
+  E59 calls it "the highest-value new gate in the epic" across the eight
+  repositories here with a Postgres driver.
+
+  Its own step, and ordered, so the failure reads `Migrations failed` rather
+  than naming whichever test happened to touch the changed model, and the tests
+  do not run at all once drift is found.
+
+  **This runs by default, which changes what an existing caller does.** A
+  project whose models have drifted from its migrations will start failing --
+  at the step that says so. Pass `--check-command ''` to skip it, for a
+  repository that generates migrations in CI on purpose.
+
 ## 2026-09-25 — v0.41.0
 
 ### Added

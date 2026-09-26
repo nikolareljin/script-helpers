@@ -20,6 +20,9 @@
 #   --install-command <command>   Dependency install. Empty skips it
 #                                 (default: pip install -r requirements.txt, when that file exists).
 #   --migrate-command <command>   Schema. Empty skips it (default: python manage.py migrate --noinput).
+#   --check-command <command>     Schema drift, as its own step between the schema and the
+#                                 tests. Empty skips it
+#                                 (default: python manage.py makemigrations --check --dry-run).
 #   --test-command <command>      The tests (default: python manage.py test --noinput).
 #   --python-image <image>        Run every step in this image instead of on the host.
 #   --docker-user <user>          User for that image, as uid:gid (default: the invoking user).
@@ -76,6 +79,7 @@ db_wait_seconds=60
 settings_module=""
 install_command="__default__"
 migrate_command="python manage.py migrate --noinput"
+check_command="python manage.py makemigrations --check --dry-run"
 test_command="python manage.py test --noinput"
 python_image=""
 docker_user="$(id -u):$(id -g)"
@@ -95,6 +99,7 @@ while [[ $# -gt 0 ]]; do
     --settings) need_value "$@"; settings_module="$2"; shift 2 ;;
     --install-command) need_value "$@"; install_command="$2"; shift 2 ;;
     --migrate-command) need_value "$@"; migrate_command="$2"; shift 2 ;;
+    --check-command) need_value "$@"; check_command="$2"; shift 2 ;;
     --test-command) need_value "$@"; test_command="$2"; shift 2 ;;
     --python-image) need_value "$@"; python_image="$2"; shift 2 ;;
     --docker-user) need_value "$@"; docker_user="$2"; shift 2 ;;
@@ -299,6 +304,12 @@ run_step() {   # <label> <command>
 
 run_step "Dependencies" "$install_command"
 run_step "Schema" "$migrate_command"
+# Between the schema and the tests, and labelled for what it checks. A model
+# changed without a migration generated for it is invisible to the suite --
+# `migrate` applies what exists and the tests pass against it -- and it breaks a
+# deployment rather than a test. Its own step so the failure says "Migrations"
+# rather than naming whichever test happened to touch the changed model.
+run_step "Migrations" "$check_command"
 run_step "Tests" "$test_command"
 
 log_info "Django tests passed"

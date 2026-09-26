@@ -181,6 +181,66 @@ else
   error "--db-wait-seconds 0 was accepted: ${out##*$'\n'}"
 fi
 
+# --- schema drift, as its own step ------------------------------------------
+#
+# A model changed without a migration generated for it is invisible to the
+# suite: `migrate` applies what exists and the tests pass against it. It breaks
+# a deployment rather than a test, so it gets its own step -- and the step has
+# to sit between the schema and the tests, or a failure is attributed to
+# whichever test touched the changed model.
+#
+# Run on the host with python3, not through the docker stub: the stub exits 0
+# for everything, so the failing direction could not fail and the assertion
+# would prove nothing.
+drift_app="$tmp/drift"; mkdir -p "$drift_app"
+cat > "$drift_app/manage.py" <<'FIXTURE'
+#!/usr/bin/env python3
+import os.path, sys
+cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+if cmd == "makemigrations" and os.path.exists("DRIFT"):
+    sys.stderr.write("Migrations for 'app'\n"); raise SystemExit(1)
+print(f"fixture ran: {cmd}")
+FIXTURE
+chmod +x "$drift_app/manage.py"
+
+drift_run() {   # <extra args...>
+  PATH="$tmp/bin:$PATH" bash "$SCRIPT" --workdir "$drift_app" --install-command '' \
+    --migrate-command 'python3 manage.py migrate' \
+    --test-command 'python3 manage.py test' "$@" 2>&1
+}
+
+out="$(drift_run --check-command 'python3 manage.py makemigrations --check --dry-run')"
+order="$(grep -oE '(Schema|Migrations|Tests) \(' <<<"$out" | tr -d ' (' | tr '\n' ' ')"
+if [[ "$order" == "Schema Migrations Tests " ]]; then
+  note "the drift check runs between the schema and the tests"
+else
+  error "steps ran in the wrong order: ${order:-<none>}"
+fi
+
+# The failing direction, which is the only one that matters: without it the
+# step is a line of output that can never go red.
+touch "$drift_app/DRIFT"
+out="$(drift_run --check-command 'python3 manage.py makemigrations --check --dry-run')"; rc=$?
+if [[ $rc -ne 0 ]] && grep -q "Migrations failed" <<<"$out"; then
+  note "drift fails the run, and the failure names Migrations"
+else
+  error "drift did not fail the run as a Migrations failure (exit ${rc})"
+fi
+if grep -q "Tests (" <<<"$out"; then
+  error "the tests ran anyway after drift was found"
+else
+  note "the tests do not run once drift is found"
+fi
+rm -f "$drift_app/DRIFT"
+
+# Empty skips it, for a repository that generates migrations in CI on purpose.
+out="$(drift_run --check-command '')"
+if grep -q "Migrations: skipped (no command)" <<<"$out"; then
+  note "an empty --check-command skips the step"
+else
+  error "an empty --check-command did not skip the step"
+fi
+
 # --- packages installed in one step have to exist in the next --------------
 #
 # Every step is its own `docker run --rm`, so a plain `pip install` puts
@@ -219,8 +279,11 @@ chmod +x "$app/bin/thing"
 
 probe_case() {   # <label> <expect-ok|expect-refused> <command>
   local label="$1" expect="$2" command="$3" out rc
+  # --check-command '' because this case is about the probe, not the drift
+  # step: the drift default would otherwise run and fail on a machine with no
+  # `python`, and the failure would be attributed to the probe.
   out="$(run_out --workdir "$app" --install-command "$command" --test-command 'true' \
-        --migrate-command '' 2>&1)"; rc=$?
+        --migrate-command '' --check-command '' 2>&1)"; rc=$?
   if [[ "$expect" == "expect-ok" ]]; then
     if grep -q "is not on PATH" <<<"$out"; then
       error "${label}: refused a command that is valid in the project"
