@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # SCRIPT: refresh_private_names.sh
-# DESCRIPTION: Build the private-repository name list that check_private_names.sh reads, from your own GitHub account or organisation.
+# DESCRIPTION: Build the private-repository name list that check_private_names.sh reads, from your own GitHub account or organization.
 # USAGE: scripts/refresh_private_names.sh [--owner <user-or-org>] [--out <path>] [--stdout] [--check] [--force] [--codes <path>] [--limit <n>] [--ttl <days>] [-h]
 # PARAMETERS:
-#   --owner <name>  Limit to this user or organisation; repeatable. Default: every
-#                   account this token can see (you, plus your organisations).
+#   --owner <name>  Limit to this user or organization; repeatable. Default: every
+#                   account this token can see (you, plus your organizations).
 #   --out <path>    Where to write. Default: ${XDG_CONFIG_HOME:-~/.config}/script-helpers/private-names.tsv
 #   --stdout        Print the list instead of writing it.
 #   --check         Compare the written list with GitHub; the list is not written.
@@ -13,7 +13,7 @@
 #   --force         Write even if it would drop names or codes.
 #   --limit <n>     Repositories to ask gh for per owner (default 8000).
 #   --ttl <days>    Refetch an owner whose cache is older than this. Default: 1 day
-#                   for your own account, 14 for an organisation.
+#                   for your own account, 14 for an organization.
 #   --cache-dir <d> Where the per-owner caches live.
 #   --no-graphql    Use `gh repo list` instead of the GraphQL query.
 #   --codes <path>  Two columns, `name<TAB>code`, used to fill the code column that
@@ -34,7 +34,7 @@
 #
 # check_private_names.sh refuses text that names a private repository, and it
 # needs to know which names those are. That list is yours: your account, your
-# organisation, your repositories. Nothing about it is shared, and nothing about
+# organization, your repositories. Nothing about it is shared, and nothing about
 # it can be committed -- a file listing your private repositories is exactly the
 # thing the gate exists to keep out of public trees.
 #
@@ -81,7 +81,7 @@ GH_LIMIT="${PRIVATE_NAMES_GH_LIMIT:-8000}"
 # what makes `--owner X` safe: it updates one cache, it does not replace the file.
 CACHE_DIR="${PRIVATE_NAMES_CACHE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/script-helpers/owners}"
 # Days before a cache is refetched. Your own account changes often and is small;
-# an employer organisation with thousands of repositories rarely gains one that
+# an employer organization with thousands of repositories rarely gains one that
 # matters and costs a minute to list.
 TTL_SELF="${PRIVATE_NAMES_TTL_SELF:-1}"
 TTL_ORG="${PRIVATE_NAMES_TTL_ORG:-14}"
@@ -141,7 +141,7 @@ SELF_LOGIN=""
 OWNERS_DISCOVERED=false
 if [[ -z "$OWNERS" ]]; then
   # Discovered from the TOKEN, not from the repository you are standing in.
-  # The token's own account and organisations are yours wherever you run this;
+  # The token's own account and organizations are yours wherever you run this;
   # the cwd's remote belongs to whoever owns that checkout.
   SELF_LOGIN="$(gh api user -q .login 2>/dev/null || true)"
   discovered="$SELF_LOGIN"
@@ -175,7 +175,7 @@ trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -f "$tmp" "$tmp.body" "$tmp.raw" "
 
 # One namespace per line, so several can be given. Each is fetched separately because
 # `gh repo list` takes one owner; the rows carry their namespace, which is what lets one
-# dictionary cover a personal account and any number of organisations at once.
+# dictionary cover a personal account and any number of organizations at once.
 : > "$tmp.raw"
 mkdir -p "$CACHE_DIR"
 chmod 700 "$CACHE_DIR" 2>/dev/null || true
@@ -267,7 +267,7 @@ while IFS= read -r one; do
     fi
     if [[ ! -s "$cache.new" ]]; then
       rm -f "$cache.new"
-      # Nothing came back. If the organisation says it HAS repositories, this
+      # Nothing came back. If the organization says it HAS repositories, this
       # token cannot see them -- SSO authorisation, most often -- and that is a
       # hole in the gate rather than an empty account. Loud either way, but a
       # discovered owner must not stop the other four from indexing.
@@ -345,7 +345,7 @@ never_ambiguous = {
 
 # A name that is also a ubiquitous path or code token can only ever be a real reference
 # when it is qualified. Measured: a repository named `.github` -- GitHub's own convention
-# for an organisation's files -- matched 508 lines in one public repository, because that
+# for an organization's files -- matched 508 lines in one public repository, because that
 # string is in every workflow path.
 GENERIC = {
     ".github", ".gitlab", "docs", "doc", "test", "tests", "src", "web", "www", "api",
@@ -408,11 +408,23 @@ if (( status != 0 )); then
   exit 3
 fi
 
-# gh lists repositories, so it can never produce an org-wide `*` row. Those
-# carry never-name policy for a whole namespace, and a refresh dropped all
-# three of them. Carry them over from the file being replaced.
+# An organization's namespace is never-name in its own right: there is no
+# public form of it, not even a code. gh lists repositories, so it cannot
+# produce that row -- it used to be carried over from the previous file, which
+# meant a fresh machine had none at all and the namespace itself matched
+# nothing. Derived from the owners instead, for every one that is not you.
+for one in $(printf '%s' "$OWNERS" | tr ',' ' '); do
+  [[ -z "$one" ]] && continue
+  [[ -n "$SELF_LOGIN" && "$one" == "$SELF_LOGIN" ]] && continue
+  printf 'private\t%s\t*\t-\tnever-name\n' "$one" >> "$tmp.body"
+done
+
+# Anything else in the old file that gh cannot produce, and this run did not
+# derive -- an organization no longer discovered, a row added by hand.
 if [[ -f "$OUT" ]]; then
-  awk -F'\t' '!/^#/ && $3=="*"' "$OUT" >> "$tmp.body"
+  awk -F'\t' -v owners=",$OWNERS," '
+    !/^#/ && $3=="*" && index(owners, "," $2 ",") == 0
+  ' "$OUT" >> "$tmp.body"
 fi
 
 private_count="$(grep -c '^private' "$tmp.body")"

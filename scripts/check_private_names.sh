@@ -192,8 +192,9 @@ else
   if [[ ! -f "$LIST" ]]; then
     log_error "No private-name list at: $(tilde "$LIST")"
     log_error "Without it this check would scan for nothing and report success."
-    log_error "Generate one from your own account:"
-    log_error "  scripts/refresh_private_names.sh --owner <your-user-or-org>"
+    log_error "Build one. With no arguments it indexes every account the token can"
+    log_error "see, which is what you want -- naming one owner leaves the others out:"
+    log_error "  scripts/refresh_private_names.sh"
     log_error "or point PRIVATE_NAMES_FILE at a list you already have."
     exit 2
   fi
@@ -517,7 +518,7 @@ search() {        # search <names-file> <label>
   # or a digit. `/` and `-` are boundaries, so a name still matches inside a path, a URL or
   # a possessive; what stops matching is a name inside a longer word. Substring matching
   # was measured at 508 hits on one public repository against this dictionary, essentially
-  # all of them one organisation repository named `.github`, which is in every workflow
+  # all of them one organization repository named `.github`, which is in every workflow
   # path. Token matching takes the same subject to zero.
   printf '%s\n' "$hits" | awk -F'\t' -v namesfile="$names" '
     function hit(line, needle,   n, pos, before, after) {
@@ -562,7 +563,7 @@ if [[ -s "$hard_hits" ]]; then
   found=1
   cat "$hard_hits" >&2
   log_error "A private repository is named above."
-  # An organisation's repository has no acceptable public form at all -- not its name and
+  # An organization's repository has no acceptable public form at all -- not its name and
   # not a code -- so offering a citation would be advising a quieter version of the
   # disclosure being prevented. A hit mixing both kinds takes the stricter advice.
   if grep -qF "never-name" "$entries" 2>/dev/null && \
@@ -579,7 +580,7 @@ if [[ -s "$hard_hits" ]]; then
       BEGIN { while ((getline l < hits) > 0) lines[++n] = tolower(l) }
       $5 ~ /never-name/ { for (i = 1; i <= n; i++) if (hit(lines[i], tolower($2))) { f = 1; exit } }
       END { exit !f }' "$entries"; then
-    log_error "At least one is owned by an organisation, which has no public form at all"
+    log_error "At least one is owned by an organization, which has no public form at all"
     log_error "-- not its name, and not a code. Remove the reference."
   elif awk -F'\t' '$2 != "-" && $2 != "" { found = 1 } END { exit !found }' "$hard"; then
     log_error "Refer to it by its code instead:"
@@ -592,7 +593,7 @@ fi
 if [[ -s "$qual_hits" ]]; then
   found=1
   cat "$qual_hits" >&2
-  log_error "An organisation, or a private repository named with its namespace, is above."
+  log_error "An organization, or a private repository named with its namespace, is above."
   log_error "There is no public form of it -- remove the reference."
   matched_names "$qualified" "$qual_hits" >&2
 fi

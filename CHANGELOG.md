@@ -1,4 +1,4 @@
-## [Unreleased]
+## 2026-09-26 — v0.43.0
 
 ### Added
 
@@ -31,11 +31,21 @@
   standalone, so it cannot know where the codes come from.
 
 - **`--limit` defaults to 8000, and a full page is refused.** It was 1000, and
-  one organisation here has 5042 repositories, so the list silently held 950 of
+  one organization here has 5042 repositories, so the list silently held 950 of
   them: 4000 private repository names that no gate could match. Refreshing with
   this in place took the list from 1499 names to 4847. `gh` gives no way to ask
   whether a page was truncated, so a page that comes back exactly full is
   treated as one.
+
+- **An organization's `*` row is derived, not inherited.** It was carried over
+  from the file being replaced, so a machine building its first list got none
+  at all and the namespaces themselves matched nothing. Every organization the
+  token can see now gets one; your own account does not, because its
+  repositories have codes to cite.
+
+- **The first-run message told you to index one owner.** `--owner <you>` leaves
+  every organization out, silently. With no arguments it indexes all of them,
+  and that is what the message says now.
 
 - **Org-wide `*` rows survive a refresh.** `gh` lists repositories, so it can
   never produce one; all three were dropped on every run, taking their
@@ -47,6 +57,13 @@
   64, so the total grew while the list got weaker -- so it now also refuses when
   any single namespace loses names or an org-wide row disappears. `--force`
   overrides.
+
+- **`PRE_PUSH_SKIP_TESTS=1` skips the test step and nothing else.** Measured
+  across the consumers on this machine, one has a `make test` that needs a
+  running docker stack, so it would have been unpushable without
+  `git push --no-verify` -- which also skips the private-name check. The
+  narrow escape exists so nobody reaches for the wide one, and the refusal
+  names it.
 
 - **`pre-push` runs a shell repository's tests (#84).** It detected Node, Go,
   Python, Rust, Flutter, Gradle and PHP, none of which match a repo with no
@@ -79,15 +96,15 @@
   | one owner (`--owner X --ttl 0`) | ~5s |
 
   `--owner X` refreshes that owner and rebuilds from **all** caches, so
-  indexing one organisation can no longer drop another. TTLs default to 1 day
-  for your own account and 14 for an organisation.
+  indexing one organization can no longer drop another. TTLs default to 1 day
+  for your own account and 14 for an organization.
 
   Listing moved to GraphQL: the same speed (45.8s against 49s for 5042
   repositories -- 51 sequential pages, not payload) but real pagination, so
   `--limit` and its "exactly full page" heuristic no longer decide anything.
   `--no-graphql` falls back.
 
-  An organisation that reports repositories the token cannot list is now named
+  An organization that reports repositories the token cannot list is now named
   in a warning. One here claims 18 and returns none, which is 18 names no gate
   can match.
 
@@ -105,7 +122,7 @@
   was checked, so `gh api graphql --paginate` failing on page 30 of 51 would
   have cached 3000 of 5042 names as a complete answer.
 
-- **The Claude hook is strict only when it recognised a publishing command.**
+- **The Claude hook is strict only when it recognized a publishing command.**
   An unparseable command falls back to checking the whole string, and with
   strict ambiguity that blocked ordinary code -- a Python heredoc containing
   `s.index(...)` matched a repository called `index`. A gate that fires on

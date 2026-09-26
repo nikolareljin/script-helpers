@@ -140,12 +140,13 @@ Bundled CLIs
   Each prints what it allowed, so an override is never silent. `git push --no-verify`
   remains git's own escape. Run `scripts/check_private_names.sh --help` for details.
 
-- `scripts/refresh_private_names.sh` — builds that list from **your** GitHub
-  account or organisation:
+- `scripts/refresh_private_names.sh` — builds that list from every account the
+  token can see: you, plus your organizations.
 
   ```bash
-  scripts/refresh_private_names.sh --owner <your-user-or-org>   # or omit --owner
-  scripts/refresh_private_names.sh --check                      # compare, change nothing
+  scripts/refresh_private_names.sh                  # all of them
+  scripts/refresh_private_names.sh --owner <o> --ttl 0   # re-index one, now
+  scripts/refresh_private_names.sh --check          # compare with GitHub, write nothing
   ```
 
   It writes `${XDG_CONFIG_HOME:-~/.config}/script-helpers/private-names.tsv`: one
@@ -420,10 +421,15 @@ hook only ever sees an agent's calls. Wire it up with:
   "command": "bash <path>/script-helpers/scripts/claude-hooks/pretooluse_private_names.sh" } ] } ] }
 ```
 
+`PRE_PUSH_SKIP_TESTS=1 git push` skips the test step and nothing else. It exists
+so that a repository whose suite needs services -- a `make test` that talks to
+docker -- does not leave `git push --no-verify` as the only way through, since
+that skips the private-name check as well.
+
 ### Indexing
 
 `refresh_private_names.sh` with no arguments indexes every account the token can
-see: you, plus your organisations, read from `gh api user` and `gh api user/orgs`.
+see: you, plus your organizations, read from `gh api user` and `gh api user/orgs`.
 Never from the repository you are standing in -- that would rebuild the machine's
 dictionary from someone else's namespace.
 
@@ -437,15 +443,15 @@ touches what changed:
 | one owner re-indexed (`--owner X --ttl 0`) | ~5s |
 
 `--owner X` refreshes that owner's cache and rebuilds the file from **all** the
-caches, so indexing one organisation never drops another. Default TTLs: 1 day
-for your own account, 14 for an organisation; `--ttl <days>` overrides.
+caches, so indexing one organization never drops another. Default TTLs: 1 day
+for your own account, 14 for an organization; `--ttl <days>` overrides.
 
 The listing uses GraphQL, which paginates properly. Measured against
 `gh repo list` it is the same speed (45.8s versus 49s for 5042 repositories --
 the cost is 51 sequential pages, not payload), but there is no `--limit` to
 guess at. `--no-graphql` falls back.
 
-An organisation that reports repositories the token cannot list is warned about
+An organization that reports repositories the token cannot list is warned about
 by name rather than skipped silently: usually SSO authorisation, and it means
 those names match nothing.
 

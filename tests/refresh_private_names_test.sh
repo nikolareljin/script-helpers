@@ -267,6 +267,35 @@ else
   error "--check answered from a cache: it cannot compare with GitHub that way"
 fi
 
+# An organization's namespace is never-name in its own right, and gh cannot
+# produce that row. It used to be inherited from the previous file, so a fresh
+# machine had none and the namespace matched nothing.
+rm -rf "$tmp/wildcache"
+out_w="$tmp/wild.tsv"; rm -f "$out_w"
+PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/wildcache" \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/does-not-exist" \
+  bash "$SCRIPT" --owner someorg --out "$out_w" >/dev/null 2>&1
+if awk -F'\t' '$1=="private" && $2=="someorg" && $3=="*" && $5 ~ /never-name/ {f=1} END{exit !f}' "$out_w"; then
+  ok "an organization gets a never-name row on a machine with no previous file"
+else
+  error "no org-wide row was derived, so the namespace itself matches nothing"
+fi
+
+# ...but not for your own account, which has a public form: its code.
+rm -rf "$tmp/selfcache"; out_s="$tmp/self.tsv"; rm -f "$out_s"
+PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/selfcache" \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/does-not-exist" \
+  bash "$SCRIPT" --owner testself --out "$out_s" >/dev/null 2>&1
+if awk -F'\t' '$2=="testself" && $3=="*" {f=1} END{exit !f}' "$out_s"; then
+  error "your own account was marked never-name; its repositories have codes"
+else
+  ok "your own account gets no never-name row"
+fi
+
 if [[ $failures -gt 0 ]]; then
   echo "[refresh_private_names_test] FAILED ($failures)" >&2
   exit 1

@@ -92,6 +92,28 @@ else
   note "SKIP: npm not installed, the node branch was not exercised"
 fi
 
+# A tests-only escape, so a suite that needs services this machine has not got
+# does not leave --no-verify as the only way to push. --no-verify would skip
+# the private-name check too.
+reset_repo
+printf 'test:\n\t@exit 1\n' > "$repo/Makefile"
+out="$( cd "$repo" && printf 'refs/heads/main %s refs/heads/main %s\n' \
+        "$(git -C "$repo" rev-parse HEAD)" "$zeroes" \
+        | PRE_PUSH_SKIP_TESTS=1 bash "$HOOK" origin git@example.invalid:x.git 2>&1 )"; rc=$?
+if [[ $rc -eq 0 ]] && grep -q 'tests skipped' <<<"$out"; then
+  ok "PRE_PUSH_SKIP_TESTS=1 skips a failing suite"
+else
+  error "PRE_PUSH_SKIP_TESTS=1 did not skip the tests (exit $rc)"
+fi
+
+# and the refusal has to name it, or nobody knows it exists
+reset_repo
+printf 'test:\n\t@exit 1\n' > "$repo/Makefile"
+out="$(hook_run)"
+grep -q 'PRE_PUSH_SKIP_TESTS=1 git push' <<<"$out" \
+  && ok "the refusal names the tests-only escape" \
+  || error "the refusal did not name the tests-only escape"
+
 if [[ $failures -gt 0 ]]; then
   echo "[pre_push_shell_repo_test] FAILED ($failures)" >&2
   exit 1
