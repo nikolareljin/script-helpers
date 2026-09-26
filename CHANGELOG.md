@@ -1,3 +1,43 @@
+## [Unreleased]
+
+### Added
+
+- **`ci_django.sh --check-command`: schema drift as its own step.** Runs
+  `makemigrations --check --dry-run` between the schema and the tests.
+
+  A model changed without a migration generated for it is invisible to the test
+  suite: `migrate` applies the migrations that exist and the tests pass against
+  the schema they produce. It breaks a deployment rather than a test. keystone
+  E59 calls it "the highest-value new gate in the epic" across the eight
+  repositories here with a Postgres driver.
+
+  Its own step, and ordered, so the failure reads `Migrations failed` rather
+  than naming whichever test happened to touch the changed model, and the tests
+  do not run at all once drift is found.
+
+  **This runs by default, which changes what an existing caller does.** A
+  project whose models have drifted from its migrations will start failing --
+  at the step that says so. Pass `--check-command ''` to skip it, for a
+  repository that generates migrations in CI on purpose.
+
+  The default passes `--noinput`. Without it a renamed field reaches Django's
+  `input()` from the autodetector, upstream of both `--check` and `--dry-run`,
+  and the step hangs on `Was thing.old_name renamed ...? [y/N]` until the job's
+  time limit. A replacement `--check-command` should pass it too.
+
+### Fixed
+
+- **`ci_django.sh` names the option for the step that failed.** A step whose
+  program is not on PATH said `Pass --test-command ...` whichever step it was,
+  from when the tests were the only one likely to miss an interpreter. With the
+  drift check running by default the commonest way to see the message is at
+  `Migrations`, pointed at a different option:
+
+  ```
+  [ERROR] Migrations: 'python' is not on PATH in this machine.
+  [ERROR] Pass --test-command 'python3 manage.py test' or run it with --python-image.
+  ```
+
 ## 2026-09-25 — v0.41.0
 
 ### Added
