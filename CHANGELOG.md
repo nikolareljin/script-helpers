@@ -2,37 +2,25 @@
 
 ### Added
 
-- **`check_private_names.sh` warns about a bare everyday-word name, and
-  `--strict-ambiguous` fails on one.** A name the dictionary flags `ambiguous`
-  is matched only when qualified with its namespace. That demotion is right --
-  bare matching of words like `search` and `anchor` produces dozens of hits in
-  ordinary prose -- but the bare form was passing in complete silence, and the
-  tier written to report it was never populated, so the branch that asks for a
-  person could not run. No test covered it.
+- **`check_private_names.sh` warns on a bare everyday-word name;
+  `--strict-ambiguous` fails on one.** An `ambiguous` name was matched only
+  when qualified, so a bare mention passed in silence and the tier meant to
+  report it was never populated.
 
-  Where the warning fires is the whole design, and it was measured rather than
-  guessed:
+  Scoped to published text. Measured: `--tree` gives 54 hit lines here and 77
+  in a consumer repo, nearly all ordinary prose; the commit range that carried
+  a real one gives 1. The tree is covered only under `--strict-ambiguous`.
 
-  | scanned | hit lines |
-  |---|---|
-  | `--tree`, this repository | 54 |
-  | `--tree`, a consumer repository | 77 |
-  | `--commits`, the range that carried a real one | 1 |
+  Default exit codes are unchanged. After a warning the closing line no longer
+  says `no private repository is named`.
 
-  Almost every tree hit is `search` or `anchor` in prose, in a CSS class name
-  or in `re.search(`. A warning that arrives 54 at a time is one nobody reads,
-  which fails the same way as not warning. So the warning covers text about to
-  be published -- `--commits`, `--file`, `--stdin` -- and the tree only under
-  `--strict-ambiguous`.
+- **The pull request hook runs strict.** Nothing reads a warning from a hook
+  that then allows the call.
 
-  The exit code is unchanged by default, so nothing that runs this gate starts
-  failing. What does change: after a warning the closing line no longer says
-  `no private repository is named`, because one may well be.
-
-- **The pull request hook runs the gate with `--strict-ambiguous`.** Nothing
-  reads a warning printed by a hook that then allows the call: the pull
-  request is created, the text is public, and the warning scrolls past. The
-  other two hooks still warn, because a person is at the terminal.
+- **`refresh_private_names.sh` takes a never-ambiguous list.**
+  `PRIVATE_NAMES_NEVER_AMBIGUOUS[_FILE]`, default
+  `~/.config/script-helpers/private-names-unambiguous`. A repo named after a
+  word nobody writes was flagged and therefore never matched bare.
 
 ### Changed
 

@@ -268,17 +268,9 @@ else
       # protection, it is noise, and noise is what gets a gate switched off.
       if (flags ~ /qualified-only/ || flags ~ /ambiguous/ || generic(name)) {
         print "qual\t" ns "/" name "\t" ns "/" name "\t" code "\t" flags > out
-        # An explicitly `ambiguous` name is ALSO emitted bare, into the tier
-        # that only warns. Demoting it to qualified-only was right -- bare
-        # matching of everyday words produced fifty hits here -- but it left
-        # the bare form passing silently, and the tier written to report it
-        # was never populated, so the branch that asks for a person could not
-        # run. A warning costs an exit code of 0 and puts the decision in
-        # front of someone. --strict-ambiguous makes it fail.
-        #
-        # generic(name) is deliberately not included: those are inferred, not
-        # declared, and warning on every one of them is the noise the
-        # demotion existed to remove.
+        # Also emitted bare, into the warn-only tier: demoting it was right, but
+        # the bare form passed in silence and nothing ever populated that tier.
+        # generic(name) is excluded -- inferred, not declared, and pure noise.
         if (flags ~ /ambiguous/) print "bare\t" name "\t" ns "/" name "\t" code "\t" flags > out
         next
       }
@@ -300,18 +292,9 @@ else
     exit 2
   fi
 
-  # The bare-ambiguous warning is for text that is ABOUT TO BE PUBLISHED -- a
-  # commit message, a pull request body, an issue -- and not for the tree.
-  #
-  # Measured, with the real dictionary: --tree produces 54 hit lines in this
-  # repository and 77 in ci-helpers, almost all of them the words "search" and
-  # "anchor" in prose, in CSS class names and in `re.search(`. A warning that
-  # arrives 54 at a time is one nobody reads, which is the same failure as not
-  # warning at all. Over the thirty commits that introduced the leak this
-  # existed for, the same check produces one line, pointing at the line that
-  # was wrong.
-  #
-  # --strict-ambiguous still covers the tree, for a caller who asks for it.
+  # Warn on published text, not on the tree. Measured: --tree gives 54 hit lines
+  # here and 77 in ci-helpers, nearly all "search" and "anchor" in prose; the
+  # commit range that carried a real leak gives one. Nobody reads 54 warnings.
   if [[ "$MODE" == tree && "$STRICT_AMBIGUOUS" != true ]]; then
     : > "$ambiguous"
   fi
@@ -641,9 +624,8 @@ if [[ "$found" -eq 1 ]]; then
   exit 1
 fi
 
-# "no private repository is named" would be a false statement after a warning:
-# one may well be named, and a person was just asked to decide. Saying it anyway
-# is how a warning gets read as a pass.
+# After a warning, "no private repository is named" would be false, and a
+# warning that ends in a clean summary reads as a pass.
 if [[ "${ambiguous_seen:-0}" == 1 ]]; then
   case "$MODE" in
     tree)    log_warn "no unambiguous private name in tracked files; the warnings above still need a person" ;;

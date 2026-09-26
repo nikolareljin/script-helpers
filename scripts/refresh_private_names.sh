@@ -8,6 +8,11 @@
 #   --stdout        Print the list instead of writing it.
 #   --check         Compare the written list with GitHub; change nothing.
 #   -h, --help      Show this help message.
+# ENVIRONMENT:
+#   PRIVATE_NAMES_NEVER_AMBIGUOUS       Names to match bare even though they are dictionary
+#                                       words. Comma or newline separated.
+#   PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE  A file of the same, one per line, comments allowed.
+#                                       Default: ~/.config/script-helpers/private-names-unambiguous
 # EXIT_CODES:
 #   0  written (or, with --check, unchanged)
 #   1  --check found the list out of date
@@ -57,6 +62,15 @@ OUT="${XDG_CONFIG_HOME:-$HOME/.config}/script-helpers/private-names.tsv"
 TO_STDOUT=false
 CHECK=false
 WORDLIST="${PRIVATE_NAMES_WORDLIST:-/usr/share/dict/words}"
+
+# Names that are dictionary words but never written as words in the repos this
+# account publishes, so they stay matched bare. One per line, comments allowed.
+NEVER_AMBIGUOUS_FILE="${PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/script-helpers/private-names-unambiguous}"
+NEVER_AMBIGUOUS="${PRIVATE_NAMES_NEVER_AMBIGUOUS:-}"
+if [[ -f "$NEVER_AMBIGUOUS_FILE" ]]; then
+  NEVER_AMBIGUOUS="${NEVER_AMBIGUOUS}
+$(cat "$NEVER_AMBIGUOUS_FILE")"
+fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -136,7 +150,7 @@ fi
 # One python pass: the JSON, the word list and the flagging. python3 is already
 # required by the gate for the same reason -- parsing JSON in bash is how a
 # quoted name with a bracket in it silently drops out of a security list.
-WORDLIST="$WORDLIST" python3 - "$tmp.raw" <<'PY' > "$tmp.body"
+WORDLIST="$WORDLIST" NEVER_AMBIGUOUS="$NEVER_AMBIGUOUS" python3 - "$tmp.raw" <<'PY' > "$tmp.body"
 import json, os, pathlib, sys
 
 wordlist = pathlib.Path(os.environ.get("WORDLIST", ""))
@@ -144,6 +158,17 @@ words = set()
 if wordlist.is_file():
     with wordlist.open(encoding="utf-8", errors="ignore") as fh:
         words = {w.strip().lower() for w in fh if w.strip()}
+
+# "Is it a dictionary word?" is a proxy for "would matching it bare give false
+# positives in the repos I publish?". For a repo named after a word nobody
+# writes it is the wrong answer, and the cost is total: flagged means matched
+# only when qualified, so no gate fires on a bare mention. Measure with
+# `git grep -oiw <name>` and list the exceptions here.
+never_ambiguous = {
+    w.strip().lower()
+    for w in os.environ.get("NEVER_AMBIGUOUS", "").replace(",", "\n").splitlines()
+    if w.strip() and not w.strip().startswith("#")
+}
 
 # A name that is also a ubiquitous path or code token can only ever be a real reference
 # when it is qualified. Measured: a repository named `.github` -- GitHub's own convention
@@ -178,7 +203,7 @@ for visibility, ns, name, code, _ in rows:
     flags = []
     if visibility == "private":
         low = name.lower()
-        if low in words:
+        if low in words and low not in never_ambiguous:
             flags.append("ambiguous")
         # Also qualified-only when the name is a public repository somewhere: the public
         # one is what a bare mention most likely means, and blocking it would refuse a
