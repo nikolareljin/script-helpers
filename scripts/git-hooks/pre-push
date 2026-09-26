@@ -240,7 +240,18 @@ run_go_tests_inline() {
   )
 }
 
+# A tests-only escape. Without one, a repository whose suite needs a running
+# stack -- a `make test` that talks to docker -- leaves `--no-verify` as the
+# only way to push, and that skips the private-name gate too. The narrow
+# escape exists so nobody reaches for the wide one.
+_tests_skipped_on_purpose() {
+  [[ "${PRE_PUSH_SKIP_TESTS:-}" == "1" ]] || return 1
+  echo "[pre-push] PRE_PUSH_SKIP_TESTS=1 — tests skipped. Everything else still ran."
+  return 0
+}
+
 run_tests() {
+  _tests_skipped_on_purpose && return 0
   # PHP / Laravel — composer.json is authoritative: Laravel apps also ship a
   # package.json for Vite, so once composer.json is present we run the PHP suite
   # (or skip with a clear message) and never fall through to the Node runner.
@@ -459,7 +470,10 @@ _tests_rc=0
 run_tests || _tests_rc=$?
 if [[ "$_tests_rc" -ne 0 ]]; then
   echo "[pre-push] tests failed — push refused." >&2
-  echo "[pre-push] Fix them, or use 'git push --no-verify' if you know why." >&2
+  echo "[pre-push] Fix them, or, if this suite needs services this machine has not got:" >&2
+  echo "[pre-push]   PRE_PUSH_SKIP_TESTS=1 git push    tests only; every other check still runs" >&2
+  echo "[pre-push]   git push --no-verify              skips everything, including the" >&2
+  echo "[pre-push]                                     private-name check. Prefer the first." >&2
   exit "$_tests_rc"
 fi
 if [[ "$_ran_tests" == "true" ]]; then

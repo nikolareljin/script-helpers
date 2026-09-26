@@ -420,6 +420,11 @@ hook only ever sees an agent's calls. Wire it up with:
   "command": "bash <path>/script-helpers/scripts/claude-hooks/pretooluse_private_names.sh" } ] } ] }
 ```
 
+`PRE_PUSH_SKIP_TESTS=1 git push` skips the test step and nothing else. It exists
+so that a repository whose suite needs services -- a `make test` that talks to
+docker -- does not leave `git push --no-verify` as the only way through, since
+that skips the private-name check as well.
+
 ### Indexing
 
 `refresh_private_names.sh` with no arguments indexes every account the token can

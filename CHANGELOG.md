@@ -48,6 +48,13 @@
   any single namespace loses names or an org-wide row disappears. `--force`
   overrides.
 
+- **`PRE_PUSH_SKIP_TESTS=1` skips the test step and nothing else.** Measured
+  across the consumers on this machine, one has a `make test` that needs a
+  running docker stack, so it would have been unpushable without
+  `git push --no-verify` -- which also skips the private-name check. The
+  narrow escape exists so nobody reaches for the wide one, and the refusal
+  names it.
+
 - **`pre-push` runs a shell repository's tests (#84).** It detected Node, Go,
   Python, Rust, Flutter, Gradle and PHP, none of which match a repo with no
   manifest file, so it printed `No test runner detected -- skipping` and exited
