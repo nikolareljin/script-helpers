@@ -7,7 +7,9 @@
 #                   account this token can see (you, plus your organisations).
 #   --out <path>    Where to write. Default: ${XDG_CONFIG_HOME:-~/.config}/script-helpers/private-names.tsv
 #   --stdout        Print the list instead of writing it.
-#   --check         Compare the written list with GitHub; change nothing.
+#   --check         Compare the written list with GitHub; the list is not written.
+#                   Always refetches, so it is the slow path and it does
+#                   refresh the per-owner caches.
 #   --force         Write even if it would drop names or codes.
 #   --limit <n>     Repositories to ask gh for per owner (default 8000).
 #   --ttl <days>    Refetch an owner whose cache is older than this. Default: 1 day
@@ -237,16 +239,31 @@ while IFS= read -r one; do
   ttl="$TTL_ORG"
   [[ -n "$SELF_LOGIN" && "$one" == "$SELF_LOGIN" ]] && ttl="$TTL_SELF"
   [[ -n "$TTL_OVERRIDE" ]] && ttl="$TTL_OVERRIDE"
+  # --check exists to answer "is this file still what GitHub says", so it can
+  # never answer from a cache. It said "matches GitHub" after asking GitHub
+  # about one owner in five.
+  [[ "$CHECK" == true ]] && ttl=0
 
   if _cache_is_fresh "$cache" "$ttl"; then
     log_info "$one: cached ($(grep -c . "$cache") repos, under ${ttl}d)"
     reused=$((reused + 1))
   else
     log_info "$one: fetching"
+    # The exit status matters as much as the output. `gh api graphql --paginate`
+    # that dies on page 30 of 51 leaves 3000 names in the file, and a size
+    # check calls that a complete fetch -- the exact failure this list cannot
+    # have, since a name that is missing is a name nothing blocks.
+    fetch_rc=0
     if [[ "$USE_GRAPHQL" == true ]]; then
-      _fetch_graphql "$one" > "$cache.new"
+      _fetch_graphql "$one" > "$cache.new" || fetch_rc=$?
     else
-      _fetch_repo_list "$one" > "$cache.new"
+      _fetch_repo_list "$one" > "$cache.new" || fetch_rc=$?
+    fi
+    if [[ "$fetch_rc" -ne 0 ]]; then
+      rm -f "$cache.new"
+      log_error "listing $one failed part-way (exit $fetch_rc); the cache was left alone."
+      log_error "A partial list would drop names silently, so nothing was written."
+      exit 3
     fi
     if [[ ! -s "$cache.new" ]]; then
       rm -f "$cache.new"

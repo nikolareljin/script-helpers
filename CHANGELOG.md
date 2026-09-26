@@ -97,6 +97,14 @@
   turns it off. No scheduler, because git runs hooks under bash on all three
   platforms.
 
+- **`--check` refetches instead of answering from a cache.** It exists to
+  compare the file with GitHub, and it reported `matches GitHub` having asked
+  GitHub about one owner in five.
+
+- **A listing that dies part-way is refused, not cached.** Only the output size
+  was checked, so `gh api graphql --paginate` failing on page 30 of 51 would
+  have cached 3000 of 5042 names as a complete answer.
+
 - **The Claude hook is strict only when it recognised a publishing command.**
   An unparseable command falls back to checking the whole string, and with
   strict ambiguity that blocked ordinary code -- a Python heredoc containing

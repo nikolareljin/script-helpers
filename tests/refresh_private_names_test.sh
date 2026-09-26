@@ -226,6 +226,47 @@ PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
 [[ $? -eq 0 ]] && ok "--limit does not apply to the GraphQL path" \
                || error "--limit refused the GraphQL path, which has no page to fill"
 
+# A listing that dies part-way must not be cached. gh --paginate failing on a
+# later page leaves a short file that a size check calls complete.
+mkdir -p "$tmp/badbin"
+cat > "$tmp/badbin/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$1 ${2:-}" in
+  "auth status") exit 0 ;;
+  "api user") echo testself ;;
+  "api graphql") printf 'a\tPRIVATE\tfalse\nb\tPRIVATE\tfalse\n'; exit 1 ;;
+  *) echo 0 ;;
+esac
+STUB
+chmod +x "$tmp/badbin/gh"
+rm -rf "$tmp/partial"
+out="$(PATH="$tmp/badbin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/partial" \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/does-not-exist" \
+  bash "$SCRIPT" --owner testns --stdout 2>&1)"; rc=$?
+if [[ $rc -eq 0 ]]; then
+  error "a listing that failed part-way was accepted"
+elif [[ -n "$(find "$tmp/partial" -name '*.tsv' 2>/dev/null)" ]]; then
+  error "a partial listing was cached"
+else
+  ok "a listing that dies part-way is refused and not cached"
+fi
+
+# --check must ask GitHub. It reported "matches GitHub" while reading caches.
+rm -rf "$tmp/checkcache"; mkdir -p "$tmp/checkcache"
+printf 'quarry\tPRIVATE\tfalse\n' > "$tmp/checkcache/testns.tsv"
+out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/checkcache" PRIVATE_NAMES_TTL_SELF=99 PRIVATE_NAMES_TTL_ORG=99 \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/does-not-exist" \
+  bash "$SCRIPT" --owner testns --out "$tmp/anyfile.tsv" --check 2>&1)"
+if grep -q 'testns: fetching' <<<"$out"; then
+  ok "--check refetches instead of answering from a cache"
+else
+  error "--check answered from a cache: it cannot compare with GitHub that way"
+fi
+
 if [[ $failures -gt 0 ]]; then
   echo "[refresh_private_names_test] FAILED ($failures)" >&2
   exit 1
