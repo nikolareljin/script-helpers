@@ -48,6 +48,22 @@
   any single namespace loses names or an org-wide row disappears. `--force`
   overrides.
 
+- **`pre-push` runs a shell repository's tests (#84).** It detected Node, Go,
+  Python, Rust, Flutter, Gradle and PHP, none of which match a repo with no
+  manifest file, so it printed `No test runner detected -- skipping` and exited
+  0. Both shared libraries here are shell repos: a push with a red suite
+  reported success, twice in one afternoon.
+
+  Now, in order: a `Makefile` with a `test` target, `tests/*.bats` when `bats`
+  is installed, then `tests/*_test.sh`. A repo with none of those is still
+  allowed through.
+
+  Every runner also gained `|| return $?`. `run_tests` is now called as
+  `run_tests || rc=$?` so the failure can be reported, and that disables
+  `set -e` inside it -- without the explicit propagation a failing `npm test`
+  fell through to `return 0` and the push went ahead. That would have been a
+  regression for every stack, not just the new branch.
+
 ### Changed
 
 - **Internal repositories are cited by code in this file.** `R-765` rather
