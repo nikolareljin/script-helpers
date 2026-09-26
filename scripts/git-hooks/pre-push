@@ -77,12 +77,59 @@ _private_names_gate() {
   printf '%s' "$gate"
 }
 
+# A stale dictionary misses every repository created since it was built, and
+# nothing reports that. Kick a refresh into the background when it ages: never
+# blocking, never failing the push, at most one at a time.
+#
+# Deliberately not a systemd timer or a launchd agent: this has to behave the
+# same on Linux, macOS and Windows, and git runs its hooks under bash on all
+# three. Nothing to install.
+_maybe_refresh_private_names() {
+  local list="${PRIVATE_NAMES_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/script-helpers/private-names.tsv}"
+  local age_days="${PRIVATE_NAMES_REFRESH_DAYS:-7}"
+  [[ "${PRIVATE_NAMES_AUTO_REFRESH:-true}" == true ]] || return 0
+  command -v gh >/dev/null 2>&1 || return 0
+
+  local refresher=""
+  local candidate
+  for candidate in \
+    "$repo_root/scripts/script-helpers/scripts/refresh_private_names.sh" \
+    "$repo_root/vendor/script-helpers/scripts/refresh_private_names.sh" \
+    "$repo_root/scripts/refresh_private_names.sh"; do
+    [[ -f "$candidate" ]] && { refresher="$candidate"; break; }
+  done
+  [[ -n "$refresher" ]] || return 0
+
+  # Fresh enough, nothing to do. A missing list counts as stale.
+  if [[ -s "$list" ]] && [[ -z "$(find "$list" -mtime "+$age_days" 2>/dev/null)" ]]; then
+    return 0
+  fi
+
+  # One at a time. mkdir is the atomic primitive available everywhere; a stale
+  # lock older than a day is cleared, so a killed refresh cannot wedge it.
+  local lock="${list}.refresh.lock"
+  [[ -d "$lock" ]] && [[ -n "$(find "$lock" -mtime +1 2>/dev/null)" ]] && rmdir "$lock" 2>/dev/null
+  mkdir "$lock" 2>/dev/null || return 0
+
+  echo "[pre-push] private-name list is stale; refreshing in the background."
+  # No EXIT trap here: a trap in a backgrounded subshell is the construct
+  # run_bounded_test refuses, and it buys nothing. A refresh that is killed
+  # leaves the lock, which the day-old check above clears.
+  (
+    bash "$refresher" >"${list}.refresh.log" 2>&1
+    rmdir "$lock" 2>/dev/null
+  ) </dev/null >/dev/null 2>&1 &
+  return 0
+}
+
 _check_private_names() {
   local gate rc lref lsha rref rsha
   gate="$(_private_names_gate)" || {
     echo "[pre-push] check_private_names.sh not found; private-name check skipped." >&2
     return 0
   }
+
+  _maybe_refresh_private_names
 
   bash "$gate" --tree --only-public
   rc=$?

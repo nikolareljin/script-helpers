@@ -27,14 +27,25 @@ trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 mkdir -p "$tmp/bin"
 cat > "$tmp/bin/gh" <<'STUB'
 #!/usr/bin/env bash
+# Enough of gh to drive the classifier: the identity call, the GraphQL listing
+# (already reduced, because the real -q filter runs inside gh), and the org
+# counts used to tell "empty" from "cannot see".
+rows() {
+  printf 'quarry\tPRIVATE\tfalse\n'
+  printf 'harbour\tPRIVATE\tfalse\n'
+  printf 'zzqqxx\tPRIVATE\tfalse\n'
+}
 case "$1 ${2:-}" in
-  "auth status") exit 0 ;;
+  "auth status")   exit 0 ;;
+  "api user")      echo "testself" ;;
+  "api user/orgs") : ;;
+  "api graphql")   rows ;;
   "repo list")
     printf '[{"name":"quarry","visibility":"PRIVATE","isArchived":false},'
     printf '{"name":"harbour","visibility":"PRIVATE","isArchived":false},'
     printf '{"name":"zzqqxx","visibility":"PRIVATE","isArchived":false}]'
     ;;
-  *) exit 0 ;;
+  *) echo 0 ;;
 esac
 STUB
 chmod +x "$tmp/bin/gh"
@@ -47,6 +58,7 @@ flags_for() {   # <name> [override]
   PATH="$tmp/bin:$PATH" \
   PRIVATE_NAMES_WORDLIST="$tmp/words" \
   PRIVATE_NAMES_NEVER_AMBIGUOUS="${2-}" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/cache" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
   PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
     bash "$SCRIPT" --owner testns --stdout 2>/dev/null \
     | awk -F'\t' -v n="$1" '!/^#/ && $3 == n { print $5 }'
@@ -55,6 +67,7 @@ flags_for() {   # <name> [override]
 # Without this, every case below passes against an empty list.
 gen() {   # <override-file>
   PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/cache" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
   PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$1" \
     bash "$SCRIPT" --owner testns --stdout 2>/dev/null
 }
@@ -102,6 +115,7 @@ printf 'private\ttestns\tzzqqxx\tR-004\t\n' >> "$out_file"
 before="$(cat "$out_file")"
 
 PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/cache" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
   PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
   bash "$SCRIPT" --owner testns --out "$out_file" >/dev/null 2>&1
 rc=$?
@@ -114,6 +128,7 @@ else
 fi
 
 PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/cache" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
   PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
   bash "$SCRIPT" --owner testns --out "$out_file" --force >/dev/null 2>&1
 if [[ "$(cat "$out_file")" == "$before" ]]; then
@@ -129,7 +144,8 @@ printf 'private\ttestns\tquarry\tR-002\t\n' >> "$out_file"
 printf 'private\ttestns\tharbour\tR-003\t\n' >> "$out_file"
 printf 'private\ttestns\tzzqqxx\tR-004\t\n' >> "$out_file"
 out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
-       PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+       PRIVATE_NAMES_CACHE_DIR="$tmp/cache" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
        bash "$SCRIPT" --owner testns --out "$out_file" 2>&1)"
 if grep -q 'names carrying a code' <<<"$out" && ! grep -q '^\[ERROR\]   names:' <<<"$out"; then
   ok "the refusal names codes, not names, when only codes were lost"
@@ -141,6 +157,7 @@ fi
 # the gate loses the thing it tells people to cite instead of a name.
 printf '# name\tcode\nquarry\tR-002\nharbour\tR-003\n' > "$tmp/codes"
 rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/cache" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
   PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
   PRIVATE_NAMES_CODES_FILE="$tmp/codes" \
   bash "$SCRIPT" --owner testns --stdout 2>/dev/null)"
@@ -155,25 +172,30 @@ code_for() { awk -F'\t' -v n="$1" '!/^#/ && $3 == n { print $4 }' <<<"$rows_out"
 
 # and without the file, nothing gains a code
 rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/cache" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
   PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
   PRIVATE_NAMES_CODES_FILE="$tmp/no-such-file" \
   bash "$SCRIPT" --owner testns --stdout 2>/dev/null)"
 [[ "$(code_for quarry)" == "-" ]] && ok "no --codes file means no codes, not an error" \
   || error "a missing --codes file produced code '$(code_for quarry)'"
 
-# A page that comes back exactly full is probably truncated, and gh cannot say.
-# The stub returns 3 repos, so --limit 3 looks full and --limit 4 does not.
+# --limit belongs to the `gh repo list` fallback only: GraphQL paginates, so
+# there is no page size to overflow. A page that comes back exactly full is
+# the only truncation signal gh offers, and the stub returns 3 repos, so
+# --limit 3 looks full and --limit 4 does not.
 PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/cache" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
   PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
   PRIVATE_NAMES_CODES_FILE="$tmp/does-not-exist" \
-  bash "$SCRIPT" --owner testns --stdout --limit 3 >/dev/null 2>&1
+  bash "$SCRIPT" --owner testns --stdout --no-graphql --limit 3 >/dev/null 2>&1
 [[ $? -ne 0 ]] && ok "a full page is refused as probably truncated" \
                || error "a full page was accepted; a truncated list blocks nothing"
 
 PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/cache" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
   PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
   PRIVATE_NAMES_CODES_FILE="$tmp/does-not-exist" \
-  bash "$SCRIPT" --owner testns --stdout --limit 4 >/dev/null 2>&1
+  bash "$SCRIPT" --owner testns --stdout --no-graphql --limit 4 >/dev/null 2>&1
 [[ $? -eq 0 ]] && ok "a page under the limit is accepted" \
                || error "a page under the limit was refused"
 
@@ -184,6 +206,7 @@ printf 'private\ttestns\tquarry\tR-002\t\n' >> "$out_file"
 printf 'private\ttestns\tharbour\tR-003\t\n' >> "$out_file"
 printf 'private\ttestns\tzzqqxx\tR-004\t\n' >> "$out_file"
 PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/cache" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
   PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
   PRIVATE_NAMES_CODES_FILE="$tmp/codes" \
   bash "$SCRIPT" --owner testns --out "$out_file" --force >/dev/null 2>&1
@@ -192,6 +215,16 @@ if awk -F'\t' '$1=="private" && $2=="otherorg" && $3=="*" {found=1} END{exit !fo
 else
   error "the org-wide row was dropped, taking its never-name policy with it"
 fi
+
+# GraphQL is the default and has no limit to overflow, so the same limit that
+# refuses the fallback must not refuse it.
+PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/cache-gql" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/does-not-exist" \
+  bash "$SCRIPT" --owner testns --stdout --limit 3 >/dev/null 2>&1
+[[ $? -eq 0 ]] && ok "--limit does not apply to the GraphQL path" \
+               || error "--limit refused the GraphQL path, which has no page to fill"
 
 if [[ $failures -gt 0 ]]; then
   echo "[refresh_private_names_test] FAILED ($failures)" >&2

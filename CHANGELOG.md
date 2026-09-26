@@ -64,6 +64,45 @@
   fell through to `return 0` and the push went ahead. That would have been a
   regression for every stack, not just the new branch.
 
+- **The private-name index is discovered, cached per owner, and refreshed in
+  the background.** Owners came from whatever you typed on the command line;
+  now they come from the token (`gh api user`, `gh api user/orgs`), never from
+  the repository you are standing in. On this machine that found a fifth
+  account the hand-written list had missed.
+
+  One cache per owner, so a re-index touches what changed:
+
+  | | |
+  |---|---|
+  | cold, five owners, ~5700 repos | ~60s |
+  | everything cached | ~3s |
+  | one owner (`--owner X --ttl 0`) | ~5s |
+
+  `--owner X` refreshes that owner and rebuilds from **all** caches, so
+  indexing one organisation can no longer drop another. TTLs default to 1 day
+  for your own account and 14 for an organisation.
+
+  Listing moved to GraphQL: the same speed (45.8s against 49s for 5042
+  repositories -- 51 sequential pages, not payload) but real pagination, so
+  `--limit` and its "exactly full page" heuristic no longer decide anything.
+  `--no-graphql` falls back.
+
+  An organisation that reports repositories the token cannot list is now named
+  in a warning. One here claims 18 and returns none, which is 18 names no gate
+  can match.
+
+  `pre-push` refreshes in the background when the list ages past
+  `PRIVATE_NAMES_REFRESH_DAYS` (7): never blocking, never failing a push,
+  locked so two pushes start one refresh, and `PRIVATE_NAMES_AUTO_REFRESH=false`
+  turns it off. No scheduler, because git runs hooks under bash on all three
+  platforms.
+
+- **The Claude hook is strict only when it recognised a publishing command.**
+  An unparseable command falls back to checking the whole string, and with
+  strict ambiguity that blocked ordinary code -- a Python heredoc containing
+  `s.index(...)` matched a repository called `index`. A gate that fires on
+  correct input gets switched off.
+
 ### Changed
 
 - **Internal repositories are cited by code in this file.** `R-765` rather

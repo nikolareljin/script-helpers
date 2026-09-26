@@ -420,6 +420,41 @@ hook only ever sees an agent's calls. Wire it up with:
   "command": "bash <path>/script-helpers/scripts/claude-hooks/pretooluse_private_names.sh" } ] } ] }
 ```
 
+### Indexing
+
+`refresh_private_names.sh` with no arguments indexes every account the token can
+see: you, plus your organisations, read from `gh api user` and `gh api user/orgs`.
+Never from the repository you are standing in -- that would rebuild the machine's
+dictionary from someone else's namespace.
+
+One cache per owner under `~/.config/script-helpers/owners/`, so a re-index
+touches what changed:
+
+| | |
+|---|---|
+| cold, five owners, 5700 repos | ~60s |
+| everything cached | ~3s |
+| one owner re-indexed (`--owner X --ttl 0`) | ~5s |
+
+`--owner X` refreshes that owner's cache and rebuilds the file from **all** the
+caches, so indexing one organisation never drops another. Default TTLs: 1 day
+for your own account, 14 for an organisation; `--ttl <days>` overrides.
+
+The listing uses GraphQL, which paginates properly. Measured against
+`gh repo list` it is the same speed (45.8s versus 49s for 5042 repositories --
+the cost is 51 sequential pages, not payload), but there is no `--limit` to
+guess at. `--no-graphql` falls back.
+
+An organisation that reports repositories the token cannot list is warned about
+by name rather than skipped silently: usually SSO authorisation, and it means
+those names match nothing.
+
+The `pre-push` hook refreshes in the background when the list is older than
+`PRIVATE_NAMES_REFRESH_DAYS` (7). It never blocks or fails a push, holds a lock
+so two pushes do not start two refreshes, and `PRIVATE_NAMES_AUTO_REFRESH=false`
+turns it off. A scheduler was deliberately not used: git runs hooks under bash
+on Linux, macOS and Windows alike, so there is nothing to install.
+
 The pull request hook passes `--strict-ambiguous`; the others do not. A name
 that is also an everyday word is reported as a warning by default, because a
 person is at a terminal and can read it. Nobody reads a warning printed by a

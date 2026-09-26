@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 # SCRIPT: refresh_private_names.sh
 # DESCRIPTION: Build the private-repository name list that check_private_names.sh reads, from your own GitHub account or organisation.
-# USAGE: scripts/refresh_private_names.sh [--owner <user-or-org>] [--out <path>] [--stdout] [--check] [--force] [--codes <path>] [--limit <n>] [-h]
+# USAGE: scripts/refresh_private_names.sh [--owner <user-or-org>] [--out <path>] [--stdout] [--check] [--force] [--codes <path>] [--limit <n>] [--ttl <days>] [-h]
 # PARAMETERS:
-#   --owner <name>  GitHub user or organisation. Default: the owner of this repo's origin remote.
+#   --owner <name>  Limit to this user or organisation; repeatable. Default: every
+#                   account this token can see (you, plus your organisations).
 #   --out <path>    Where to write. Default: ${XDG_CONFIG_HOME:-~/.config}/script-helpers/private-names.tsv
 #   --stdout        Print the list instead of writing it.
 #   --check         Compare the written list with GitHub; change nothing.
 #   --force         Write even if it would drop names or codes.
 #   --limit <n>     Repositories to ask gh for per owner (default 8000).
+#   --ttl <days>    Refetch an owner whose cache is older than this. Default: 1 day
+#                   for your own account, 14 for an organisation.
+#   --cache-dir <d> Where the per-owner caches live.
+#   --no-graphql    Use `gh repo list` instead of the GraphQL query.
 #   --codes <path>  Two columns, `name<TAB>code`, used to fill the code column that
 #                   `gh repo list` cannot supply. Default:
 #                   ~/.config/script-helpers/private-names-codes.tsv
@@ -68,6 +73,18 @@ TO_STDOUT=false
 CHECK=false
 FORCE=false
 GH_LIMIT="${PRIVATE_NAMES_GH_LIMIT:-8000}"
+
+# One cache per owner, so a re-index touches the owner that changed instead of
+# refetching every account. Assembly reads whatever caches exist, which is also
+# what makes `--owner X` safe: it updates one cache, it does not replace the file.
+CACHE_DIR="${PRIVATE_NAMES_CACHE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/script-helpers/owners}"
+# Days before a cache is refetched. Your own account changes often and is small;
+# an employer organisation with thousands of repositories rarely gains one that
+# matters and costs a minute to list.
+TTL_SELF="${PRIVATE_NAMES_TTL_SELF:-1}"
+TTL_ORG="${PRIVATE_NAMES_TTL_ORG:-14}"
+TTL_OVERRIDE=""
+USE_GRAPHQL="${PRIVATE_NAMES_GRAPHQL:-true}"
 CODES_FILE="${PRIVATE_NAMES_CODES_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/script-helpers/private-names-codes.tsv}"
 WORDLIST="${PRIVATE_NAMES_WORDLIST:-/usr/share/dict/words}"
 
@@ -89,6 +106,9 @@ while [[ $# -gt 0 ]]; do
     --force) FORCE=true; shift ;;
     --codes) CODES_FILE="${2:?--codes needs a path}"; shift 2 ;;
     --limit) GH_LIMIT="${2:?--limit needs a number}"; shift 2 ;;
+    --ttl) TTL_OVERRIDE="${2:?--ttl needs a number of days}"; shift 2 ;;
+    --cache-dir) CACHE_DIR="${2:?--cache-dir needs a path}"; shift 2 ;;
+    --no-graphql) USE_GRAPHQL=false; shift ;;
     -h|--help) sed -n '2,15p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) log_error "Unknown argument: $1"; exit 2 ;;
   esac
@@ -115,14 +135,32 @@ fi
 # repository rebuilds that one file from THEIR namespace -- silently dropping your own
 # private names from every gate on the machine, with no error and no clue. Naming the
 # owners is the only safe default.
+SELF_LOGIN=""
+OWNERS_DISCOVERED=false
 if [[ -z "$OWNERS" ]]; then
-  log_error "No namespace given, and one is never guessed from the repository you are in."
-  log_error "A guess would rebuild this machine's whole dictionary from someone else's"
-  log_error "namespace and quietly drop your own names from every check."
+  # Discovered from the TOKEN, not from the repository you are standing in.
+  # The token's own account and organisations are yours wherever you run this;
+  # the cwd's remote belongs to whoever owns that checkout.
+  SELF_LOGIN="$(gh api user -q .login 2>/dev/null || true)"
+  discovered="$SELF_LOGIN"
+  while IFS= read -r org; do
+    [[ -n "$org" ]] && discovered="${discovered}${discovered:+,}${org}"
+  done < <(gh api user/orgs --paginate -q '.[].login' 2>/dev/null || true)
+  OWNERS="$discovered"
+  OWNERS_DISCOVERED=true
+  [[ -n "$OWNERS" ]] && log_info "owners from this token: ${OWNERS//,/ }"
+fi
+
+if [[ -z "$OWNERS" ]]; then
+  log_error "No namespace given, and none could be read from this token."
+  log_error "One is never guessed from the repository you are in: that would rebuild"
+  log_error "this machine's dictionary from someone else's namespace and quietly drop"
+  log_error "your own names from every check."
   log_error "  scripts/refresh_private_names.sh --owner <user-or-org> [--owner <another>]"
   log_error "  or set PRIVATE_NAMES_OWNERS=\"a,b\""
   exit 2
 fi
+[[ -n "$SELF_LOGIN" ]] || SELF_LOGIN="$(gh api user -q .login 2>/dev/null || true)"
 
 tmp="$(mktemp)"
 # Guarded: a subshell inherits an EXIT trap, and bash runs it there when the
@@ -137,28 +175,128 @@ trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -f "$tmp" "$tmp.body" "$tmp.raw" "
 # `gh repo list` takes one owner; the rows carry their namespace, which is what lets one
 # dictionary cover a personal account and any number of organisations at once.
 : > "$tmp.raw"
+mkdir -p "$CACHE_DIR"
+chmod 700 "$CACHE_DIR" 2>/dev/null || true
+
+# GraphQL by default. The speed is the same -- measured 45.8s against 49s for
+# 5042 repositories, because the cost is 51 sequential pages, not payload --
+# but it paginates properly, so there is no --limit to guess at and no
+# "exactly full page" heuristic standing in for a truncation signal gh
+# never gives.
+_fetch_graphql() {   # <owner> -> name<TAB>PRIVATE|PUBLIC<TAB>true|false
+  gh api graphql --paginate -F login="$1" -f query='
+    query($login: String!, $endCursor: String) {
+      repositoryOwner(login: $login) {
+        repositories(first: 100, after: $endCursor, ownerAffiliations: OWNER) {
+          pageInfo { hasNextPage endCursor }
+          nodes { name isPrivate isArchived }
+        }
+      }
+    }' -q '.data.repositoryOwner.repositories.nodes[]
+           | [.name, (if .isPrivate then "PRIVATE" else "PUBLIC" end), (.isArchived|tostring)]
+           | @tsv' 2>/dev/null
+}
+
+_fetch_repo_list() {   # <owner>, the fallback
+  local raw got
+  raw="$(gh repo list "$1" --limit "$GH_LIMIT" --json name,visibility,isArchived 2>/dev/null)" || return 1
+  [[ -n "$raw" ]] || return 1
+  got="$(printf '%s' "$raw" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))' 2>/dev/null || echo 0)"
+  if [[ "$got" == "$GH_LIMIT" ]]; then
+    log_error "gh returned exactly $GH_LIMIT repositories for $1, so the list is cut short."
+    log_error "Raise it with --limit <n>, or drop --no-graphql."
+    return 1
+  fi
+  printf '%s' "$raw" | python3 -c '
+import json, sys
+for r in json.load(sys.stdin):
+    print(r["name"], r.get("visibility","").upper(), str(bool(r.get("isArchived"))).lower(), sep="\t")
+'
+}
+
+# Fresh when it exists and find cannot age it past the TTL. find -mtime is
+# POSIX; stat is not, and its flags differ between GNU and BSD.
+_cache_is_fresh() {   # <file> <ttl-days>
+  [[ -s "$1" ]] || return 1
+  [[ "$FORCE" == true ]] && return 1
+  # 0 means always refetch. find -mtime +0 is "older than 24h", which would
+  # make --ttl 0 the same as --ttl 1 and quietly do nothing.
+  [[ "$2" == "0" ]] && return 1
+  [[ -z "$(find "$1" -mtime "+$2" 2>/dev/null)" ]]
+}
+
 owner_list="$(printf '%s' "$OWNERS" | tr ',' '\n')"
+fetched=0
+reused=0
+skipped=""
 while IFS= read -r one; do
   one="$(printf '%s' "$one" | tr -d '[:space:]')"
   [[ -z "$one" ]] && continue
-  raw="$(gh repo list "$one" --limit "$GH_LIMIT" --json name,visibility,isArchived 2>/dev/null)"
-  status=$?
-  if (( status != 0 )) || [[ -z "$raw" ]]; then
-    log_error "gh repo list $one failed (exit $status)."
-    log_error "Check the name, and that this account can see it."
-    exit 3
+  cache="$CACHE_DIR/${one}.tsv"
+
+  ttl="$TTL_ORG"
+  [[ -n "$SELF_LOGIN" && "$one" == "$SELF_LOGIN" ]] && ttl="$TTL_SELF"
+  [[ -n "$TTL_OVERRIDE" ]] && ttl="$TTL_OVERRIDE"
+
+  if _cache_is_fresh "$cache" "$ttl"; then
+    log_info "$one: cached ($(grep -c . "$cache") repos, under ${ttl}d)"
+    reused=$((reused + 1))
+  else
+    log_info "$one: fetching"
+    if [[ "$USE_GRAPHQL" == true ]]; then
+      _fetch_graphql "$one" > "$cache.new"
+    else
+      _fetch_repo_list "$one" > "$cache.new"
+    fi
+    if [[ ! -s "$cache.new" ]]; then
+      rm -f "$cache.new"
+      # Nothing came back. If the organisation says it HAS repositories, this
+      # token cannot see them -- SSO authorisation, most often -- and that is a
+      # hole in the gate rather than an empty account. Loud either way, but a
+      # discovered owner must not stop the other four from indexing.
+      claimed="$(gh api "orgs/$one" -q '(.public_repos // 0) + (.total_private_repos // 0)' 2>/dev/null || echo 0)"
+      if [[ "${claimed:-0}" -gt 0 ]]; then
+        log_warn "$one reports ${claimed} repositories and this token can list none of them."
+        log_warn "Their names will match nothing. Usually SSO: gh auth refresh, or authorise"
+        log_warn "the token for $one at https://github.com/settings/tokens"
+      else
+        log_warn "$one: no repositories visible to this token."
+      fi
+      if [[ "$OWNERS_DISCOVERED" != true ]]; then
+        log_error "$one was named explicitly, so this is an error rather than a skip."
+        exit 3
+      fi
+      skipped="${skipped}${skipped:+ }${one}"
+      continue
+    fi
+    chmod 600 "$cache.new" 2>/dev/null || true
+    mv -f "$cache.new" "$cache"
+    fetched=$((fetched + 1))
   fi
-  # A page that comes back exactly full is probably truncated, and gh gives no
-  # way to tell. Silently dropping repos is the one failure this list cannot
-  # have: a name that is missing is a name nothing blocks.
-  got="$(printf '%s' "$raw" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))' 2>/dev/null || echo 0)"
-  if [[ "$got" == "$GH_LIMIT" ]]; then
-    log_error "gh returned exactly $GH_LIMIT repositories for $one, so the list is probably cut short."
-    log_error "Raise it: --limit <n>, or PRIVATE_NAMES_GH_LIMIT."
-    exit 3
-  fi
-  printf '%s\t%s\n' "$one" "$raw" >> "$tmp.raw"
+
 done <<EOF
+$owner_list
+EOF
+log_info "${fetched} owner(s) fetched, ${reused} from cache"
+[[ -n "$skipped" ]] && log_warn "not indexed, nothing visible: ${skipped}"
+
+# Assembly reads EVERY cache, not just the owners fetched this run. That is what
+# makes `--owner X` a per-owner re-index rather than a replacement: one cache is
+# refreshed, the file is rebuilt from all of them.
+assembled=0
+for cache in "$CACHE_DIR"/*.tsv; do
+  [[ -e "$cache" ]] || continue
+  one="$(basename "$cache" .tsv)"
+  while IFS= read -r row; do
+    [[ -n "$row" ]] && printf '%s\t%s\n' "$one" "$row" >> "$tmp.raw"
+  done < "$cache"
+  assembled=$((assembled + 1))
+done
+if [[ "$assembled" -eq 0 ]]; then
+  log_error "no owner caches in $CACHE_DIR, so there is nothing to assemble."
+  exit 3
+fi
+log_info "assembled from ${assembled} owner cache(s)"
 $owner_list
 EOF
 
@@ -171,7 +309,7 @@ fi
 # required by the gate for the same reason -- parsing JSON in bash is how a
 # quoted name with a bracket in it silently drops out of a security list.
 WORDLIST="$WORDLIST" NEVER_AMBIGUOUS="$NEVER_AMBIGUOUS" CODES_FILE="$CODES_FILE" python3 - "$tmp.raw" <<'PY' > "$tmp.body"
-import json, os, pathlib, sys
+import os, pathlib, sys
 
 wordlist = pathlib.Path(os.environ.get("WORDLIST", ""))
 words = set()
@@ -215,20 +353,18 @@ if codes_path.is_file():
         if len(parts) >= 2:
             codes[parts[0].lower()] = parts[1]
 
+# owner<TAB>name<TAB>PRIVATE|PUBLIC<TAB>true|false, one row per repository,
+# assembled from the per-owner caches.
 rows = []
 for line in open(sys.argv[1], encoding="utf-8"):
-    ns, _, payload = line.partition("\t")
-    if not payload.strip():
+    parts = line.rstrip("\n").split("\t")
+    if len(parts) < 4:
         continue
-    for repo in json.loads(payload):
-        if repo.get("isArchived"):
-            continue
-        name = repo.get("name")
-        if not name:
-            continue
-        visibility = "public" if str(repo.get("visibility", "")).upper() == "PUBLIC" \
-            else "private"
-        rows.append([visibility, ns, name, codes.get(name.lower(), "-"), ""])
+    ns, name, vis, archived = parts[0], parts[1], parts[2], parts[3]
+    if not name or archived.lower() == "true":
+        continue
+    visibility = "public" if vis.upper() == "PUBLIC" else "private"
+    rows.append([visibility, ns, name, codes.get(name.lower(), "-"), ""])
 
 public_names = {r[2].lower() for r in rows if r[0] == "public"}
 out = []
@@ -279,7 +415,7 @@ fi
 
 {
   echo "# private-names v1 -- generated, never commit this to a public repository"
-  echo "# generated: $(date -u +%Y-%m-%d) source: gh repo list ${OWNERS}"
+  echo "# generated: $(date -u +%Y-%m-%d) source: ${OWNERS}"
   printf '# visibility\tnamespace\tname\tcode\tflags\n'
   cat "$tmp.body"
 } > "$tmp"
