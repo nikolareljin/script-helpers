@@ -285,7 +285,9 @@ if [[ -f "$OUT" && "$FORCE" != true ]]; then
   old_c="$(awk -F'\t' '!/^#/ && $1=="private" && $4!="-" && $4!=""{n++} END{print n+0}' "$OUT")"
   new_c="$(awk -F'\t' '!/^#/ && $1=="private" && $4!="-" && $4!=""{n++} END{print n+0}' "$tmp")"
   if [[ "$new_n" -lt "$old_n" || "$new_c" -lt "$old_c" ]]; then
-    log_error "This write would shrink the list: ${old_n} -> ${new_n} names, ${old_c} -> ${new_c} with codes."
+    log_error "This write would lose data, so nothing was written:"
+    [[ "$new_n" -lt "$old_n" ]] && log_error "  names: ${old_n} -> ${new_n}"
+    [[ "$new_c" -lt "$old_c" ]] && log_error "  names carrying a code: ${old_c} -> ${new_c}"
     log_error "Name every owner the file covers, or pass --force to overwrite."
     log_error "Owners in the current file:"
     awk -F'\t' '!/^#/ && $1=="private"{print "  " $2}' "$OUT" | sort -u >&2

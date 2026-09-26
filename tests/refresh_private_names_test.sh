@@ -122,6 +122,21 @@ else
   ok "--force overwrites"
 fi
 
+# The refusal has to say which of the two shrank. "would shrink the list:
+# 1499 -> 1504 names, 65 -> 0 with codes" reads as a name loss when it was codes.
+printf '# private-names v1\n# generated: 2026-09-26 source: test\n' > "$out_file"
+printf 'private\ttestns\tquarry\tR-002\t\n' >> "$out_file"
+printf 'private\ttestns\tharbour\tR-003\t\n' >> "$out_file"
+printf 'private\ttestns\tzzqqxx\tR-004\t\n' >> "$out_file"
+out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+       PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+       bash "$SCRIPT" --owner testns --out "$out_file" 2>&1)"
+if grep -q 'names carrying a code' <<<"$out" && ! grep -q '^\[ERROR\]   names:' <<<"$out"; then
+  ok "the refusal names codes, not names, when only codes were lost"
+else
+  error "the refusal did not say which of the two shrank: ${out}"
+fi
+
 if [[ $failures -gt 0 ]]; then
   echo "[refresh_private_names_test] FAILED ($failures)" >&2
   exit 1
