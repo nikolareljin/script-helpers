@@ -331,19 +331,11 @@ else
   note "SKIP: python3 unavailable, agent hook not exercised"
 fi
 
-# --- a bare everyday-word name: warned about, where a person will read it ----
+# --- a bare everyday-word name --------------------------------------------
 #
-# `beacon` is flagged ambiguous, so it is matched qualified and NOT bare. That
-# demotion is right -- bare matching of words like "search" produces dozens of
-# hits in ordinary prose -- but until now the bare form was passed in complete
-# silence, and the branch written to report it could never run because nothing
-# populated its tier. A private repository's name reached a published
-# changelog, a release body and two pull request bodies that way.
-#
-# The warning is scoped to text about to be published. Measured with the real
-# dictionary: --tree gives 54 hit lines here and 77 in the consumer repository,
-# almost all "search" and "anchor" in prose and CSS; the commit range that
-# carried the real leak gives one.
+# `beacon` is flagged ambiguous, so it is matched qualified, not bare. The bare
+# form used to pass in silence and nothing populated the tier that reports it.
+# Warned on published text only: --tree gives 54 hits here, mostly prose.
 amb_repo="$tmp/amb"
 mkdir -p "$amb_repo"
 git_t -C "$amb_repo" init -q .
@@ -354,10 +346,8 @@ printf 'also nothing\n' > "$amb_repo/c.md"
 git_t -C "$amb_repo" add c.md
 git_t -C "$amb_repo" commit -q -m "docs: mentions beacon in prose"
 
-# A range with a parent in it. A range of one commit against itself is empty,
-# and every assertion below would then pass against text that was never read,
-# so the range is checked to carry the message before anything is asserted
-# about scanning it.
+# A range of one commit against itself is empty, and everything below would
+# then pass against text that was never read.
 range_msgs="$(git_t -C "$amb_repo" log --format=%B 'HEAD~1..HEAD')"
 grep -q beacon <<<"$range_msgs" \
   || error "the commit range under test carries no ambiguous name, so nothing below proves anything"

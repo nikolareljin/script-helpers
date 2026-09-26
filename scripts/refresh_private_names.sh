@@ -163,10 +163,8 @@ if wordlist.is_file():
         words = {w.strip().lower() for w in fh if w.strip()}
 
 # "Is it a dictionary word?" is a proxy for "would matching it bare give false
-# positives in the repos I publish?". For a repo named after a word nobody
-# writes it is the wrong answer, and the cost is total: flagged means matched
-# only when qualified, so no gate fires on a bare mention. Measure with
-# `git grep -oiw <name>` and list the exceptions here.
+# positives in the repos I publish?". When it is wrong the name is flagged, so
+# matched only when qualified, so no gate fires on it. Measure with git grep.
 never_ambiguous = {
     w.strip().lower()
     for w in os.environ.get("NEVER_AMBIGUOUS", "").replace(",", "\n").splitlines()
@@ -279,10 +277,8 @@ fi
 #
 # 0600 because this is an inventory of someone's private repositories, and the ambient
 # umask makes it world-readable on most systems.
-# Refuse a write that loses names or codes. --owner takes one account, but the
-# file holds every account, so re-running with a subset silently replaces the
-# lot: 1499 names became 66 that way, and every `R-` code went to `-`, which is
-# what the gate tells people to cite instead. --force to overwrite anyway.
+# --owner takes one account; the file holds every account. A subset overwrite
+# replaced 1499 names with 66 and turned every R- code into "-".
 if [[ -f "$OUT" && "$FORCE" != true ]]; then
   old_n="$(awk -F'\t' '!/^#/ && $1=="private"{n++} END{print n+0}' "$OUT")"
   new_n="$(awk -F'\t' '!/^#/ && $1=="private"{n++} END{print n+0}' "$tmp")"
