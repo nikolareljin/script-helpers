@@ -161,6 +161,38 @@ rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
 [[ "$(code_for quarry)" == "-" ]] && ok "no --codes file means no codes, not an error" \
   || error "a missing --codes file produced code '$(code_for quarry)'"
 
+# A page that comes back exactly full is probably truncated, and gh cannot say.
+# The stub returns 3 repos, so --limit 3 looks full and --limit 4 does not.
+PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/does-not-exist" \
+  bash "$SCRIPT" --owner testns --stdout --limit 3 >/dev/null 2>&1
+[[ $? -ne 0 ]] && ok "a full page is refused as probably truncated" \
+               || error "a full page was accepted; a truncated list blocks nothing"
+
+PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/does-not-exist" \
+  bash "$SCRIPT" --owner testns --stdout --limit 4 >/dev/null 2>&1
+[[ $? -eq 0 ]] && ok "a page under the limit is accepted" \
+               || error "a page under the limit was refused"
+
+# Org-wide `*` rows cannot come from gh, so a refresh must carry them over.
+printf '# private-names v1\n# generated: 2026-09-26 source: test\n' > "$out_file"
+printf 'private\totherorg\t*\t-\tnever-name\n' >> "$out_file"
+printf 'private\ttestns\tquarry\tR-002\t\n' >> "$out_file"
+printf 'private\ttestns\tharbour\tR-003\t\n' >> "$out_file"
+printf 'private\ttestns\tzzqqxx\tR-004\t\n' >> "$out_file"
+PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/codes" \
+  bash "$SCRIPT" --owner testns --out "$out_file" --force >/dev/null 2>&1
+if grep -qP '^private\totherorg\t\*\t' "$out_file"; then
+  ok "an org-wide row survives a refresh"
+else
+  error "the org-wide row was dropped, taking its never-name policy with it"
+fi
+
 if [[ $failures -gt 0 ]]; then
   echo "[refresh_private_names_test] FAILED ($failures)" >&2
   exit 1
