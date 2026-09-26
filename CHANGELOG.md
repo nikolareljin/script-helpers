@@ -22,6 +22,11 @@
   `~/.config/script-helpers/private-names-unambiguous`. A repo named after a
   word nobody writes was flagged and therefore never matched bare.
 
+- **`refresh_private_names.sh --owner X` refuses to shrink the list.** The file
+  holds every account; `--owner` takes one. Re-running with a subset replaced
+  the lot: 1499 names became 66, and every `R-` code became `-` -- the code the
+  gate tells people to cite. `--force` overrides.
+
 ### Changed
 
 - **Internal repositories are cited by code in this file.** `R-765` rather

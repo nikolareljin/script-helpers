@@ -92,6 +92,36 @@ case "$out" in
   *) ok "the override file is read, comments ignored" ;;
 esac
 
+# A --owner subset must not silently replace a file covering more owners.
+out_file="$tmp/list.tsv"
+printf '# private-names v1\n# generated: 2026-09-26 source: test\n' > "$out_file"
+printf 'private\tother\twidgetron\tR-001\t\n' >> "$out_file"
+printf 'private\ttestns\tquarry\tR-002\t\n' >> "$out_file"
+printf 'private\ttestns\tharbour\tR-003\t\n' >> "$out_file"
+printf 'private\ttestns\tzzqqxx\tR-004\t\n' >> "$out_file"
+before="$(cat "$out_file")"
+
+PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  bash "$SCRIPT" --owner testns --out "$out_file" >/dev/null 2>&1
+rc=$?
+if [[ $rc -eq 0 ]]; then
+  error "a subset overwrite was accepted; the other owner's names are gone"
+elif [[ "$(cat "$out_file")" != "$before" ]]; then
+  error "the write was refused but the file changed anyway"
+else
+  ok "a write that would drop names is refused, and the file is untouched"
+fi
+
+PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  bash "$SCRIPT" --owner testns --out "$out_file" --force >/dev/null 2>&1
+if [[ "$(cat "$out_file")" == "$before" ]]; then
+  error "--force did not overwrite"
+else
+  ok "--force overwrites"
+fi
+
 if [[ $failures -gt 0 ]]; then
   echo "[refresh_private_names_test] FAILED ($failures)" >&2
   exit 1

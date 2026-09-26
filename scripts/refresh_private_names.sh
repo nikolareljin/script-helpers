@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # SCRIPT: refresh_private_names.sh
 # DESCRIPTION: Build the private-repository name list that check_private_names.sh reads, from your own GitHub account or organisation.
-# USAGE: scripts/refresh_private_names.sh [--owner <user-or-org>] [--out <path>] [--stdout] [--check] [-h]
+# USAGE: scripts/refresh_private_names.sh [--owner <user-or-org>] [--out <path>] [--stdout] [--check] [--force] [-h]
 # PARAMETERS:
 #   --owner <name>  GitHub user or organisation. Default: the owner of this repo's origin remote.
 #   --out <path>    Where to write. Default: ${XDG_CONFIG_HOME:-~/.config}/script-helpers/private-names.tsv
 #   --stdout        Print the list instead of writing it.
 #   --check         Compare the written list with GitHub; change nothing.
+#   --force         Write even if it would drop names or codes.
 #   -h, --help      Show this help message.
 # ENVIRONMENT:
 #   PRIVATE_NAMES_NEVER_AMBIGUOUS       Names to match bare even though they are dictionary
@@ -61,6 +62,7 @@ OWNERS=""
 OUT="${XDG_CONFIG_HOME:-$HOME/.config}/script-helpers/private-names.tsv"
 TO_STDOUT=false
 CHECK=false
+FORCE=false
 WORDLIST="${PRIVATE_NAMES_WORDLIST:-/usr/share/dict/words}"
 
 # Names that are dictionary words but never written as words in the repos this
@@ -78,6 +80,7 @@ while [[ $# -gt 0 ]]; do
     --out) OUT="${2:?--out needs a path}"; shift 2 ;;
     --stdout) TO_STDOUT=true; shift ;;
     --check) CHECK=true; shift ;;
+    --force) FORCE=true; shift ;;
     -h|--help) sed -n '2,15p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) log_error "Unknown argument: $1"; exit 2 ;;
   esac
@@ -276,6 +279,24 @@ fi
 #
 # 0600 because this is an inventory of someone's private repositories, and the ambient
 # umask makes it world-readable on most systems.
+# Refuse a write that loses names or codes. --owner takes one account, but the
+# file holds every account, so re-running with a subset silently replaces the
+# lot: 1499 names became 66 that way, and every `R-` code went to `-`, which is
+# what the gate tells people to cite instead. --force to overwrite anyway.
+if [[ -f "$OUT" && "$FORCE" != true ]]; then
+  old_n="$(awk -F'\t' '!/^#/ && $1=="private"{n++} END{print n+0}' "$OUT")"
+  new_n="$(awk -F'\t' '!/^#/ && $1=="private"{n++} END{print n+0}' "$tmp")"
+  old_c="$(awk -F'\t' '!/^#/ && $1=="private" && $4!="-" && $4!=""{n++} END{print n+0}' "$OUT")"
+  new_c="$(awk -F'\t' '!/^#/ && $1=="private" && $4!="-" && $4!=""{n++} END{print n+0}' "$tmp")"
+  if [[ "$new_n" -lt "$old_n" || "$new_c" -lt "$old_c" ]]; then
+    log_error "This write would shrink the list: ${old_n} -> ${new_n} names, ${old_c} -> ${new_c} with codes."
+    log_error "Name every owner the file covers, or pass --force to overwrite."
+    log_error "Owners in the current file:"
+    awk -F'\t' '!/^#/ && $1=="private"{print "  " $2}' "$OUT" | sort -u >&2
+    exit 1
+  fi
+fi
+
 mkdir -p "$(dirname "$OUT")"
 staged="$(mktemp "${OUT}.XXXXXX")" || {
   log_error "could not create a temporary file beside $OUT"
