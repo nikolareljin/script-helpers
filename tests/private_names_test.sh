@@ -331,6 +331,85 @@ else
   note "SKIP: python3 unavailable, agent hook not exercised"
 fi
 
+# --- a bare everyday-word name --------------------------------------------
+#
+# `beacon` is flagged ambiguous, so it is matched qualified, not bare. The bare
+# form used to pass in silence and nothing populated the tier that reports it.
+# Warned on published text only: --tree gives 54 hits here, mostly prose.
+amb_repo="$tmp/amb"
+mkdir -p "$amb_repo"
+git_t -C "$amb_repo" init -q .
+printf 'nothing of interest\n' > "$amb_repo/a.md"
+git_t -C "$amb_repo" add a.md
+git_t -C "$amb_repo" commit -q -m "docs: initial"
+printf 'also nothing\n' > "$amb_repo/c.md"
+git_t -C "$amb_repo" add c.md
+git_t -C "$amb_repo" commit -q -m "docs: mentions beacon in prose"
+
+# A range of one commit against itself is empty, and everything below would
+# then pass against text that was never read.
+range_msgs="$(git_t -C "$amb_repo" log --format=%B 'HEAD~1..HEAD')"
+grep -q beacon <<<"$range_msgs" \
+  || error "the commit range under test carries no ambiguous name, so nothing below proves anything"
+
+out="$( cd "$amb_repo" && bash "$GATE" --commits 'HEAD~1..HEAD' --list "$list" 2>&1 )"; rc=$?
+if [[ $rc -ne 0 ]]; then
+  error "a bare ambiguous name in a commit message failed the run; it should warn (exit $rc)"
+elif ! grep -q "needs a person" <<<"$out"; then
+  error "a bare ambiguous name in a commit message produced no warning: $out"
+else
+  ok "a bare ambiguous name in a commit message warns without failing"
+fi
+
+# ...and the closing line must not then claim nothing was named. Saying it is
+# how a warning gets read as a pass.
+if grep -q "no private repository is named" <<<"$out"; then
+  error "it warned and then reported that no private repository is named"
+else
+  ok "after a warning the summary does not claim a clean read"
+fi
+
+# The same text, with --strict-ambiguous, for something about to be posted.
+out="$( cd "$amb_repo" && bash "$GATE" --commits 'HEAD~1..HEAD' --list "$list" --strict-ambiguous 2>&1 )"; rc=$?
+[[ $rc -eq 1 ]] && ok "--strict-ambiguous fails on a bare ambiguous name" \
+                || error "--strict-ambiguous did not fail on a bare ambiguous name (exit $rc)"
+
+# A pull request body, which is the surface no hook can see.
+printf 'this mentions beacon once\n' > "$tmp/body.md"
+out="$(bash "$GATE" --file "$tmp/body.md" --list "$list" 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && grep -q "needs a person" <<<"$out" \
+  && ok "a bare ambiguous name in a file warns without failing" \
+  || error "--file did not warn on a bare ambiguous name (exit $rc)"
+
+out="$(bash "$GATE" --file "$tmp/body.md" --list "$list" --strict-ambiguous 2>&1)"; rc=$?
+[[ $rc -eq 1 ]] && ok "--strict-ambiguous fails on a file too" \
+                || error "--strict-ambiguous did not fail on a file (exit $rc)"
+
+# The tree stays quiet by default, and is covered when asked.
+printf 'the beacon is lit\n' > "$amb_repo/b.md"
+git_t -C "$amb_repo" add b.md
+git_t -C "$amb_repo" commit -q -m "docs: more"
+out="$( cd "$amb_repo" && bash "$GATE" --tree --list "$list" 2>&1 )"; rc=$?
+if [[ $rc -eq 0 ]] && ! grep -q "needs a person" <<<"$out"; then
+  ok "the tree does not warn on a bare ambiguous name by default"
+else
+  error "the tree warned on a bare ambiguous name by default (exit $rc)"
+fi
+out="$( cd "$amb_repo" && bash "$GATE" --tree --list "$list" --strict-ambiguous 2>&1 )"; rc=$?
+[[ $rc -eq 1 ]] && ok "--strict-ambiguous covers the tree as well" \
+                || error "--strict-ambiguous did not cover the tree (exit $rc)"
+
+# And text with nothing in it must still read as clean, or the warning is on
+# always and means nothing.
+printf 'entirely unremarkable text\n' > "$tmp/clean.md"
+out="$(bash "$GATE" --file "$tmp/clean.md" --list "$list" 2>&1)"; rc=$?
+if [[ $rc -eq 0 ]] && grep -q "no private repository is named" <<<"$out" \
+   && ! grep -q "needs a person" <<<"$out"; then
+  ok "clean text still reports clean, so the warning is not always on"
+else
+  error "clean text did not report clean: $out"
+fi
+
 if (( failures )); then
   note "$failures check(s) failed."
   exit 1
