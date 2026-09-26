@@ -253,14 +253,32 @@ require_step_command() {   # <label> <command>
 
   local where="this machine"
   [[ -n "$python_image" ]] && where="$python_image"
+
+  # Name the option for the step that actually failed. These lines used to say
+  # --test-command whatever the step was, from when the tests were the only
+  # step likely to miss an interpreter; the drift check now runs by default, so
+  # the commonest way to see this message is at Migrations, being told to fix
+  # the wrong option.
+  local option example
+  case "$label" in
+    Dependencies) option="--install-command"
+                  example="python3 -m pip install -r requirements.txt" ;;
+    Schema)       option="--migrate-command"
+                  example="python3 manage.py migrate --noinput" ;;
+    Migrations)   option="--check-command"
+                  example="python3 manage.py makemigrations --check --dry-run --noinput" ;;
+    *)            option="--test-command"
+                  example="python3 manage.py test --noinput" ;;
+  esac
+
   log_error "${label}: '${program}' is not on PATH in ${where}."
   if [[ "$program" == "python" ]]; then
     log_error "The official python images provide 'python'; a system one may only provide 'python3'."
-    log_error "Pass --test-command 'python3 manage.py test' or run it with --python-image."
+    log_error "Pass ${option} '${example}' or run it with --python-image."
   elif [[ "$program" == "pip" ]]; then
-    log_error "Use 'python -m pip' instead of 'pip', or run it with --python-image."
+    log_error "Use 'python -m pip' instead of 'pip': pass ${option} with that, or --python-image."
   else
-    log_error "Pass a command the image has, or an empty one to skip the step."
+    log_error "Pass ${option} with a command the image has, or an empty one to skip the step."
   fi
   exit 1
 }

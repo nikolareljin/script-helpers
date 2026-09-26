@@ -256,6 +256,32 @@ else
   error "the default drift check did not complete non-interactively (exit ${rc}): ${out##*$'\n'}"
 fi
 
+# The remediation line has to name the option for the step that failed. It said
+# --test-command for every step until the drift check started running by
+# default, at which point the commonest way to see this message was at
+# Migrations, being told to fix a different option.
+#
+# Keyed on a program missing on every machine, not on `python` being absent: a
+# runner that happens to have `python` would make a python-keyed case pass by
+# never reaching the message at all.
+hint_case() {   # <label> <option> <args...>
+  local label="$1" option="$2"; shift 2
+  local out; out="$(PATH="$tmp/bin:$PATH" bash "$SCRIPT" --workdir "$drift_app" \
+    --install-command '' --migrate-command '' --check-command '' --test-command 'true' \
+    "$@" </dev/null 2>&1)"
+  if ! grep -q "${label}: 'definitely-not-a-program' is not on PATH" <<<"$out"; then
+    error "the ${label} step did not refuse a missing program: ${out##*$'\n'}"
+  elif grep -q -- "$option" <<<"$out"; then
+    note "a missing program at ${label} names ${option}"
+  else
+    error "${label} pointed at the wrong option: ${out##*$'\n'}"
+  fi
+}
+hint_case Dependencies --install-command --install-command 'definitely-not-a-program'
+hint_case Schema       --migrate-command --migrate-command 'definitely-not-a-program'
+hint_case Migrations   --check-command   --check-command   'definitely-not-a-program'
+hint_case Tests        --test-command    --test-command    'definitely-not-a-program'
+
 # Empty skips it, for a repository that generates migrations in CI on purpose.
 out="$(drift_run --check-command '')"
 if grep -q "Migrations: skipped (no command)" <<<"$out"; then

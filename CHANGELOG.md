@@ -25,6 +25,19 @@
   and the step hangs on `Was thing.old_name renamed ...? [y/N]` until the job's
   time limit. A replacement `--check-command` should pass it too.
 
+### Fixed
+
+- **`ci_django.sh` names the option for the step that failed.** A step whose
+  program is not on PATH said `Pass --test-command ...` whichever step it was,
+  from when the tests were the only one likely to miss an interpreter. With the
+  drift check running by default the commonest way to see the message is at
+  `Migrations`, pointed at a different option:
+
+  ```
+  [ERROR] Migrations: 'python' is not on PATH in this machine.
+  [ERROR] Pass --test-command 'python3 manage.py test' or run it with --python-image.
+  ```
+
 ## 2026-09-25 — v0.41.0
 
 ### Added
