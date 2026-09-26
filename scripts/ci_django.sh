@@ -21,8 +21,8 @@
 #                                 (default: pip install -r requirements.txt, when that file exists).
 #   --migrate-command <command>   Schema. Empty skips it (default: python manage.py migrate --noinput).
 #   --check-command <command>     Schema drift, as its own step between the schema and the
-#                                 tests. Empty skips it
-#                                 (default: python manage.py makemigrations --check --dry-run).
+#                                 tests. Empty skips it (default:
+#                                 python manage.py makemigrations --check --dry-run --noinput).
 #   --test-command <command>      The tests (default: python manage.py test --noinput).
 #   --python-image <image>        Run every step in this image instead of on the host.
 #   --docker-user <user>          User for that image, as uid:gid (default: the invoking user).
@@ -79,7 +79,14 @@ db_wait_seconds=60
 settings_module=""
 install_command="__default__"
 migrate_command="python manage.py migrate --noinput"
-check_command="python manage.py makemigrations --check --dry-run"
+# --noinput is not optional here. --check and --dry-run both stop Django writing
+# the migration, but neither stops the autodetector asking: a renamed field
+# reaches questioner.ask_rename() -> input(), upstream of both flags. With a
+# stdin that never answers -- a CI runner, or a terminal -- the step hangs on
+# "Was thing.old_name renamed to thing.new_name? [y/N]" until the job's time
+# limit; with stdin closed it dies on an EOFError traceback. --noinput answers
+# no and exits 3 with the reason. A rename is the commonest drift there is.
+check_command="python manage.py makemigrations --check --dry-run --noinput"
 test_command="python manage.py test --noinput"
 python_image=""
 docker_user="$(id -u):$(id -g)"

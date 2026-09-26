@@ -20,6 +20,11 @@
   at the step that says so. Pass `--check-command ''` to skip it, for a
   repository that generates migrations in CI on purpose.
 
+  The default passes `--noinput`. Without it a renamed field reaches Django's
+  `input()` from the autodetector, upstream of both `--check` and `--dry-run`,
+  and the step hangs on `Was thing.old_name renamed ...? [y/N]` until the job's
+  time limit. A replacement `--check-command` should pass it too.
+
 ## 2026-09-25 — v0.41.0
 
 ### Added

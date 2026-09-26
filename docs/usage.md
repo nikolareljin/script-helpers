@@ -714,6 +714,12 @@ Run a Django project's tests, locally or in CI:
   own step so the failure says `Migrations failed` rather than naming whichever
   test happened to touch the changed model. Set it to `''` for a repository
   that generates migrations in CI on purpose.
+
+  The default passes `--noinput`, and a replacement should too. `--check` and
+  `--dry-run` both stop Django writing the migration, but neither stops the
+  autodetector asking: a renamed field reaches `input()` before either flag is
+  consulted, and the step then hangs on `Was thing.old_name renamed ...? [y/N]`
+  until the job's time limit.
 - `--python-image` runs every step in that image, on a shared docker network
   with the database, as the invoking user so nothing lands in the project
   root-owned.

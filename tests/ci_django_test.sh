@@ -196,9 +196,17 @@ drift_app="$tmp/drift"; mkdir -p "$drift_app"
 cat > "$drift_app/manage.py" <<'FIXTURE'
 #!/usr/bin/env python3
 import os.path, sys
-cmd = sys.argv[1] if len(sys.argv) > 1 else ""
-if cmd == "makemigrations" and os.path.exists("DRIFT"):
-    sys.stderr.write("Migrations for 'app'\n"); raise SystemExit(1)
+argv = sys.argv[1:]
+cmd = argv[0] if argv else ""
+if cmd == "makemigrations":
+    # Django asks about renames from the autodetector, which runs before either
+    # --check or --dry-run can stop it; only --noinput does. Reproduced here so
+    # that dropping --noinput from the default fails this suite rather than a
+    # job six hours later.
+    if "--noinput" not in argv:
+        input("Was thing.old_name renamed to thing.new_name (a CharField)? [y/N] ")
+    if os.path.exists("DRIFT"):
+        sys.stderr.write("Migrations for 'app'\n"); raise SystemExit(1)
 print(f"fixture ran: {cmd}")
 FIXTURE
 chmod +x "$drift_app/manage.py"
@@ -209,7 +217,7 @@ drift_run() {   # <extra args...>
     --test-command 'python3 manage.py test' "$@" 2>&1
 }
 
-out="$(drift_run --check-command 'python3 manage.py makemigrations --check --dry-run')"
+out="$(drift_run --check-command 'python3 manage.py makemigrations --check --dry-run --noinput')"
 order="$(grep -oE '(Schema|Migrations|Tests) \(' <<<"$out" | tr -d ' (' | tr '\n' ' ')"
 if [[ "$order" == "Schema Migrations Tests " ]]; then
   note "the drift check runs between the schema and the tests"
@@ -220,7 +228,7 @@ fi
 # The failing direction, which is the only one that matters: without it the
 # step is a line of output that can never go red.
 touch "$drift_app/DRIFT"
-out="$(drift_run --check-command 'python3 manage.py makemigrations --check --dry-run')"; rc=$?
+out="$(drift_run --check-command 'python3 manage.py makemigrations --check --dry-run --noinput')"; rc=$?
 if [[ $rc -ne 0 ]] && grep -q "Migrations failed" <<<"$out"; then
   note "drift fails the run, and the failure names Migrations"
 else
@@ -232,6 +240,21 @@ else
   note "the tests do not run once drift is found"
 fi
 rm -f "$drift_app/DRIFT"
+
+# The default itself, not a hand-written stand-in. A `python` shim in its own
+# directory, because $tmp/bin is on PATH for the cases that check how a missing
+# program is diagnosed. stdin is /dev/null, so a default that still prompted
+# would die on EOFError rather than hang this suite.
+mkdir -p "$tmp/pybin"
+printf '#!/usr/bin/env bash\nexec python3 "$@"\n' > "$tmp/pybin/python"
+chmod +x "$tmp/pybin/python"
+out="$(PATH="$tmp/pybin:$tmp/bin:$PATH" bash "$SCRIPT" --workdir "$drift_app" \
+      --install-command '' --migrate-command '' --test-command 'true' </dev/null 2>&1)"; rc=$?
+if [[ $rc -eq 0 ]] && grep -q -- 'makemigrations --check --dry-run --noinput' <<<"$out"; then
+  note "the default drift command is non-interactive, so a rename cannot block it"
+else
+  error "the default drift check did not complete non-interactively (exit ${rc}): ${out##*$'\n'}"
+fi
 
 # Empty skips it, for a repository that generates migrations in CI on purpose.
 out="$(drift_run --check-command '')"
