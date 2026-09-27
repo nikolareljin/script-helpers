@@ -1,3 +1,15 @@
+## [Unreleased]
+
+### Fixed
+
+- **The "no list yet" message named a path that does not exist in a
+  consumer.** It printed `scripts/refresh_private_names.sh`, which is where
+  the script lives in this repository and nowhere else: a consumer has it
+  under `scripts/script-helpers/` or `vendor/`. The message is only ever read
+  by someone who has not set the gate up yet, so it was wrong for everyone who
+  needed it. It now prints the real path, relative when it is under the
+  working directory and absolute when it is not.
+
 ## 2026-09-26 — v0.43.0
 
 ### Added

@@ -194,7 +194,16 @@ else
     log_error "Without it this check would scan for nothing and report success."
     log_error "Build one. With no arguments it indexes every account the token can"
     log_error "see, which is what you want -- naming one owner leaves the others out:"
-    log_error "  scripts/refresh_private_names.sh"
+    # The real path, not a path relative to this library. This message is read
+    # in a consumer, where the library sits under scripts/script-helpers or
+    # vendor/, and "scripts/refresh_private_names.sh" is a file that does not
+    # exist. Relative to the working directory when it is under it, absolute
+    # when it is not, so it can be pasted either way.
+    _refresher="${SCRIPT_DIR}/refresh_private_names.sh"
+    case "$_refresher" in
+      "$PWD"/*) _refresher="./${_refresher#"$PWD"/}" ;;
+    esac
+    log_error "  ${_refresher}"
     log_error "or point PRIVATE_NAMES_FILE at a list you already have."
     exit 2
   fi
