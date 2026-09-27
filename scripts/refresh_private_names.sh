@@ -137,6 +137,21 @@ fi
 # repository rebuilds that one file from THEIR namespace -- silently dropping your own
 # private names from every gate on the machine, with no error and no clue. Naming the
 # owners is the only safe default.
+# A non-numeric TTL or limit is not a smaller number, it is no check at all:
+# `find -mtime +abc` errors, prints nothing, and the cache reads as fresh --
+# so `--ttl abc` silently means "never refetch", and the log said "under abcd".
+for _num in "TTL_OVERRIDE:--ttl:$TTL_OVERRIDE" "TTL_SELF:PRIVATE_NAMES_TTL_SELF:$TTL_SELF" \
+            "TTL_ORG:PRIVATE_NAMES_TTL_ORG:$TTL_ORG" "GH_LIMIT:--limit:$GH_LIMIT"; do
+  _name="${_num%%:*}"; _rest="${_num#*:}"; _flag="${_rest%%:*}"; _val="${_rest#*:}"
+  [[ -z "$_val" ]] && continue
+  if [[ ! "$_val" =~ ^[0-9]+$ ]]; then
+    log_error "${_flag} takes a whole number, got '${_val}'."
+    log_error "Left as it is, the comparison silently passes and nothing is refetched."
+    exit 2
+  fi
+done
+unset _num _name _rest _flag _val
+
 SELF_LOGIN=""
 OWNERS_DISCOVERED=false
 if [[ -z "$OWNERS" ]]; then

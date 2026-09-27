@@ -2,6 +2,13 @@
 
 ### Fixed
 
+- **A non-numeric `--ttl` or `--limit` silently disabled the check it sets.**
+  `find -mtime +abc` errors, prints nothing, and the cache then reads as
+  fresh, so `--ttl abc` meant "never refetch" and the log said
+  `cached (1 repos, under abcd)`. Both are refused now, with `--ttl 0` still
+  accepted.
+
+
 - **No `HOME` reported a private name that was not there.** Under `set -u` an
   unguarded `$HOME` aborted the script with exit 1, and 1 is this gate's code
   for "a name was found" -- so in a container, a cron job or a systemd unit a
