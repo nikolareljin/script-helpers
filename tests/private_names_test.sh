@@ -438,6 +438,19 @@ else
   ok "the setup message collapses \$HOME"
 fi
 
+# HOME is not always set -- a container, a cron job, a systemd unit. Under
+# `set -u` an unguarded $HOME aborted the script with exit 1, and 1 is this
+# gate's code for "a private name was found": a hook would refuse the push and
+# blame a leak that is not there.
+out="$(env -u HOME bash "$GATE" --stdin --list /nonexistent </dev/null 2>&1)"; rc=$?
+if [[ $rc -eq 2 ]]; then
+  ok "no HOME is reported as could-not-check, not as a name found"
+elif [[ $rc -eq 1 ]]; then
+  error "no HOME exits 1, which reads as a private name found: ${out##*$'\n'}"
+else
+  error "no HOME exits ${rc}: ${out##*$'\n'}"
+fi
+
 if (( failures )); then
   note "$failures check(s) failed."
   exit 1

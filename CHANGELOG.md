@@ -2,6 +2,13 @@
 
 ### Fixed
 
+- **No `HOME` reported a private name that was not there.** Under `set -u` an
+  unguarded `$HOME` aborted the script with exit 1, and 1 is this gate's code
+  for "a name was found" -- so in a container, a cron job or a systemd unit a
+  hook refused the push and blamed a leak. It is exit 2, could-not-check, now.
+  Pre-existing; found probing the file this change touches.
+
+
 - **The "no list yet" message named a path that does not exist in a
   consumer.** It printed `scripts/refresh_private_names.sh`, which is where
   the script lives in this repository and nowhere else: a consumer has it
