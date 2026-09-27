@@ -296,6 +296,25 @@ else
   ok "your own account gets no never-name row"
 fi
 
+# A non-numeric TTL is not a smaller number, it is no check: find -mtime +abc
+# errors, prints nothing, and the cache reads as fresh. --ttl abc silently
+# meant "never refetch", and the log said "under abcd".
+for bad in abc -1 1.5; do
+  PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+    PRIVATE_NAMES_CACHE_DIR="$tmp/ttlcache" \
+    PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+    PRIVATE_NAMES_CODES_FILE="$tmp/does-not-exist" \
+    bash "$SCRIPT" --owner testns --stdout --ttl "$bad" >/dev/null 2>&1
+  [[ $? -eq 2 ]] && ok "--ttl ${bad} is refused" || error "--ttl ${bad} was accepted"
+done
+
+PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/ttlcache2" \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/does-not-exist" \
+  bash "$SCRIPT" --owner testns --stdout --ttl 0 >/dev/null 2>&1
+[[ $? -eq 0 ]] && ok "--ttl 0 is still accepted" || error "--ttl 0 was refused"
+
 if [[ $failures -gt 0 ]]; then
   echo "[refresh_private_names_test] FAILED ($failures)" >&2
   exit 1

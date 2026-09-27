@@ -1,3 +1,32 @@
+## [Unreleased]
+
+### Fixed
+
+- **A non-numeric `--ttl` or `--limit` silently disabled the check it sets.**
+  `find -mtime +abc` errors, prints nothing, and the cache then reads as
+  fresh, so `--ttl abc` meant "never refetch" and the log said
+  `cached (1 repos, under abcd)`. Both are refused now, with `--ttl 0` still
+  accepted.
+
+
+- **No `HOME` reported a private name that was not there.** Under `set -u` an
+  unguarded `$HOME` aborted the script with exit 1, and 1 is this gate's code
+  for "a name was found" -- so in a container, a cron job or a systemd unit a
+  hook refused the push and blamed a leak. It is exit 2, could-not-check, now.
+  Pre-existing; found probing the file this change touches.
+
+
+- **The "no list yet" message named a path that does not exist in a
+  consumer.** It printed `scripts/refresh_private_names.sh`, which is where
+  the script lives in this repository and nowhere else: a consumer has it
+  under `scripts/script-helpers/` or `vendor/`. The message is only ever read
+  by someone who has not set the gate up yet, so it was wrong for everyone who
+  needed it. It now prints the real path, relative when it is under the
+  working directory, and otherwise with `$HOME` collapsed to `~` the way the
+  line above it already prints the list path. This text reaches CI logs and
+  pull request bodies, and a home directory in it is a username nobody asked
+  to publish.
+
 ## 2026-09-26 — v0.43.0
 
 ### Added

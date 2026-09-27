@@ -410,6 +410,47 @@ else
   error "clean text did not report clean: $out"
 fi
 
+# The "no list yet" message is read in a consumer, where this library lives
+# under scripts/script-helpers or vendor/. It used to print a path relative to
+# the library, which does not exist there.
+consumer="$tmp/consumer/scripts/script-helpers/scripts"
+mkdir -p "$consumer"
+cp "$GATE" "$consumer/"
+cp "$ROOT_DIR/scripts/refresh_private_names.sh" "$consumer/" 2>/dev/null || true
+out="$( cd "$tmp/consumer" && bash scripts/script-helpers/scripts/check_private_names.sh \
+        --tree --list /nonexistent 2>&1 )"
+suggested="$(printf '%s\n' "$out" | sed 's/\x1b\[[0-9;]*m//g' \
+             | grep -oE '[^ ]*refresh_private_names\.sh' | head -1)"
+if [[ -z "$suggested" ]]; then
+  error "the missing-list message suggested no command at all"
+elif ( cd "$tmp/consumer" && [[ -f "$suggested" ]] ); then
+  ok "the suggested path exists where the message is read"
+else
+  error "the suggested path does not exist in a consumer: ${suggested}"
+fi
+
+# ...and it must not print a home directory doing it. This text reaches CI logs
+# and pull request bodies; the line above it already collapses $HOME.
+out="$( cd "$tmp" && bash "$GATE" --stdin --list /nonexistent </dev/null 2>&1 )"
+if grep -qF "$HOME" <<<"$out"; then
+  error "the setup message printed an absolute home path: $(grep -F "$HOME" <<<"$out" | head -1)"
+else
+  ok "the setup message collapses \$HOME"
+fi
+
+# HOME is not always set -- a container, a cron job, a systemd unit. Under
+# `set -u` an unguarded $HOME aborted the script with exit 1, and 1 is this
+# gate's code for "a private name was found": a hook would refuse the push and
+# blame a leak that is not there.
+out="$(env -u HOME bash "$GATE" --stdin --list /nonexistent </dev/null 2>&1)"; rc=$?
+if [[ $rc -eq 2 ]]; then
+  ok "no HOME is reported as could-not-check, not as a name found"
+elif [[ $rc -eq 1 ]]; then
+  error "no HOME exits 1, which reads as a private name found: ${out##*$'\n'}"
+else
+  error "no HOME exits ${rc}: ${out##*$'\n'}"
+fi
+
 if (( failures )); then
   note "$failures check(s) failed."
   exit 1
