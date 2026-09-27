@@ -8,7 +8,10 @@
   under `scripts/script-helpers/` or `vendor/`. The message is only ever read
   by someone who has not set the gate up yet, so it was wrong for everyone who
   needed it. It now prints the real path, relative when it is under the
-  working directory and absolute when it is not.
+  working directory, and otherwise with `$HOME` collapsed to `~` the way the
+  line above it already prints the list path. This text reaches CI logs and
+  pull request bodies, and a home directory in it is a username nobody asked
+  to publish.
 
 ## 2026-09-26 — v0.43.0
 

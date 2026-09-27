@@ -429,6 +429,15 @@ else
   error "the suggested path does not exist in a consumer: ${suggested}"
 fi
 
+# ...and it must not print a home directory doing it. This text reaches CI logs
+# and pull request bodies; the line above it already collapses $HOME.
+out="$( cd "$tmp" && bash "$GATE" --stdin --list /nonexistent </dev/null 2>&1 )"
+if grep -qF "$HOME" <<<"$out"; then
+  error "the setup message printed an absolute home path: $(grep -F "$HOME" <<<"$out" | head -1)"
+else
+  ok "the setup message collapses \$HOME"
+fi
+
 if (( failures )); then
   note "$failures check(s) failed."
   exit 1
