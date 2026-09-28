@@ -6,8 +6,13 @@
 #   No command-line parameters.
 #   Hook directory priority:
 #     1. .githooks/  (repo-local overrides with both pre-commit and pre-push)
-#     2. scripts/script-helpers/scripts/git-hooks/  (submodule bundled hooks)
-#     3. scripts/git-hooks/  (in script-helpers itself)
+#     2. git-hooks/ next to this script: the hooks bundled with this copy of
+#        script-helpers, wherever it is vendored (scripts/script-helpers,
+#        vendor/script-helpers, ...) or script-helpers' own scripts/git-hooks
+#     3. scripts/script-helpers/scripts/git-hooks/, then scripts/git-hooks/
+#   The shared pre-push hands over to .githooks/pre-push when a repository has
+#   one (for example the protected-refs guard), so a repository with only
+#   .githooks/pre-push gets the shared hooks and still runs its own.
 # ----------------------------------------------------
 # After running, hooks are active for all subsequent git operations in this repo.
 set -euo pipefail
@@ -17,6 +22,9 @@ if ! repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
   exit 1
 fi
 cd "$repo_root"
+repo_root="$(pwd -P)"
+# This script's directory, physical, so it compares with repo_root.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 has_required_hooks() {
   local dir="$1"
@@ -27,6 +35,8 @@ resolve_hooks_dir() {
   # Returns a repo-relative path for git config storage; uses absolute paths for existence checks.
   if has_required_hooks "$repo_root/.githooks"; then
     echo ".githooks"
+  elif [[ "$script_dir" == "$repo_root"/* ]] && has_required_hooks "$script_dir/git-hooks"; then
+    echo "${script_dir#"$repo_root"/}/git-hooks"
   elif has_required_hooks "$repo_root/scripts/script-helpers/scripts/git-hooks"; then
     echo "scripts/script-helpers/scripts/git-hooks"
   elif has_required_hooks "$repo_root/scripts/git-hooks"; then
