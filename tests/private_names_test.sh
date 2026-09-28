@@ -85,6 +85,44 @@ case "$out" in
   *) error "the refusal does not name the match and its code: $out" ;;
 esac
 
+# --- a name that begins with a dash ----------------------------------------
+# A repository may be named with a leading dash, and grep reads an unguarded
+# argument that starts with one as options. Before the `--` in drop_allowed,
+# every run over a real dictionary printed
+#   grep: invalid argument 'j-...' for '--directories'
+# once per such name, and an override naming one of them silently did nothing.
+dashes="$tmp/dashes.tsv"
+{
+  printf '# private-names v1\n'
+  printf '# generated: %s source: test\n' "$today"
+  printf '# visibility\tnamespace\tname\tcode\tflags\n'
+  printf 'private\ttestns\t-dashwidget\tR-333\t\n'
+} > "$dashes"
+
+# PRIVATE_NAMES_ALLOW is set to an unrelated term on purpose: `drop_allowed`
+# is the function that mishandled the name, and it returns early when there is
+# no allow-list at all. Without this the check passes either way.
+out="$(printf 'nothing to see here' | PRIVATE_NAMES_ALLOW=unrelated \
+  bash "$GATE" --stdin --list "$dashes" 2>&1)"
+got=$?
+case "$out" in
+  *"invalid option"*|*"invalid argument"*|*"Usage: grep"*)
+    error "a dash-prefixed name reaches grep as an option: $out" ;;
+  *) ok "a dash-prefixed name is a pattern, not a grep option" ;;
+esac
+[[ "$got" == 0 ]] || error "clean text with a dash-prefixed name in the list: exit $got"
+
+# It is still checked, and an override for it still works.
+got="$(printf 'about -dashwidget here' | bash "$GATE" --stdin --list "$dashes" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 1 ]] && ok "a dash-prefixed name is still matched" \
+                  || error "a dash-prefixed name was not matched: exit $got"
+
+out="$(printf 'about -dashwidget here' | PRIVATE_NAMES_ALLOW=-dashwidget bash "$GATE" --stdin --list "$dashes" 2>&1)"
+case "$out" in
+  *"allowed by override"*dashwidget*) ok "an override for a dash-prefixed name applies" ;;
+  *) error "the override did not apply to a dash-prefixed name: $out" ;;
+esac
+
 # --- the overrides ---------------------------------------------------------
 got="$(printf 'about bluewidget' | PRIVATE_NAMES_ALLOW=bluewidget bash "$GATE" --stdin --list "$list" >/dev/null 2>&1; echo $?)"
 [[ "$got" == 0 ]] && ok "PRIVATE_NAMES_ALLOW lets a term through" \

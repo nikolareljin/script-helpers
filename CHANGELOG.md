@@ -1,3 +1,22 @@
+## Unreleased
+
+### Fixed
+
+- **A repository name that begins with a dash reached `grep` as options.**
+  `drop_allowed` in `check_private_names.sh` called `grep -qix -F "$name"`
+  without `--`, so a dictionary entry starting with a dash was read as flags:
+
+  ```
+  grep: invalid argument 'j-...' for '--directories'
+  grep: invalid option -- 'g'
+  ```
+
+  Five of those per run, on every push from a public repository, printed
+  between the gate's own output. Nothing was wrongly allowed -- grep's usage
+  error is not 0, so the name stayed in the list -- but an override naming one
+  of those repositories silently did nothing, and a wall of grep usage errors
+  is how somebody learns to stop reading a gate's output.
+
 ## 2026-09-27 — v0.43.1
 
 ### Fixed

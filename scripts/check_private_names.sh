@@ -406,7 +406,14 @@ drop_allowed() {  # drop_allowed <names-file>
   local kept="$1.kept"
   : > "$kept"
   while IFS="$(printf '\t')" read -r name code; do
-    if grep -qix -F "$name" "$allowed"; then
+    # `--`, because a repository name may begin with a dash. Without it grep
+    # reads the name as options: a real dictionary here produced
+    # `grep: invalid argument 'j-...' for '--directories'` five times per push,
+    # on every public repository, and the run still reported the tree clean.
+    # The names were kept rather than dropped -- grep's usage error is not 0 --
+    # so nothing was wrongly allowed, but an override that named one of them
+    # silently did nothing.
+    if grep -qix -F -- "$name" "$allowed"; then
       log_info "allowed by override, not checked: $name"
     else
       printf '%s\t%s\n' "$name" "$code" >> "$kept"
