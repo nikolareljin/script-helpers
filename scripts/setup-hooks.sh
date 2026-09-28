@@ -17,14 +17,16 @@
 # After running, hooks are active for all subsequent git operations in this repo.
 set -euo pipefail
 
+# This script's directory, physical, so it compares with repo_root. Taken before
+# the cd below: a relative path in BASH_SOURCE is relative to the caller's cwd.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+
 if ! repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
   echo "[setup-hooks] ERROR: Run this script inside a Git worktree." >&2
   exit 1
 fi
 cd "$repo_root"
 repo_root="$(pwd -P)"
-# This script's directory, physical, so it compares with repo_root.
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 has_required_hooks() {
   local dir="$1"

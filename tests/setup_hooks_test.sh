@@ -75,7 +75,15 @@ out="$(cd "$repo" && printf 'refs/heads/main 1111 refs/heads/main 2222\n' \
   && ok "the shared pre-push hands over to .githooks/pre-push (exit 7 kept)" \
   || error "hand-over: rc=$rc out='$out'"
 
-# 5. Outside a worktree it refuses.
+# 5. Run by a relative path from a subdirectory.
+repo="$(make_repo subdir vendor/script-helpers)"
+mkdir -p "$repo/src/deep"
+(cd "$repo/src/deep" && bash ../../vendor/script-helpers/scripts/setup-hooks.sh >/dev/null 2>&1) || true
+[[ "$(hooks_path "$repo")" == "vendor/script-helpers/scripts/git-hooks" ]] \
+  && ok "relative path from a subdirectory -> the same hooks" \
+  || error "from a subdirectory: got '$(hooks_path "$repo")'"
+
+# 6. Outside a worktree it refuses.
 rc=0
 (cd "$tmp" && bash "$root_dir/scripts/setup-hooks.sh" >/dev/null 2>&1) || rc=$?
 [[ $rc -ne 0 ]] && ok "outside a git worktree -> error" || error "outside a worktree exited 0"
