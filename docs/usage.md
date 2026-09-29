@@ -369,6 +369,33 @@ For enhanced supply-chain security, pin images to a specific digest:
 ./scripts/ci_security.sh --gitleaks-digest sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
 ```
 
+### Security scan: `./dev scan`
+
+`./dev scan` (bash and PowerShell) runs only the secret and dependency scan,
+`preflight.sh --security-only`: gitleaks, pip-audit / safety / bandit when a
+requirements file exists, and `npm audit` when a `package.json` and a lockfile
+exist. No stack is needed. `--docker` runs the tools from the pinned images.
+
+It fails (exit 1) on findings, through `ci_security.sh --fail-on-findings`, and
+gitleaks then scans what git tracks, history included. Files git ignores are left
+out: a secret in `.env` belongs there, and third-party code in `.venv` or
+`node_modules` is not the repository's. A secret that was ever committed is still
+found after the file is deleted, because it is still in the history; rotate it.
+`--workdir` limits the dependency audits to that directory; the secret scan still
+reads the whole repository's history, from the repository top, so its
+`.gitleaks.toml` and `.gitleaksignore` apply.
+
+The security step of a full `./dev preflight` (and the pre-push hook) stays
+report only: it prints findings and does not block, and its summary line says
+`security scan (report only)`. Without gitleaks on the host, both report
+`SKIP  gitleaks secret scan` instead of implying secrets were scanned.
+
+```bash
+./dev scan
+./dev scan --docker
+bash scripts/ci_security.sh --no-docker --fail-on-findings   # the same, directly
+```
+
 Git hook setup and local test runners
 -------------------------------------
 
