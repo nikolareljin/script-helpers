@@ -121,7 +121,7 @@ foxguard_install() {
   got="$(foxguard_sha256 "$tmp")" || { rm -f "$tmp"; log_error "foxguard: shasum or openssl is needed to check it"; return 3; }
   if [[ "$got" != "$want" ]]; then
     rm -f "$tmp"
-    log_error "foxguard: $asset $CI_DEFAULT_FOXGUARD_VERSION does not match the pinned SHA-256 (got $got, want $want); not installed"
+    log_error "foxguard: $asset $CI_DEFAULT_FOXGUARD_VERSION does not match the pinned SHA-256 (got $got, want $want); not installed. A changed CI_DEFAULT_FOXGUARD_VERSION needs its CI_DEFAULT_FOXGUARD_SHA256_* values too."
     return 1
   fi
   chmod +x "$tmp" && mv -f "$tmp" "$dest" || { rm -f "$tmp"; return 1; }

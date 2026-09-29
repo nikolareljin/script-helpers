@@ -205,6 +205,12 @@ EOF
   else
     error "install mismatch: rc=$RC left='$left' out='$OUT'"
   fi
+  RC=0
+  # Another version with the old checksums: refused, and says what to change.
+  OUT="$(CI="" PATH="$tmp/bin:$PATH" CI_DEFAULT_FOXGUARD_VERSION=9.9.9 \
+    bash "$ROOT_DIR/scripts/ci_security.sh" --install-foxguard 2>&1)" || RC=$?
+  [[ $RC -eq 1 && "$OUT" == *"needs its CI_DEFAULT_FOXGUARD_SHA256_* values too"* && -z "$(find "$XDG_CACHE_HOME/script-helpers/foxguard" -type f 2>/dev/null)" ]] \
+    && note "--install-foxguard: a version bumped without its checksums is refused, with the fix named" || error "bumped: rc=$RC out='$OUT'"
   sum="$(bash -c 'source "$1/helpers.sh" && shlib_import foxguard && foxguard_sha256 "$2"' _ "$ROOT_DIR" "$tmp/served")"
   # The openssl fallback (no shasum) gives the same digest.
   if command -v openssl >/dev/null 2>&1; then
