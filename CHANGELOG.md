@@ -12,9 +12,10 @@
   pinned version (0.14.0). `--install-foxguard` downloads the release binary and refuses it unless
   its SHA-256 matches the one pinned in `lib/ci_defaults.sh` (new `lib/foxguard.sh`). Findings
   count only in a repository with a foxguard config (`.foxguard.yml` or the three other names
-  foxguard reads); elsewhere they are reported, since its bash
-  rules flag ordinary lines. Submodules are excluded. Missing foxguard is a `SKIP  foxguard code
-  scan` line in the preflight summary, bash and PowerShell. `tests/ci_security_foxguard_test.sh`.
+  foxguard reads); elsewhere they are reported, since its bash rules flag ordinary lines. A config
+  above the repository is ignored. Submodules are excluded. Missing foxguard is a
+  `SKIP  foxguard code scan` line in the preflight summary, bash and PowerShell.
+  `tests/ci_security_foxguard_test.sh`.
 - **`./dev e2e`**: Playwright browser tests, in bash and PowerShell, in every Playwright project (a
   `playwright.config.*` whose `package.json` depends on Playwright, among the files git sees, so
   not in `node_modules`, ignored directories or submodules): installs the browsers (cached;

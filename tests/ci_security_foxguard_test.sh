@@ -93,12 +93,26 @@ else
   error "opted: rc=$RC out='$OUT'"
 fi
 
+grep -q -- "--config $r/.foxguard.yml" "$FOX_LOG" && note "opted in: --config names the repository's file" \
+  || error "opted --config: log='$(cat "$FOX_LOG")'"
+
 # 2b. foxguard reads three other config names too; each opts in.
 for name in .foxguard.yaml foxguard.yml foxguard.yaml; do
   r2="$(new_repo "cfg$name")"; echo FOXBAD > "$r2/a.py"; echo 'scan: {}' > "$r2/$name"
   sec "$r2" --fail-on-findings
   [[ $RC -eq 1 && "$OUT" == *"/$name found"* ]] && note "$name opts in too" || error "config $name: rc=$RC out='$OUT'"
 done
+
+# 2c. foxguard reads a config above the repository too, so ci_security.sh always
+#     names one: the repository's, or an empty one when there is none.
+outer="$tmp/outer"; mkdir -p "$outer"; echo 'scan: {}' > "$outer/.foxguard.yml"
+r2="$(git init -q "$outer/repo" && echo "$outer/repo")"; echo FOXBAD > "$r2/a.py"
+sec "$r2" --fail-on-findings
+if [[ $RC -eq 0 && "$OUT" == *"reported, not counted"* ]] && grep -qE -- "--config [^ ]+\.cfg" "$FOX_LOG"; then
+  note "config above the repository: not an opt-in; an empty --config keeps foxguard from reading it"
+else
+  error "outer config: rc=$RC log='$(cat "$FOX_LOG")' out='$OUT'"
+fi
 
 # 3. Opted in, no findings: exit 0.
 echo clean > "$r/a.py"

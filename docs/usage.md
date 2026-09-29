@@ -398,11 +398,13 @@ that has a foxguard config: `.foxguard.yml`, `.foxguard.yaml`, `foxguard.yml` or
 library its bash rules flagged 93 ordinary lines such as `rm -f "$tmp"`, so a
 repository opts in once it has tuned them: disabled rules or a baseline in
 `.foxguard.yml`, or `# foxguard: ignore[rule-id]` on a line. Submodules are
-excluded; their findings belong to the vendored project.
+excluded; their findings belong to the vendored project. A config above the
+repository (a stray `~/.foxguard.yml`) is ignored, so every machine gets the same
+answer: the scan always names its config with `--config`.
 
 | Situation | Result |
 |---|---|
-| no foxguard config | findings counted in the log, exit 0 |
+| no foxguard config | the number of findings printed, exit 0 |
 | a foxguard config, findings or a scan error | listed, exit 1 (the pre-push run reports only) |
 | foxguard not installed | skipped; `SKIP  foxguard code scan` in the summary |
 | a foxguard other than the pinned version | a warning; it still runs |

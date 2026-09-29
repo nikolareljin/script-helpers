@@ -195,15 +195,19 @@ run_foxguard() {
       case "$sub" in "$prefix"?*) args+=(--exclude "${sub#"$prefix"}") ;; esac
     done < <(git config -z -f "$top/.gitmodules" --get-regexp '^submodule\..*\.path$' 2>/dev/null)
   fi
+  # --config always: without it foxguard also reads a config above the
+  # repository (measured: ~/.foxguard.yml disabled rules in every repo below it),
+  # and one machine's scan would differ from the next.
   if [[ -n "$config" ]]; then
     log_info "foxguard: $config found; findings count."
-    ( cd "$dir" && "$bin" "${args[@]+"${args[@]}"}" . ) || finding "foxguard"
+    ( cd "$dir" && "$bin" --config "$config" "${args[@]+"${args[@]}"}" . ) || finding "foxguard"
     return 0
   fi
   # Report only: the count, not the listing or foxguard's per-file notices
   # (these kept for a failed scan).
   out="$(mktemp)"
-  ( cd "$dir" && "$bin" --quiet --format json --output "$out" "${args[@]+"${args[@]}"}" . ) 2>"$out.err" || rc=$?
+  printf '{}\n' > "$out.cfg"
+  ( cd "$dir" && "$bin" --quiet --format json --output "$out" --config "$out.cfg" "${args[@]+"${args[@]}"}" . ) 2>"$out.err" || rc=$?
   case "$rc" in
     0) log_info "foxguard: no findings." ;;
     1) n="$(grep -o '"total": *[0-9]*' "$out" | tail -1 | grep -o '[0-9]*$' || true)"
@@ -211,7 +215,7 @@ run_foxguard() {
     *) cat "$out.err" >&2
        log_warn "foxguard: could not scan (exit $rc); not counted without a foxguard config." ;;
   esac
-  rm -f "$out" "$out.err"
+  rm -f "$out" "$out.err" "$out.cfg"
 }
 
 declare -a GITLEAKS_ARGS=()
