@@ -23,6 +23,8 @@
 #                          included, instead of every file on disk: ignored files
 #                          (.env, .venv, node_modules) are not the repository's
 #                          leaks, and failing on them fails every developer machine.
+#                          --workdir still limits the audits; git mode reads the
+#                          whole repository's history, from any subdirectory.
 #   -h, --help             Show this help message.
 # ----------------------------------------------------
 set -euo pipefail
@@ -112,9 +114,10 @@ if [[ -n "$GITLEAKS_DIGEST" ]]; then
   GITLEAKS_IMAGE="${GITLEAKS_IMAGE}@${GITLEAKS_DIGEST}"
 fi
 
-# finding <tool>; a check reported something. Counted only with --fail-on-findings.
+# finding <tool>; a check exited non-zero: it reported findings, or could not
+# run to the end. Counted only with --fail-on-findings.
 finding() {
-  log_warn "$1 reported findings."
+  log_warn "$1 reported findings or failed."
   if [[ "$FAIL_ON_FINDINGS" == "true" ]]; then FINDINGS=$((FINDINGS + 1)); fi
 }
 
@@ -169,9 +172,17 @@ if [[ "$USE_DOCKER" == "true" ]]; then
       bash -c "$NODE_CMD" || finding "npm audit"
   fi
   if [[ "$SKIP_GITLEAKS" == "false" ]]; then
-    # git in the image refuses a repository owned by another user unless it is
-    # marked safe; the environment does that without a config file.
-    docker run --pull=always --rm -t -v "$ABS_WORKDIR":/work -w /work \
+    # In git mode the container needs the repository's .git: mount the top of the
+    # work tree and start in the workdir under it. Mounting only a subdirectory
+    # left git without a repository, and gitleaks printed "no leaks found" after
+    # scanning nothing. git in the image refuses a repository owned by another
+    # user unless it is marked safe; the environment does that without a file.
+    gl_mount="$ABS_WORKDIR" gl_wd=/work
+    if [[ " ${GITLEAKS_ARGS[*]} " != *" --no-git "* ]]; then
+      gl_mount="$(git -C "$ABS_WORKDIR" rev-parse --show-toplevel)"
+      gl_wd="/work${ABS_WORKDIR#"$gl_mount"}"
+    fi
+    docker run --pull=always --rm -t -v "$gl_mount":/work -w "$gl_wd" \
       -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/work \
       "$GITLEAKS_IMAGE" "${GITLEAKS_ARGS[@]}" || finding "gitleaks"
   fi

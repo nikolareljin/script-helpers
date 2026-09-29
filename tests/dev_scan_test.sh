@@ -79,6 +79,24 @@ else
   error "committed: rc=$RC out='$(printf '%s' "$OUT" | tail -4)'"
 fi
 
+# 2b. From a subdirectory (--workdir sub): git mode still applies there. A fresh
+# repository: real gitleaks in git mode reads the whole history, so the secret
+# committed above would be found from any subdirectory.
+r="$(new_repo subdir)"
+mkdir -p "$r/backend"; printf 'x\n' > "$r/backend/a.txt"; commit "$r"
+: > "$GL_LOG"; RC=0
+OUT="$(cd "$r" && CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker --workdir backend --skip-python --skip-node --fail-on-findings 2>&1)" || RC=$?
+if [[ $RC -eq 0 ]] && grep -q "^gitleaks detect --source \.$" "$GL_LOG"; then
+  note "--workdir subdirectory: gitleaks in git mode"
+else
+  error "subdirectory: rc=$RC log='$(cat "$GL_LOG")' out='$(printf '%s' "$OUT" | tail -3)'"
+fi
+printf 'token = LEAKME\n' > "$r/backend/c.txt"; commit "$r"
+RC=0
+(cd "$r" && CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker --workdir backend --skip-python --skip-node --fail-on-findings >/dev/null 2>&1) || RC=$?
+[[ $RC -eq 1 ]] && note "--workdir subdirectory: a committed secret there fails" \
+  || error "subdirectory secret: rc=$RC"
+
 # 3. A secret only in an ignored file does not.
 r="$(new_repo ignored)"
 printf '.env\n' > "$r/.gitignore"; commit "$r"
