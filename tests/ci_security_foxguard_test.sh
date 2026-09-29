@@ -93,7 +93,8 @@ else
   error "opted: rc=$RC out='$OUT'"
 fi
 
-grep -q -- "--config $r/.foxguard.yml" "$FOX_LOG" && note "opted in: --config names the repository's file" \
+# Physical path: on macOS mktemp gives /var/..., which resolves to /private/var/...
+grep -qF -- "--config $(cd "$r" && pwd -P)/.foxguard.yml" "$FOX_LOG" && note "opted in: --config names the repository's file" \
   || error "opted --config: log='$(cat "$FOX_LOG")'"
 
 # 2b. foxguard reads three other config names too; each opts in.
