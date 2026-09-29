@@ -65,7 +65,9 @@ repo="$(new_repo compose)"
 : > "$repo/compose.yaml"
 : > "$DOCKER_LOG"
 out="$(dev "$repo" stop)"; rc=$?
-if [[ $rc -eq 0 ]] && grep -q "compose -f $repo/compose.yaml stop" "$DOCKER_LOG"; then
+# Matched on the repo's own directory, not the full path: on macOS the CLI sees
+# /private/var/folders/... for a temporary directory the test knows as /var/folders/...
+if [[ $rc -eq 0 ]] && grep -qE "compose -f .*/compose/compose\.yaml stop$" "$DOCKER_LOG"; then
   note "a compose file gets docker compose stop"
 else
   error "compose: rc=$rc out='$out' docker='$(cat "$DOCKER_LOG")'"
