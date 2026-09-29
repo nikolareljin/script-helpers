@@ -2,6 +2,12 @@
 
 ### Added
 
+- **`./dev scan`**: the secret and dependency scan alone (gitleaks, pip-audit / safety / bandit,
+  npm audit), in bash and PowerShell, through the new `preflight.sh --security-only` /
+  `preflight.ps1 -SecurityOnly`. No stack is needed; `--docker` uses the pinned images. It fails
+  on findings (`ci_security.sh --fail-on-findings`), with gitleaks scanning what git tracks,
+  history included, not ignored files such as `.env` or `.venv`.
+
 - **`./dev stop`**, a new verb in the shared CLI (`templates/dev-cli/cli.sh` and `cli.ps1`):
   stops what `run` started and keeps containers and data. A repository with a compose file at
   its root gets `docker compose -f <file> stop`; `project_stop` / `Project-Stop` replaces that;
@@ -11,6 +17,15 @@
   the help line.
 
 ### Fixed
+
+- **The security scan could not fail.** Every check in `ci_security.sh` ended in `|| true`, so a
+  committed secret still gave `PASS  security scan`. The pre-push preflight keeps reporting
+  without blocking, and now labels it `security scan (report only)`; a host without gitleaks
+  gets `SKIP  gitleaks secret scan` in the summary. `npm audit` ran without a `package.json`
+  or lockfile and errored; it is skipped with the reason.
+- **The PowerShell preflight ran on without a stack.** An if-expression turned an empty list into
+  `$null`, and under StrictMode `$null.Count` threw, so `-Stack go` with no Go project, or no
+  stack at all, exited 0 instead of 3.
 
 - **preflight failed checks that had nothing to check.** A Go module with no packages
   (`"./..." matched no packages`), a `package.json` with no `test` script or npm's placeholder,

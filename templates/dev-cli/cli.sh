@@ -304,6 +304,14 @@ verb_test() {
   bash "$SCRIPT_HELPERS_DIR/scripts/preflight.sh" --quick --skip-security
 }
 
+# The secret and dependency scan alone: preflight's security step (gitleaks,
+# pip-audit / safety / bandit, npm audit). --docker runs the tools from the
+# pinned images instead of the host.
+verb_scan() {
+  declare -f project_scan >/dev/null && { project_scan; return; }
+  bash "$SCRIPT_HELPERS_DIR/scripts/preflight.sh" --security-only "${DEV_ARGS[@]+"${DEV_ARGS[@]}"}"
+}
+
 verb_preflight() {
   declare -f project_preflight >/dev/null && { project_preflight; return; }
   bash "$SCRIPT_HELPERS_DIR/scripts/preflight.sh" "${DEV_ARGS[@]+"${DEV_ARGS[@]}"}"
@@ -567,6 +575,7 @@ Core
   stop          Stop what run started. Keeps containers and data.
   test          Run the test suite.
   preflight     Run every check CI would have run. The pre-push hook calls this.
+  scan          Secret and dependency scan only (gitleaks, audits).  [--docker]
   deploy        Build, then install and launch on a connected device,
                 or deploy to Cloudflare with `deploy cloudflare --env <name>`.
   clean         Remove build output and caches. Never touches user data.
@@ -616,6 +625,7 @@ main() {
     stop)       verb_stop ;;
     test)       verb_test ;;
     preflight)  verb_preflight ;;
+    scan)       verb_scan ;;
     deploy)     verb_deploy ;;
     devices)    verb_devices ;;
     screenshot) verb_screenshot ;;

@@ -3,7 +3,10 @@
 # flags, same exit codes, so `./dev preflight` behaves identically in either shell.
 #
 #   pwsh ps/scripts/preflight.ps1 [-Quick] [-Stack <name>] [-Docker]
-#                                 [-SkipSecurity] [-List] [-Dir <path>]
+#                                 [-SkipSecurity | -SecurityOnly] [-List] [-Dir <path>]
+#
+# -SecurityOnly runs only the secret / dependency scan (`./dev scan`); no stack
+# is needed for it.
 #
 # Exit codes:
 #   0  Every check that ran passed.
@@ -20,6 +23,7 @@ param(
     [string[]]$Stack = @(),
     [switch]$Docker,
     [switch]$SkipSecurity,
+    [switch]$SecurityOnly,
     [switch]$List,
     [string]$Dir
 )
@@ -149,13 +153,22 @@ if ($List) {
 
 # -Stack filters the detected pairs rather than replacing them, so the directory
 # a stack lives in is still discovered rather than assumed to be root.
-$pairs = if ($Stack.Count -gt 0) {
-    @($detected | Where-Object { $Stack -contains $_.Stack })
+# @(...) around the whole if: an if-expression unrolls an empty array to $null,
+# and under StrictMode $null.Count throws, so the no-stack check below never ran.
+$pairs = @(if ($Stack.Count -gt 0) {
+    $detected | Where-Object { $Stack -contains $_.Stack }
 } else {
-    @($detected)
+    $detected
+})
+
+if ($SkipSecurity -and $SecurityOnly) {
+    log_error 'preflight: -SkipSecurity and -SecurityOnly cannot be combined'
+    exit 2
 }
 
-if ($pairs.Count -eq 0) {
+# The scan reads the repository, not a stack: none is needed for it.
+if ($SecurityOnly) { $pairs = @() }
+elseif ($pairs.Count -eq 0) {
     if ($Stack.Count -gt 0) {
         log_error "preflight: -Stack $($Stack -join ' ') requested, but none was detected in $ProjectDir"
     } else {
@@ -269,12 +282,18 @@ function Check-Security {
     if (-not (Test-Path $script)) { Add-Skip 'security scan' 'ci_security.sh not found'; return }
     $a = @($script, '--workdir', '.')
     if (-not $Docker) { $a += '--no-docker' }
+    # `./dev scan` fails on findings; the pre-push run reports them without
+    # blocking, as it always has, and says so in the summary.
+    $label = 'security scan (report only)'
+    if ($SecurityOnly) { $a += '--fail-on-findings'; $label = 'security scan' }
     if (-not $Docker -and -not (Get-Command gitleaks -ErrorAction SilentlyContinue)) {
         $a += '--skip-gitleaks'
-        log_warn 'preflight: gitleaks is not installed — secret scanning is being skipped.'
         log_warn 'This is the one check the weekly scheduled sweep exists to backstop. Install gitleaks, or use -Docker.'
+        # In the summary too: without it, "PASS  security scan" read as if secrets
+        # had been scanned.
+        Add-Skip 'gitleaks secret scan' 'gitleaks is not installed — install it, or use -Docker'
     }
-    Invoke-Step 'security scan' { & $bash.Source @a }
+    Invoke-Step $label { & $bash.Source @a }
 }
 
 # --- run -------------------------------------------------------------------
@@ -284,8 +303,11 @@ $suffix = ''
 if ($Configured) { $suffix += ' from .preflight' }
 if ($Quick)      { $suffix += ' (quick)' }
 if ($Docker)     { $suffix += ' (docker)' }
-log_info "preflight: $($pairs.Count) project(s)$suffix"
-$pairs | ForEach-Object { log_info "  - $(Get-Label $_.Stack $_.Dir)" }
+if ($SecurityOnly) { log_info 'preflight: security scan only' }
+else {
+    log_info "preflight: $($pairs.Count) project(s)$suffix"
+    $pairs | ForEach-Object { log_info "  - $(Get-Label $_.Stack $_.Dir)" }
+}
 
 foreach ($p in $pairs) {
     switch ($p.Stack) {

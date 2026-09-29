@@ -18,6 +18,11 @@
 #   --node-image <i>       Docker image override for node checks.
 #   --gitleaks-image <i>   Docker image override for gitleaks.
 #   --no-docker            Run on the host instead of Docker.
+#   --fail-on-findings     Exit 1 when any check reports a finding (default: report
+#                          only). gitleaks then scans what git tracks, history
+#                          included, instead of every file on disk: ignored files
+#                          (.env, .venv, node_modules) are not the repository's
+#                          leaks, and failing on them fails every developer machine.
 #   -h, --help             Show this help message.
 # ----------------------------------------------------
 set -euo pipefail
@@ -39,6 +44,8 @@ INSTALL_TOOLS=false
 SKIP_PYTHON=false
 SKIP_NODE=false
 SKIP_GITLEAKS=false
+FAIL_ON_FINDINGS=false
+FINDINGS=0
 PYTHON_REQ=""
 NODE_CMD="npm audit --audit-level=high"
 USE_DOCKER=true
@@ -57,6 +64,7 @@ while [[ $# -gt 0 ]]; do
     --skip-python) SKIP_PYTHON=true; shift;;
     --skip-node) SKIP_NODE=true; shift;;
     --skip-gitleaks) SKIP_GITLEAKS=true; shift;;
+    --fail-on-findings) FAIL_ON_FINDINGS=true; shift;;
     --python-req) PYTHON_REQ="$2"; shift 2;;
     --node-cmd) NODE_CMD="$2"; shift 2;;
     --no-docker) USE_DOCKER=false; shift;;
@@ -104,6 +112,37 @@ if [[ -n "$GITLEAKS_DIGEST" ]]; then
   GITLEAKS_IMAGE="${GITLEAKS_IMAGE}@${GITLEAKS_DIGEST}"
 fi
 
+# finding <tool>; a check reported something. Counted only with --fail-on-findings.
+finding() {
+  log_warn "$1 reported findings."
+  if [[ "$FAIL_ON_FINDINGS" == "true" ]]; then FINDINGS=$((FINDINGS + 1)); fi
+}
+
+# gitleaks arguments: git mode (tracked content, history) when findings fail the
+# run and this is a git work tree; otherwise every file on disk, as before.
+gitleaks_args() {
+  if [[ "$FAIL_ON_FINDINGS" == "true" ]] && git -C "$WORKDIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    printf '%s\n' detect --source .
+  else
+    printf '%s\n' detect --source . --no-git
+  fi
+}
+# node_auditable <dir>; npm audit needs a package.json and a lockfile. Without
+# them it errors, which is not a finding about the project: skip, and say why.
+node_auditable() {
+  if [[ ! -f "$1/package.json" ]]; then
+    log_info "No package.json; skipping npm audit."
+    return 1
+  fi
+  if [[ ! -f "$1/package-lock.json" && ! -f "$1/npm-shrinkwrap.json" ]]; then
+    log_warn "No package-lock.json; npm audit needs one. Skipping npm audit."
+    return 1
+  fi
+}
+
+declare -a GITLEAKS_ARGS=()
+while IFS= read -r a; do GITLEAKS_ARGS+=("$a"); done < <(gitleaks_args)
+
 if [[ "$USE_DOCKER" == "true" ]]; then
   if ! command -v docker >/dev/null 2>&1; then
     log_error "docker is required when running in Docker mode (default). Use --no-docker to run on the host instead."
@@ -118,19 +157,23 @@ if [[ "$USE_DOCKER" == "true" ]]; then
       # bash -c, not -lc: see ci_go.sh. A login shell replaces the image's PATH
       # with /etc/profile's default. Measured 2026-09-22 on python:3.12-slim.
       docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$ABS_WORKDIR":/work -w /work "$PY_IMAGE" \
-        bash -c "python -m pip install --user --upgrade pip pip-audit safety bandit && export PATH=\"/tmp/.local/bin:\$PATH\" && pip-audit -r \"$PYTHON_REQ\" || true && safety check -r \"$PYTHON_REQ\" --full-report || true && bandit -r . -ll || true"
+        bash -c "python -m pip install --user --upgrade pip pip-audit safety bandit && export PATH=\"/tmp/.local/bin:\$PATH\" && rc=0 && { pip-audit -r \"$PYTHON_REQ\" || rc=1; } && { safety check -r \"$PYTHON_REQ\" --full-report || rc=1; } && { bandit -r . -ll || rc=1; } && exit \$rc" \
+        || finding "python audit (pip-audit / safety / bandit)"
     else
       log_warn "No requirements file found; skipping python audit."
     fi
   fi
-  if [[ "$SKIP_NODE" == "false" ]]; then
+  if [[ "$SKIP_NODE" == "false" ]] && node_auditable "$ABS_WORKDIR"; then
     # bash -c, not -lc: see ci_go.sh. Measured 2026-09-22 on node:24-bookworm.
     docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -e NPM_CONFIG_CACHE=/tmp/.npm -v "$ABS_WORKDIR":/work -w /work "$NODE_IMAGE" \
-      bash -c "$NODE_CMD" || true
+      bash -c "$NODE_CMD" || finding "npm audit"
   fi
   if [[ "$SKIP_GITLEAKS" == "false" ]]; then
-    docker run --pull=always --rm -t -v "$ABS_WORKDIR":/work -w /work "$GITLEAKS_IMAGE" \
-      detect --source . --no-git || true
+    # git in the image refuses a repository owned by another user unless it is
+    # marked safe; the environment does that without a config file.
+    docker run --pull=always --rm -t -v "$ABS_WORKDIR":/work -w /work \
+      -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/work \
+      "$GITLEAKS_IMAGE" "${GITLEAKS_ARGS[@]}" || finding "gitleaks"
   fi
 else
   pushd "$WORKDIR" >/dev/null
@@ -145,35 +188,40 @@ else
     fi
     if [[ -n "$PYTHON_REQ" ]]; then
       if command -v pip-audit >/dev/null 2>&1; then
-        pip-audit -r "$PYTHON_REQ" || true
+        pip-audit -r "$PYTHON_REQ" || finding "pip-audit"
       else
         log_warn "pip-audit not found; skipping."
       fi
       if command -v safety >/dev/null 2>&1; then
-        safety check -r "$PYTHON_REQ" --full-report || true
+        safety check -r "$PYTHON_REQ" --full-report || finding "safety"
       else
         log_warn "safety not found; skipping."
       fi
       if command -v bandit >/dev/null 2>&1; then
-        bandit -r . -ll || true
+        bandit -r . -ll || finding "bandit"
       else
         log_warn "bandit not found; skipping."
       fi
     fi
   fi
-  if [[ "$SKIP_NODE" == "false" ]]; then
+  if [[ "$SKIP_NODE" == "false" ]] && node_auditable .; then
     if command -v npm >/dev/null 2>&1; then
-      bash -lc "$NODE_CMD" || true
+      bash -lc "$NODE_CMD" || finding "npm audit"
     else
       log_warn "npm not found; skipping."
     fi
   fi
   if [[ "$SKIP_GITLEAKS" == "false" ]]; then
     if command -v gitleaks >/dev/null 2>&1; then
-      gitleaks detect --source . --no-git || true
+      gitleaks "${GITLEAKS_ARGS[@]}" || finding "gitleaks"
     else
       log_warn "gitleaks not found; skipping."
     fi
   fi
   popd >/dev/null
+fi
+
+if [[ "$FINDINGS" -gt 0 ]]; then
+  log_error "security scan: $FINDINGS check(s) reported findings."
+  exit 1
 fi

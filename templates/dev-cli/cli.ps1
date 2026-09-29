@@ -81,6 +81,7 @@ function Invoke-Preflight {
             '--quick'          { $splat['Quick'] = $true }
             '--docker'         { $splat['Docker'] = $true }
             '--skip-security'  { $splat['SkipSecurity'] = $true }
+            '--security-only'  { $splat['SecurityOnly'] = $true }
             '--list'           { $splat['List'] = $true }
             '--stack'          { $splat['Stack'] = @($PreflightArgs[++$i]) }
             '--dir'            { $splat['Dir'] = $PreflightArgs[++$i] }
@@ -229,6 +230,12 @@ function Verb-Run {
 function Verb-Test {
     if (Get-Command Project-Test -ErrorAction SilentlyContinue) { Project-Test; return }
     if (-not (Invoke-Preflight @('--quick','--skip-security'))) { exit 1 }
+}
+
+# The secret and dependency scan alone; see verb_scan in cli.sh.
+function Verb-Scan {
+    if (Get-Command Project-Scan -ErrorAction SilentlyContinue) { Project-Scan; return }
+    if (-not (Invoke-Preflight (@('--security-only') + @($DEV_ARGS)))) { exit 1 }
 }
 
 function Verb-Preflight {
@@ -413,6 +420,7 @@ Core
   stop          Stop what run started. Keeps containers and data.
   test          Run the test suite.
   preflight     Run every check CI would have run. The pre-push hook calls this.
+  scan          Secret and dependency scan only (gitleaks, audits).  [--docker]
   deploy        Build, then install and launch on a connected device.
   clean         Remove build output and caches. Never touches user data.
   update        Sync submodules and refresh pinned dependencies.
@@ -451,6 +459,7 @@ switch ($Verb) {
     'stop'       { Verb-Stop }
     'test'       { Verb-Test }
     'preflight'  { Verb-Preflight }
+    'scan'       { Verb-Scan }
     'deploy'     { Verb-Deploy }
     'devices'    { Verb-Devices }
     'screenshot' { Verb-Screenshot }
