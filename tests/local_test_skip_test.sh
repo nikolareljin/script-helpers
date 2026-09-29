@@ -41,6 +41,11 @@ if command -v go >/dev/null 2>&1; then
     bash scripts/local_test_go.sh --quick --dir "$g"
   expect_rc "go: only modules without packages -> nothing to test" 3 \
     bash scripts/local_test_go.sh --quick --dir "$g/tool"
+  mkdir -p "$g/broken"
+  printf 'module example.com/broken\n\ngo 1.21\nrequire (\n' > "$g/broken/go.mod"
+  printf 'package broken\n' > "$g/broken/b.go"
+  expect_rc "go: a broken go.mod fails, it is not 'no packages'" 1 \
+    bash scripts/local_test_go.sh --quick --dir "$g/broken"
   printf 'package app\n\nfunc One() int { return "x" }\n' > "$g/app/app.go"
   expect_rc "go: a package that does not compile still fails" 1 \
     bash scripts/local_test_go.sh --quick --dir "$g/app"
@@ -56,6 +61,9 @@ if command -v npm >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
     bash scripts/local_test_node.sh --quick --dir "$n"
   printf '{"name":"x","version":"1.0.0","scripts":{"test":"echo \\"Error: no test specified\\" && exit 1"}}\n' > "$n/package.json"
   expect_rc "node: npm's placeholder test script -> nothing to test" 3 \
+    bash scripts/local_test_node.sh --quick --dir "$n"
+  printf '{"name":"x", broken\n' > "$n/package.json"
+  expect_rc "node: a malformed package.json fails, it is not 'no test script'" 1 \
     bash scripts/local_test_node.sh --quick --dir "$n"
   printf '{"name":"x","version":"1.0.0","scripts":{"test":"node -e \\"process.exit(0)\\""}}\n' > "$n/package.json"
   expect_rc "node: a real test script runs" 0 \

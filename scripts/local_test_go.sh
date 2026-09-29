@@ -80,9 +80,13 @@ run_module() {
   echo "[local-test-go] Module: $dir"
   pushd "$dir" > /dev/null
   # A module with no packages (a root go.mod for tooling, say) has nothing to vet
-  # or test, and `go test ./...` fails on it with "matched no packages". A
-  # package that does not compile is still listed, so it is still tested.
-  if [[ -z "$(go list ./... 2>/dev/null)" ]]; then
+  # or test, and `go test ./...` fails on it with "matched no packages". Only a
+  # successful, empty listing means that: a broken go.mod also lists nothing,
+  # but go list fails, and go test below reports it. A package that does not
+  # compile is still listed, so it is still tested.
+  local listed list_rc=0
+  listed="$(go list ./... 2>/dev/null)" || list_rc=$?
+  if [[ $list_rc -eq 0 && -z "$listed" ]]; then
     echo "  no Go packages in this module; nothing to test"
     empty_modules=$((empty_modules + 1))
     popd > /dev/null
