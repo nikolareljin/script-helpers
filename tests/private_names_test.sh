@@ -400,43 +400,6 @@ else
   ok "a bare ambiguous name in a commit message warns without failing"
 fi
 
-# --- an everyday word the gate deliberately stops watching -----------------
-#
-# `coverage` is flagged ambiguous in the dictionary exactly as `beacon` is, and
-# would warn the same way. It is on the generic list instead, because it is a
-# word, an action, and half the file names in any repository that measures
-# anything -- a warning on `tests/workflow-coverage.yaml` is noise, and noise is
-# what gets a gate switched off.
-#
-# Qualified is still matched: giving up the bare form is not giving up the name.
-printf 'measuring coverage of the tests\n' > "$amb_repo/d.md"
-git_t -C "$amb_repo" add d.md
-git_t -C "$amb_repo" commit -q -m "test: raise coverage in tests/workflow-coverage.yaml"
-
-range_msgs="$(git_t -C "$amb_repo" log --format=%B 'HEAD~1..HEAD')"
-grep -q coverage <<<"$range_msgs" \
-  || error "the commit under test does not mention the word, so nothing below proves anything"
-
-out="$( cd "$amb_repo" && bash "$GATE" --commits 'HEAD~1..HEAD' --list "$list" 2>&1 )"; rc=$?
-if [[ $rc -ne 0 ]]; then
-  error "a generic everyday word failed the run (exit $rc): $out"
-elif grep -q "needs a person" <<<"$out"; then
-  error "a generic everyday word still warns: $out"
-else
-  ok "an everyday word on the generic list neither fails nor warns"
-fi
-
-printf 'nothing here\n' > "$amb_repo/e.md"
-git_t -C "$amb_repo" add e.md
-git_t -C "$amb_repo" commit -q -m "docs: cites testns/coverage by namespace"
-
-out="$( cd "$amb_repo" && bash "$GATE" --commits 'HEAD~1..HEAD' --list "$list" 2>&1 )"; rc=$?
-if [[ $rc -eq 0 ]]; then
-  error "the qualified form of a generic name was not matched, so the name is now unprotected: $out"
-else
-  ok "the qualified form is still refused, so only the bare word was given up"
-fi
-
 # ...and the closing line must not then claim nothing was named. Saying it is
 # how a warning gets read as a pass.
 if grep -q "no private repository is named" <<<"$out"; then
@@ -484,6 +447,51 @@ if [[ $rc -eq 0 ]] && grep -q "no private repository is named" <<<"$out" \
   ok "clean text still reports clean, so the warning is not always on"
 else
   error "clean text did not report clean: $out"
+fi
+
+# --- an everyday word the gate deliberately stops watching -----------------
+#
+# `coverage` is flagged ambiguous in the dictionary exactly as `beacon` is, and
+# would warn the same way. It is on the generic list instead, because it is a
+# word, an action, and half the file names in any repository that measures
+# anything -- a warning on `tests/workflow-coverage.yaml` is noise, and noise is
+# what gets a gate switched off.
+#
+# Qualified is still matched: giving up the bare form is not giving up the name.
+# A repository of its own: the checks above read the beacon commit at HEAD of
+# amb_repo and the $out it produced, and a commit added there changes both.
+cov_repo="$tmp/cov"
+mkdir -p "$cov_repo"
+git_t -C "$cov_repo" init -q .
+printf 'nothing of interest\n' > "$cov_repo/a.md"
+git_t -C "$cov_repo" add a.md
+git_t -C "$cov_repo" commit -q -m "init"
+printf 'measuring coverage of the tests\n' > "$cov_repo/d.md"
+git_t -C "$cov_repo" add d.md
+git_t -C "$cov_repo" commit -q -m "test: raise coverage in tests/workflow-coverage.yaml"
+
+range_msgs="$(git_t -C "$cov_repo" log --format=%B 'HEAD~1..HEAD')"
+grep -q coverage <<<"$range_msgs" \
+  || error "the commit under test does not mention the word, so nothing below proves anything"
+
+out="$( cd "$cov_repo" && bash "$GATE" --commits 'HEAD~1..HEAD' --list "$list" 2>&1 )"; rc=$?
+if [[ $rc -ne 0 ]]; then
+  error "a generic everyday word failed the run (exit $rc): $out"
+elif grep -q "needs a person" <<<"$out"; then
+  error "a generic everyday word still warns: $out"
+else
+  ok "an everyday word on the generic list neither fails nor warns"
+fi
+
+printf 'nothing here\n' > "$cov_repo/e.md"
+git_t -C "$cov_repo" add e.md
+git_t -C "$cov_repo" commit -q -m "docs: cites testns/coverage by namespace"
+
+out="$( cd "$cov_repo" && bash "$GATE" --commits 'HEAD~1..HEAD' --list "$list" 2>&1 )"; rc=$?
+if [[ $rc -eq 0 ]]; then
+  error "the qualified form of a generic name was not matched, so the name is now unprotected: $out"
+else
+  ok "the qualified form is still refused, so only the bare word was given up"
 fi
 
 # The "no list yet" message is read in a consumer, where this library lives
