@@ -291,7 +291,7 @@ verb_stop() {
   for f in compose.yaml compose.yml docker-compose.yaml docker-compose.yml; do
     if [[ -f "$DEV_REPO_ROOT/$f" ]]; then
       shlib_import docker
-      log_info "stop: docker compose stop ($f); containers and volumes are kept"
+      log_info "stop: stopping the compose stack in $f; containers and volumes are kept"
       docker_compose -f "$DEV_REPO_ROOT/$f" stop
       return
     fi

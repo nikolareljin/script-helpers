@@ -5,8 +5,10 @@
 - **`./dev stop`**, a new verb in the shared CLI (`templates/dev-cli/cli.sh` and `cli.ps1`):
   stops what `run` started and keeps containers and data. A repository with a compose file at
   its root gets `docker compose -f <file> stop`; `project_stop` / `Project-Stop` replaces that;
-  anything else exits 0 saying the verb does not apply. `tests/dev_stop_test.sh` covers the
-  three paths and the help line.
+  anything else exits 0 saying the verb does not apply. Both shells use the compose plugin,
+  then a standalone `docker-compose`, and fail with a clear error when neither exists; a
+  failing compose's exit code is returned. `tests/dev_stop_test.sh` covers these paths and
+  the help line.
 
 ### Fixed
 

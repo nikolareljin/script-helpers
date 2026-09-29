@@ -335,8 +335,17 @@ function Verb-Stop {
     foreach ($f in @('compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml')) {
         $path = Join-Path $DEV_REPO_ROOT $f
         if (Test-Path $path) {
-            log_info "stop: docker compose stop ($f); containers and volumes are kept"
-            & docker compose -f $path stop
+            # The same choice as get_docker_compose_cmd in lib/docker.sh: the plugin,
+            # then the standalone docker-compose, else a clear error.
+            $useStandalone = $false
+            $dockerCmd = Get-Command docker -ErrorAction SilentlyContinue
+            if ($dockerCmd) { & docker compose version *> $null }
+            if (-not $dockerCmd -or $LASTEXITCODE -ne 0) {
+                if (Get-Command docker-compose -ErrorAction SilentlyContinue) { $useStandalone = $true }
+                else { log_error "stop: neither 'docker compose' nor 'docker-compose' found"; exit 1 }
+            }
+            log_info "stop: stopping the compose stack in $f; containers and volumes are kept"
+            if ($useStandalone) { & docker-compose -f $path stop } else { & docker compose -f $path stop }
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             return
         }

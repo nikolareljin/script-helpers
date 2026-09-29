@@ -73,6 +73,27 @@ else
   error "compose: rc=$rc out='$out' docker='$(cat "$DOCKER_LOG")'"
 fi
 
+# 2b. A failing docker compose: its exit code comes back.
+mkdir -p "$tmp/failbin"
+printf '#!/usr/bin/env bash\n[[ "$*" == *version* ]] && exit 0\nexit 3\n' > "$tmp/failbin/docker"
+chmod +x "$tmp/failbin/docker"
+out="$(cd "$repo" && PATH="$tmp/failbin:$PATH" bash scripts/cli.sh stop 2>&1)"; rc=$?
+[[ $rc -eq 3 ]] && note "a failing docker compose exits with its code" \
+  || error "failing compose: rc=$rc out='$out'"
+
+# 2c. No compose command at all: a clear error, not success.
+mkdir -p "$tmp/nocompose"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$tmp/nocompose/docker"   # no compose plugin
+chmod +x "$tmp/nocompose/docker"
+if command -v docker-compose >/dev/null 2>&1; then
+  note "SKIP no-compose case: docker-compose is installed here"
+else
+  out="$(cd "$repo" && PATH="$tmp/nocompose:$PATH" bash scripts/cli.sh stop 2>&1)"; rc=$?
+  [[ $rc -ne 0 && "$out" == *"Neither 'docker compose' nor 'docker-compose'"* ]] \
+    && note "no compose command: error, non-zero exit" \
+    || error "no compose: rc=$rc out='$out'"
+fi
+
 # 3. Nothing to stop: exit 0 and say so.
 repo="$(new_repo plain)"
 : > "$DOCKER_LOG"
