@@ -25,6 +25,15 @@ on:
       - '.github/workflows/ci-macos.yml'
   workflow_dispatch:
 
+# A new push to a pull request cancels that PR's superseded run. Measured on
+# one PR, 2026-09-29: six pushes in 26 minutes each started a full run (up to
+# 15 minutes) in parallel, checking code that was already replaced.
+# Push and dispatch runs get a group of their own (run_id), because GitHub also
+# cancels a *pending* run in a shared group, and main must always be checked.
+concurrency:
+  group: ci-macos-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   macos:
     runs-on: macos-latest
