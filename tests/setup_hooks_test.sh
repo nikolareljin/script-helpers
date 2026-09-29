@@ -83,7 +83,18 @@ mkdir -p "$repo/src/deep"
   && ok "relative path from a subdirectory -> the same hooks" \
   || error "from a subdirectory: got '$(hooks_path "$repo")'"
 
-# 6. Outside a worktree it refuses.
+# 6. The vendored copy is a symlink to a checkout outside the repository.
+repo="$(make_repo symlinked "")"
+mkdir -p "$tmp/outside/sh/scripts" "$repo/vendor"
+cp "$root_dir/scripts/setup-hooks.sh" "$tmp/outside/sh/scripts/"
+cp -R "$root_dir/scripts/git-hooks" "$tmp/outside/sh/scripts/"
+ln -s "$tmp/outside/sh" "$repo/vendor/script-helpers"
+(cd "$repo" && bash vendor/script-helpers/scripts/setup-hooks.sh >/dev/null 2>&1) || true
+[[ "$(hooks_path "$repo")" == "vendor/script-helpers/scripts/git-hooks" ]] \
+  && ok "a symlinked vendored copy -> the path through the symlink" \
+  || error "symlinked copy: got '$(hooks_path "$repo")'"
+
+# 7. Outside a worktree it refuses.
 rc=0
 (cd "$tmp" && bash "$root_dir/scripts/setup-hooks.sh" >/dev/null 2>&1) || rc=$?
 [[ $rc -ne 0 ]] && ok "outside a git worktree -> error" || error "outside a worktree exited 0"

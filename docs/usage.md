@@ -380,16 +380,24 @@ in a consuming repo that vendors it as a submodule:
 # Inside the script-helpers repo
 bash scripts/setup-hooks.sh
 
-# In a consuming repo that has script-helpers as a submodule under scripts/script-helpers
+# In a consuming repo, from wherever script-helpers is vendored
 bash scripts/script-helpers/scripts/setup-hooks.sh
+bash vendor/script-helpers/scripts/setup-hooks.sh
 ```
 
-The installer detects the correct hook directory automatically. It prefers
-`.githooks/` when both `pre-commit` and `pre-push` are present there, then
-falls back to the submodule path (`scripts/script-helpers/scripts/git-hooks`)
-or the local `scripts/git-hooks` directory. Shared hooks still defer to a
-matching repo-local `.githooks/pre-commit` or `.githooks/pre-push` when one
-is present (same-file recursion guard included).
+The installer picks the hook directory in this order:
+
+1. `.githooks/`, when both `pre-commit` and `pre-push` are there;
+2. `git-hooks/` next to the `setup-hooks.sh` that was run: the hooks bundled with
+   that copy of script-helpers, wherever it is vendored, symlinked copies and
+   runs from a subdirectory included;
+3. `scripts/script-helpers/scripts/git-hooks`, then `scripts/git-hooks`.
+
+It stores a repo-relative path in `core.hooksPath`. Shared hooks still defer to a
+matching repo-local `.githooks/pre-commit` or `.githooks/pre-push` when one is
+present (same-file recursion guard included), so a repository whose `.githooks/`
+holds only `pre-push`, such as a protected-refs guard, gets the shared hooks and
+still runs its own.
 
 ### Stopping a private repository's name before it is published
 

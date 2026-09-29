@@ -17,16 +17,33 @@
 # After running, hooks are active for all subsequent git operations in this repo.
 set -euo pipefail
 
-# This script's directory, physical, so it compares with repo_root. Taken before
-# the cd below: a relative path in BASH_SOURCE is relative to the caller's cwd.
+# This script's directory, both as the caller reached it and physically. Taken
+# before the cd below: a relative path in BASH_SOURCE is relative to the
+# caller's cwd.
+script_dir_logical="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 if ! repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
   echo "[setup-hooks] ERROR: Run this script inside a Git worktree." >&2
   exit 1
 fi
+# The top as the caller sees it, symlinks kept: a vendored copy that is a symlink
+# to a checkout elsewhere is inside the repository only in this view.
+repo_root_logical="$(cd "./$(git rev-parse --show-cdup)" && pwd)"
 cd "$repo_root"
 repo_root="$(pwd -P)"
+
+# The bundled hooks next to this script, as a repo-relative path, or nothing.
+bundled_hooks() {
+  local pair dir root
+  for pair in "$script_dir_logical|$repo_root_logical" "$script_dir|$repo_root"; do
+    dir="${pair%%|*}"; root="${pair#*|}"
+    if [[ "$dir" == "$root"/* ]] && has_required_hooks "$dir/git-hooks"; then
+      echo "${dir#"$root"/}/git-hooks"
+      return
+    fi
+  done
+}
 
 has_required_hooks() {
   local dir="$1"
@@ -37,8 +54,8 @@ resolve_hooks_dir() {
   # Returns a repo-relative path for git config storage; uses absolute paths for existence checks.
   if has_required_hooks "$repo_root/.githooks"; then
     echo ".githooks"
-  elif [[ "$script_dir" == "$repo_root"/* ]] && has_required_hooks "$script_dir/git-hooks"; then
-    echo "${script_dir#"$repo_root"/}/git-hooks"
+  elif [[ -n "$(bundled_hooks)" ]]; then
+    bundled_hooks
   elif has_required_hooks "$repo_root/scripts/script-helpers/scripts/git-hooks"; then
     echo "scripts/script-helpers/scripts/git-hooks"
   elif has_required_hooks "$repo_root/scripts/git-hooks"; then
