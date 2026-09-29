@@ -241,13 +241,29 @@ function Verb-Scan {
 # Browser end-to-end tests with Playwright; see verb_e2e in cli.sh.
 function Verb-E2e {
     if (Get-Command Project-E2e -ErrorAction SilentlyContinue) { Project-E2e; return }
-    $configs = @(Get-ChildItem -Path $DEV_REPO_ROOT -Recurse -File -Filter 'playwright.config.*' -ErrorAction SilentlyContinue |
-        Where-Object { $_.FullName -notmatch '[\\/](node_modules|\.git)[\\/]' } | Sort-Object FullName)
+    # What git sees: tracked files and untracked ones it does not ignore, so not
+    # node_modules and not submodule contents; see verb_e2e in cli.sh.
+    $inGit = $false
+    & git -C $DEV_REPO_ROOT rev-parse --is-inside-work-tree *> $null
+    if ($LASTEXITCODE -eq 0) { $inGit = $true }
+    $configs = @(if ($inGit) {
+        & git -C $DEV_REPO_ROOT ls-files --cached --others --exclude-standard |
+            Where-Object { $_ -match '(^|/)playwright\.config\.[^/]+$' } | Sort-Object -Unique |
+            ForEach-Object { Get-Item (Join-Path $DEV_REPO_ROOT $_) }
+    } else {
+        Get-ChildItem -Path $DEV_REPO_ROOT -Recurse -File -Filter 'playwright.config.*' -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -notmatch '[\\/](node_modules|\.git)[\\/]' } | Sort-Object FullName
+    })
     if ($configs.Count -eq 0) { Not-Applicable 'e2e' 'no playwright.config.* found; define Project-E2e in scripts/project.ps1' }
     if (-not (Get-Command npx -ErrorAction SilentlyContinue)) { log_error 'e2e: npx not found; install Node.js'; exit 1 }
     $failed = $false
     foreach ($c in $configs) {
         $dir = $c.DirectoryName
+        $pkg = Join-Path $dir 'package.json'
+        if (-not ((Test-Path $pkg) -and (Select-String -Path $pkg -Pattern '"(@playwright/test|playwright)"\s*:' -Quiet))) {
+            log_info "e2e: skipping ${dir}: its package.json does not depend on Playwright"
+            continue
+        }
         log_info "e2e: $dir"
         if (-not ((Test-Path (Join-Path $dir 'node_modules/@playwright/test')) -or (Test-Path (Join-Path $dir 'node_modules/playwright')))) {
             log_error "e2e: Playwright is not installed in $dir; run ./dev install first"

@@ -8,13 +8,13 @@
   on findings (`ci_security.sh --fail-on-findings`), with gitleaks scanning what git tracks,
   history included, not ignored files such as `.env` or `.venv`, from the repository top so its
   `.gitleaks.toml` and `.gitleaksignore` apply.
-- **`./dev e2e`**: Playwright browser tests, in bash and PowerShell, in every directory with a
-  `playwright.config.*` (not under `node_modules`): installs the browsers (cached;
+- **`./dev e2e`**: Playwright browser tests, in bash and PowerShell, in every Playwright project (a
+  `playwright.config.*` whose `package.json` depends on Playwright, among the files git sees, so
+  not in `node_modules`, ignored directories or submodules): installs the browsers (cached;
   `PLAYWRIGHT_BROWSERS` limits them), then runs `playwright test` with any extra arguments.
   Not part of preflight. A missing Playwright install is an error that says to run
   `./dev install`; `project_e2e` / `Project-E2e` replaces the default. `tests/dev_e2e_test.sh`
   covers each path.
-
 - **`./dev stop`**, a new verb in the shared CLI (`templates/dev-cli/cli.sh` and `cli.ps1`):
   stops what `run` started and keeps containers and data. A repository with a compose file at
   its root gets `docker compose -f <file> stop`; `project_stop` / `Project-Stop` replaces that;

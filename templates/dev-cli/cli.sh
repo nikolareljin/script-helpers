@@ -320,17 +320,34 @@ verb_scan() {
 verb_e2e() {
   declare -f project_e2e >/dev/null && { project_e2e; return; }
   local -a dirs=()
-  local config dir rc=0
+  local config dir rel rc=0
+  # What git sees: tracked files and untracked ones it does not ignore. That
+  # leaves out node_modules and the contents of submodules (script-helpers
+  # itself is usually one), whose configs are a dependency's.
   while IFS= read -r config; do
-    dirs+=("$(dirname "$config")")
-  done < <(find "$DEV_REPO_ROOT" \( -name node_modules -o -name .git \) -prune -o \
-             -type f -name 'playwright.config.*' -print | sort)
+    [[ -n "$config" ]] && dirs+=("$(dirname "$DEV_REPO_ROOT/$config")")
+  done < <(
+    if git -C "$DEV_REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      git -C "$DEV_REPO_ROOT" ls-files --cached --others --exclude-standard \
+        | grep -E '(^|/)playwright\.config\.[^/]+$' | sort -u
+    else
+      (cd "$DEV_REPO_ROOT" && find . \( -name node_modules -o -name .git \) -prune -o \
+         -type f -name 'playwright.config.*' -print | sed 's|^\./||' | sort)
+    fi
+  )
   [[ ${#dirs[@]} -gt 0 ]] || not_applicable "e2e" "no playwright.config.* found; define project_e2e in scripts/project.sh"
   command -v npx >/dev/null 2>&1 || { log_error "e2e: npx not found; install Node.js"; exit 1; }
   for dir in "${dirs[@]}"; do
-    log_info "e2e: ${dir#"$DEV_REPO_ROOT"/}"
+    rel="${dir#"$DEV_REPO_ROOT"}"; rel="${rel#/}"; rel="${rel:-.}"
+    # A Playwright project declares it; a config without that (a vendored copy,
+    # an example) is not one of this repository's test suites.
+    if ! grep -qE '"(@playwright/test|playwright)"[[:space:]]*:' "$dir/package.json" 2>/dev/null; then
+      log_info "e2e: skipping $rel: its package.json does not depend on Playwright"
+      continue
+    fi
+    log_info "e2e: $rel"
     if [[ ! -d "$dir/node_modules/@playwright/test" && ! -d "$dir/node_modules/playwright" ]]; then
-      log_error "e2e: Playwright is not installed in ${dir#"$DEV_REPO_ROOT"/}; run ./dev install first"
+      log_error "e2e: Playwright is not installed in $rel; run ./dev install first"
       rc=1
       continue
     fi

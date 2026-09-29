@@ -398,14 +398,18 @@ bash scripts/ci_security.sh --no-docker --fail-on-findings   # the same, directl
 
 ### Browser tests: `./dev e2e`
 
-`./dev e2e` (bash and PowerShell) runs Playwright in every directory with a
-`playwright.config.*` (not under `node_modules`): `npx playwright install`, then
-`npx playwright test` with any extra arguments. It is not part of `preflight`:
+`./dev e2e` (bash and PowerShell) runs Playwright in every Playwright project:
+a directory with a `playwright.config.*` whose `package.json` depends on
+`@playwright/test` or `playwright`. It runs `npx playwright install`, then
+`npx playwright test` with any extra arguments. Configs are found among the files
+git sees (tracked, or untracked and not ignored), so `node_modules`, ignored
+directories and git submodules (script-helpers itself, usually) are left out. It is not part of `preflight`:
 a browser run is too slow for every push.
 
 | Situation | Result |
 |---|---|
 | no `playwright.config.*` | not applicable, exit 0 |
+| a config whose `package.json` does not depend on Playwright (a vendored copy) | skipped, with a note |
 | Playwright not in `node_modules` | exit 1: run `./dev install` first |
 | tests fail | exit 1 |
 | `project_e2e` / `Project-E2e` defined | that runs instead |

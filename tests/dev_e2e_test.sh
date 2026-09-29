@@ -45,10 +45,12 @@ new_repo() {
   ln -s "$ROOT_DIR" "$r/scripts/script-helpers"
   echo "$r"
 }
-# with_playwright <dir>: a config and an installed @playwright/test.
+# with_playwright <dir>: a config, a package.json that depends on Playwright,
+# and an installed @playwright/test.
 with_playwright() {
   mkdir -p "$1/node_modules/@playwright/test"
   : > "$1/playwright.config.ts"
+  printf '{"devDependencies":{"@playwright/test":"1.63.0"}}\n' > "$1/package.json"
 }
 dev() { (cd "$1" && shift && PATH="$tmp/bin:$PATH" bash scripts/cli.sh "$@") 2>&1; }
 
@@ -85,13 +87,46 @@ fi
 : > "$NPX_LOG"; rc=0; out="$(cd "$r" && NPX_FAIL_TEST=1 PATH="$tmp/bin:$PATH" bash scripts/cli.sh e2e 2>&1)" || rc=$?
 [[ $rc -eq 1 ]] && note "failing tests: exit 1" || error "failing: rc=$rc out='$out'"
 
-# 5. Playwright not installed: a clear error, npx not called.
+# 5. A Playwright project whose install is missing: a clear error, npx not called.
 r="$(new_repo notinstalled)"; : > "$r/playwright.config.ts"
+printf '{"devDependencies":{"@playwright/test":"1.63.0"}}\n' > "$r/package.json"
 : > "$NPX_LOG"; rc=0; out="$(dev "$r" e2e)" || rc=$?
 if [[ $rc -eq 1 && "$out" == *"run ./dev install first"* && ! -s "$NPX_LOG" ]]; then
   note "Playwright not installed: exit 1, says to run ./dev install"
 else
   error "notinstalled: rc=$rc out='$out'"
+fi
+
+# 5b. A config that is not a Playwright project's (a vendored copy): skipped, exit 0.
+r="$(new_repo vendored)"; mkdir -p "$r/web" "$r/vendor/lib"; with_playwright "$r/web"
+: > "$r/vendor/lib/playwright.config.js"
+: > "$NPX_LOG"; rc=0; out="$(dev "$r" e2e)" || rc=$?
+if [[ $rc -eq 0 && "$out" == *"skipping vendor/lib"* ]] && ! grep -q "^lib:" "$NPX_LOG" && grep -q "^web: npx playwright test" "$NPX_LOG"; then
+  note "a vendored config without a Playwright dependency: skipped; the project still runs"
+else
+  error "vendored: rc=$rc log='$(cat "$NPX_LOG")' out='$out'"
+fi
+
+# 5c. A config in a directory git ignores is not found at all.
+r="$(new_repo ignored)"; mkdir -p "$r/dist"; printf 'dist/\n' > "$r/.gitignore"; with_playwright "$r/dist"
+: > "$NPX_LOG"; rc=0; out="$(dev "$r" e2e)" || rc=$?
+if [[ $rc -eq 0 && "$out" == *"e2e: not applicable"* && ! -s "$NPX_LOG" ]]; then
+  note "a config in an ignored directory: not found"
+else
+  error "ignored: rc=$rc out='$out'"
+fi
+
+# 5d. A Playwright project inside a git submodule is the dependency's, not run.
+src="$tmp/libsrc"; git init -q "$src"; with_playwright "$src"
+git -C "$src" add -A; git -C "$src" -c user.name=t -c user.email=t@example.com commit -q -m lib
+r="$(new_repo withsub)"
+git -C "$r" -c protocol.file.allow=always submodule --quiet add "$src" libmod >/dev/null 2>&1
+mkdir -p "$r/libmod/node_modules/@playwright/test"
+: > "$NPX_LOG"; rc=0; out="$(dev "$r" e2e)" || rc=$?
+if [[ -f "$r/libmod/playwright.config.ts" && $rc -eq 0 && "$out" == *"e2e: not applicable"* && ! -s "$NPX_LOG" ]]; then
+  note "a Playwright project in a submodule: not run"
+else
+  error "submodule: rc=$rc present=$([[ -f "$r/libmod/playwright.config.ts" ]] && echo y || echo n) log='$(cat "$NPX_LOG")' out='$out'"
 fi
 
 # 6. project_e2e replaces the default.
