@@ -329,6 +329,21 @@ function Verb-Record {
     if (-not $path) { exit 1 }
 }
 
+# Stop running services without removing them or their data; see verb_stop in cli.sh.
+function Verb-Stop {
+    if (Get-Command Project-Stop -ErrorAction SilentlyContinue) { Project-Stop; return }
+    foreach ($f in @('compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml')) {
+        $path = Join-Path $DEV_REPO_ROOT $f
+        if (Test-Path $path) {
+            log_info "stop: docker compose stop ($f); containers and volumes are kept"
+            & docker compose -f $path stop
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            return
+        }
+    }
+    Not-Applicable 'stop' 'no compose file; define Project-Stop in scripts/project.ps1'
+}
+
 function Verb-Logs {
     if (Get-Command Project-Logs -ErrorAction SilentlyContinue) { Project-Logs; return }
     Import-ScriptHelpers adb
@@ -386,6 +401,7 @@ Core
   install       Install dependencies and initialize submodules. Idempotent.
   build         Produce artifacts. Never starts anything.
   run           Start the app in the foreground.
+  stop          Stop what run started. Keeps containers and data.
   test          Run the test suite.
   preflight     Run every check CI would have run. The pre-push hook calls this.
   deploy        Build, then install and launch on a connected device.
@@ -423,6 +439,7 @@ switch ($Verb) {
     'install'    { Verb-Install }
     'build'      { Verb-Build }
     'run'        { Verb-Run }
+    'stop'       { Verb-Stop }
     'test'       { Verb-Test }
     'preflight'  { Verb-Preflight }
     'deploy'     { Verb-Deploy }

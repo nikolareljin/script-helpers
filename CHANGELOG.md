@@ -1,5 +1,13 @@
 ## Unreleased
 
+### Added
+
+- **`./dev stop`**, a new verb in the shared CLI (`templates/dev-cli/cli.sh` and `cli.ps1`):
+  stops what `run` started and keeps containers and data. A repository with a compose file at
+  its root gets `docker compose -f <file> stop`; `project_stop` / `Project-Stop` replaces that;
+  anything else exits 0 saying the verb does not apply. `tests/dev_stop_test.sh` covers the
+  three paths and the help line.
+
 ### Fixed
 
 - **`setup-hooks.sh` found the bundled hooks only under `scripts/script-helpers`.** A

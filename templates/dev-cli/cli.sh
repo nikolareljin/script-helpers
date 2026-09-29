@@ -282,6 +282,23 @@ verb_run() {
   not_applicable run "no runnable target — use ./dev deploy to install on a device"
 }
 
+# Stop running services without removing them or their data. A compose file at
+# the repository root gets `docker compose stop`; anything else defines
+# project_stop, or is told the verb does not apply.
+verb_stop() {
+  declare -f project_stop >/dev/null && { project_stop; return; }
+  local f
+  for f in compose.yaml compose.yml docker-compose.yaml docker-compose.yml; do
+    if [[ -f "$DEV_REPO_ROOT/$f" ]]; then
+      shlib_import docker
+      log_info "stop: docker compose stop ($f); containers and volumes are kept"
+      docker_compose -f "$DEV_REPO_ROOT/$f" stop
+      return
+    fi
+  done
+  not_applicable "stop" "no compose file; define project_stop in scripts/project.sh"
+}
+
 verb_test() {
   declare -f project_test >/dev/null && { project_test; return; }
   bash "$SCRIPT_HELPERS_DIR/scripts/preflight.sh" --quick --skip-security
@@ -547,6 +564,7 @@ Core
   install       Install dependencies and initialize submodules. Idempotent.
   build         Produce artifacts. Never starts anything.
   run           Start the app in the foreground.
+  stop          Stop what run started. Keeps containers and data.
   test          Run the test suite.
   preflight     Run every check CI would have run. The pre-push hook calls this.
   deploy        Build, then install and launch on a connected device,
@@ -595,6 +613,7 @@ main() {
     install)    verb_install ;;
     build)      verb_build ;;
     run)        verb_run ;;
+    stop)       verb_stop ;;
     test)       verb_test ;;
     preflight)  verb_preflight ;;
     deploy)     verb_deploy ;;
