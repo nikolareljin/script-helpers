@@ -329,6 +329,30 @@ function Verb-Record {
     if (-not $path) { exit 1 }
 }
 
+# Stop running services without removing them or their data; see verb_stop in cli.sh.
+function Verb-Stop {
+    if (Get-Command Project-Stop -ErrorAction SilentlyContinue) { Project-Stop; return }
+    foreach ($f in @('compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml')) {
+        $path = Join-Path $DEV_REPO_ROOT $f
+        if (Test-Path $path) {
+            # The same choice as get_docker_compose_cmd in lib/docker.sh: the plugin,
+            # then the standalone docker-compose, else a clear error.
+            $useStandalone = $false
+            $dockerCmd = Get-Command docker -ErrorAction SilentlyContinue
+            if ($dockerCmd) { & docker compose version *> $null }
+            if (-not $dockerCmd -or $LASTEXITCODE -ne 0) {
+                if (Get-Command docker-compose -ErrorAction SilentlyContinue) { $useStandalone = $true }
+                else { log_error "stop: neither 'docker compose' nor 'docker-compose' found"; exit 1 }
+            }
+            log_info "stop: stopping the compose stack in $f; containers and volumes are kept"
+            if ($useStandalone) { & docker-compose -f $path stop } else { & docker compose -f $path stop }
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            return
+        }
+    }
+    Not-Applicable 'stop' 'no compose file; define Project-Stop in scripts/project.ps1'
+}
+
 function Verb-Logs {
     if (Get-Command Project-Logs -ErrorAction SilentlyContinue) { Project-Logs; return }
     Import-ScriptHelpers adb
@@ -386,6 +410,7 @@ Core
   install       Install dependencies and initialize submodules. Idempotent.
   build         Produce artifacts. Never starts anything.
   run           Start the app in the foreground.
+  stop          Stop what run started. Keeps containers and data.
   test          Run the test suite.
   preflight     Run every check CI would have run. The pre-push hook calls this.
   deploy        Build, then install and launch on a connected device.
@@ -423,6 +448,7 @@ switch ($Verb) {
     'install'    { Verb-Install }
     'build'      { Verb-Build }
     'run'        { Verb-Run }
+    'stop'       { Verb-Stop }
     'test'       { Verb-Test }
     'preflight'  { Verb-Preflight }
     'deploy'     { Verb-Deploy }
