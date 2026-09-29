@@ -6,7 +6,8 @@
   npm audit), in bash and PowerShell, through the new `preflight.sh --security-only` /
   `preflight.ps1 -SecurityOnly`. No stack is needed; `--docker` uses the pinned images. It fails
   on findings (`ci_security.sh --fail-on-findings`), with gitleaks scanning what git tracks,
-  history included, not ignored files such as `.env` or `.venv`.
+  history included, not ignored files such as `.env` or `.venv`, from the repository top so its
+  `.gitleaks.toml` and `.gitleaksignore` apply.
 
 - **`./dev stop`**, a new verb in the shared CLI (`templates/dev-cli/cli.sh` and `cli.ps1`):
   stops what `run` started and keeps containers and data. A repository with a compose file at

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SCRIPT: ci_security.sh
 # DESCRIPTION: Run basic security checks (pip-audit/safety/bandit, npm audit, gitleaks).
-# USAGE: scripts/ci_security.sh [--workdir <path>] [--install] [--skip-python] [--skip-node] [--skip-gitleaks]
+# USAGE: scripts/ci_security.sh [--workdir <path>] [--install] [--skip-python] [--skip-node] [--skip-gitleaks] [--fail-on-findings]
 # PARAMETERS:
 #   --workdir <path>       Working directory (default: current dir).
 #   --install              Install required tools into current environment.
@@ -173,16 +173,16 @@ if [[ "$USE_DOCKER" == "true" ]]; then
   fi
   if [[ "$SKIP_GITLEAKS" == "false" ]]; then
     # In git mode the container needs the repository's .git: mount the top of the
-    # work tree and start in the workdir under it. Mounting only a subdirectory
-    # left git without a repository, and gitleaks printed "no leaks found" after
-    # scanning nothing. git in the image refuses a repository owned by another
-    # user unless it is marked safe; the environment does that without a file.
-    gl_mount="$ABS_WORKDIR" gl_wd=/work
+    # work tree and run there. Mounting only a subdirectory left git without a
+    # repository, and gitleaks printed "no leaks found" after scanning nothing;
+    # starting below the top missed its .gitleaks.toml and .gitleaksignore. git
+    # in the image refuses a repository owned by another user unless it is
+    # marked safe; the environment does that without a file.
+    gl_mount="$ABS_WORKDIR"
     if [[ " ${GITLEAKS_ARGS[*]} " != *" --no-git "* ]]; then
       gl_mount="$(git -C "$ABS_WORKDIR" rev-parse --show-toplevel)"
-      gl_wd="/work${ABS_WORKDIR#"$gl_mount"}"
     fi
-    docker run --pull=always --rm -t -v "$gl_mount":/work -w "$gl_wd" \
+    docker run --pull=always --rm -t -v "$gl_mount":/work -w /work \
       -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/work \
       "$GITLEAKS_IMAGE" "${GITLEAKS_ARGS[@]}" || finding "gitleaks"
   fi
@@ -224,7 +224,14 @@ else
   fi
   if [[ "$SKIP_GITLEAKS" == "false" ]]; then
     if command -v gitleaks >/dev/null 2>&1; then
-      gitleaks "${GITLEAKS_ARGS[@]}" || finding "gitleaks"
+      # git mode runs from the repository top: the history is the whole
+      # repository's anyway, and gitleaks reads .gitleaks.toml and
+      # .gitleaksignore from where it runs.
+      if [[ " ${GITLEAKS_ARGS[*]} " != *" --no-git "* ]]; then
+        ( cd "$(git rev-parse --show-toplevel)" && gitleaks "${GITLEAKS_ARGS[@]}" ) || finding "gitleaks"
+      else
+        gitleaks "${GITLEAKS_ARGS[@]}" || finding "gitleaks"
+      fi
     else
       log_warn "gitleaks not found; skipping."
     fi

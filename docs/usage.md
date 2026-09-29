@@ -382,7 +382,8 @@ out: a secret in `.env` belongs there, and third-party code in `.venv` or
 `node_modules` is not the repository's. A secret that was ever committed is still
 found after the file is deleted, because it is still in the history; rotate it.
 `--workdir` limits the dependency audits to that directory; the secret scan still
-reads the whole repository's history.
+reads the whole repository's history, from the repository top, so its
+`.gitleaks.toml` and `.gitleaksignore` apply.
 
 The security step of a full `./dev preflight` (and the pre-push hook) stays
 report only: it prints findings and does not block, and its summary line says

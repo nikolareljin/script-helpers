@@ -33,7 +33,9 @@ trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 mkdir -p "$tmp/bin"
 cat > "$tmp/bin/gitleaks" <<'EOF'
 #!/usr/bin/env bash
-echo "gitleaks $*" >> "$GL_LOG"
+where=""
+[[ "$(git rev-parse --show-toplevel 2>/dev/null)" == "$(pwd -P)" ]] && where="top: "
+echo "${where}gitleaks $*" >> "$GL_LOG"
 if [[ " $* " == *" --no-git "* ]]; then
   files="$(find . -type f -not -path './.git/*')"
 else
@@ -64,7 +66,7 @@ scan() {
 # 1. No stack needed; a clean repository passes; gitleaks runs in git mode.
 r="$(new_repo clean)"
 scan "$r"
-if [[ $RC -eq 0 && "$OUT" == *"PASS  security scan"* ]] && grep -q "^gitleaks detect --source \.$" "$GL_LOG"; then
+if [[ $RC -eq 0 && "$OUT" == *"PASS  security scan"* ]] && grep -q "^top: gitleaks detect --source \.$" "$GL_LOG"; then
   note "clean repository: PASS, gitleaks in git mode, no stack needed"
 else
   error "clean: rc=$RC log='$(cat "$GL_LOG")' out='$(printf '%s' "$OUT" | tail -4)'"
@@ -86,7 +88,7 @@ r="$(new_repo subdir)"
 mkdir -p "$r/backend"; printf 'x\n' > "$r/backend/a.txt"; commit "$r"
 : > "$GL_LOG"; RC=0
 OUT="$(cd "$r" && CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker --workdir backend --skip-python --skip-node --fail-on-findings 2>&1)" || RC=$?
-if [[ $RC -eq 0 ]] && grep -q "^gitleaks detect --source \.$" "$GL_LOG"; then
+if [[ $RC -eq 0 ]] && grep -q "^top: gitleaks detect --source \.$" "$GL_LOG"; then
   note "--workdir subdirectory: gitleaks in git mode"
 else
   error "subdirectory: rc=$RC log='$(cat "$GL_LOG")' out='$(printf '%s' "$OUT" | tail -3)'"
@@ -96,6 +98,18 @@ RC=0
 (cd "$r" && CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker --workdir backend --skip-python --skip-node --fail-on-findings >/dev/null 2>&1) || RC=$?
 [[ $RC -eq 1 ]] && note "--workdir subdirectory: a committed secret there fails" \
   || error "subdirectory secret: rc=$RC"
+
+# 2c. From a subdirectory, the repository's .gitleaksignore still applies: git
+# mode runs gitleaks from the top, where it reads that file.
+r="$(new_repo ignorefile)"
+mkdir -p "$r/backend"; printf 'x\n' > "$r/backend/a.txt"; commit "$r"
+: > "$GL_LOG"; RC=0
+(cd "$r" && CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker --workdir backend --skip-python --skip-node --fail-on-findings >/dev/null 2>&1) || RC=$?
+if [[ $RC -eq 0 ]] && grep -q "^top: gitleaks detect --source \.$" "$GL_LOG"; then
+  note "--workdir subdirectory: gitleaks runs from the repository top"
+else
+  error "gitleaks cwd: rc=$RC log='$(cat "$GL_LOG")'"
+fi
 
 # 3. A secret only in an ignored file does not.
 r="$(new_repo ignored)"
