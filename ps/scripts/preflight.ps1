@@ -253,10 +253,8 @@ function Check-Simple {
     $reason = Get-Content $skipFile.FullName -TotalCount 1 -ErrorAction SilentlyContinue
     Remove-Item $skipFile.FullName -ErrorAction SilentlyContinue
     if ($rc -eq 0) { $Results.Add("PASS  $label") }
-    elseif ($rc -eq 3) {
-        if (-not $reason) { $reason = 'the runner found nothing it could check' }
-        Add-Skip $label $reason
-    }
+    # Only with a reason: exit 3 alone can be a test command's own code.
+    elseif ($rc -eq 3 -and $reason) { Add-Skip $label $reason }
     else {
         $Results.Add("FAIL  $label")
         $script:Failed = $true

@@ -10,7 +10,8 @@
 # EXIT_CODES:
 #   0  Every check that ran passed.
 #   1  A check failed, or bad arguments.
-#   3  Nothing could be checked: pytest, or a configured ruff, is not installed. preflight reports it as SKIP.
+#   3  Nothing could be checked: pytest, or a configured ruff, is not installed, or pytest
+#      collected no tests. preflight reports it as SKIP.
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -165,5 +166,12 @@ if ! "$PYTHON" -m pytest --version &>/dev/null; then
 fi
 
 echo "[local-test-python] $PYTHON -m pytest --tb=short -q"
-"$PYTHON" -m pytest --tb=short -q
+pytest_rc=0
+"$PYTHON" -m pytest --tb=short -q || pytest_rc=$?
+case "$pytest_rc" in
+  0) ;;
+  5) skip_exit "pytest collected no tests; nothing to test" ;;
+  3) exit 1 ;;   # pytest's internal error; 3 from this runner means skip_exit
+  *) exit "$pytest_rc" ;;
+esac
 echo "[local-test-python] Done."

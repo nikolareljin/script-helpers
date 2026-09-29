@@ -16,6 +16,13 @@ set -euo pipefail
 
 # skip_exit <reason>; nothing could be checked. Exit 3, which preflight reports as
 # SKIP with this reason (written to $PREFLIGHT_SKIP_FILE when preflight sets it).
+# tests_failed <code>; the test command failed. Its exit 3 becomes 1, so 3 from
+# this runner always means skip_exit.
+tests_failed() {
+  [[ "$1" -eq 3 ]] && exit 1
+  exit "$1"
+}
+
 skip_exit() {
   echo "[local-test-node] $1" >&2
   if [[ -n "${PREFLIGHT_SKIP_FILE:-}" ]]; then printf '%s\n' "$1" > "$PREFLIGHT_SKIP_FILE"; fi
@@ -101,10 +108,10 @@ fi
 
 if [[ -n "$WORKSPACE" ]]; then
   echo "[local-test-node] Testing workspace: $WORKSPACE"
-  npm test --workspace "$WORKSPACE"
+  npm test --workspace "$WORKSPACE" || tests_failed $?
 else
   echo "[local-test-node] Running tests..."
-  npm test
+  npm test || tests_failed $?
 fi
 
 echo "[local-test-node] Done."

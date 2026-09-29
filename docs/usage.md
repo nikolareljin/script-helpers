@@ -934,13 +934,15 @@ separately from passes, and the run still succeeds:
 |---|---|
 | `local_test_go.sh` | no module has Go packages (a module without them is skipped, the others are tested) |
 | `local_test_node.sh` | `package.json` has no `test` script, or npm's placeholder that only fails |
-| `local_test_python.sh` | pytest, or a ruff the project configures, is not installed (the reason names the install command) |
+| `local_test_python.sh` | pytest, or a ruff the project configures, is not installed (the reason names the install command), or pytest collects no tests |
 
 ```text
 SKIP  node (frontend/) lint + test — package.json declares no test script; nothing to test
 ```
 
-Code that does not compile, and tests that fail, still fail.
+Code that does not compile, and tests that fail, still fail. Exit 3 counts as
+`SKIP` only with the runner's reason: a test command's own exit 3 (pytest's
+internal error, a test script's `process.exit(3)`) is reported as a failure.
 
 ### Pinning stacks with `.preflight`, and `./dev` detection
 

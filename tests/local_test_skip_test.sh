@@ -71,6 +71,9 @@ if command -v npm >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
   printf '{"name":"x","version":"1.0.0","scripts":{"test":"node -e \\"process.exit(1)\\""}}\n' > "$n/package.json"
   expect_rc "node: a failing test script still fails" 1 \
     bash scripts/local_test_node.sh --quick --dir "$n"
+  printf '{"name":"x","version":"1.0.0","scripts":{"test":"node -e \\"process.exit(3)\\""}}\n' > "$n/package.json"
+  expect_rc "node: a test script's own exit 3 is a failure (1), not a skip" 1 \
+    bash scripts/local_test_node.sh --quick --dir "$n"
 else
   note "SKIP node cases: node or npm is not installed"
 fi
@@ -89,6 +92,21 @@ if command -v python3 >/dev/null 2>&1 && python3 -m venv "$tmp/venv-probe" >/dev
     expect_rc "python: configured ruff not installed -> not run, exit 3" 3 \
       bash scripts/local_test_python.sh --quick --dir "$p"
   fi
+  # A venv that sees the system pytest, when there is one: no network needed.
+  q="$tmp/pyt"; mkdir -p "$q"; git init -q "$q"
+  python3 -m venv --system-site-packages "$q/.venv"
+  if "$q/.venv/bin/python" -m pytest --version >/dev/null 2>&1; then
+    expect_rc "python: pytest collects no tests -> nothing to test, exit 3" 3 \
+      bash scripts/local_test_python.sh --quick --dir "$q"
+    printf 'def test_one():\n    assert 1\n' > "$q/test_one.py"
+    expect_rc "python: a passing test passes" 0 \
+      bash scripts/local_test_python.sh --quick --dir "$q"
+    printf 'def pytest_sessionstart(session):\n    raise RuntimeError("boom")\n' > "$q/conftest.py"
+    expect_rc "python: pytest's internal error (its exit 3) is a failure (1)" 1 \
+      bash scripts/local_test_python.sh --quick --dir "$q"
+  else
+    note "SKIP pytest-present cases: no system pytest"
+  fi
 else
   note "SKIP python cases: python3 with venv is not available"
 fi
@@ -103,6 +121,17 @@ if command -v npm >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
     note "preflight: a runner's exit 3 is a SKIP, and preflight passes"
   else
     error "preflight: rc=$rc out='$(printf '%s' "$out" | tail -8)'"
+  fi
+fi
+
+if command -v npm >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
+  printf '{"name":"x","version":"1.0.0","scripts":{"test":"node -e \\"process.exit(3)\\""}}\n' > "$r/package.json"
+  rc=0
+  out="$(cd "$r" && bash "$ROOT_DIR/scripts/preflight.sh" --quick --skip-security --stack node 2>&1)" || rc=$?
+  if [[ $rc -eq 1 && "$out" == *"FAIL  node"* && "$out" != *"SKIP  node"* ]]; then
+    note "preflight: a test script's exit 3 is a FAIL, not a SKIP"
+  else
+    error "preflight exit-3 test: rc=$rc out='$(printf '%s' "$out" | tail -6)'"
   fi
 fi
 
