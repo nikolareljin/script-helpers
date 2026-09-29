@@ -87,6 +87,15 @@ try {
     $res = Invoke-Preflight $r @('-SecurityOnly')
     if ($res.Out -match 'SKIP  node \(frontend/\) dependency audit .* No package-lock\.json') { note 'no lockfile: SKIP with the reason' }
     else { fail "no lockfile: out=$($res.Out)" }
+
+    # 5. -Quick (the pre-push run) does not audit; one SKIP line says ./dev scan does.
+    Set-Content -Path (Join-Path $r 'frontend/package-lock.json') -Value '{}'
+    Set-Content -Path $log -Value ''
+    $res = Invoke-Preflight $r @('-Quick')
+    $calls = Get-Content $log -Raw
+    if ($res.Out -match 'SKIP  dependency audits .* not run with -Quick' -and $calls -notmatch 'audit --audit-level' -and $calls -notmatch 'pip-audit') {
+        note '-Quick: no audit, one SKIP line'
+    } else { fail "quick: calls=$calls out=$($res.Out)" }
 }
 finally {
     Remove-Item -Recurse -Force $tmp

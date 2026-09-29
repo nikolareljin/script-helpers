@@ -163,6 +163,27 @@ RC=0; OUT="$(cd "$r" && CI="" PATH="$tmp/nopa" "$(command -v bash)" "$ROOT_DIR/s
 [[ $RC -eq 0 && "$OUT" == *"No requirements.txt or pyproject.toml"* ]] && note "direct call, nothing to check: warning, exit 0" \
   || error "direct: rc=$RC out='$OUT'"
 
+# 11. The pre-push run (--quick, report only) does not audit: pip-audit goes to
+#     the network per project on every push. It says so in one SKIP line; a full
+#     preflight audits, and labels it report only.
+r="$(new_repo quick)"; mkdir -p "$r/frontend"
+printf '{"name":"f","version":"1.0.0"}\n' > "$r/frontend/package.json"; printf '{}\n' > "$r/frontend/package-lock.json"
+printf 'node frontend\n' > "$r/.preflight"
+: > "$AUDIT_LOG"; RC=0
+OUT="$(cd "$r" && CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/preflight.sh" --quick 2>&1)" || RC=$?
+if summary | grep -q "SKIP  dependency audits — not run with --quick; ./dev scan runs them" && ! grep -q " audit --audit-level" "$AUDIT_LOG"; then
+  note "--quick (pre-push): no audit, one SKIP line naming ./dev scan"
+else
+  error "quick: rc=$RC log='$(cat "$AUDIT_LOG")' summary='$(summary)'"
+fi
+: > "$AUDIT_LOG"; RC=0
+OUT="$(cd "$r" && CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/preflight.sh" 2>&1)" || RC=$?
+if summary | grep -q "node (frontend/) dependency audit (report only)" && grep -q "^npm frontend audit" "$AUDIT_LOG"; then
+  note "full preflight: audits, labelled report only"
+else
+  error "full: rc=$RC log='$(cat "$AUDIT_LOG")' summary='$(summary)'"
+fi
+
 if [[ $failures -gt 0 ]]; then
   note "$failures failure(s)"
   exit 1

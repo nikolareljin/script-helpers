@@ -382,6 +382,8 @@ requirements file; bandit leaves `.venv`, `venv`, `node_modules`, `build` and
 `dist` out; `npm audit` needs a lockfile. An audit that could not run (a missing
 tool, no manifest, no lockfile) is a `SKIP` line with the reason, never a
 `PASS`. No stack is needed. `--docker` runs the tools from the pinned images.
+The `--quick` pre-push run leaves the audits out (pip-audit goes to the network
+for each project, about 15 s) and says so in one `SKIP  dependency audits` line.
 
 It fails (exit 1) on findings, through `ci_security.sh --fail-on-findings`, and
 gitleaks then scans what git tracks, history included. Files git ignores are left

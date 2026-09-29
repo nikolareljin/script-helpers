@@ -336,6 +336,13 @@ function Check-Security {
         Invoke-ScanStep "security scan$suffix" $bash.Source (@($script) + $common + $repoArgs)
     }
     # The dependency audits, one step per project, in the project's directory.
+    # Not with -Quick (the pre-push run); see check_security in preflight.sh.
+    if ($Quick -and -not $SecurityOnly) {
+        if (@($scanPairs | Where-Object { $_ -and ($_.Stack -eq 'python' -or $_.Stack -eq 'node') }).Count -gt 0) {
+            Add-Skip 'dependency audits' 'not run with -Quick; ./dev scan runs them'
+        }
+        return
+    }
     foreach ($p in $scanPairs) {
         if (-not $p) { continue }
         $target = Join-Path $ProjectDir $p.Dir

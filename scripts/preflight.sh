@@ -734,7 +734,18 @@ check_security() {
   [[ "$have_gitleaks" == "true" || "$have_foxguard" == "true" ]] && run_step "security scan$suffix" bash "$scanner" "${common[@]+"${common[@]}"}" "${args[@]}"
   # The dependency audits, one step per project, in the project's directory. At
   # the root only, a repository with backend/ and frontend/ got gitleaks alone
-  # and "PASS  security scan".
+  # and "PASS  security scan". Not in --quick, the pre-push run: they go to the
+  # network (pip-audit resolves the project: 14 s measured, npm audit 1 s), per
+  # project, on every push. ./dev scan and a full preflight run them.
+  if [[ "$QUICK" == "true" && "$SECURITY_ONLY" != "true" ]]; then
+    for pair in "${SCAN_PAIRS[@]+"${SCAN_PAIRS[@]}"}"; do
+      case "${pair%%	*}" in python|node)
+        skip_step "dependency audits" "not run with --quick; ./dev scan runs them"
+        return ;;
+      esac
+    done
+    return
+  fi
   for pair in "${SCAN_PAIRS[@]+"${SCAN_PAIRS[@]}"}"; do
     [[ -n "$pair" ]] || continue
     stack="${pair%%	*}"; dir="${pair#*	}"

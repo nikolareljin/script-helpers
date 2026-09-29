@@ -8,7 +8,8 @@
   line each; a Python project with only `pyproject.toml` is audited with `pip-audit .`; an audit
   that could not run (missing tool, no manifest, no lockfile) is a `SKIP` with its reason, through
   `ci_security.sh` exiting 3 under preflight (a direct call keeps exit 0). bandit no longer reads a
-  project's `.venv`, where it failed on third-party code.
+  project's `.venv`, where it failed on third-party code. The `--quick` pre-push run leaves the
+  audits out, with one `SKIP  dependency audits` line: they go to the network on every push.
 - **The PowerShell preflight ignored `.preflight`.** `$configured` and `$Configured` are one
   variable in PowerShell, so the list became `$true`; every repository with a `.preflight` threw,
   checked nothing, and reported `all checks passed` with exit 0. `ps/tests/preflight_test.ps1`.
