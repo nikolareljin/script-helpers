@@ -204,6 +204,14 @@ OUT="$(cd "$r" && CI="" PATH="$tmp/nobin" "$(command -v bash)" "$ROOT_DIR/script
 #     removed; one that matches is installed at the cache path.
 asset="$(uname -s)-$(uname -m)"
 case "$asset" in Linux-x86_64|Linux-amd64|Linux-aarch64|Linux-arm64|Darwin-x86_64|Darwin-arm64) ;; *) asset="";; esac
+# Checking a download needs shasum or openssl; a minimal image (the bash:3.2 one)
+# has neither, and there the install correctly refuses with exit 3.
+if [[ -n "$asset" ]] && ! command -v shasum >/dev/null 2>&1 && ! command -v openssl >/dev/null 2>&1; then
+  note "SKIP install cases: neither shasum nor openssl is installed"
+  asset=""
+elif [[ -z "$asset" ]]; then
+  note "SKIP install cases: no release binary for $(uname -s) $(uname -m)"
+fi
 if [[ -n "$asset" ]]; then
   printf '#!/bin/sh\necho "foxguard 0.14.0"\n' > "$tmp/served"
   cat > "$tmp/bin/curl" <<EOF
@@ -244,8 +252,6 @@ EOF
     error "install match: rc=$RC out='$OUT'"
   fi
   rm -f "$tmp/bin/curl"
-else
-  note "SKIP install cases: no release binary for $(uname -s) $(uname -m)"
 fi
 
 # 12. Platform mapping, through a stub uname: Windows gets the .exe asset, its

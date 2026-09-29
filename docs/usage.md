@@ -373,9 +373,17 @@ For enhanced supply-chain security, pin images to a specific digest:
 ### Security scan: `./dev scan`
 
 `./dev scan` (bash and PowerShell) runs only the secret and dependency scan,
-`preflight.sh --security-only`: gitleaks, pip-audit / safety / bandit when a
-requirements file exists, and `npm audit` when a `package.json` and a lockfile
-exist. No stack is needed. `--docker` runs the tools from the pinned images.
+`preflight.sh --security-only`. gitleaks (and foxguard) scan the repository once.
+The dependency audits run in each Python and Node project preflight knows, from
+`.preflight` or detection, in that project's directory, each with its own
+summary line (`python (backend/) dependency audit`): pip-audit reads a
+requirements file, or else the `pyproject.toml` (`pip-audit .`); safety needs a
+requirements file; bandit leaves `.venv`, `venv`, `node_modules`, `build` and
+`dist` out; `npm audit` needs a lockfile. An audit that could not run (a missing
+tool, no manifest, no lockfile) is a `SKIP` line with the reason, never a
+`PASS`. No stack is needed. `--docker` runs the tools from the pinned images.
+The `--quick` pre-push run leaves the audits out (pip-audit goes to the network
+for each project, about 15 s) and says so in one `SKIP  dependency audits` line.
 
 It fails (exit 1) on findings, through `ci_security.sh --fail-on-findings`, and
 gitleaks then scans what git tracks, history included. Files git ignores are left

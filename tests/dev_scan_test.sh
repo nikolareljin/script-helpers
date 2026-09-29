@@ -122,11 +122,13 @@ else
   error "ignored: rc=$RC out='$(printf '%s' "$OUT" | tail -4)'"
 fi
 
-# 4. No package.json: npm audit is skipped, not counted as a finding.
-if [[ "$OUT" == *"No package.json; skipping npm audit"* ]]; then
-  note "no package.json: npm audit skipped"
+# 4. No Node or Python project: no dependency audit step at all, and the
+#    repository-wide step does not attempt one (tests/dev_scan_audits_test.sh
+#    covers projects).
+if [[ "$OUT" != *"dependency audit"* && "$OUT" != *"npm audit"* ]]; then
+  note "no project: no dependency audit step"
 else
-  error "npm audit was not skipped without package.json"
+  error "a dependency audit ran without a project: $(printf '%s' "$OUT" | grep -i audit | head -3)"
 fi
 
 # 5. Without gitleaks: a SKIP line, not a silent PASS for secrets.
