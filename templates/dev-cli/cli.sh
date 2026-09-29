@@ -312,6 +312,66 @@ verb_scan() {
   bash "$SCRIPT_HELPERS_DIR/scripts/preflight.sh" --security-only "${DEV_ARGS[@]+"${DEV_ARGS[@]}"}"
 }
 
+# Browser end-to-end tests with Playwright, in every directory that has a
+# playwright.config.*. Not part of preflight: a browser run is too slow for every
+# push. Browsers are installed first (cached after the first run);
+# PLAYWRIGHT_BROWSERS=chromium limits the download. Extra arguments go to
+# `playwright test`.
+verb_e2e() {
+  declare -f project_e2e >/dev/null && { project_e2e; return; }
+  local -a dirs=()
+  local config dir rel up rc=0
+  # What git sees: tracked files and untracked ones it does not ignore. That
+  # leaves out node_modules and the contents of submodules (script-helpers
+  # itself is usually one), whose configs are a dependency's. A tracked config
+  # deleted from the work tree is still listed, so check it exists. One run per
+  # directory, even with playwright.config.ts and .js side by side. -z: without
+  # it git quotes a path with non-ASCII characters, and the project is missed.
+  local pattern='(^|/)playwright\.config\.[^/]+$'
+  while IFS= read -r dir; do
+    [[ -n "$dir" ]] && dirs+=("$DEV_REPO_ROOT/$dir")
+  done < <(
+    if git -C "$DEV_REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      git -C "$DEV_REPO_ROOT" ls-files -z --cached --others --exclude-standard \
+        | while IFS= read -r -d '' config; do
+            [[ "$config" =~ $pattern && -f "$DEV_REPO_ROOT/$config" ]] && dirname "$config"
+          done | sort -u
+    else
+      (cd "$DEV_REPO_ROOT" && find . \( -name node_modules -o -name .git \) -prune -o \
+         -type f -name 'playwright.config.*' -print | sed 's|^\./||' \
+         | while IFS= read -r config; do dirname "$config"; done | sort -u)
+    fi
+  )
+  [[ ${#dirs[@]} -gt 0 ]] || not_applicable "e2e" "no playwright.config.* found; define project_e2e in scripts/project.sh"
+  command -v npx >/dev/null 2>&1 || { log_error "e2e: npx not found; install Node.js"; exit 1; }
+  for dir in "${dirs[@]}"; do
+    rel="${dir#"$DEV_REPO_ROOT"}"; rel="${rel#/}"; rel="${rel:-.}"
+    # A Playwright project declares it; a config without that (a vendored copy,
+    # an example) is not one of this repository's test suites.
+    if ! grep -qE '"(@playwright/test|playwright)"[[:space:]]*:' "$dir/package.json" 2>/dev/null; then
+      log_info "e2e: skipping $rel: its package.json does not depend on Playwright"
+      continue
+    fi
+    log_info "e2e: $rel"
+    # Node resolves packages upward, and a workspace install hoists them to the
+    # root, so look in every node_modules from here up to the repository root.
+    up="$dir"
+    while [[ ! -d "$up/node_modules/@playwright/test" && ! -d "$up/node_modules/playwright" \
+             && "$up" != "$DEV_REPO_ROOT" && "$up" == "$DEV_REPO_ROOT"/* ]]; do
+      up="$(dirname "$up")"
+    done
+    if [[ ! -d "$up/node_modules/@playwright/test" && ! -d "$up/node_modules/playwright" ]]; then
+      log_error "e2e: Playwright is not installed in $rel; run ./dev install first"
+      rc=1
+      continue
+    fi
+    # shellcheck disable=SC2086  # a list of browser names, split on purpose
+    ( cd "$dir" && npx playwright install ${PLAYWRIGHT_BROWSERS:-} \
+        && npx playwright test "${DEV_ARGS[@]+"${DEV_ARGS[@]}"}" ) || rc=1
+  done
+  return "$rc"
+}
+
 verb_preflight() {
   declare -f project_preflight >/dev/null && { project_preflight; return; }
   bash "$SCRIPT_HELPERS_DIR/scripts/preflight.sh" "${DEV_ARGS[@]+"${DEV_ARGS[@]}"}"
@@ -576,6 +636,7 @@ Core
   test          Run the test suite.
   preflight     Run every check CI would have run. The pre-push hook calls this.
   scan          Secret and dependency scan only (gitleaks, audits).  [--docker]
+  e2e           Browser tests with Playwright, where playwright.config.* exists.
   deploy        Build, then install and launch on a connected device,
                 or deploy to Cloudflare with `deploy cloudflare --env <name>`.
   clean         Remove build output and caches. Never touches user data.
@@ -626,6 +687,7 @@ main() {
     test)       verb_test ;;
     preflight)  verb_preflight ;;
     scan)       verb_scan ;;
+    e2e)        verb_e2e ;;
     deploy)     verb_deploy ;;
     devices)    verb_devices ;;
     screenshot) verb_screenshot ;;
