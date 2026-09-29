@@ -38,6 +38,7 @@ list="$tmp/names.tsv"
   printf '# visibility\tnamespace\tname\tcode\tflags\n'
   printf 'private\ttestns\tbluewidget\tR-111\t\n'
   printf 'private\ttestns\tbeacon\tR-222\tambiguous\n'
+  printf 'private\ttestns\tcoverage\tR-333\tambiguous\n'
   printf 'public\ttestns\tscript-helpers\tR-002\t\n'
 } > "$list"
 
@@ -446,6 +447,69 @@ if [[ $rc -eq 0 ]] && grep -q "no private repository is named" <<<"$out" \
   ok "clean text still reports clean, so the warning is not always on"
 else
   error "clean text did not report clean: $out"
+fi
+
+# --- an everyday word the gate deliberately stops watching -----------------
+#
+# `coverage` is flagged ambiguous in the dictionary exactly as `beacon` is, and
+# would warn the same way. It is on the generic list instead, because it is a
+# word, an action, and half the file names in any repository that measures
+# anything -- a warning on `tests/workflow-coverage.yaml` is noise, and noise is
+# what gets a gate switched off.
+#
+# Qualified is still matched: giving up the bare form is not giving up the name.
+# A repository of its own: the checks above read the beacon commit at HEAD of
+# amb_repo and the $out it produced, and a commit added there changes both.
+cov_repo="$tmp/cov"
+mkdir -p "$cov_repo"
+git_t -C "$cov_repo" init -q .
+printf 'nothing of interest\n' > "$cov_repo/a.md"
+git_t -C "$cov_repo" add a.md
+git_t -C "$cov_repo" commit -q -m "init"
+printf 'measuring coverage of the tests\n' > "$cov_repo/d.md"
+git_t -C "$cov_repo" add d.md
+git_t -C "$cov_repo" commit -q -m "test: raise coverage in tests/workflow-coverage.yaml"
+
+range_msgs="$(git_t -C "$cov_repo" log --format=%B 'HEAD~1..HEAD')"
+grep -q coverage <<<"$range_msgs" \
+  || error "the commit under test does not mention the word, so nothing below proves anything"
+
+out="$( cd "$cov_repo" && bash "$GATE" --commits 'HEAD~1..HEAD' --list "$list" 2>&1 )"; rc=$?
+if [[ $rc -ne 0 ]]; then
+  error "a generic everyday word failed the run (exit $rc): $out"
+elif grep -q "needs a person" <<<"$out"; then
+  error "a generic everyday word still warns: $out"
+else
+  ok "an everyday word on the generic list neither fails nor warns"
+fi
+
+printf 'nothing here\n' > "$cov_repo/e.md"
+git_t -C "$cov_repo" add e.md
+git_t -C "$cov_repo" commit -q -m "docs: cites testns/coverage by namespace"
+
+out="$( cd "$cov_repo" && bash "$GATE" --commits 'HEAD~1..HEAD' --list "$list" 2>&1 )"; rc=$?
+# Exit 1 and the code: exit 2 is could-not-check, not a refusal.
+if [[ $rc -eq 1 ]] && grep -q "R-333" <<<"$out"; then
+  ok "the qualified form is still refused, so only the bare word was given up"
+else
+  error "the qualified form of a generic name was not refused (exit $rc), so the name is now unprotected: $out"
+fi
+
+# --- the generic list is written twice; the copies must agree ---------------
+#
+# refresh_private_names.sh flags these names when it writes the dictionary, and
+# check_private_names.sh applies them whatever the dictionary says. They had
+# already drifted (`ci` in one, `coverage` in the other). Names the length or
+# leading-dot rule covers anyway (`ci`, `.github`) are left out of the comparison.
+generic_words() { tr -c 'A-Za-z0-9._-' '\n' | grep -v '^$' | awk 'length($0) > 4 && substr($0, 1, 1) != "."' | sort -u; }
+checker_list="$(sed -n '/split("\.github/,/", g, " ")/p' "$GATE" | sed 's/", g, " ")//; s/split(//' | tr -d '"\\' | generic_words)"
+generator_list="$(sed -n '/^GENERIC = {/,/^}/p' "$ROOT_DIR/scripts/refresh_private_names.sh" | sed '1d;$d' | tr -d '",' | generic_words)"
+if [[ -z "$checker_list" || -z "$generator_list" ]]; then
+  error "could not read a generic list (checker: $(printf '%s' "$checker_list" | grep -c .), generator: $(printf '%s' "$generator_list" | grep -c .)), so nothing below proves anything"
+elif [[ "$checker_list" != "$generator_list" ]]; then
+  error "the two generic lists disagree: $(diff <(printf '%s\n' "$checker_list") <(printf '%s\n' "$generator_list") | grep '^[<>]' | tr '\n' ' ')"
+else
+  ok "the checker and the generator share one generic list ($(printf '%s\n' "$checker_list" | grep -c .) names)"
 fi
 
 # The "no list yet" message is read in a consumer, where this library lives
