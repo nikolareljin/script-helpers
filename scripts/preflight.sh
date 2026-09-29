@@ -55,7 +55,7 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=/dev/null
 source "$SCRIPT_HELPERS_DIR/helpers.sh"
-shlib_import help logging os
+shlib_import help logging os foxguard
 
 QUICK=false
 USE_DOCKER=false
@@ -717,6 +717,10 @@ check_security() {
     # In the summary too: without it, "PASS  security scan" read as if secrets
     # had been scanned.
     skip_step "gitleaks secret scan" "gitleaks is not installed — $(install_hint gitleaks gitleaks), or run with --docker"
+  fi
+  # foxguard runs on the host in both modes; there is no image of it.
+  if ! foxguard_bin >/dev/null; then
+    skip_step "foxguard code scan" "foxguard is not installed; bash $scanner --install-foxguard"
   fi
   run_step "$label" bash "$scanner" "${args[@]+"${args[@]}"}"
 }
