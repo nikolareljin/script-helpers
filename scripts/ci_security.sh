@@ -34,6 +34,9 @@
 #                          foxguard.yml, foxguard.yaml); elsewhere they are
 #                          reported, not counted.
 #   -h, --help             Show this help message.
+# EXIT CODES: 0 clean (or reported only); 1 findings with --fail-on-findings;
+#   3 only under preflight (PREFLIGHT_SKIP_FILE set): nothing it was asked for
+#   could run (a missing tool, no manifest, no lockfile), reason in that file.
 # ----------------------------------------------------
 set -euo pipefail
 

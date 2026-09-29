@@ -88,6 +88,17 @@ try {
     if ($res.Out -match 'SKIP  node \(frontend/\) dependency audit .* No package-lock\.json') { note 'no lockfile: SKIP with the reason' }
     else { fail "no lockfile: out=$($res.Out)" }
 
+    # 4b. Without .preflight, detected projects are audited the same way.
+    Set-Content -Path (Join-Path $r 'frontend/package-lock.json') -Value '{}'
+    Remove-Item -Force (Join-Path $r '.preflight')
+    Set-Content -Path $log -Value ''
+    $res = Invoke-Preflight $r @('-SecurityOnly')
+    $calls = Get-Content $log -Raw
+    if ($res.Out -match 'PASS  python \(backend/\) dependency audit' -and $res.Out -match 'PASS  node \(frontend/\) dependency audit' `
+        -and $calls -match 'pip-audit backend \.' -and $calls -match 'npm frontend audit') {
+        note 'detected projects (no .preflight): audited in their directories'
+    } else { fail "detected: calls=$calls out=$($res.Out)" }
+
     # 5. -Quick (the pre-push run) does not audit; one SKIP line says ./dev scan does.
     Set-Content -Path (Join-Path $r 'frontend/package-lock.json') -Value '{}'
     Set-Content -Path $log -Value ''
