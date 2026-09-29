@@ -44,7 +44,9 @@
 - **`check_private_names.sh` warned on `coverage` in file names.** A commit message naming
   `tests/workflow-coverage.yaml` got "needs a person". `coverage` joins the generic list, and the
   bare warn tier now skips generic names, as its comment always said; `coverage` is the only
-  generic name the dictionary flags ambiguous. The qualified form is still refused.
+  generic name the dictionary flags ambiguous. The qualified form is still refused. The list
+  is written twice, in the checker and in `refresh_private_names.sh`, and had drifted; both now
+  carry `coverage`, and `tests/private_names_test.sh` fails if they disagree.
 
 - **preflight failed checks that had nothing to check.** A Go module with no packages
   (`"./..." matched no packages`), a `package.json` with no `test` script or npm's placeholder,

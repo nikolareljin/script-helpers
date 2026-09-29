@@ -182,7 +182,8 @@ Bundled CLIs
   in this repository alone, in prose and in identifiers, and blocked a commit whose only
   sin was a shell function called `search()`. Requiring the qualified form takes the same
   tree to zero. The matcher also applies that rule to any name of four characters or
-  fewer, anything beginning with a dot, and well-known directory names, whatever the file
+  fewer, anything beginning with a dot, well-known directory names, and words that are
+  in half the file names of any repository (`coverage`), whatever the file
   says — because whether a bare mention can be a reference is a property of the name, and
   a generator that forgot to flag one should not silently turn this check into noise.
 

@@ -241,6 +241,8 @@ else
       # `check_workflow_coverage.py`, `tests/workflow-coverage.yaml`. Flagged
       # `ambiguous` by the dictionary it warned on its own file names, which is
       # the noise this list exists to remove.
+      # The same list is in refresh_private_names.sh; tests/private_names_test.sh
+      # fails if the two disagree.
       split(".github .gitlab docs doc test tests src web www api app lib bin scripts " \
             "config assets images data tools infra common core shared utils examples " \
             "demo sandbox template templates main public static build dist site blog " \

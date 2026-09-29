@@ -495,6 +495,23 @@ else
   error "the qualified form of a generic name was not refused (exit $rc), so the name is now unprotected: $out"
 fi
 
+# --- the generic list is written twice; the copies must agree ---------------
+#
+# refresh_private_names.sh flags these names when it writes the dictionary, and
+# check_private_names.sh applies them whatever the dictionary says. They had
+# already drifted (`ci` in one, `coverage` in the other). Names the length or
+# leading-dot rule covers anyway (`ci`, `.github`) are left out of the comparison.
+generic_words() { tr -c 'A-Za-z0-9._-' '\n' | grep -v '^$' | awk 'length($0) > 4 && substr($0, 1, 1) != "."' | sort -u; }
+checker_list="$(sed -n '/split("\.github/,/", g, " ")/p' "$GATE" | sed 's/", g, " ")//; s/split(//' | tr -d '"\\' | generic_words)"
+generator_list="$(sed -n '/^GENERIC = {/,/^}/p' "$ROOT_DIR/scripts/refresh_private_names.sh" | sed '1d;$d' | tr -d '",' | generic_words)"
+if [[ -z "$checker_list" || -z "$generator_list" ]]; then
+  error "could not read a generic list (checker: $(printf '%s' "$checker_list" | grep -c .), generator: $(printf '%s' "$generator_list" | grep -c .)), so nothing below proves anything"
+elif [[ "$checker_list" != "$generator_list" ]]; then
+  error "the two generic lists disagree: $(diff <(printf '%s\n' "$checker_list") <(printf '%s\n' "$generator_list") | grep '^[<>]' | tr '\n' ' ')"
+else
+  ok "the checker and the generator share one generic list ($(printf '%s\n' "$checker_list" | grep -c .) names)"
+fi
+
 # The "no list yet" message is read in a consumer, where this library lives
 # under scripts/script-helpers or vendor/. It used to print a path relative to
 # the library, which does not exist there.
