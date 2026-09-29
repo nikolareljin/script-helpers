@@ -325,15 +325,16 @@ verb_e2e() {
   # leaves out node_modules and the contents of submodules (script-helpers
   # itself is usually one), whose configs are a dependency's. A tracked config
   # deleted from the work tree is still listed, so check it exists. One run per
-  # directory, even with playwright.config.ts and .js side by side.
+  # directory, even with playwright.config.ts and .js side by side. -z: without
+  # it git quotes a path with non-ASCII characters, and the project is missed.
+  local pattern='(^|/)playwright\.config\.[^/]+$'
   while IFS= read -r dir; do
     [[ -n "$dir" ]] && dirs+=("$DEV_REPO_ROOT/$dir")
   done < <(
     if git -C "$DEV_REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-      git -C "$DEV_REPO_ROOT" ls-files --cached --others --exclude-standard \
-        | grep -E '(^|/)playwright\.config\.[^/]+$' \
-        | while IFS= read -r config; do
-            [[ -f "$DEV_REPO_ROOT/$config" ]] && dirname "$config"
+      git -C "$DEV_REPO_ROOT" ls-files -z --cached --others --exclude-standard \
+        | while IFS= read -r -d '' config; do
+            [[ "$config" =~ $pattern && -f "$DEV_REPO_ROOT/$config" ]] && dirname "$config"
           done | sort -u
     else
       (cd "$DEV_REPO_ROOT" && find . \( -name node_modules -o -name .git \) -prune -o \

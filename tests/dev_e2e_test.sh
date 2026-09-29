@@ -159,6 +159,15 @@ else
   error "deleted: rc=$rc log='$(cat "$NPX_LOG")' out='$out'"
 fi
 
+# 5h. Non-ASCII and bracketed directory names: git quotes the first unless -z.
+r="$(new_repo names)"; mkdir -p "$r/tést" "$r/e2e[v2]"; with_playwright "$r/tést"; with_playwright "$r/e2e[v2]"
+: > "$NPX_LOG"; rc=0; out="$(dev "$r" e2e)" || rc=$?
+if [[ $rc -eq 0 ]] && grep -q "^tést: npx playwright test" "$NPX_LOG" && grep -q "^e2e\[v2\]: npx playwright test" "$NPX_LOG"; then
+  note "non-ASCII and bracketed directory names: both run"
+else
+  error "names: rc=$rc log='$(cat "$NPX_LOG")' out='$out'"
+fi
+
 # 6. project_e2e replaces the default.
 r="$(new_repo custom)"; with_playwright "$r"
 printf 'project_e2e() { echo "custom e2e ran"; }\n' > "$r/scripts/project.sh"

@@ -248,8 +248,9 @@ function Verb-E2e {
     if ($LASTEXITCODE -eq 0) { $inGit = $true }
     # A tracked config deleted from the work tree is still listed: keep the ones
     # that exist. One run per directory, even with .ts and .js side by side.
+    # -z: without it git quotes a path with non-ASCII characters.
     $configs = @(if ($inGit) {
-        & git -C $DEV_REPO_ROOT ls-files --cached --others --exclude-standard |
+        ((& git -C $DEV_REPO_ROOT ls-files -z --cached --others --exclude-standard) -join "`n") -split "`0" |
             Where-Object { $_ -match '(^|/)playwright\.config\.[^/]+$' } |
             ForEach-Object { Join-Path $DEV_REPO_ROOT $_ } |
             Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
@@ -264,26 +265,27 @@ function Verb-E2e {
     $failed = $false
     $root = (Get-Item -LiteralPath $DEV_REPO_ROOT).FullName
     foreach ($dir in $dirs) {
+        $rel = $dir.Substring([Math]::Min($root.Length, $dir.Length)).TrimStart('\', '/'); if (-not $rel) { $rel = '.' }
         $pkg = Join-Path $dir 'package.json'
-        if (-not ((Test-Path $pkg) -and (Select-String -Path $pkg -Pattern '"(@playwright/test|playwright)"\s*:' -Quiet))) {
-            log_info "e2e: skipping ${dir}: its package.json does not depend on Playwright"
+        if (-not ((Test-Path -LiteralPath $pkg) -and (Select-String -LiteralPath $pkg -Pattern '"(@playwright/test|playwright)"\s*:' -Quiet))) {
+            log_info "e2e: skipping ${rel}: its package.json does not depend on Playwright"
             continue
         }
-        log_info "e2e: $dir"
+        log_info "e2e: $rel"
         # Node resolves packages upward, and a workspace install hoists them to
         # the root: look in every node_modules from here up to the repository root.
         $found = $false; $up = $dir
         while ($up) {
-            if ((Test-Path (Join-Path $up 'node_modules/@playwright/test')) -or (Test-Path (Join-Path $up 'node_modules/playwright'))) { $found = $true; break }
+            if ((Test-Path -LiteralPath (Join-Path $up 'node_modules/@playwright/test')) -or (Test-Path -LiteralPath (Join-Path $up 'node_modules/playwright'))) { $found = $true; break }
             if ($up -eq $root -or -not $up.StartsWith($root)) { break }
             $up = Split-Path -Parent $up
         }
         if (-not $found) {
-            log_error "e2e: Playwright is not installed in $dir; run ./dev install first"
+            log_error "e2e: Playwright is not installed in $rel; run ./dev install first"
             $failed = $true
             continue
         }
-        Push-Location $dir
+        Push-Location -LiteralPath $dir
         try {
             $browsers = @(); if ($env:PLAYWRIGHT_BROWSERS) { $browsers = @($env:PLAYWRIGHT_BROWSERS -split '\s+' | Where-Object { $_ }) }
             & npx playwright install @browsers
