@@ -488,10 +488,11 @@ git_t -C "$cov_repo" add e.md
 git_t -C "$cov_repo" commit -q -m "docs: cites testns/coverage by namespace"
 
 out="$( cd "$cov_repo" && bash "$GATE" --commits 'HEAD~1..HEAD' --list "$list" 2>&1 )"; rc=$?
-if [[ $rc -eq 0 ]]; then
-  error "the qualified form of a generic name was not matched, so the name is now unprotected: $out"
-else
+# Exit 1 and the code: exit 2 is could-not-check, not a refusal.
+if [[ $rc -eq 1 ]] && grep -q "R-333" <<<"$out"; then
   ok "the qualified form is still refused, so only the bare word was given up"
+else
+  error "the qualified form of a generic name was not refused (exit $rc), so the name is now unprotected: $out"
 fi
 
 # The "no list yet" message is read in a consumer, where this library lives
