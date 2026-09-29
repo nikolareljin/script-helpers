@@ -238,6 +238,35 @@ function Verb-Scan {
     if (-not (Invoke-Preflight (@('--security-only') + @($DEV_ARGS)))) { exit 1 }
 }
 
+# Browser end-to-end tests with Playwright; see verb_e2e in cli.sh.
+function Verb-E2e {
+    if (Get-Command Project-E2e -ErrorAction SilentlyContinue) { Project-E2e; return }
+    $configs = @(Get-ChildItem -Path $DEV_REPO_ROOT -Recurse -File -Filter 'playwright.config.*' -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -notmatch '[\\/](node_modules|\.git)[\\/]' } | Sort-Object FullName)
+    if ($configs.Count -eq 0) { Not-Applicable 'e2e' 'no playwright.config.* found; define Project-E2e in scripts/project.ps1' }
+    if (-not (Get-Command npx -ErrorAction SilentlyContinue)) { log_error 'e2e: npx not found; install Node.js'; exit 1 }
+    $failed = $false
+    foreach ($c in $configs) {
+        $dir = $c.DirectoryName
+        log_info "e2e: $dir"
+        if (-not ((Test-Path (Join-Path $dir 'node_modules/@playwright/test')) -or (Test-Path (Join-Path $dir 'node_modules/playwright')))) {
+            log_error "e2e: Playwright is not installed in $dir; run ./dev install first"
+            $failed = $true
+            continue
+        }
+        Push-Location $dir
+        try {
+            $browsers = @(); if ($env:PLAYWRIGHT_BROWSERS) { $browsers = $env:PLAYWRIGHT_BROWSERS -split '\s+' }
+            & npx playwright install @browsers
+            if ($LASTEXITCODE -ne 0) { $failed = $true; continue }
+            $extra = @($DEV_ARGS | Where-Object { $_ })
+            & npx playwright test @extra
+            if ($LASTEXITCODE -ne 0) { $failed = $true }
+        } finally { Pop-Location }
+    }
+    if ($failed) { exit 1 }
+}
+
 function Verb-Preflight {
     if (Get-Command Project-Preflight -ErrorAction SilentlyContinue) { Project-Preflight; return }
     if (-not (Invoke-Preflight $DEV_ARGS)) { exit 1 }
@@ -421,6 +450,7 @@ Core
   test          Run the test suite.
   preflight     Run every check CI would have run. The pre-push hook calls this.
   scan          Secret and dependency scan only (gitleaks, audits).  [--docker]
+  e2e           Browser tests with Playwright, where playwright.config.* exists.
   deploy        Build, then install and launch on a connected device.
   clean         Remove build output and caches. Never touches user data.
   update        Sync submodules and refresh pinned dependencies.
@@ -460,6 +490,7 @@ switch ($Verb) {
     'test'       { Verb-Test }
     'preflight'  { Verb-Preflight }
     'scan'       { Verb-Scan }
+    'e2e'        { Verb-E2e }
     'deploy'     { Verb-Deploy }
     'devices'    { Verb-Devices }
     'screenshot' { Verb-Screenshot }

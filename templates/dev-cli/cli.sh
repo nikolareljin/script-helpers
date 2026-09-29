@@ -312,6 +312,35 @@ verb_scan() {
   bash "$SCRIPT_HELPERS_DIR/scripts/preflight.sh" --security-only "${DEV_ARGS[@]+"${DEV_ARGS[@]}"}"
 }
 
+# Browser end-to-end tests with Playwright, in every directory that has a
+# playwright.config.*. Not part of preflight: a browser run is too slow for every
+# push. Browsers are installed first (cached after the first run);
+# PLAYWRIGHT_BROWSERS=chromium limits the download. Extra arguments go to
+# `playwright test`.
+verb_e2e() {
+  declare -f project_e2e >/dev/null && { project_e2e; return; }
+  local -a dirs=()
+  local config dir rc=0
+  while IFS= read -r config; do
+    dirs+=("$(dirname "$config")")
+  done < <(find "$DEV_REPO_ROOT" \( -name node_modules -o -name .git \) -prune -o \
+             -type f -name 'playwright.config.*' -print | sort)
+  [[ ${#dirs[@]} -gt 0 ]] || not_applicable "e2e" "no playwright.config.* found; define project_e2e in scripts/project.sh"
+  command -v npx >/dev/null 2>&1 || { log_error "e2e: npx not found; install Node.js"; exit 1; }
+  for dir in "${dirs[@]}"; do
+    log_info "e2e: ${dir#"$DEV_REPO_ROOT"/}"
+    if [[ ! -d "$dir/node_modules/@playwright/test" && ! -d "$dir/node_modules/playwright" ]]; then
+      log_error "e2e: Playwright is not installed in ${dir#"$DEV_REPO_ROOT"/}; run ./dev install first"
+      rc=1
+      continue
+    fi
+    # shellcheck disable=SC2086  # a list of browser names, split on purpose
+    ( cd "$dir" && npx playwright install ${PLAYWRIGHT_BROWSERS:-} \
+        && npx playwright test "${DEV_ARGS[@]+"${DEV_ARGS[@]}"}" ) || rc=1
+  done
+  return "$rc"
+}
+
 verb_preflight() {
   declare -f project_preflight >/dev/null && { project_preflight; return; }
   bash "$SCRIPT_HELPERS_DIR/scripts/preflight.sh" "${DEV_ARGS[@]+"${DEV_ARGS[@]}"}"
@@ -576,6 +605,7 @@ Core
   test          Run the test suite.
   preflight     Run every check CI would have run. The pre-push hook calls this.
   scan          Secret and dependency scan only (gitleaks, audits).  [--docker]
+  e2e           Browser tests with Playwright, where playwright.config.* exists.
   deploy        Build, then install and launch on a connected device,
                 or deploy to Cloudflare with `deploy cloudflare --env <name>`.
   clean         Remove build output and caches. Never touches user data.
@@ -626,6 +656,7 @@ main() {
     test)       verb_test ;;
     preflight)  verb_preflight ;;
     scan)       verb_scan ;;
+    e2e)        verb_e2e ;;
     deploy)     verb_deploy ;;
     devices)    verb_devices ;;
     screenshot) verb_screenshot ;;

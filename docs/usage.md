@@ -396,6 +396,29 @@ report only: it prints findings and does not block, and its summary line says
 bash scripts/ci_security.sh --no-docker --fail-on-findings   # the same, directly
 ```
 
+### Browser tests: `./dev e2e`
+
+`./dev e2e` (bash and PowerShell) runs Playwright in every directory with a
+`playwright.config.*` (not under `node_modules`): `npx playwright install`, then
+`npx playwright test` with any extra arguments. It is not part of `preflight`:
+a browser run is too slow for every push.
+
+| Situation | Result |
+|---|---|
+| no `playwright.config.*` | not applicable, exit 0 |
+| Playwright not in `node_modules` | exit 1: run `./dev install` first |
+| tests fail | exit 1 |
+| `project_e2e` / `Project-E2e` defined | that runs instead |
+
+Browsers are downloaded on the first run and cached (`~/.cache/ms-playwright`).
+`PLAYWRIGHT_BROWSERS="chromium"` limits the download to the browsers you name.
+
+```bash
+./dev e2e
+./dev e2e tests/login.spec.ts --headed
+PLAYWRIGHT_BROWSERS=chromium ./dev e2e
+```
+
 Git hook setup and local test runners
 -------------------------------------
 
