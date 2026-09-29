@@ -33,16 +33,21 @@ repo_root_logical="$(cd "./$(git rev-parse --show-cdup)" && pwd)"
 cd "$repo_root"
 repo_root="$(pwd -P)"
 
-# The bundled hooks next to this script, as a repo-relative path, or nothing.
+# bundled_under <script dir> <repository top>: the hooks next to this script as a
+# repo-relative path, when that directory is inside the repository.
+bundled_under() {
+  if [[ "$1" == "$2"/* ]] && has_required_hooks "$1/git-hooks"; then
+    echo "${1#"$2"/}/git-hooks"
+  fi
+}
+
+# The bundled hooks next to this script, as a repo-relative path, or nothing:
+# first as the caller reached them, then physically.
 bundled_hooks() {
-  local pair dir root
-  for pair in "$script_dir_logical|$repo_root_logical" "$script_dir|$repo_root"; do
-    dir="${pair%%|*}"; root="${pair#*|}"
-    if [[ "$dir" == "$root"/* ]] && has_required_hooks "$dir/git-hooks"; then
-      echo "${dir#"$root"/}/git-hooks"
-      return
-    fi
-  done
+  local found
+  found="$(bundled_under "$script_dir_logical" "$repo_root_logical")"
+  [[ -n "$found" ]] || found="$(bundled_under "$script_dir" "$repo_root")"
+  [[ -z "$found" ]] || echo "$found"
 }
 
 has_required_hooks() {
@@ -69,8 +74,11 @@ hooks_dir="$(resolve_hooks_dir)"   # relative — portable across clones
 hooks_dir_abs="$repo_root/$hooks_dir"
 
 if [[ -z "$hooks_dir" ]]; then
-  echo "[setup-hooks] ERROR: No hooks directory found." >&2
-  echo "  Expected shared hooks in scripts/ or both .githooks/pre-commit and .githooks/pre-push." >&2
+  echo "[setup-hooks] ERROR: No hooks directory found. Looked for pre-commit and pre-push in:" >&2
+  echo "  .githooks/" >&2
+  echo "  ${script_dir_logical}/git-hooks/  (next to this script)" >&2
+  echo "  scripts/script-helpers/scripts/git-hooks/" >&2
+  echo "  scripts/git-hooks/" >&2
   exit 1
 fi
 

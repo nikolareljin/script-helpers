@@ -8,7 +8,8 @@
   vendored copy works, a symlinked one and a run from a subdirectory included. A
   repository with only `.githooks/pre-push` still gets the shared hooks, and the shared
   `pre-push` hands over to its own. `tests/setup_hooks_test.sh` covers these, `.githooks`
-  precedence and the refusal outside a worktree; `docs/usage.md` gives the order.
+  precedence and the refusal outside a worktree; `docs/usage.md` gives the order. When
+  nothing is found, the error lists each place it looked.
 
 - **A repository name that begins with a dash reached `grep` as options.**
   `drop_allowed` in `check_private_names.sh` called `grep -qix -F "$name"`

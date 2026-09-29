@@ -94,7 +94,28 @@ ln -s "$tmp/outside/sh" "$repo/vendor/script-helpers"
   && ok "a symlinked vendored copy -> the path through the symlink" \
   || error "symlinked copy: got '$(hooks_path "$repo")'"
 
-# 7. Outside a worktree it refuses.
+# 7. A "|" in a parent directory's name.
+mkdir -p "$tmp/pipe|dir"
+git init -q "$tmp/pipe|dir/repo"
+mkdir -p "$tmp/pipe|dir/repo/vendor/script-helpers/scripts"
+cp "$root_dir/scripts/setup-hooks.sh" "$tmp/pipe|dir/repo/vendor/script-helpers/scripts/"
+cp -R "$root_dir/scripts/git-hooks" "$tmp/pipe|dir/repo/vendor/script-helpers/scripts/"
+(cd "$tmp/pipe|dir/repo" && bash vendor/script-helpers/scripts/setup-hooks.sh >/dev/null 2>&1) || true
+[[ "$(hooks_path "$tmp/pipe|dir/repo")" == "vendor/script-helpers/scripts/git-hooks" ]] \
+  && ok "a | in a parent directory's name" \
+  || error "pipe in path: got '$(hooks_path "$tmp/pipe|dir/repo")'"
+
+# 8. Nothing found: the error names where it looked.
+repo="$(make_repo nothing "")"
+mkdir -p "$repo/tools"
+cp "$root_dir/scripts/setup-hooks.sh" "$repo/tools/"
+rc=0
+out="$(cd "$repo" && bash tools/setup-hooks.sh 2>&1)" || rc=$?
+[[ $rc -ne 0 && "$out" == *"next to this script"* && "$out" == *".githooks/"* ]] \
+  && ok "nothing found -> error listing the places it looked" \
+  || error "nothing found: rc=$rc out='$out'"
+
+# 9. Outside a worktree it refuses.
 rc=0
 (cd "$tmp" && bash "$root_dir/scripts/setup-hooks.sh" >/dev/null 2>&1) || rc=$?
 [[ $rc -ne 0 ]] && ok "outside a git worktree -> error" || error "outside a worktree exited 0"
