@@ -246,33 +246,46 @@ function Verb-E2e {
     $inGit = $false
     & git -C $DEV_REPO_ROOT rev-parse --is-inside-work-tree *> $null
     if ($LASTEXITCODE -eq 0) { $inGit = $true }
+    # A tracked config deleted from the work tree is still listed: keep the ones
+    # that exist. One run per directory, even with .ts and .js side by side.
     $configs = @(if ($inGit) {
         & git -C $DEV_REPO_ROOT ls-files --cached --others --exclude-standard |
-            Where-Object { $_ -match '(^|/)playwright\.config\.[^/]+$' } | Sort-Object -Unique |
-            ForEach-Object { Get-Item (Join-Path $DEV_REPO_ROOT $_) }
+            Where-Object { $_ -match '(^|/)playwright\.config\.[^/]+$' } |
+            ForEach-Object { Join-Path $DEV_REPO_ROOT $_ } |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+            ForEach-Object { Get-Item -LiteralPath $_ }
     } else {
         Get-ChildItem -Path $DEV_REPO_ROOT -Recurse -File -Filter 'playwright.config.*' -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -notmatch '[\\/](node_modules|\.git)[\\/]' } | Sort-Object FullName
+            Where-Object { $_.FullName -notmatch '[\\/](node_modules|\.git)[\\/]' }
     })
-    if ($configs.Count -eq 0) { Not-Applicable 'e2e' 'no playwright.config.* found; define Project-E2e in scripts/project.ps1' }
+    $dirs = @($configs | ForEach-Object { $_.DirectoryName } | Sort-Object -Unique)
+    if ($dirs.Count -eq 0) { Not-Applicable 'e2e' 'no playwright.config.* found; define Project-E2e in scripts/project.ps1' }
     if (-not (Get-Command npx -ErrorAction SilentlyContinue)) { log_error 'e2e: npx not found; install Node.js'; exit 1 }
     $failed = $false
-    foreach ($c in $configs) {
-        $dir = $c.DirectoryName
+    $root = (Get-Item -LiteralPath $DEV_REPO_ROOT).FullName
+    foreach ($dir in $dirs) {
         $pkg = Join-Path $dir 'package.json'
         if (-not ((Test-Path $pkg) -and (Select-String -Path $pkg -Pattern '"(@playwright/test|playwright)"\s*:' -Quiet))) {
             log_info "e2e: skipping ${dir}: its package.json does not depend on Playwright"
             continue
         }
         log_info "e2e: $dir"
-        if (-not ((Test-Path (Join-Path $dir 'node_modules/@playwright/test')) -or (Test-Path (Join-Path $dir 'node_modules/playwright')))) {
+        # Node resolves packages upward, and a workspace install hoists them to
+        # the root: look in every node_modules from here up to the repository root.
+        $found = $false; $up = $dir
+        while ($up) {
+            if ((Test-Path (Join-Path $up 'node_modules/@playwright/test')) -or (Test-Path (Join-Path $up 'node_modules/playwright'))) { $found = $true; break }
+            if ($up -eq $root -or -not $up.StartsWith($root)) { break }
+            $up = Split-Path -Parent $up
+        }
+        if (-not $found) {
             log_error "e2e: Playwright is not installed in $dir; run ./dev install first"
             $failed = $true
             continue
         }
         Push-Location $dir
         try {
-            $browsers = @(); if ($env:PLAYWRIGHT_BROWSERS) { $browsers = $env:PLAYWRIGHT_BROWSERS -split '\s+' }
+            $browsers = @(); if ($env:PLAYWRIGHT_BROWSERS) { $browsers = @($env:PLAYWRIGHT_BROWSERS -split '\s+' | Where-Object { $_ }) }
             & npx playwright install @browsers
             if ($LASTEXITCODE -ne 0) { $failed = $true; continue }
             $extra = @($DEV_ARGS | Where-Object { $_ })

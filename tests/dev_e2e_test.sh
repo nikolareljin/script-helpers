@@ -129,6 +129,36 @@ else
   error "submodule: rc=$rc present=$([[ -f "$r/libmod/playwright.config.ts" ]] && echo y || echo n) log='$(cat "$NPX_LOG")' out='$out'"
 fi
 
+# 5e. Two configs in one directory: one run, not two.
+r="$(new_repo dup)"; mkdir -p "$r/web"; with_playwright "$r/web"; : > "$r/web/playwright.config.js"
+: > "$NPX_LOG"; rc=0; out="$(dev "$r" e2e)" || rc=$?
+if [[ $rc -eq 0 && "$(grep -c 'npx playwright test' "$NPX_LOG")" -eq 1 ]]; then
+  note "playwright.config.ts and .js in one directory: one run"
+else
+  error "dup: rc=$rc log='$(cat "$NPX_LOG")'"
+fi
+
+# 5f. A workspace install hoists Playwright to the repository root: found there.
+r="$(new_repo hoisted)"; mkdir -p "$r/node_modules/@playwright/test" "$r/packages/e2e"
+: > "$r/packages/e2e/playwright.config.ts"
+printf '{"devDependencies":{"@playwright/test":"1.63.0"}}\n' > "$r/packages/e2e/package.json"
+: > "$NPX_LOG"; rc=0; out="$(dev "$r" e2e)" || rc=$?
+if [[ $rc -eq 0 ]] && grep -q "^e2e: npx playwright test" "$NPX_LOG"; then
+  note "Playwright hoisted to the root node_modules: found, the project runs"
+else
+  error "hoisted: rc=$rc log='$(cat "$NPX_LOG")' out='$out'"
+fi
+
+# 5g. A tracked config deleted from the work tree is not a project any more.
+r="$(new_repo deleted)"; with_playwright "$r"
+git -C "$r" add playwright.config.ts package.json; rm "$r/playwright.config.ts"
+: > "$NPX_LOG"; rc=0; out="$(dev "$r" e2e)" || rc=$?
+if [[ $rc -eq 0 && "$out" == *"e2e: not applicable"* && ! -s "$NPX_LOG" ]]; then
+  note "a tracked config deleted locally: not run"
+else
+  error "deleted: rc=$rc log='$(cat "$NPX_LOG")' out='$out'"
+fi
+
 # 6. project_e2e replaces the default.
 r="$(new_repo custom)"; with_playwright "$r"
 printf 'project_e2e() { echo "custom e2e ran"; }\n' > "$r/scripts/project.sh"

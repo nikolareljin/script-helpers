@@ -320,19 +320,25 @@ verb_scan() {
 verb_e2e() {
   declare -f project_e2e >/dev/null && { project_e2e; return; }
   local -a dirs=()
-  local config dir rel rc=0
+  local config dir rel up rc=0
   # What git sees: tracked files and untracked ones it does not ignore. That
   # leaves out node_modules and the contents of submodules (script-helpers
-  # itself is usually one), whose configs are a dependency's.
-  while IFS= read -r config; do
-    [[ -n "$config" ]] && dirs+=("$(dirname "$DEV_REPO_ROOT/$config")")
+  # itself is usually one), whose configs are a dependency's. A tracked config
+  # deleted from the work tree is still listed, so check it exists. One run per
+  # directory, even with playwright.config.ts and .js side by side.
+  while IFS= read -r dir; do
+    [[ -n "$dir" ]] && dirs+=("$DEV_REPO_ROOT/$dir")
   done < <(
     if git -C "$DEV_REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
       git -C "$DEV_REPO_ROOT" ls-files --cached --others --exclude-standard \
-        | grep -E '(^|/)playwright\.config\.[^/]+$' | sort -u
+        | grep -E '(^|/)playwright\.config\.[^/]+$' \
+        | while IFS= read -r config; do
+            [[ -f "$DEV_REPO_ROOT/$config" ]] && dirname "$config"
+          done | sort -u
     else
       (cd "$DEV_REPO_ROOT" && find . \( -name node_modules -o -name .git \) -prune -o \
-         -type f -name 'playwright.config.*' -print | sed 's|^\./||' | sort)
+         -type f -name 'playwright.config.*' -print | sed 's|^\./||' \
+         | while IFS= read -r config; do dirname "$config"; done | sort -u)
     fi
   )
   [[ ${#dirs[@]} -gt 0 ]] || not_applicable "e2e" "no playwright.config.* found; define project_e2e in scripts/project.sh"
@@ -346,7 +352,14 @@ verb_e2e() {
       continue
     fi
     log_info "e2e: $rel"
-    if [[ ! -d "$dir/node_modules/@playwright/test" && ! -d "$dir/node_modules/playwright" ]]; then
+    # Node resolves packages upward, and a workspace install hoists them to the
+    # root, so look in every node_modules from here up to the repository root.
+    up="$dir"
+    while [[ ! -d "$up/node_modules/@playwright/test" && ! -d "$up/node_modules/playwright" \
+             && "$up" != "$DEV_REPO_ROOT" && "$up" == "$DEV_REPO_ROOT"/* ]]; do
+      up="$(dirname "$up")"
+    done
+    if [[ ! -d "$up/node_modules/@playwright/test" && ! -d "$up/node_modules/playwright" ]]; then
       log_error "e2e: Playwright is not installed in $rel; run ./dev install first"
       rc=1
       continue

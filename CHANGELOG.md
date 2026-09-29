@@ -12,8 +12,8 @@
   `playwright.config.*` whose `package.json` depends on Playwright, among the files git sees, so
   not in `node_modules`, ignored directories or submodules): installs the browsers (cached;
   `PLAYWRIGHT_BROWSERS` limits them), then runs `playwright test` with any extra arguments.
-  Not part of preflight. A missing Playwright install is an error that says to run
-  `./dev install`; `project_e2e` / `Project-E2e` replaces the default. `tests/dev_e2e_test.sh`
+  Not part of preflight. A missing Playwright install (looked for up to the repository root, so
+  a hoisted workspace install counts) is an error that says to run `./dev install`; `project_e2e` / `Project-E2e` replaces the default. `tests/dev_e2e_test.sh`
   covers each path.
 - **`./dev stop`**, a new verb in the shared CLI (`templates/dev-cli/cli.sh` and `cli.ps1`):
   stops what `run` started and keeps containers and data. A repository with a compose file at

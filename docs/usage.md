@@ -403,14 +403,15 @@ a directory with a `playwright.config.*` whose `package.json` depends on
 `@playwright/test` or `playwright`. It runs `npx playwright install`, then
 `npx playwright test` with any extra arguments. Configs are found among the files
 git sees (tracked, or untracked and not ignored), so `node_modules`, ignored
-directories and git submodules (script-helpers itself, usually) are left out. It is not part of `preflight`:
-a browser run is too slow for every push.
+directories and git submodules (script-helpers itself, usually) are left out.
+Each directory runs once, however many configs it holds. It is not part of
+`preflight`: a browser run is too slow for every push.
 
 | Situation | Result |
 |---|---|
 | no `playwright.config.*` | not applicable, exit 0 |
 | a config whose `package.json` does not depend on Playwright (a vendored copy) | skipped, with a note |
-| Playwright not in `node_modules` | exit 1: run `./dev install` first |
+| Playwright in no `node_modules` from the project up to the repository root (a workspace install at the root counts) | exit 1: run `./dev install` first |
 | tests fail | exit 1 |
 | `project_e2e` / `Project-E2e` defined | that runs instead |
 
