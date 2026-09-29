@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # SCRIPT: ci_security.sh
-# DESCRIPTION: Run basic security checks (pip-audit/safety/bandit, npm audit, gitleaks).
-# USAGE: scripts/ci_security.sh [--workdir <path>] [--install] [--skip-python] [--skip-node] [--skip-gitleaks] [--fail-on-findings]
+# DESCRIPTION: Run basic security checks (pip-audit/safety/bandit, npm audit, gitleaks, foxguard).
+# USAGE: scripts/ci_security.sh [--workdir <path>] [--install] [--skip-python] [--skip-node] [--skip-gitleaks] [--skip-foxguard] [--check-foxguard] [--install-foxguard] [--fail-on-findings]
 # PARAMETERS:
 #   --workdir <path>       Working directory (default: current dir).
 #   --install              Install required tools into current environment.
 #   --skip-python          Skip Python dependency checks.
 #   --skip-node            Skip Node.js audit.
 #   --skip-gitleaks        Skip gitleaks scan.
+#   --skip-foxguard        Skip the foxguard static-analysis scan.
+#   --check-foxguard       Exit 0 if foxguard is available, 3 if not (for preflight).
+#   --install-foxguard     Download the pinned foxguard release binary, check its
+#                          SHA-256 against lib/ci_defaults.sh, cache it, and exit.
 #   --python-req <f>       Python requirements file (default: requirements.txt if present).
 #   --node-cmd <c>         Override node audit command (default: npm audit --audit-level=high).
 #   --python-version <v>   Python Docker image tag (default: from ci_defaults module).
@@ -25,6 +29,8 @@
 #                          leaks, and failing on them fails every developer machine.
 #                          --workdir still limits the audits; git mode reads the
 #                          whole repository's history, from any subdirectory.
+#                          foxguard findings count only where the repository has
+#                          a .foxguard.yml; elsewhere they are reported, not counted.
 #   -h, --help             Show this help message.
 # ----------------------------------------------------
 set -euo pipefail
@@ -39,13 +45,15 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=/dev/null
 source "$SCRIPT_HELPERS_DIR/helpers.sh"
-shlib_import help logging ci_defaults
+shlib_import help logging ci_defaults foxguard
 
 WORKDIR="."
 INSTALL_TOOLS=false
 SKIP_PYTHON=false
 SKIP_NODE=false
 SKIP_GITLEAKS=false
+SKIP_FOXGUARD=false
+INSTALL_FOXGUARD=false
 FAIL_ON_FINDINGS=false
 FINDINGS=0
 PYTHON_REQ=""
@@ -66,6 +74,9 @@ while [[ $# -gt 0 ]]; do
     --skip-python) SKIP_PYTHON=true; shift;;
     --skip-node) SKIP_NODE=true; shift;;
     --skip-gitleaks) SKIP_GITLEAKS=true; shift;;
+    --skip-foxguard) SKIP_FOXGUARD=true; shift;;
+    --install-foxguard) INSTALL_FOXGUARD=true; shift;;
+    --check-foxguard) foxguard_bin >/dev/null && exit 0; exit 3;;
     --fail-on-findings) FAIL_ON_FINDINGS=true; shift;;
     --python-req) PYTHON_REQ="$2"; shift 2;;
     --node-cmd) NODE_CMD="$2"; shift 2;;
@@ -81,6 +92,11 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown arg: $1" >&2; exit 1;;
   esac
 done
+
+if [[ "$INSTALL_FOXGUARD" == "true" ]]; then
+  foxguard_install
+  exit $?
+fi
 
 # Resolve images: --*-image overrides take precedence over --*-version defaults.
 if [[ -n "$PY_IMAGE_OVERRIDE" ]]; then
@@ -141,6 +157,56 @@ node_auditable() {
     log_warn "No package-lock.json; npm audit needs one. Skipping npm audit."
     return 1
   fi
+}
+
+# run_foxguard; the static-analysis scan, on the host in both modes (there is no
+# image of it). Its findings count only where the repository opted in with a
+# .foxguard.yml, found from the scan directory upward as foxguard finds it;
+# elsewhere they are reported and not counted. Measured 2026-09-29: its bash
+# taint rules flagged 93 lines of this library, none exploitable (`rm -f "$tmp"`),
+# so a gate on by default would fail every shell repository on correct code.
+# Submodules are excluded: their findings belong to the vendored project.
+run_foxguard() {
+  local bin dir top prefix path sub out n rc=0 opted=false
+  local -a args=()
+  if ! bin="$(foxguard_bin)"; then
+    log_warn "foxguard not found; skipping. Install the pinned version: bash $SCRIPT_DIR/ci_security.sh --install-foxguard"
+    return 0
+  fi
+  if [[ "$("$bin" --version 2>/dev/null)" != "foxguard $CI_DEFAULT_FOXGUARD_VERSION" ]]; then
+    log_warn "foxguard: $bin is not the pinned $CI_DEFAULT_FOXGUARD_VERSION, so results may differ; bash $SCRIPT_DIR/ci_security.sh --install-foxguard"
+  fi
+  dir="$(cd "$WORKDIR" && pwd -P)"
+  top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || top="$dir"
+  path="$dir"
+  while :; do
+    [[ -f "$path/.foxguard.yml" ]] && { opted=true; break; }
+    [[ "$path" == "$top" || "$path" == "/" ]] && break
+    path="$(dirname "$path")"
+  done
+  prefix="$(git -C "$dir" rev-parse --show-prefix 2>/dev/null || true)"
+  if [[ -f "$top/.gitmodules" ]]; then
+    while IFS= read -r sub; do
+      case "$sub" in "$prefix"?*) args+=(--exclude "${sub#"$prefix"}") ;; esac
+    done < <(git config -f "$top/.gitmodules" --get-regexp '^submodule\..*\.path$' 2>/dev/null | sed 's/^[^ ]* //')
+  fi
+  if [[ "$opted" == "true" ]]; then
+    log_info "foxguard: $path/.foxguard.yml found; findings count."
+    ( cd "$dir" && "$bin" "${args[@]+"${args[@]}"}" . ) || finding "foxguard"
+    return 0
+  fi
+  # Report only: the count, not the listing or foxguard's per-file notices
+  # (these kept for a failed scan).
+  out="$(mktemp)"
+  ( cd "$dir" && "$bin" --quiet --format json --output "$out" "${args[@]+"${args[@]}"}" . ) 2>"$out.err" || rc=$?
+  case "$rc" in
+    0) log_info "foxguard: no findings." ;;
+    1) n="$(grep -o '"total": *[0-9]*' "$out" | tail -1 | grep -o '[0-9]*$' || true)"
+       log_warn "foxguard: $n finding(s), reported, not counted: no .foxguard.yml in this repository. See them: (cd $dir && $bin .). A .foxguard.yml that disables noisy rules or sets a baseline makes them count." ;;
+    *) cat "$out.err" >&2
+       log_warn "foxguard: could not scan (exit $rc); not counted without a .foxguard.yml." ;;
+  esac
+  rm -f "$out" "$out.err"
 }
 
 declare -a GITLEAKS_ARGS=()
@@ -237,6 +303,10 @@ else
     fi
   fi
   popd >/dev/null
+fi
+
+if [[ "$SKIP_FOXGUARD" == "false" ]]; then
+  run_foxguard
 fi
 
 if [[ "$FINDINGS" -gt 0 ]]; then

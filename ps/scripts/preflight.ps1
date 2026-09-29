@@ -293,6 +293,9 @@ function Check-Security {
         # had been scanned.
         Add-Skip 'gitleaks secret scan' 'gitleaks is not installed — install it, or use -Docker'
     }
+    # foxguard runs on the host in both modes; ci_security.sh knows where it looks.
+    & $bash.Source $script --check-foxguard *> $null
+    if ($LASTEXITCODE -ne 0) { Add-Skip 'foxguard code scan' "foxguard is not installed; bash $script --install-foxguard" }
     Invoke-Step $label { & $bash.Source @a }
 }
 

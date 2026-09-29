@@ -18,6 +18,7 @@ lib/ci_defaults.sh          <-- single source of truth for all versions
         PY_VERSION="$CI_DEFAULT_PYTHON_VERSION"
         NODE_VERSION="$CI_DEFAULT_NODE_VERSION"
         GITLEAKS_VERSION="$CI_DEFAULT_GITLEAKS_VERSION"
+        foxguard: CI_DEFAULT_FOXGUARD_VERSION + SHA-256 per platform (lib/foxguard.sh)
 ```
 
 ## Overriding at runtime

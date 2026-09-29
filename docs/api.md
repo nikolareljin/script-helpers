@@ -29,6 +29,7 @@ This index lists all modules and their functions. See the linked module pages fo
 - [package_publish](./modules/package_publish.md)
 - [packaging](./modules/packaging.md)
 - [ci_defaults](./modules/ci_defaults.md)
+- [foxguard](./modules/foxguard.md)
 - [adb](./modules/adb.md)
 - [ios](./modules/ios.md)
 - [serve](./modules/serve.md)

@@ -390,10 +390,33 @@ report only: it prints findings and does not block, and its summary line says
 `security scan (report only)`. Without gitleaks on the host, both report
 `SKIP  gitleaks secret scan` instead of implying secrets were scanned.
 
+The scan also runs [foxguard](https://github.com/0sec-labs/foxguard), a static
+analysis scanner, at the version pinned in `lib/ci_defaults.sh`, on the host in
+both modes (there is no image of it). Its findings count only in a repository
+that has a `.foxguard.yml` (found from the scan directory upward, as foxguard
+finds it); elsewhere `./dev scan` prints how many there are and passes. On this
+library its bash rules flagged 93 ordinary lines such as `rm -f "$tmp"`, so a
+repository opts in once it has tuned them: disabled rules or a baseline in
+`.foxguard.yml`, or `# foxguard: ignore[rule-id]` on a line. Submodules are
+excluded; their findings belong to the vendored project.
+
+| Situation | Result |
+|---|---|
+| no `.foxguard.yml` | findings counted in the log, exit 0 |
+| `.foxguard.yml`, findings or a scan error | listed, exit 1 (the pre-push run reports only) |
+| foxguard not installed | skipped; `SKIP  foxguard code scan` in the summary |
+| a foxguard other than the pinned version | a warning; it still runs |
+
+`bash scripts/ci_security.sh --install-foxguard` downloads the pinned binary,
+checks it against the SHA-256 pinned beside the version, and caches it under
+`~/.cache/script-helpers/foxguard/`; that copy is used before one on `PATH`.
+`--skip-foxguard` leaves it out.
+
 ```bash
 ./dev scan
 ./dev scan --docker
 bash scripts/ci_security.sh --no-docker --fail-on-findings   # the same, directly
+bash scripts/ci_security.sh --install-foxguard               # the pinned foxguard, checksum-checked
 ```
 
 ### Browser tests: `./dev e2e`
