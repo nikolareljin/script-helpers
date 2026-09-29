@@ -12,6 +12,18 @@
 
 ### Fixed
 
+- **preflight failed checks that had nothing to check.** A Go module with no packages
+  (`"./..." matched no packages`), a `package.json` with no `test` script or npm's placeholder,
+  and a clone without pytest or a configured ruff each reported FAIL, so every push was refused.
+  pytest collecting no tests failed the same way. The runners now exit 3 with one reason,
+  and preflight reports `SKIP  <step> — <reason>`; failing code and failing tests still fail.
+  Exit 3 is a SKIP only with that reason, and a test command's own exit 3 (pytest's internal
+  error, a test script's) becomes 1, so it can never pass as a skip. A broken `go.mod` or
+  `package.json` still fails. The PowerShell preflight ran the runners from a
+  `cd` without `--dir`, so a stack in a subdirectory was checked at the repository root (a
+  passing `frontend/` test reported FAIL); it now passes `--dir`. `tests/local_test_skip_test.sh`
+  covers each case; `docs/usage.md` lists them.
+
 - **`setup-hooks.sh` found the bundled hooks only under `scripts/script-helpers`.** A
   repository that vendors script-helpers elsewhere (`vendor/script-helpers`) got
   "No hooks directory found" and no hooks. It now looks next to itself first, so any

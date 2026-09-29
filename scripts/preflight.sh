@@ -438,12 +438,27 @@ declare -a RESULTS=()
 FAILED=0
 
 # run_step <label> <command...>; run a check, record pass/fail, never abort.
+# Exit 3 from a local_test_*.sh runner, with a reason written to
+# $PREFLIGHT_SKIP_FILE, means it could not run the check -- nothing to test, or
+# its tool is missing; that is a SKIP, which the summary reports separately,
+# never a PASS.
 run_step() {
-  local label="$1"; shift
+  local label="$1" rc=0 reason skip_file; shift
   print_line 2>/dev/null || true
   log_info "preflight: $label"
-  if "$@"; then
+  # A runner that cannot check writes its one-line reason here.
+  skip_file="$(mktemp)"
+  PREFLIGHT_SKIP_FILE="$skip_file" "$@" || rc=$?
+  reason="$(head -n 1 "$skip_file" 2>/dev/null || true)"
+  rm -f "$skip_file"
+  if [[ $rc -eq 0 ]]; then
     RESULTS+=("PASS  $label")
+    return 0
+  fi
+  # Only with a reason: exit 3 alone can be a test command's own code (pytest's
+  # internal error, a test script's exit), and that is a failure.
+  if [[ $rc -eq 3 && -n "$reason" ]]; then
+    skip_step "$label" "$reason"
     return 0
   fi
   RESULTS+=("FAIL  $label")
