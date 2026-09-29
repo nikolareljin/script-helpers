@@ -4,6 +4,7 @@
 # USAGE: bash tests/local_test_skip_test.sh
 # PARAMETERS: No required parameters.
 # EXAMPLE: bash tests/local_test_skip_test.sh
+# preflight refuses to run under CI=true, so its cases run with CI="" (as tests/preflight_test.sh does).
 # ----------------------------------------------------
 #
 # Each case was a false failure on a real repository: a root go.mod with no
@@ -116,7 +117,7 @@ if command -v npm >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
   r="$tmp/pf"; mkdir -p "$r"; git init -q "$r"
   printf '{"name":"x","version":"1.0.0"}\n' > "$r/package.json"
   rc=0
-  out="$(cd "$r" && bash "$ROOT_DIR/scripts/preflight.sh" --quick --skip-security --stack node 2>&1)" || rc=$?
+  out="$(cd "$r" && CI="" bash "$ROOT_DIR/scripts/preflight.sh" --quick --skip-security --stack node 2>&1)" || rc=$?
   if [[ $rc -eq 0 && "$out" == *"SKIP  node lint + test — package.json declares no test script"* && "$out" != *"FAIL  node"* ]]; then
     note "preflight: a runner's exit 3 is a SKIP, and preflight passes"
   else
@@ -127,7 +128,7 @@ fi
 if command -v npm >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
   printf '{"name":"x","version":"1.0.0","scripts":{"test":"node -e \\"process.exit(3)\\""}}\n' > "$r/package.json"
   rc=0
-  out="$(cd "$r" && bash "$ROOT_DIR/scripts/preflight.sh" --quick --skip-security --stack node 2>&1)" || rc=$?
+  out="$(cd "$r" && CI="" bash "$ROOT_DIR/scripts/preflight.sh" --quick --skip-security --stack node 2>&1)" || rc=$?
   if [[ $rc -eq 1 && "$out" == *"FAIL  node"* && "$out" != *"SKIP  node"* ]]; then
     note "preflight: a test script's exit 3 is a FAIL, not a SKIP"
   else
