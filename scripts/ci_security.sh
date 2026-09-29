@@ -30,7 +30,9 @@
 #                          --workdir still limits the audits; git mode reads the
 #                          whole repository's history, from any subdirectory.
 #                          foxguard findings count only where the repository has
-#                          a .foxguard.yml; elsewhere they are reported, not counted.
+#                          a foxguard config (.foxguard.yml, .foxguard.yaml,
+#                          foxguard.yml, foxguard.yaml); elsewhere they are
+#                          reported, not counted.
 #   -h, --help             Show this help message.
 # ----------------------------------------------------
 set -euo pipefail
@@ -161,13 +163,14 @@ node_auditable() {
 
 # run_foxguard; the static-analysis scan, on the host in both modes (there is no
 # image of it). Its findings count only where the repository opted in with a
-# .foxguard.yml, found from the scan directory upward as foxguard finds it;
+# foxguard config (.foxguard.yml or another of FOXGUARD_CONFIG_NAMES), found
+# from the scan directory upward as foxguard finds it;
 # elsewhere they are reported and not counted. Measured 2026-09-29: its bash
 # taint rules flagged 93 lines of this library, none exploitable (`rm -f "$tmp"`),
 # so a gate on by default would fail every shell repository on correct code.
 # Submodules are excluded: their findings belong to the vendored project.
 run_foxguard() {
-  local bin dir top prefix path sub out n rc=0 opted=false
+  local bin dir top prefix path sub out n config="" rc=0
   local -a args=()
   if ! bin="$(foxguard_bin)"; then
     log_warn "foxguard not found; skipping. Install the pinned version: bash $SCRIPT_DIR/ci_security.sh --install-foxguard"
@@ -180,18 +183,20 @@ run_foxguard() {
   top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || top="$dir"
   path="$dir"
   while :; do
-    [[ -f "$path/.foxguard.yml" ]] && { opted=true; break; }
+    config="$(foxguard_config_in "$path")" && break
     [[ "$path" == "$top" || "$path" == "/" ]] && break
     path="$(dirname "$path")"
   done
   prefix="$(git -C "$dir" rev-parse --show-prefix 2>/dev/null || true)"
   if [[ -f "$top/.gitmodules" ]]; then
-    while IFS= read -r sub; do
+    # -z: "key<newline>value<NUL>", so a submodule name with a space survives.
+    while IFS= read -r -d '' sub; do
+      sub="${sub#*$'\n'}"
       case "$sub" in "$prefix"?*) args+=(--exclude "${sub#"$prefix"}") ;; esac
-    done < <(git config -f "$top/.gitmodules" --get-regexp '^submodule\..*\.path$' 2>/dev/null | sed 's/^[^ ]* //')
+    done < <(git config -z -f "$top/.gitmodules" --get-regexp '^submodule\..*\.path$' 2>/dev/null)
   fi
-  if [[ "$opted" == "true" ]]; then
-    log_info "foxguard: $path/.foxguard.yml found; findings count."
+  if [[ -n "$config" ]]; then
+    log_info "foxguard: $config found; findings count."
     ( cd "$dir" && "$bin" "${args[@]+"${args[@]}"}" . ) || finding "foxguard"
     return 0
   fi
@@ -202,9 +207,9 @@ run_foxguard() {
   case "$rc" in
     0) log_info "foxguard: no findings." ;;
     1) n="$(grep -o '"total": *[0-9]*' "$out" | tail -1 | grep -o '[0-9]*$' || true)"
-       log_warn "foxguard: $n finding(s), reported, not counted: no .foxguard.yml in this repository. See them: (cd $dir && $bin .). A .foxguard.yml that disables noisy rules or sets a baseline makes them count." ;;
+       log_warn "foxguard: $n finding(s), reported, not counted: no foxguard config ($FOXGUARD_CONFIG_NAMES) in this repository. See them: (cd $dir && $bin .). A .foxguard.yml that disables noisy rules or sets a baseline makes them count." ;;
     *) cat "$out.err" >&2
-       log_warn "foxguard: could not scan (exit $rc); not counted without a .foxguard.yml." ;;
+       log_warn "foxguard: could not scan (exit $rc); not counted without a foxguard config." ;;
   esac
   rm -f "$out" "$out.err"
 }

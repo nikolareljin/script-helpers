@@ -93,6 +93,13 @@ else
   error "opted: rc=$RC out='$OUT'"
 fi
 
+# 2b. foxguard reads three other config names too; each opts in.
+for name in .foxguard.yaml foxguard.yml foxguard.yaml; do
+  r2="$(new_repo "cfg$name")"; echo FOXBAD > "$r2/a.py"; echo 'scan: {}' > "$r2/$name"
+  sec "$r2" --fail-on-findings
+  [[ $RC -eq 1 && "$OUT" == *"/$name found"* ]] && note "$name opts in too" || error "config $name: rc=$RC out='$OUT'"
+done
+
 # 3. Opted in, no findings: exit 0.
 echo clean > "$r/a.py"
 sec "$r" --fail-on-findings
@@ -113,6 +120,16 @@ if [[ -f "$r/vendor/lib/lib.py" && $RC -eq 0 ]] && grep -q -- "--exclude vendor/
   note "submodule: passed as --exclude, its finding not counted"
 else
   error "submodule: rc=$RC log='$(cat "$FOX_LOG")' out='$OUT'"
+fi
+
+# 5b. A submodule whose name has a space: its path is still excluded whole.
+r="$(new_repo spacedsub)"; echo 'scan: {}' > "$r/.foxguard.yml"
+git_c "$r" -c protocol.file.allow=always submodule --quiet add --name "my lib" "$src" "vendor/my lib" >/dev/null 2>&1
+sec "$r" --fail-on-findings
+if [[ -f "$r/vendor/my lib/lib.py" && $RC -eq 0 ]] && grep -q -- "--exclude vendor/my lib" "$FOX_LOG"; then
+  note "submodule named with a space: excluded"
+else
+  error "spaced submodule: rc=$RC log='$(cat "$FOX_LOG")' out='$OUT'"
 fi
 
 # 6. --workdir below the top: .foxguard.yml found upward; submodule paths made
@@ -209,6 +226,20 @@ EOF
 else
   note "SKIP install cases: no release binary for $(uname -s) $(uname -m)"
 fi
+
+# 12. Platform mapping, through a stub uname: Windows gets the .exe asset, its
+#     pinned checksum and a foxguard.exe cache path; other platforms none.
+mkdir -p "$tmp/uname"
+printf '#!/bin/sh\ncase "$1" in -s) echo "$UNAME_S" ;; -m) echo "$UNAME_M" ;; esac\n' > "$tmp/uname/uname"; chmod +x "$tmp/uname/uname"
+plat() { UNAME_S="$1" UNAME_M="$2" PATH="$tmp/uname:$PATH" bash -c 'source "$1/helpers.sh" && shlib_import foxguard && a="$(foxguard_asset)" || { echo "rc=$?"; exit 0; }; echo "$a $(foxguard_expected_sha256 "$a") $(basename "$(foxguard_cache_path)")"' _ "$ROOT_DIR"; }
+got="$(plat MINGW64_NT-10.0-26100 x86_64)"
+[[ "$got" == "foxguard-windows-x86_64.exe 6ff15185c968da849845afa321f23f14de142d45efd568a9513d2600eec281c2 foxguard.exe" ]] \
+  && note "Git Bash on Windows: .exe asset, pinned checksum, foxguard.exe" || error "windows: '$got'"
+got="$(plat Darwin arm64)"
+[[ "$got" == "foxguard-macos-aarch64 aa47b956f31bfbc87e0f43cd48e01f3bc73229192ffff0113ff094e5b3fd7d12 foxguard" ]] \
+  && note "macOS arm64: aarch64 asset" || error "mac arm: '$got'"
+[[ "$(plat MSYS_NT-10.0 aarch64)" == "rc=3" && "$(plat FreeBSD amd64)" == "rc=3" ]] \
+  && note "Windows arm64, FreeBSD: no release binary, rc 3" || error "unsupported: '$(plat MSYS_NT-10.0 aarch64)' '$(plat FreeBSD amd64)'"
 
 if [[ $failures -gt 0 ]]; then
   note "$failures failure(s)"

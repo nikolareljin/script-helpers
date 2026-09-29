@@ -19,13 +19,19 @@ if [[ -z "${CI_DEFAULT_FOXGUARD_VERSION:-}" ]]; then
   source "$(dirname "${BASH_SOURCE[0]}")/ci_defaults.sh"
 fi
 
+# The file names foxguard reads its configuration from, in each directory from
+# the scan path upward. Measured on 0.14.0: all four are read.
+FOXGUARD_CONFIG_NAMES=".foxguard.yml .foxguard.yaml foxguard.yml foxguard.yaml"
+
 # foxguard_asset; the release asset name for this machine, e.g.
-# foxguard-linux-x86_64. Returns 3 on a platform with no release binary.
+# foxguard-linux-x86_64, or foxguard-windows-x86_64.exe under Git Bash, MSYS or
+# Cygwin. Returns 3 on a platform with no release binary.
 foxguard_asset() {
-  local os arch
+  local os arch ext=""
   case "$(uname -s)" in
     Linux)  os=linux ;;
     Darwin) os=macos ;;
+    MINGW*|MSYS*|CYGWIN*) os=windows; ext=".exe" ;;
     *) return 3 ;;
   esac
   case "$(uname -m)" in
@@ -33,7 +39,18 @@ foxguard_asset() {
     aarch64|arm64) arch=aarch64 ;;
     *) return 3 ;;
   esac
-  printf 'foxguard-%s-%s\n' "$os" "$arch"
+  [[ "$os" == "windows" && "$arch" != "x86_64" ]] && return 3
+  printf 'foxguard-%s-%s%s\n' "$os" "$arch" "$ext"
+}
+
+# foxguard_config_in <dir>; print the foxguard config file in that directory, if
+# there is one (see FOXGUARD_CONFIG_NAMES). Returns 1 when there is none.
+foxguard_config_in() {
+  local name
+  for name in $FOXGUARD_CONFIG_NAMES; do
+    [[ -f "$1/$name" ]] && { printf '%s/%s\n' "$1" "$name"; return 0; }
+  done
+  return 1
 }
 
 # foxguard_expected_sha256 <asset>; the pinned SHA-256 of that release asset.
@@ -43,14 +60,18 @@ foxguard_expected_sha256() {
     foxguard-linux-aarch64) printf '%s\n' "$CI_DEFAULT_FOXGUARD_SHA256_LINUX_AARCH64" ;;
     foxguard-macos-x86_64)  printf '%s\n' "$CI_DEFAULT_FOXGUARD_SHA256_MACOS_X86_64" ;;
     foxguard-macos-aarch64) printf '%s\n' "$CI_DEFAULT_FOXGUARD_SHA256_MACOS_AARCH64" ;;
+    foxguard-windows-x86_64.exe) printf '%s\n' "$CI_DEFAULT_FOXGUARD_SHA256_WINDOWS_X86_64" ;;
     *) return 3 ;;
   esac
 }
 
-# foxguard_cache_path; where --install-foxguard puts the pinned binary.
+# foxguard_cache_path; where --install-foxguard puts the pinned binary
+# (foxguard.exe on Windows, which runs nothing without the extension).
 foxguard_cache_path() {
-  printf '%s/script-helpers/foxguard/%s/foxguard\n' \
-    "${XDG_CACHE_HOME:-$HOME/.cache}" "$CI_DEFAULT_FOXGUARD_VERSION"
+  local name=foxguard
+  case "$(foxguard_asset 2>/dev/null)" in *.exe) name=foxguard.exe ;; esac
+  printf '%s/script-helpers/foxguard/%s/%s\n' \
+    "${XDG_CACHE_HOME:-$HOME/.cache}" "$CI_DEFAULT_FOXGUARD_VERSION" "$name"
 }
 
 # foxguard_bin; the foxguard to run: the pinned binary in the cache, else one on
