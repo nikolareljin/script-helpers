@@ -196,8 +196,9 @@ run_foxguard() {
     done < <(git config -z -f "$top/.gitmodules" --get-regexp '^submodule\..*\.path$' 2>/dev/null)
   fi
   # --config always: without it foxguard also reads a config above the
-  # repository (measured: ~/.foxguard.yml disabled rules in every repo below it),
-  # and one machine's scan would differ from the next.
+  # repository (measured: a .foxguard.yml in the parent directory disabled rules
+  # in the repository below it), so one machine's scan could differ from the
+  # next. An explicit config resolves its baseline path the same way.
   if [[ -n "$config" ]]; then
     log_info "foxguard: $config found; findings count."
     ( cd "$dir" && "$bin" --config "$config" "${args[@]+"${args[@]}"}" . ) || finding "foxguard"
