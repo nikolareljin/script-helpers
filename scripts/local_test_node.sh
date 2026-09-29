@@ -7,8 +7,20 @@
 #   --dir     Project directory, relative to the repository root (default: .).
 #   --quick       Skip install; run tests against existing node_modules.
 #   --workspace   Run tests only for a specific npm workspace.
+# EXIT_CODES:
+#   0  Every check that ran passed.
+#   1  A check failed, or bad arguments.
+#   3  Nothing could be checked: package.json declares no test script. preflight reports it as SKIP.
 # ----------------------------------------------------
 set -euo pipefail
+
+# skip_exit <reason>; nothing could be checked. Exit 3, which preflight reports as
+# SKIP with this reason (written to $PREFLIGHT_SKIP_FILE when preflight sets it).
+skip_exit() {
+  echo "[local-test-node] $1" >&2
+  if [[ -n "${PREFLIGHT_SKIP_FILE:-}" ]]; then printf '%s\n' "$1" > "$PREFLIGHT_SKIP_FILE"; fi
+  exit 3
+}
 
 QUICK=false
 TEST_DIR="."
@@ -71,6 +83,16 @@ if [[ "$QUICK" == "false" ]]; then
   else
     echo "[local-test-node] No lockfile found; using npm install (consider committing package-lock.json)."
     npm install
+  fi
+fi
+
+# No test script, or npm's placeholder that only fails, means there are no tests
+# to run: say so (exit 3, a SKIP in preflight) rather than failing on npm's
+# "Missing script" or on the placeholder's own error.
+if [[ -z "$WORKSPACE" ]]; then
+  test_script="$(node -p "((require('./package.json').scripts)||{}).test||''" 2>/dev/null || true)"
+  if [[ -z "$test_script" || "$test_script" == *"no test specified"* ]]; then
+    skip_exit "package.json declares no test script; nothing to test"
   fi
 fi
 

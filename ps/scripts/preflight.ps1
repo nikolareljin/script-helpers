@@ -237,10 +237,30 @@ function Check-Simple {
     $script = Join-Path $SCRIPT_HELPERS_DIR "scripts/$ScriptName"
     $bash = Get-Command bash -ErrorAction SilentlyContinue
     if (-not $bash) { Add-Skip $name "$ScriptName needs bash (Git for Windows ships it)"; return }
-    $a = @($script); if ($Quick) { $a += '--quick' }
-    Invoke-Step "$name lint + test" {
-        Push-Location (Join-Path $ProjectDir $Dir)
-        try { & $bash.Source @a } finally { Pop-Location }
+    # --dir, not a cd: each runner resolves its directory against the repository
+    # root, so a cd alone ran it on the wrong tree (preflight.sh's in_dir says so).
+    $target = (Resolve-Path (Join-Path $ProjectDir $Dir)).Path
+    $a = @($script, '--dir', $target); if ($Quick) { $a += '--quick' }
+    $label = "$name lint + test"
+    log_info "preflight: $label"
+    # Exit 3: the runner could not check (nothing to test, or a tool is missing)
+    # and wrote its one-line reason here. That is a SKIP, not a failure.
+    $skipFile = New-TemporaryFile
+    $env:PREFLIGHT_SKIP_FILE = $skipFile.FullName
+    $rc = 1
+    try { & $bash.Source @a; $rc = $LASTEXITCODE } catch { $rc = 1 }
+    finally { Remove-Item Env:PREFLIGHT_SKIP_FILE -ErrorAction SilentlyContinue }
+    $reason = Get-Content $skipFile.FullName -TotalCount 1 -ErrorAction SilentlyContinue
+    Remove-Item $skipFile.FullName -ErrorAction SilentlyContinue
+    if ($rc -eq 0) { $Results.Add("PASS  $label") }
+    elseif ($rc -eq 3) {
+        if (-not $reason) { $reason = 'the runner found nothing it could check' }
+        Add-Skip $label $reason
+    }
+    else {
+        $Results.Add("FAIL  $label")
+        $script:Failed = $true
+        log_error "preflight: $label FAILED"
     }
 }
 

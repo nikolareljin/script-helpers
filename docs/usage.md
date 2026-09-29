@@ -924,6 +924,24 @@ of what the iOS step does — and `--quick` is defined as skipping builds. The
 old behaviour ran `ci_ios.sh` with every step disabled and still reported a
 passed "ios build", which is a claim about a build that never happened.
 
+### When a check cannot run
+
+A `local_test_*.sh` runner that finds nothing it can check exits 3 and gives one
+reason; `preflight` (bash and PowerShell) reports it as `SKIP` with that reason,
+separately from passes, and the run still succeeds:
+
+| Runner | Exit 3 when |
+|---|---|
+| `local_test_go.sh` | no module has Go packages (a module without them is skipped, the others are tested) |
+| `local_test_node.sh` | `package.json` has no `test` script, or npm's placeholder that only fails |
+| `local_test_python.sh` | pytest, or a ruff the project configures, is not installed (the reason names the install command) |
+
+```text
+SKIP  node (frontend/) lint + test — package.json declares no test script; nothing to test
+```
+
+Code that does not compile, and tests that fail, still fail.
+
 ### Pinning stacks with `.preflight`, and `./dev` detection
 
 A `.preflight` file at the repo root lists exactly what `preflight` checks, one
