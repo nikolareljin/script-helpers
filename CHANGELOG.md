@@ -10,6 +10,13 @@
   Each source now ends in a newline of its own. `tests/private_names_test.sh` no longer reads the
   machine's own allowlist: with one present its override cases failed, and passed in CI, which has
   none.
+- **The pre-push hook passed git's hook variables to the repository's tests.** The fix above
+  covers this library's own `make test`; the hook runs every consumer's suite the same way. From a
+  linked worktree `GIT_DIR` is absolute, so a test that builds a repository of its own read the
+  one being pushed, failed there and nowhere else, and the push was refused. The hook drops git's
+  repository-local variables before it runs preflight or a test runner, once its own checks are
+  done. They stay when the directory does not find the same repository without them (a push made
+  with `--git-dir` and `--work-tree` from elsewhere).
 - **`.git/private-names-allow` was ignored in a linked worktree.** The check read the allowlist
   from the worktree's own git directory (`.git/worktrees/<name>`), so a repository's list applied
   only in its first checkout. It is now read from the directory all worktrees share, and a list
