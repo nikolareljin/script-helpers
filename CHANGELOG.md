@@ -10,6 +10,11 @@
   Each source now ends in a newline of its own. `tests/private_names_test.sh` no longer reads the
   machine's own allowlist: with one present its override cases failed, and passed in CI, which has
   none.
+- **`make test` failed inside the pre-push hook.** Git exports `GIT_DIR` and its companions to a
+  hook, and the hook runs `make test`. With them set, a test that builds a temporary repository and
+  changes into it still read the repository being pushed, so several tests failed there and nowhere
+  else, and a push from a worktree was refused. `make test` now drops those variables for the
+  suite, and `tests/private_names_test.sh` drops them for itself when run alone.
 
 ## 2026-09-29 — v0.44.1
 

@@ -1,1 +1,0 @@
-the beacon is lit
