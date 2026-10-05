@@ -3,32 +3,25 @@
 ### Fixed
 
 - **`PRIVATE_NAMES_ALLOW` did nothing on a machine that has an allowlist file.** The override was
-  written to the working list without a newline after it, so the first line of the repository's or
-  the machine's `private-names-allow` was glued to its last name: `PRIVATE_NAMES_ALLOW=widget`
-  became `widgetindex`, matched nothing, and the check refused as if no override had been given.
-  The same join happened between a repository allowlist with no final newline and the machine's.
-  Each source now ends in a newline of its own. `tests/private_names_test.sh` no longer reads the
-  machine's own allowlist: with one present its override cases failed, and passed in CI, which has
-  none.
-- **The pre-push hook passed git's hook variables to the repository's tests.** The fix above
-  covers this library's own `make test`; the hook runs every consumer's suite the same way. From a
-  linked worktree `GIT_DIR` is absolute, so a test that builds a repository of its own read the
-  one being pushed, failed there and nowhere else, and the push was refused. The hook drops git's
-  repository-local variables before it runs preflight or a test runner, once its own checks are
-  done. They stay when the directory does not find the same repository without them (a push made
-  with `--git-dir` and `--work-tree` from elsewhere).
-- **`.git/private-names-allow` was ignored in a linked worktree.** The check read the allowlist
-  from the worktree's own git directory (`.git/worktrees/<name>`), so a repository's list applied
-  only in its first checkout. It is now read from the directory all worktrees share, and a list
-  beside one worktree still applies there. Outside a repository the check no longer looks for
-  `/private-names-allow` at the filesystem root, and the refusal no longer offers that path.
-- **`make test` failed inside the pre-push hook.** Git exports `GIT_DIR` and its companions to a
-  hook, and the hook runs `make test`. With them set, a test that builds a temporary repository and
-  changes into it still read the repository being pushed, so several tests failed there and nowhere
-  else, and a push from a worktree was refused. `make test` now drops them for the suite, and
-  `tests/private_names_test.sh` drops them for itself when run alone. The list is git's own
-  (`git rev-parse --local-env-vars`), so `GIT_SHALLOW_FILE`, `GIT_CONFIG_PARAMETERS` and whatever
-  git adds later are covered.
+  written without a newline, so its last name joined the next source's first line:
+  `PRIVATE_NAMES_ALLOW=widget` plus a file starting with `index` became `widgetindex`, matched
+  nothing, and the check refused without a word. Two allowlist files joined the same way when the
+  first had no final newline. Each source now ends in its own newline.
+- **`.git/private-names-allow` was ignored in a linked worktree.** It was read from the worktree's
+  own git directory (`.git/worktrees/<name>`). It is now read from the directory all worktrees
+  share; a list in a worktree's own directory still applies there. Outside a repository the check
+  no longer looks for `/private-names-allow` at the filesystem root, or offers that path.
+- **The pre-push hook passed git's hook variables to the tests it runs.** Git gives a hook
+  `GIT_DIR` and related variables, and `GIT_DIR` overrides the current directory: a test that
+  creates its own repository acted on the one being pushed. From a linked worktree, where
+  `GIT_DIR` is absolute, such tests failed only inside the hook and the push was refused, in this
+  library and in every repository that uses the hook. The hook now clears git's repository-local
+  variables (`git rev-parse --local-env-vars`) after its own checks and before any test. It keeps
+  them when git would otherwise find no repository, another one, or another work tree
+  (`git --git-dir=... --work-tree=... push`). `make test` and `tests/private_names_test.sh` clear
+  them too, for a run from another hook.
+- **`tests/private_names_test.sh` read the machine's own allowlist**, so its override cases failed
+  on a machine that has one and passed in CI. It uses an empty configuration directory.
 
 ## 2026-09-29 — v0.44.1
 

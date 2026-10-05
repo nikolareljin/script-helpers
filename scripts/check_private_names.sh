@@ -393,34 +393,26 @@ fi
 # ---- the override ---------------------------------------------------------
 allowed="$work/allowed"
 : > "$allowed"
-# Up to four sources are appended to one file below. Each one is followed by
-# a newline, so the last name of one source cannot join the first name of the
-# next. Without it, PRIVATE_NAMES_ALLOW=widget followed by an allowlist file
-# starting with "index" became the single name "widgetindex": it matched
-# nothing, and the override had no effect and said nothing. The same happened
-# between two files when the first had no final newline. The blank lines this
-# can add are removed further down.
+# Each source below ends with a newline, so its last name cannot join the
+# next source's first. Without it, PRIVATE_NAMES_ALLOW=widget plus a file
+# starting with "index" became "widgetindex": it matched nothing, and the
+# override silently did nothing. Extra blank lines are removed further down.
 if [[ -n "${PRIVATE_NAMES_ALLOW:-}" ]]; then
   printf '%s\n' "$PRIVATE_NAMES_ALLOW" | tr ',' '\n' >> "$allowed"
 fi
 # The repository's allowlist: <git directory>/private-names-allow.
-#
-# A linked worktree has two git directories: the one all worktrees share
-# (--git-common-dir, the main checkout's .git) and one of its own
-# (--git-dir, .git/worktrees/<name>). Only the second used to be read, so the
-# repository's allowlist worked in the main checkout and was ignored in every
-# linked worktree. Now:
-#   1. the shared directory is read: its list applies to the whole repository;
-#   2. the worktree's own is read as well: a list there applies to that
-#      worktree only.
-# In an ordinary checkout the two are the same directory, read once.
-#
-# Two edge cases:
-# - A git too old for --git-common-dir prints the option back instead of a
-#   path. The -d test catches that, and --git-dir is used in its place.
-# - Outside a repository both are empty. Nothing is read (the old code looked
-#   for /private-names-allow at the filesystem root), and repo_allow stays
-#   empty, which is how the refusal below knows not to offer a path.
+# A linked worktree has two git directories: the shared one (--git-common-dir,
+# the main checkout's .git) and its own (--git-dir, .git/worktrees/<name>).
+#   1. The shared one is read: its list covers every worktree. Only the
+#      worktree's own used to be read, so linked worktrees ignored the list.
+#   2. The worktree's own is read too, for that worktree only: lists written
+#      there under the old behaviour keep working.
+# In an ordinary checkout both are one directory, read once.
+# - A git too old for --git-common-dir prints the option back, not a path.
+#   The -d test catches that, and --git-dir is used.
+# - Outside a repository both are empty: nothing is read, and repo_allow stays
+#   empty so the refusal below offers no path. (The old code looked for
+#   /private-names-allow at the filesystem root.)
 repo_allow=""
 repo_allow_dir="$(git rev-parse --git-common-dir 2>/dev/null)" || repo_allow_dir=""
 worktree_allow_dir="$(git rev-parse --git-dir 2>/dev/null)" || worktree_allow_dir=""
