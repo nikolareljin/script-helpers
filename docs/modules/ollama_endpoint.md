@@ -42,7 +42,8 @@ The models file
 
 One assignment per line, read as an env file is read: `export ` before the
 name, spaces around `=`, one pair of quotes around the value, a trailing
-` # comment` and a carriage return are not part of the value.
+` # comment` and a carriage return are not part of the value. A byte-order
+mark at the start of the file is ignored.
 
 Environment
 -----------

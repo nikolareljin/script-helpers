@@ -18,8 +18,9 @@
   model is matched without regard to letter case, as Ollama matches it. Linux and macOS figures are read, and each can
   be stated through an `OLLAMA_BUDGET_*` override. Names and model references are checked before
   they reach a pattern, a URL or a request body; a size that is not a number is refused, not read
-  as zero; and no message carries a credential, a control character or an escape sequence spelled
-  out as text. bash 3.2 and BSD userland, with or without `set -euo pipefail`.
+  as zero; and no message carries a credential (also in a long error line or in another URL in the
+  text), a control character or an escape sequence spelled out as text. A byte-order mark at the
+  start of the models file is ignored. bash 3.2 and BSD userland, with or without `set -euo pipefail`.
 
 ### Fixed
 
@@ -43,7 +44,6 @@
   them too, for a run from another hook.
 - **`tests/private_names_test.sh` read the machine's own allowlist**, so its override cases failed
   on a machine that has one and passed in CI. It uses an empty configuration directory.
-
 
 ## 2026-09-29 — v0.44.1
 

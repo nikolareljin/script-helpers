@@ -1,40 +1,41 @@
 #!/usr/bin/env bash
-# Ollama endpoint helpers: which models a project needs, which of them an
-# Ollama already has, and whether the machine can take the rest -- decided
-# before anything is pulled.
+# Ollama endpoint helpers for a project's start script. They answer three
+# questions, in order, before anything is pulled:
+#   1. Which models does the project need?
+#   2. Which of them does this Ollama not have yet?
+#   3. Does the machine have room for those (disk for the download, memory
+#      for the largest model)?
+# Models are pulled only if the answer to 3 is yes.
 #
-# A project lists its models by purpose in one env-style file (NAME=model).
-# A start script asks three questions in order: what is needed, what is
-# missing at this endpoint, and does the missing part fit (disk for the
-# download, memory for the largest model). Only a yes to the last one pulls.
+# A project lists its models in one env-style file, one NAME=model per line.
 #
 # Expected imports by caller (via shlib_import): logging
 #
-# Written for bash 3.2 and BSD userland, and for a caller that runs with
-# `set -euo pipefail` as well as one that does not: no pipeline here may end a
-# strict caller, and no function reads a positional parameter it was not given.
+# Works on bash 3.2 and BSD tools. Safe for a caller that uses
+# `set -euo pipefail`: no pipeline here can end such a caller, and no function
+# reads an argument it was not given.
 
 # --- what counts as a name, a model, a number --------------------------------
 
-# A variable name. Checked before a name reaches `${!name}` (an indirect
-# expansion evaluates a subscript: `x[$(cmd)]` runs cmd) or a sed program.
+# True for a valid variable name. Checked before the name is used in
+# `${!name}` (bash would run a command hidden in `x[$(cmd)]`) or in a sed
+# program.
 _ollama_ep_is_name() { [[ "${1:-}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; }
 
-# A model reference: letters, digits and . _ - / : only, no "..". Checked
-# before a model reaches a URL or a JSON string built by hand. No "@": it
-# would be either credentials (user:secret@registry/model), which do not
-# belong in a reference that is printed and stored, or a digest
-# (model@sha256:...), which nothing here can size or match against what an
-# Ollama lists.
+# True for a valid model reference: letters, digits and . _ - / : only, and no
+# "..". Checked before the model is put into a URL or a JSON string.
+# "@" is not allowed. It would mean credentials (user:secret@registry/model),
+# which must not be printed or stored, or a digest (model@sha256:...), which
+# cannot be sized here or matched against the names an Ollama lists.
 _ollama_ep_is_model() {
   [[ "${1:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._/:-]*$ ]] || return 1
   case "$1" in *..*|*//*) return 1 ;; esac
   return 0
 }
 
-# Usage: _ollama_ep_uint <value>; prints value as a base-10 integer, or fails.
-# Up to 15 digits: more wraps bash arithmetic. Leading zeros are dropped,
-# because bash reads "08" as bad octal and "010" as eight.
+# Usage: _ollama_ep_uint <value>; prints value as a whole number, or fails.
+# At most 15 digits, because more overflows bash arithmetic. Leading zeros are
+# removed, because bash reads "08" as an invalid octal number and "010" as 8.
 _ollama_ep_uint() {
   local value="${1:-}"
   [[ "$value" =~ ^[0-9]+$ ]] || return 1
@@ -43,49 +44,54 @@ _ollama_ep_uint() {
   printf '%s\n' "$value"
 }
 
-# Bytes as "N.N GB". A GB here is 10^9 bytes, as Ollama shows a model's size,
-# so the figures in a refusal can be held against `ollama list`.
+# Bytes as "N.N GB". 1 GB is 10^9 bytes, the same unit `ollama list` uses, so
+# the numbers in a message can be compared with it.
 _ollama_ep_gb() {
   awk -v b="${1:-0}" 'BEGIN { printf "%.1f GB", b / 1000000000 }'
 }
 
-# A URL as it may be shown. Messages go to logs, so three things are left out:
-# the user and password (http://user:secret@host, with or without a scheme;
-# everything up to the last "@" of the authority, which is where curl ends
-# the credentials too, since a password may itself contain an "@"), a query
-# or fragment (where a token travels), and control characters.
+# A URL that is safe to print. Removed:
+# - user and password (user:secret@host, with or without a scheme). Everything
+#   up to the last "@" before the first "/" goes, because a password may
+#   contain an "@" itself; curl reads it the same way.
+# - the query and fragment (?... and #...), where a token may be.
+# - control characters.
 _ollama_ep_shown() {
-  # A backslash is doubled last: the logging helpers print with `echo -e`,
-  # which would turn the text \033[2J into the escape sequence it spells.
+  # Backslashes are doubled, last. The logging helpers print with `echo -e`,
+  # which would turn the text \033[2J into a real escape sequence.
   printf '%s' "${1:-}" | LC_ALL=C tr -d '\000-\037\177' \
     | sed -E 's|[?#].*$||; s|^([a-zA-Z][a-zA-Z0-9+.-]*://)?[^/]*@|\1|; s|\\|\\\\|g' || true
 }
 
-# Text from the other end as it may be shown: one line, printable characters
-# only, cut short. What an endpoint answers is not ours, and a terminal obeys
-# the escape sequences in what it is shown.
+# Text from the other side (Ollama, curl) that is safe to print: the last
+# line only, no control characters, at most 300 characters. A terminal obeys
+# escape sequences in what it prints, and this text is not ours.
 _ollama_ep_said() {
-  # Control characters by their octal range: a character class such as
-  # [:print:] is not understood by every tr (busybox reads it as letters).
-  # Backslashes doubled as well, for the same `echo -e` (see _ollama_ep_shown).
-  printf '%s' "${1:-}" | tr -d '\r' | tail -n 1 | LC_ALL=C tr -d '\000-\037\177' | cut -c1-300 \
-    | sed 's|\\|\\\\|g' || true
+  # - Control characters are removed by octal range. Not all `tr` know
+  #   [:print:] (busybox reads it as plain letters).
+  # - Credentials in any URL (://user:secret@) are removed before the cut to 300
+  #   characters. A cut in the middle of them would leave half a password.
+  # - Backslashes are doubled, for the same `echo -e` as in _ollama_ep_shown.
+  printf '%s' "${1:-}" | tr -d '\r' | tail -n 1 | LC_ALL=C tr -d '\000-\037\177' \
+    | sed -E 's|(://)[^/@[:space:]]*@|\1|g' | cut -c1-300 | sed 's|\\|\\\\|g' || true
 }
 
 # --- the models file ---------------------------------------------------------
 #
-# One assignment per line: NAME=model. Read as an env file is read: `export `
-# before the name, spaces around `=`, one pair of quotes around the value and a
-# trailing ` # comment` are not part of the value, nor is a carriage return.
+# One NAME=model per line, read like an env file. Not part of the value:
+# `export ` before the name, spaces around `=`, one pair of quotes, a trailing
+# ` # comment`, and a carriage return (Windows line ends).
 
 # Usage: ollama_models_file_get <file> <NAME>; prints the value of NAME, or
-# nothing. The last line for a name wins. Returns 2 for a NAME that is not a
-# variable name.
+# nothing. If NAME is set twice, the last line wins. Returns 2 if NAME is not
+# a valid variable name.
 ollama_models_file_get() {
-  local file="${1:-}" name="${2:-}" value
+  local file="${1:-}" name="${2:-}" value bom=$'\xef\xbb\xbf'
   _ollama_ep_is_name "$name" || return 2
   [[ -f "$file" ]] || return 0
-  value="$(sed -n -E "s/^[[:space:]]*(export[[:space:]]+)?${name}[[:space:]]*=[[:space:]]*//p" "$file" | tail -n 1)" || true
+  # Remove a byte-order mark (some editors add one at the start of a file).
+  # With it, the first variable in the file was never found.
+  value="$(sed -n -E "1s/^${bom}//; s/^[[:space:]]*(export[[:space:]]+)?${name}[[:space:]]*=[[:space:]]*//p" "$file" | tail -n 1)" || true
   value="${value%$'\r'}"
   case "$value" in
     \"*\"*) value="${value#\"}"; value="${value%%\"*}" ;;
@@ -100,16 +106,17 @@ ollama_models_file_get() {
 # Usage: ollama_models_file_names <file>; prints every name the file assigns,
 # one per line, in file order, each once.
 ollama_models_file_names() {
-  local file="${1:-}"
+  local file="${1:-}" bom=$'\xef\xbb\xbf'
   [[ -f "$file" ]] || return 0
-  sed -n -E 's/^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=.*/\2/p' "$file" \
+  # The byte-order mark: see ollama_models_file_get.
+  sed -n -E "1s/^${bom}//; "'s/^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=.*/\2/p' "$file" \
     | awk '!seen[$0]++' || true
 }
 
-# Usage: ollama_model_tagged <model>; prints the model as Ollama lists it:
-# with a tag (":latest" when none is given), and without the default
-# registry's host or its "library/" namespace, which Ollama leaves out.
-# The tag is looked for in the last path segment only:
+# Usage: ollama_model_tagged <model>; prints the model the way Ollama lists
+# it: with a tag (":latest" if none is given), and without the default
+# registry's host or "library/" prefix.
+# Only the part after the last "/" is checked for a tag:
 # "registry.example:5000/team/model" has a port, not a tag.
 ollama_model_tagged() {
   local model="${1:-}" last
@@ -124,20 +131,21 @@ ollama_model_tagged() {
 }
 
 # Usage: ollama_models_required <file> [NAME...]; prints the models a start
-# needs, as Ollama lists them, one per line, each once.
+# needs, the way Ollama lists them, one per line, each once.
 #
-# With no NAME, every name in the file that is not a tier's alternative: a
-# name ending in _SMALL, _LARGE or _XLARGE is the model for another class of
-# machine, and one ending in _VRAM_GB or _RAM_GB after that is a figure for
-# the pick (a GPU floor, a memory boundary), not a model. For each name a
-# non-blank value in the environment wins over the file, so a caller that has
-# loaded its own .env gets that machine's choice.
+# With no NAME: every name in the file, except the ones for other machine
+# classes. A name ending in _SMALL, _LARGE or _XLARGE is the model for another
+# class; a name ending in _RAM_GB or _VRAM_GB after that is a number used to
+# pick the class, not a model.
+# A non-blank value in the environment wins over the file. So a caller that
+# has loaded its own .env gets that machine's choice.
 #
-# Returns 2, printing nothing, when a NAME is not a variable name: a list cut
-# short at the bad name would start a project with some of its models.
-# Returns 1, printing nothing, when a file is named and is not there: a
-# mistyped path would otherwise read as "this project needs no models", and
-# the start that follows checks nothing. Pass "" for no file at all.
+# Returns 2 and prints nothing if a NAME is not a valid variable name. A list
+# that stopped at the bad name would start a project with only some of its
+# models.
+# Returns 1 and prints nothing if a file is given and does not exist. A
+# mistyped path would otherwise mean "this project needs no models", and the
+# start would check nothing. Pass "" to use no file.
 ollama_models_required() {
   local file="${1:-}" name value names
   [[ $# -eq 0 ]] || shift
@@ -164,7 +172,7 @@ ollama_models_required() {
     [[ -n "$value" ]] || value="$(ollama_models_file_get "$file" "$name")"
     [[ -n "$value" ]] || continue
     ollama_model_tagged "$value"
-  done <<<"$names" | awk '!seen[$0]++'
+  done <<<"$names" | awk '!seen[tolower($0)]++'
   return 0
 }
 
@@ -178,24 +186,24 @@ ollama_endpoint_models() {
   url="${url%/}"
   [[ -n "$url" ]] || return 1
   body="$(curl -fsS -m "$timeout" "${url}/api/tags" 2>/dev/null | tr -d '\n\r')" || return 1
-  # Any web server answers 200 to something. An Ollama's answer has "models".
+  # Any web server may answer 200. An Ollama's answer contains "models".
   grep -q '"models"[[:space:]]*:' <<<"$body" || return 1
-  # A model's entry has "name" and then "model". A "name" anywhere else in the
-  # answer (a nested object) is not followed by one.
+  # In a model's entry "name" is followed by "model". A "name" elsewhere in
+  # the answer (inside a nested object) is not.
   names="$(grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"[[:space:]]*,[[:space:]]*"model"' <<<"$body" || true)"
   if [[ -z "$names" ]]; then
-    # An Ollama old enough to list "name" alone: the first key of each entry.
+    # An old Ollama lists "name" only: take the first key of each entry.
     names="$(grep -o '{[[:space:]]*"name"[[:space:]]*:[[:space:]]*"[^"]*"' <<<"$body" || true)"
   fi
   [[ -n "$names" ]] || return 0
   sed -E 's/^[^:]*:[[:space:]]*"//; s/".*$//' <<<"$names"
 }
 
-# Usage: ollama_models_missing <needed> <present>; both are newline-separated
-# lists. Prints the needed models that are not present, one per line. A model
-# matches only its whole name: "qwen:7b" is not satisfied by "qwen:7b-instruct".
-# Letter case does not count, as it does not to Ollama: it answers for
-# "Qwen:7B" with the model it lists as "qwen:7b".
+# Usage: ollama_models_missing <needed> <present>; both are lists, one model
+# per line. Prints the needed models that are not present.
+# Only a whole name matches: "qwen:7b-instruct" does not count as "qwen:7b".
+# Upper and lower case are the same, as they are to Ollama ("Qwen:7B" is the
+# model it lists as "qwen:7b").
 ollama_models_missing() {
   local needed="${1:-}" present="${2:-}" model
   while IFS= read -r model; do
@@ -207,17 +215,18 @@ ollama_models_missing() {
 
 # --- how big, and how much room ----------------------------------------------
 
-# Usage: ollama_registry_size_bytes <model>; prints the size of the model's
-# download in bytes, from the registry's manifest.
-# Returns 1 when the registry did not answer, has no such model, answered
-# with something that is not a model's manifest, or the model is not a model
-# reference; 2 when the model lives on another registry host (its size is not
-# asked for).
-# OLLAMA_REGISTRY_URL (default https://registry.ollama.ai) and
-# OLLAMA_REGISTRY_TIMEOUT (default 15) apply.
+# Usage: ollama_registry_size_bytes <model>; prints the download size of the
+# model in bytes, read from the registry's manifest.
+# Returns 1 if the registry does not answer, does not have the model, answers
+# with something that is not a model's manifest, or the model reference is not
+# valid. Returns 2 if the model is on another registry host: its size is not
+# asked for.
+# Env: OLLAMA_REGISTRY_URL (default https://registry.ollama.ai),
+# OLLAMA_REGISTRY_TIMEOUT (default 15 seconds).
 #
-# The figure is every layer in the manifest. Layers the machine already holds
-# for another model are counted again, so it can only overstate.
+# The size is the sum of all layers in the manifest. Layers the machine
+# already has from another model are counted again, so the number can be too
+# high but never too low.
 ollama_registry_size_bytes() {
   local ref tag name path body first
   local base="${OLLAMA_REGISTRY_URL:-https://registry.ollama.ai}"
@@ -241,17 +250,18 @@ ollama_registry_size_bytes() {
   body="$(curl -fsS -m "${OLLAMA_REGISTRY_TIMEOUT:-15}" \
     -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
     "${base%/}/v2/${path}/manifests/${tag}" 2>/dev/null | tr -d '\n\r')" || return 1
-  # A model's manifest has layers. An index of manifests, or a web page that
-  # happens to say "size", does not, and its sum would pass any budget.
+  # A model's manifest has "layers". A list of manifests, or a web page that
+  # contains "size", does not. Summing those would give a number that passes
+  # any check.
   grep -q '"layers"[[:space:]]*:' <<<"$body" || return 1
   { grep -o '"size"[[:space:]]*:[[:space:]]*[0-9][0-9]*[^0-9.eE]' <<<"$body" || true; } \
     | awk -F: '{ gsub(/[^0-9]/, "", $2); if ($2 != "") { total += $2; n++ } }
                END { if (!n) exit 1; printf "%.0f\n", total }'
 }
 
-# Usage: ollama_disk_free_bytes <path>; prints the bytes free on the
-# filesystem holding path (or its nearest existing parent). Nothing when it
-# cannot be told. OLLAMA_BUDGET_DISK_FREE_BYTES overrides.
+# Usage: ollama_disk_free_bytes <path>; prints the free bytes on the
+# filesystem that holds path (or its nearest existing parent). Prints nothing
+# if it cannot be read. OLLAMA_BUDGET_DISK_FREE_BYTES overrides.
 ollama_disk_free_bytes() {
   local path="${1:-.}" stated
   if stated="$(_ollama_ep_uint "${OLLAMA_BUDGET_DISK_FREE_BYTES:-}")"; then
@@ -261,8 +271,8 @@ ollama_disk_free_bytes() {
   while [[ -n "$path" && "$path" != "/" && "$path" != "." && ! -e "$path" ]]; do
     path="$(dirname "$path")"
   done
-  # "Available" is the field before the one that ends in %. Counted from the
-  # left it moves when the filesystem's name has a space in it.
+  # "Available" is the field just before the one ending in "%". Counting
+  # fields from the left fails when the filesystem's name contains a space.
   { df -Pk "${path:-/}" 2>/dev/null || true; } | awk '
     NR == 2 {
       for (i = NF; i > 1; i--) if ($i ~ /^[0-9]+%$/) {
@@ -303,16 +313,16 @@ ollama_mem_available_bytes() {
   fi
 }
 
-# Usage: ollama_gpu_mem_bytes; prints the memory of this machine's NVIDIA
-# GPUs together, in bytes, or 0. Together, because Ollama spreads a model
-# over them. OLLAMA_BUDGET_GPU_BYTES overrides. Apple silicon shares its
-# memory with the GPU and is covered by ollama_mem_total_bytes.
+# Usage: ollama_gpu_mem_bytes; prints the total memory of this machine's
+# NVIDIA GPUs in bytes, or 0. The total, because Ollama spreads one model over
+# several GPUs. OLLAMA_BUDGET_GPU_BYTES overrides. On Apple silicon the GPU
+# shares the machine's memory, which ollama_mem_total_bytes already reports.
 ollama_gpu_mem_bytes() {
   local stated
   if stated="$(_ollama_ep_uint "${OLLAMA_BUDGET_GPU_BYTES:-}")"; then
     printf '%s\n' "$stated"
   elif command -v nvidia-smi >/dev/null 2>&1; then
-    # A driver that cannot be reached is no GPU, not a reason to stop.
+    # If the driver does not answer, count no GPU instead of failing.
     { nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null || true; } \
       | awk '/^[0-9]+/ { sum += $1 } END { printf "%.0f\n", sum * 1048576 }'
   else
@@ -322,43 +332,44 @@ ollama_gpu_mem_bytes() {
 
 # Usage: ollama_budget_check <pull_bytes> <largest_model_bytes> <models_dir>
 #
-# Whether the machine can take a download of pull_bytes into models_dir and
-# then load a model of largest_model_bytes. Says what does not fit, on stderr,
-# with the numbers.
+# Checks that the machine can download pull_bytes into models_dir and then
+# load a model of largest_model_bytes. Prints what does not fit, with the
+# numbers, on stderr.
 #
-# Returns 0 when it fits, 1 when the disk does not, 2 when memory does not,
-# 3 when neither does, 4 when a size given is not a whole number (nothing
-# was checked; OLLAMA_IGNORE_BUDGET does not change that).
+# Returns 0 if it fits, 1 if the disk is too small, 2 if memory is too small,
+# 3 if both are. Returns 4 if a size is not a whole number: then nothing was
+# checked, also with OLLAMA_IGNORE_BUDGET set.
 #
-# - Disk: what is free after the download must be at least
-#   OLLAMA_DISK_RESERVE_GB (default 10).
+# - Disk: after the download, at least OLLAMA_DISK_RESERVE_GB (default 10)
+#   must stay free.
 # - Memory: the largest model plus OLLAMA_MEM_HEADROOM_PERCENT (default 20)
-#   must fit in the machine's memory and its GPUs' together, since Ollama
-#   splits a model between them. More than that is a refusal. Not fitting in
-#   what is available *now* is only a warning: that changes by the minute.
-# - A figure that cannot be read (no df, no /proc/meminfo) is said and
-#   skipped, not guessed.
+#   must fit in the machine's memory plus its GPUs' memory, because Ollama
+#   splits a model between the two. If it does not fit, that is a refusal.
+#   If it fits the machine but not the memory free right now, that is only a
+#   warning: free memory changes from minute to minute.
+# - A number that cannot be read (no df, no /proc/meminfo) is reported and
+#   skipped, never guessed.
 # - OLLAMA_IGNORE_BUDGET=1 turns each refusal into a warning and returns 0.
 #
-# The figures are this machine's unless each OLLAMA_BUDGET_* is stated: for an
-# Ollama on another machine, state all four.
+# The numbers are this machine's. For an Ollama on another machine, set all
+# four OLLAMA_BUDGET_* variables.
 ollama_budget_check() {
   local dir="${3:-.}" pull largest reserve_gb headroom
   local free total available gpu need reserve after capacity
   local disk_short=0 mem_short=0 say=print_error shown_dir
-  # A size that is not a number is the caller's mistake, and reading it as
-  # zero would pass a download nobody measured. Nothing given is zero.
+  # A size that is not a number is the caller's mistake. Reading it as zero
+  # would approve a download that was never measured. No argument means zero.
   if ! pull="$(_ollama_ep_uint "${1:-0}")" || ! largest="$(_ollama_ep_uint "${2:-0}")"; then
     print_error "ollama_budget_check: a size in bytes is a whole number of at most 15 digits; got '$(_ollama_ep_said "${1:-}")' and '$(_ollama_ep_said "${2:-}")'." >&2
     return 4
   fi
   reserve_gb="$(_ollama_ep_uint "${OLLAMA_DISK_RESERVE_GB:-10}")" || reserve_gb=10
   headroom="$(_ollama_ep_uint "${OLLAMA_MEM_HEADROOM_PERCENT:-20}")" || headroom=20
-  # A reserve or headroom beyond any machine is a typing mistake, not a wish.
+  # A reserve or headroom larger than any machine is a typo: use the default.
   [[ "$reserve_gb" -le 100000 ]] || reserve_gb=10
   [[ "$headroom" -le 1000 ]] || headroom=20
   [[ "${OLLAMA_IGNORE_BUDGET:-0}" != "1" ]] || say=print_warning
-  # The path as it may be shown: a directory name is the caller's text.
+  # The directory name comes from the caller: make it safe to print.
   shown_dir="$(_ollama_ep_said "$dir")"
 
   if [[ "$pull" -gt 0 ]]; then
@@ -402,16 +413,16 @@ ollama_budget_check() {
 # --- pulling what is missing, when it fits -----------------------------------
 
 # Usage: ollama_endpoint_pull <base_url> <model>; asks that Ollama to pull the
-# model and waits for it. Through the API, so it works for an Ollama on this
-# machine and for one in a container alike, with no CLI.
+# model and waits until it is done. It uses the HTTP API, so it works the same
+# for an Ollama on this machine and one in a container, without the CLI.
 #
-# The download is not given a deadline: a large model on a slow line takes
-# hours. It is given up when nothing at all arrives for
-# OLLAMA_PULL_STALL_SECONDS (default 600); Ollama reports progress throughout.
-# Each tenth of a layer of 100 MB or more is said on stderr as it arrives, so
-# a download of an hour does not look like a start that hangs.
-# Returns 1 when the pull did not end in success; what Ollama said last is
-# printed on stderr.
+# There is no time limit for the whole download: a large model on a slow line
+# takes hours. The pull is given up only if nothing at all arrives for
+# OLLAMA_PULL_STALL_SECONDS (default 600).
+# Progress is printed on stderr, one line for each 10% of every layer of
+# 100 MB or more, so a long download does not look like a hang.
+# Returns 1 if the pull did not end in success, and prints the last thing
+# Ollama said on stderr.
 ollama_endpoint_pull() {
   local url="${1:-}" model="${2:-}" verdict stall
   url="${url%/}"
@@ -420,13 +431,15 @@ ollama_endpoint_pull() {
     return 1
   fi
   stall="$(_ollama_ep_uint "${OLLAMA_PULL_STALL_SECONDS:-600}")" || stall=600
-  # The stream is one JSON object per line; the last says how it ended. An
-  # error anywhere in it is a failure, whatever the HTTP status was. curl's
-  # own complaint arrives in the same stream (2>&1) and is then the last
-  # line, so a transfer that broke is not a success either. The stream is
-  # read as it comes and not kept: hours of progress are many megabytes.
-  # The model goes under both keys: "model" is the API's name for it, "name"
-  # is what an older Ollama reads.
+  # The answer is a stream: one JSON object per line, and the last line says
+  # how it ended.
+  # - An "error" anywhere in the stream is a failure, whatever the HTTP status.
+  # - curl's own error message goes into the same stream (2>&1) and becomes the
+  #   last line, so a broken transfer is not a success either.
+  # - The stream is read line by line and not stored: hours of progress lines
+  #   are many megabytes.
+  # - The model is sent under two keys: "model" is the API's name for it, and
+  #   "name" is what an older Ollama reads.
   verdict="$(curl -sS -N --speed-limit 1 --speed-time "$stall" -H 'Content-Type: application/json' \
     -d "{\"model\": \"${model}\", \"name\": \"${model}\", \"stream\": true}" "${url}/api/pull" 2>&1 \
     | awk -v model="$model" '
@@ -445,15 +458,17 @@ ollama_endpoint_pull() {
         layer = match($0, /"digest"[ \t]*:[ \t]*"[^"]*"/) ? substr($0, RSTART, RLENGTH) : "-"
         tenth = int(done * 10 / total)
         if (!(layer in said)) {
-          # Nothing at the first sight of a layer that has not begun, or that
-          # this Ollama already holds whole.
+          # First time a layer is seen: print nothing if it has not started
+          # (0%) or Ollama already has all of it (100%).
           said[layer] = tenth
           if (tenth == 0 || tenth >= 10) next
         } else if (tenth <= said[layer]) next
         said[layer] = tenth
-        # Through cat, which inherits stderr as it is: an awk that opens
-        # /dev/stderr as a file starts the log of a caller again from its top.
-        # (No apostrophe in this program: it would end the shell string.)
+        # Printed through `cat 1>&2`, which keeps stderr as it is. Some awks
+        # open /dev/stderr as a new file, which would overwrite the start of a
+        # log the caller is writing to.
+        # (No apostrophe may appear in this awk program: it would end the
+        # shell string around it.)
         printf "  %s: %d%% of %.1f GB\n", model, tenth * 10, total / 1000000000 | "cat 1>&2"
         fflush("cat 1>&2")
       }
@@ -462,21 +477,24 @@ ollama_endpoint_pull() {
         else print "no:" last
       }')" || true
   [[ "$verdict" != "ok" ]] || return 0
-  verdict="$(_ollama_ep_said "${verdict#no:}")"
-  # curl names the URL it could not reach, credentials and all.
+  # curl prints the URL it could not reach, credentials included. Replace
+  # the whole URL before the text is cut to length, so no part of it is left.
+  verdict="${verdict#no:}"
   verdict="${verdict//"$url"/$(_ollama_ep_shown "$url")}"
+  verdict="$(_ollama_ep_said "$verdict")"
   print_error "The Ollama at $(_ollama_ep_shown "$url") did not pull ${model}: ${verdict:-no answer}" >&2
   return 1
 }
 
 # Usage: ollama_endpoint_ensure_models <base_url> <models_dir> <model>...
 #
-# Makes sure that Ollama has every model listed, pulling what is missing only
-# when the machine can take it. Nothing is pulled unless everything fits: a
-# start that ends with half its models is worse than one that says no.
+# Makes sure that Ollama has every model listed. Missing models are pulled
+# only if the machine has room for all of them: nothing is pulled unless
+# everything fits. A start with half its models is worse than a clear "no".
 #
-# models_dir is where that Ollama keeps its models, for the disk check: a
-# directory on this machine, or Docker's data root for one in a container.
+# models_dir is where that Ollama stores its models, for the disk check: a
+# directory on this machine, or Docker's data root for an Ollama in a
+# container.
 #
 # Returns:
 #   0  every model is there (already, or after pulling)
@@ -496,8 +514,8 @@ ollama_endpoint_ensure_models() {
   local url="${1:-}" dir="${2:-.}" present needed missing model size shown
   local pull_bytes=0 largest=0 unknown="" unsized="" status=0
   url="${url%/}"
-  # With the directory left out there are no models either: what is left of
-  # the arguments is the URL, not a model.
+  # If the directory is left out, there are no models either: the only
+  # argument left is the URL, and it must not be read as a model.
   if [[ $# -ge 2 ]]; then shift 2; else shift $#; fi
   shown="$(_ollama_ep_shown "$url")"
   needed=""
@@ -508,7 +526,7 @@ ollama_endpoint_ensure_models() {
       print_error "Not a model reference: $(_ollama_ep_shown "$model")" >&2
       return 8
     fi
-    grep -qxF -- "$model" <<<"$needed" || needed="${needed}${needed:+$'\n'}${model}"
+    grep -qixF -- "$model" <<<"$needed" || needed="${needed}${needed:+$'\n'}${model}"
   done
   [[ -n "$needed" ]] || return 0
 
@@ -524,8 +542,8 @@ ollama_endpoint_ensure_models() {
     return 5
   fi
 
-  # Sizes of everything needed: the missing ones add up to the download, and
-  # the largest of all of them is what has to fit in memory.
+  # Get the size of every needed model. The missing ones add up to the
+  # download. The largest of all of them must fit in memory.
   while IFS= read -r model; do
     [[ -n "$model" ]] || continue
     size="$(ollama_registry_size_bytes "$model")" || size=""
@@ -542,7 +560,7 @@ ollama_endpoint_ensure_models() {
   done <<<"$needed"
 
   if [[ -n "$unsized" ]]; then
-    # Already there, so nothing to download; but it may be the largest.
+    # Already present, so no download. But it may be the largest model.
     print_warning "The size of ${unsized}could not be learned from the registry; memory was not checked for it." >&2
   fi
   if [[ -n "$unknown" ]]; then
@@ -555,7 +573,7 @@ ollama_endpoint_ensure_models() {
   fi
   if [[ "$pull_bytes" -gt 0 && "${OLLAMA_IGNORE_BUDGET:-0}" != "1" ]]; then
     if ! _ollama_ep_uint "$(ollama_disk_free_bytes "$dir")" >/dev/null; then
-      # Not knowing the room is the same lack as not knowing the size.
+      # Unknown free space is as bad as unknown size: refuse.
       print_error "Free disk space at $(_ollama_ep_said "$dir") could not be read, so nothing says whether $(_ollama_ep_gb "$pull_bytes") fits. State it with OLLAMA_BUDGET_DISK_FREE_BYTES, or set OLLAMA_IGNORE_BUDGET=1 to pull unchecked." >&2
       return 7
     fi

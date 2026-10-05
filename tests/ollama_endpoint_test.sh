@@ -6,16 +6,18 @@
 # EXAMPLE: bash tests/ollama_endpoint_test.sh
 # ----------------------------------------------------
 #
-# The Ollama and the registry are one small Python HTTP server on 127.0.0.1:
-# /api/tags lists what a file says is installed, /api/pull records what it was
-# asked for (and "installs" it), /v2/.../manifests/<tag> answers with layer
-# sizes. Disk and memory are given through the OLLAMA_BUDGET_* overrides, so
-# nothing here depends on the machine it runs on, and nothing is downloaded.
+# The Ollama and the registry are faked by one small Python HTTP server on
+# 127.0.0.1:
+#   /api/tags                  lists the models a state file says are installed
+#   /api/pull                  records what was asked for, and "installs" it
+#   /v2/.../manifests/<tag>    answers with layer sizes
+# Disk and memory are set through the OLLAMA_BUDGET_* variables. So the result
+# does not depend on this machine, and nothing is downloaded.
 #
-# The behaviours worth pinning are the ones that look right while being
-# wrong: a pull that starts before the budget is known, a partial pull, a
-# model "present" because a longer name contains it, a port read as a tag,
-# and a web server that answers 200 taken for an Ollama.
+# The cases that matter most are the ones that look right and are wrong: a
+# pull that starts before the room is checked, a pull of only some models, a
+# model counted as present because a longer name contains it, a port read as
+# a tag, and a web server that answers 200 taken for an Ollama.
 # ----------------------------------------------------
 set -uo pipefail
 
@@ -29,7 +31,7 @@ ok()    { echo "[ollama_endpoint_test]   ok  $*"; }
 check() { # check <description> <expected> <actual>
   if [[ "$2" == "$3" ]]; then ok "$1"; else error "$1: expected [$2], got [$3]"; fi
 }
-# said <description> <file> <text>...: every text is in the file.
+# said <description> <file> <text>...: passes if every text is in the file.
 said() {
   local what="$1" file="$2" text
   shift 2
@@ -63,7 +65,7 @@ trap cleanup EXIT
 source ./helpers.sh
 shlib_import logging ollama_endpoint
 
-# 10^9 bytes, as the module counts a GB.
+# 1 GB is 10^9 bytes, as in the module.
 GB=1000000000
 
 # --- a fake Ollama and registry ---------------------------------------------------
@@ -72,7 +74,8 @@ import json, os, sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 STATE = sys.argv[2]
-# Layer sizes in bytes, then (when more than one) the config's size.
+# Layer sizes in bytes. If there is more than one number, the last is the
+# config's size.
 SIZES = {
     "library/main:7b": [4000000000, 700000000, 1000],
     "library/main:7b-instruct": [5000000000],
@@ -110,18 +113,18 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         mode = read("mode").strip()
         if self.requestline.split()[1].startswith("//"):
-            # Python's server collapses //api/tags and would quietly serve it.
-            # A real one may not, so the request as sent is what is judged.
+            # Python's server would treat //api/tags as /api/tags. A real server may
+            # not, so the path is checked exactly as it was sent.
             return self.send(404, "{}")
         if self.path == "/api/tags":
             if mode == "web":
                 return self.send(200, "<html>hello</html>", "text/html")
             names = [n for n in read("installed").splitlines() if n]
             if mode == "old":
-                # An Ollama that lists "name" alone, and a nested "name" that is not a model.
+                # An old Ollama: "name" only. Plus a nested "name" that is not a model.
                 models = [{"name": n, "size": 1, "details": {"family": "x", "name": "not-a-model"}} for n in names]
             else:
-                # As Ollama answers: "name" then "model"; "details" has a "name" of its own.
+                # A current Ollama: "name" then "model". "details" has its own "name".
                 models = [{"name": n, "model": n, "size": 1, "details": {"name": "not-a-model", "family": "x"}} for n in names]
             if mode == "big":
                 models += [{"name": "filler-%d:latest" % i, "model": "filler-%d:latest" % i, "size": 1,
@@ -133,21 +136,23 @@ class H(BaseHTTPRequestHandler):
             name, tag = self.path[len("/v2/"):].split("/manifests/")
             key = name + ":" + tag
             if key == "library/index:1b":
-                # A list of manifests, not a manifest: it has sizes and no layers.
+                # A list of manifests, not a manifest: it has sizes but no layers.
                 return self.send(200, json.dumps({"schemaVersion": 2, "manifests": [{"size": 1234}, {"size": 1250}]}))
             if key == "library/page:1b":
                 return self.send(200, '<html>"size": 12</html>', "text/html")
             if key == "library/float:1b":
                 return self.send(200, '{"layers":[{"size":4.7e9},{"size":100}]}')
-            sizes = SIZES.get(key)
+            # The real registry answers for a name in any case (measured:
+            # Qwen3:0.6B and qwen3:0.6b give the same manifest).
+            sizes = SIZES.get(key.lower())
             if sizes is None:
-                # A refusal whose body would add up if it were read.
+                # A 404 whose body has a "size": it must not be summed.
                 return self.send(404, '{"errors":[{"code":"MANIFEST_UNKNOWN"}],"layers":[{"size":999}]}')
             layers = sizes[:-1] if len(sizes) > 1 else sizes
             manifest = {"schemaVersion": 2, "layers": [{"mediaType": "x", "size": s} for s in layers]}
             if len(sizes) > 1:
                 manifest["config"] = {"mediaType": "c", "size": sizes[-1]}
-            # Indented, as a registry may answer: "size": 123 with a space.
+            # Indented, as a registry may answer: "size": 123, with a space.
             return self.send(200, json.dumps(manifest, indent=1))
         self.send(404, "{}")
 
@@ -160,8 +165,8 @@ class H(BaseHTTPRequestHandler):
             note("pulled", "INVALID JSON " + repr(raw))
             return self.send(400, '{"error":"invalid json"}')
         if self.path == "/api/pull":
-            # The model under both keys: "model" is the API's, "name" is what
-            # an older Ollama reads. One that differs from the other is a bug.
+            # The model must come under both keys ("model" is the API's, "name" is
+            # what an older Ollama reads), with the same value.
             name = body.get("model", "")
             note("pulled", name if name == body.get("name") else "KEYS DIFFER " + repr(raw))
             note("stream", str(body.get("stream")))
@@ -171,10 +176,10 @@ class H(BaseHTTPRequestHandler):
                 return self.send(500, '{"error":"no space left on device"}')
             progress = '{"status":"pulling manifest"}\n{"status":"pulling abc","total":10,"completed":5}\n'
             if name.startswith("large"):
-                # A layer worth reporting, as Ollama streams one: no "completed"
-                # before it begins, many lines inside one tenth, a small layer
-                # beside it, one this Ollama already holds, and CRLF line ends
-                # with an empty line last.
+                # A large layer, streamed the way Ollama does it: no "completed" before
+                # it starts, several lines within one 10% step, a small layer next to
+                # it, a layer Ollama already has, and CRLF line ends with an empty last
+                # line.
                 big = '{"status":"pulling aa","digest":"sha256:aa","total":4700000000%s}\n'
                 lines = [big % ""] + [big % (',"completed":%d' % c) for c in
                          (100, 480000000, 500000000, 900000000, 2400000000, 2500000000, 4700000000)]
@@ -183,12 +188,12 @@ class H(BaseHTTPRequestHandler):
                 note("installed", name)
                 return self.send(200, '{"status":"pulling manifest"}\n' + "".join(lines) + '{"status":"success"}\r\n\r\n', "application/x-ndjson")
             if name.startswith("spelled"):
-                # The escape written out as text, as a careless server might echo it.
+                # The escape written out as text (\033...), as a careless server might.
                 return self.send(200, progress + '{"error":"bad \\\\033[2J name"}\n', "application/x-ndjson")
             if name.startswith("escape"):
                 return self.send(200, progress + '{"error":"bad \\u001b[2J\\u001b[31mred"}\n\x1b[2Jtail\x07\n', "application/x-ndjson")
             if name.startswith("midfail"):
-                # An error part way, and a stream that still ends in success.
+                # An error in the middle, and a stream that still ends in success.
                 return self.send(200, progress + '{"error":"digest mismatch"}\n{"status":"success"}\n', "application/x-ndjson")
             if name.startswith("broken"):
                 return self.send(200, progress + '{"error":"pull model manifest: file does not exist"}\n', "application/x-ndjson")
@@ -200,9 +205,9 @@ class H(BaseHTTPRequestHandler):
 
 class Server(HTTPServer):
     def server_bind(self):
-        # HTTPServer looks up this machine's own name here (socket.getfqdn),
-        # which on a macOS CI runner took longer than the test waits. The
-        # name is never used, so bind and say where.
+        # HTTPServer looks up this machine's host name here (socket.getfqdn). On
+        # a macOS CI runner that took longer than the test waits. The name is not
+        # used, so only bind and store the address.
         import socketserver
         socketserver.TCPServer.server_bind(self)
         self.server_name, self.server_port = self.server_address[0], self.server_address[1]
@@ -215,8 +220,8 @@ PY
 mkdir -p "$tmp/state"
 python3 "$tmp/server.py" "$tmp/port" "$tmp/state" &
 server_pid=$!
-# Up to 30 seconds: a cold python on a loaded runner. Answering, not only
-# having written its port, is what "started" means.
+# Wait up to 30 seconds: python can be slow to start on a busy runner.
+# "Started" means it answers, not only that it wrote its port.
 for _ in $(seq 1 150); do
   if [[ -s "$tmp/port" ]] && curl -fsS --max-time 1 "http://127.0.0.1:$(cat "$tmp/port")/api/tags" >/dev/null 2>&1; then break; fi
   sleep 0.2
@@ -234,7 +239,7 @@ reset() { # reset [installed model...]
 }
 one_line() { tr '\n' ' ' | sed 's/ $//'; }
 pulled() { if [[ -f "$tmp/state/pulled" ]]; then one_line <"$tmp/state/pulled"; fi; }
-# A machine with room for everything, unless a test says otherwise.
+# A machine with room for everything. A test changes this when it needs to.
 roomy() {
   export OLLAMA_BUDGET_DISK_FREE_BYTES=$((200 * GB)) OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((32 * GB))
   export OLLAMA_BUDGET_MEM_AVAILABLE_BYTES=$((20 * GB)) OLLAMA_BUDGET_GPU_BYTES=0
@@ -247,6 +252,12 @@ note "the models file"
 printf '# by purpose\n\nOLLAMA_MODEL=main:7b\n  CLASSIFY_MODEL = small:3b  \r\nOLLAMA_MODEL_LARGE=huge:70b\nOLLAMA_MODEL_LARGE_VRAM_GB=48\nOLLAMA_EMBED_MODEL=embed\nOLLAMA_MODEL_OLD=x\nOLLAMA_MODEL=main:7b\nnot a line\n' >"$tmp/models.env"
 check "a value is read" "main:7b" "$(ollama_models_file_get "$tmp/models.env" OLLAMA_MODEL)"
 check "spaces and a carriage return are not part of it" "small:3b" "$(ollama_models_file_get "$tmp/models.env" CLASSIFY_MODEL)"
+# A byte-order mark (some editors add one at the start of a file). With it,
+# the first variable in the file was never found.
+printf '\xef\xbb\xbfOLLAMA_MODEL=first:1b\r\nCLASSIFY_MODEL=second:1b\r\n' >"$tmp/bom.env"
+check "a byte-order mark does not hide the first variable" "first:1b" "$(ollama_models_file_get "$tmp/bom.env" OLLAMA_MODEL)"
+check "nor its name" "OLLAMA_MODEL CLASSIFY_MODEL" "$(ollama_models_file_names "$tmp/bom.env" | one_line)"
+check "so every model in such a file is required" "first:1b second:1b" "$(unset OLLAMA_MODEL CLASSIFY_MODEL; ollama_models_required "$tmp/bom.env" | one_line)"
 check "a name is not matched by a longer one" "x" "$(ollama_models_file_get "$tmp/models.env" OLLAMA_MODEL_OLD)"
 check "a name the file lacks is nothing" "" "$(ollama_models_file_get "$tmp/models.env" NO_SUCH)"
 check "a missing file is nothing, not an error" "0:" "$(ollama_models_file_get "$tmp/absent.env" X; echo "$?:")"
@@ -300,7 +311,7 @@ check "the environment wins, trimmed" "mine:1b small:3b" "$(OLLAMA_MODEL='  mine
 check "a blank variable is not a model" "main:7b" "$(OLLAMA_MODEL='   ' ollama_models_required "$tmp/models.env" OLLAMA_MODEL)"
 check "two names for one model list it once" "main:7b" "$(CLASSIFY_MODEL=main:7b ollama_models_required "$tmp/models.env" OLLAMA_MODEL CLASSIFY_MODEL | one_line)"
 check "a name nothing sets is skipped" "main:7b" "$(ollama_models_required "$tmp/models.env" NO_SUCH OLLAMA_MODEL | one_line)"
-# A mistyped path must not read as "this project needs no models".
+# A mistyped path must not mean "this project needs no models".
 check "a file that is named and is not there is an error, with names" "1:" "$(ollama_models_required "$tmp/absent.env" OLLAMA_MODEL 2>"$tmp/err"; echo "$?:")"
 said "and it says which file" "$tmp/err" "No models file" "absent.env"
 check "and without names" "1:" "$(ollama_models_required "$tmp/absent.env" 2>/dev/null; echo "$?:")"
@@ -383,7 +394,7 @@ check "GPUs count together: Ollama spreads a model over them" "$(((24576 + 8192)
 printf '#!/bin/sh\necho "NVIDIA-SMI has failed because it could not communicate with the NVIDIA driver." >&2\nexit 9\n' >"$tmp/empty-path/nvidia-smi"
 check "a driver that cannot be reached is no GPU" "0" "$(unset OLLAMA_BUDGET_GPU_BYTES; PATH="$tmp/empty-path:$PATH" ollama_gpu_mem_bytes)"
 rm -f "$tmp/empty-path/nvidia-smi"
-# df as it prints a filesystem whose name has a space: the columns move.
+# df output for a filesystem whose name has a space: the columns shift.
 mkdir -p "$tmp/fake-df"
 fake_df() { printf '#!/bin/sh\necho "Filesystem 1024-blocks Used Available Capacity Mounted on"\necho "%s"\n' "$1" >"$tmp/fake-df/df"; chmod +x "$tmp/fake-df/df"; }
 df_free() { ( unset OLLAMA_BUDGET_DISK_FREE_BYTES; PATH="$tmp/fake-df:$PATH" ollama_disk_free_bytes / ); }
@@ -521,13 +532,19 @@ check "what answers is not an Ollama" "4" "$(ensure small:3b)"
 check "nothing asked of it" "" "$(pulled)"
 reset
 check "no models asked for is success" "0" "$(ensure)"
-# With the directory left out, what is left of the arguments is the URL.
+# With no directory given, the only argument left is the URL: not a model.
 check "a URL alone is no models, not a model named by the URL" "0::" "$(ollama_endpoint_ensure_models "$URL" 2>"$tmp/err"; echo "$?:$(pulled):$(cat "$tmp/err")")"
-# Ollama answers for "Main:7B" with the model it lists as "main:7b".
+# Case does not matter to Ollama: "Main:7B" is its "main:7b".
 reset main:7b
 check "letter case does not make a model missing" "0::" "$(ensure Main:7B):$(pulled):$(cat "$tmp/state/asked" 2>/dev/null)"
 check "nor in the list of what is missing" "small:3b" "$(ollama_models_missing "$(printf 'MAIN:7b\nsmall:3b\n')" "main:7b" | one_line)"
 check "a longer name is still another model, in any case" "MAIN:7b" "$(ollama_models_missing "MAIN:7b" "main:7b-instruct" | one_line)"
+# One model named twice in different case is one model. Counted twice, its
+# size would be charged twice against the disk.
+reset
+check "one model in two cases is pulled once" "0:Small:3b" "$(ensure Small:3b small:3B):$(pulled)"
+printf 'A_MODEL=Main:7b\nB_MODEL=main:7B\n' >"$tmp/case.env"
+check "and listed once by the models file" "Main:7b" "$(ollama_models_required "$tmp/case.env" | one_line)"
 
 note "one pull"
 reset
@@ -540,7 +557,7 @@ check "a large one ends in success too" "0" "$(ollama_endpoint_pull "$URL" large
 check "and says each tenth of a large layer once: not 0%, not a small layer, not one already held" \
   "  large:7b: 10% of 4.7 GB|  large:7b: 50% of 4.7 GB|  large:7b: 100% of 4.7 GB|" "$(tr '\n' '|' <"$tmp/err")"
 check "on stderr: stdout stays empty" "" "$(cat "$tmp/out")"
-# A caller's log is appended to, not started again from its top.
+# The caller's log must be appended to, not overwritten from the start.
 echo "earlier line" >"$tmp/err"
 ollama_endpoint_pull "$URL" large:7b >/dev/null 2>>"$tmp/err"
 check "progress is added to a log the caller already wrote to" "earlier line|  large:7b: 10% of 4.7 GB|" "$(head -n 2 "$tmp/err" | tr '\n' '|')"
@@ -554,15 +571,28 @@ check "an error part way is a failure even when the stream ends in success" "1" 
 ollama_endpoint_pull "http://user:s3cret@${URL#http://}" broken:1b >"$tmp/out" 2>"$tmp/err"
 if grep -q "s3cret" "$tmp/out" "$tmp/err"; then error "a refused pull printed the password: $(cat "$tmp/err")"; else ok "a refused pull does not print the password"; fi
 said "and still names the host" "$tmp/err" "${URL#http://}"
-# curl does not print credentials today. One that named the whole URL in its
-# error must not get them into a message either.
+# curl does not print credentials today. If it ever names the whole URL in
+# an error, they must still not reach a message.
 mkdir -p "$tmp/loud-curl"
-# The stand-in's own "$@" and $last, not this script's.
+# "$@" and $last below belong to the stand-in, not to this script.
 # shellcheck disable=SC2016
 printf '#!/bin/sh\nfor a in "$@"; do last="$a"; done\necho "curl: (6) Could not resolve host in $last" >&2\nexit 6\n' >"$tmp/loud-curl/curl"; chmod +x "$tmp/loud-curl/curl"
 PATH="$tmp/loud-curl:$PATH" ollama_endpoint_pull "http://user:s3cret@nowhere.example:11434" small:3b >"$tmp/out" 2>"$tmp/err"
 if grep -q "s3cret" "$tmp/out" "$tmp/err"; then error "an error text that names the URL printed the password: $(cat "$tmp/err")"; else ok "an error text that names the URL does not print the password"; fi
 said "and the rest of that text is kept" "$tmp/err" "Could not resolve host in http://nowhere.example:11434/api/pull"
+# A long error line. The text is cut to 300 characters. The cut used to come
+# first, went through the middle of "user:secret@", and left half the
+# password in the message.
+# The stand-in prints another URL with credentials, then padding, then the
+# URL it was given, so that the cut lands inside that last one.
+# shellcheck disable=SC2016
+printf '#!/bin/sh\nfor a in "$@"; do last="$a"; done\nprintf "curl: (7) via http://other:pw2pw2@elsewhere.example/x %%0220d no route to %%s\\n" 0 "$last" >&2\nexit 7\n' >"$tmp/loud-curl/curl"
+# No scheme here, so only replacing the whole URL removes its credentials.
+PATH="$tmp/loud-curl:$PATH" ollama_endpoint_pull "user:s3cretpassword@nowhere.example:11434" small:3b >"$tmp/out" 2>"$tmp/err"
+if grep -q -E "s3cret|user:" "$tmp/out" "$tmp/err"; then error "a long error text kept part of the password: $(cut -c240-420 "$tmp/err")"; else ok "a long error text keeps no part of the password"; fi
+# Credentials in someone else's URL in the text are removed too.
+if grep -q -E "pw2|other:" "$tmp/out" "$tmp/err"; then error "another URL in the text kept its password: $(cut -c1-120 "$tmp/err")"; else ok "nor the password of another URL in the text"; fi
+said "and that URL's host is still named" "$tmp/err" "http://elsewhere.example/x"
 ollama_endpoint_pull "$URL" spelled:1b >"$tmp/out" 2>"$tmp/err"
 check "a spelled-out escape in what Ollama said does not become one" "0:1" "$(grep -c "$(printf '\033')\[2J" "$tmp/err"):$(grep -cF '\033[2J name' "$tmp/err")"
 ollama_endpoint_pull "$URL" escape:1b >"$tmp/out" 2>"$tmp/err"
@@ -614,8 +644,8 @@ check "a query is left out: a token travels there" "http://host.example:11434/v1
 check "and with it an at sign that was never a password" "http://host.example" "$(_ollama_ep_shown "http://host.example?a=b@c")"
 check "credentials without a scheme go too" "host.example:11434" "$(_ollama_ep_shown "user:s3cret@host.example:11434")"
 check "a control character in a URL is not shown" "http://host.example/x" "$(_ollama_ep_shown "$(printf 'http://host.example/\033x')")"
-# The logging helpers print with `echo -e`. The four characters \033 written
-# out in a URL, a path or an answer would become the escape they spell.
+# The logging helpers print with `echo -e`. The text \033 in a URL, a path
+# or an answer would become a real escape character.
 spelled='http://host.example/\033[2J\x1b[31m\e[0m'
 check "a spelled-out escape in a URL has its backslashes doubled" 'http://host.example/\\033[2J\\x1b[31m\\e[0m' "$(_ollama_ep_shown "$spelled")"
 ollama_endpoint_ensure_models "$spelled" /models small:3b >"$tmp/out" 2>"$tmp/err"
@@ -638,9 +668,9 @@ if grep -q "s3cret" "$tmp/out" "$tmp/err"; then error "the refusal printed the p
 said "while naming the rest" "$tmp/err" "registry.example/model:1b"
 check "nor is it pulled on its own" "1:" "$(ollama_endpoint_pull "$URL" "user:s3cret@registry.example/model:1b" 2>"$tmp/err"; echo "$?:$(pulled)")"
 check "(that refusal is clean too)" "0" "$(grep -c s3cret "$tmp/err")"
-# A digest is not accepted either: split at its last colon it named another
-# repository and another manifest, so it could never be sized, and it never
-# equals a name an Ollama lists, so it would be pulled on every start.
+# A digest (model@sha256:...) is refused too. Split at its last colon it
+# pointed at the wrong repository and manifest, so it could not be sized.
+# And it never equals a name Ollama lists, so every start would pull it.
 reset
 check "a reference by digest is refused, before anything is asked" "8::" "$(ollama_endpoint_ensure_models "$URL" /models "team/model@sha256:abc123" >/dev/null 2>&1; echo "$?:$(pulled):$(cat "$tmp/state/asked" 2>/dev/null)")"
 check "its size is not asked for under a wrong name" "1:" "$(ollama_registry_size_bytes "team/model@sha256:abc123" 2>/dev/null; echo "$?:$(cat "$tmp/state/asked" 2>/dev/null)")"
