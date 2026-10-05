@@ -167,6 +167,11 @@ class H(BaseHTTPRequestHandler):
             if name.startswith("http500"):
                 return self.send(500, '{"error":"no space left on device"}')
             progress = '{"status":"pulling manifest"}\n{"status":"pulling abc","total":10,"completed":5}\n'
+            if name.startswith("escape"):
+                return self.send(200, progress + '{"error":"bad \\u001b[2J\\u001b[31mred"}\n\x1b[2Jtail\x07\n', "application/x-ndjson")
+            if name.startswith("midfail"):
+                # An error part way, and a stream that still ends in success.
+                return self.send(200, progress + '{"error":"digest mismatch"}\n{"status":"success"}\n', "application/x-ndjson")
             if name.startswith("broken"):
                 return self.send(200, progress + '{"error":"pull model manifest: file does not exist"}\n', "application/x-ndjson")
             if name.startswith("nested"):
@@ -257,6 +262,8 @@ check "a name nothing sets is skipped" "main:7b" "$(ollama_models_required "$tmp
 check "a missing file with nothing in the environment needs nothing" "" "$(ollama_models_required "$tmp/absent.env" OLLAMA_MODEL)"
 check "the large tier is a name's ending, not any name with LARGE in it" "chat:1b quoted:1b single:1b noted:1b low:1b kept:1b odd#name:1b" "$(ollama_models_required "$tmp/env.env" | one_line)"
 check "a bad name refuses the whole list, not the rest of it" "2:" "$(ollama_models_required "$tmp/models.env" OLLAMA_MODEL MY-MODEL CLASSIFY_MODEL 2>/dev/null; echo "$?:")"
+# The name is meant literally: it must reach the function unexpanded.
+# shellcheck disable=SC2016
 ( cd "$tmp" && ollama_models_required "$tmp/models.env" 'x[$(touch ran)]' >/dev/null 2>&1; true )
 check "and a name cannot run a command" "no" "$([[ -e "$tmp/ran" ]] && echo yes || echo no)"
 check "no arguments at all is nothing, not a crash" "0:" "$(ollama_models_required; echo "$?:")"
@@ -306,6 +313,12 @@ check "a web page that says size is not one either" "1:" "$(ollama_registry_size
 check "a size that is not a whole number is not counted" "100" "$(ollama_registry_size_bytes float:1b)"
 check "what is not a model reference is not asked for" "1" "$(ollama_registry_size_bytes 'a/b?x=1#:t' >/dev/null 2>&1; echo $?)"
 check "nor a path that climbs" "1" "$(ollama_registry_size_bytes '../../api/tags' >/dev/null 2>&1; echo $?)"
+rm -f "$tmp/state/asked"
+check "nor one that climbs from the middle" "1" "$(ollama_registry_size_bytes 'team/../main:7b' >/dev/null 2>&1; echo $?)"
+check "nor one with an empty segment" "1" "$(ollama_registry_size_bytes 'team//main:7b' >/dev/null 2>&1; echo $?)"
+check "a host and a model, two segments, is still another registry" "2" "$(ollama_registry_size_bytes 'hf.co/model:Q4' >/dev/null 2>&1; echo $?)"
+check "as is localhost" "2" "$(ollama_registry_size_bytes 'localhost/model:Q4' >/dev/null 2>&1; echo $?)"
+check "(none of the four was requested)" "" "$(cat "$tmp/state/asked" 2>/dev/null)"
 check "a registry that does not answer" "1" "$(OLLAMA_REGISTRY_URL=http://127.0.0.1:1 OLLAMA_REGISTRY_TIMEOUT=1 ollama_registry_size_bytes main:7b >/dev/null; echo $?)"
 
 note "what the machine has"
@@ -396,9 +409,16 @@ printf '#!/bin/sh\nexit 1\n' >"$tmp/fake-df/df"
 printf '#!/bin/sh\nexit 9\n' >"$tmp/empty-path/nvidia-smi"; chmod +x "$tmp/empty-path/nvidia-smi"
 check "a failing df and a failing nvidia-smi are said and skipped, not fatal" "rc=0 after" "$(unset OLLAMA_BUDGET_DISK_FREE_BYTES OLLAMA_BUDGET_GPU_BYTES; strict 'ollama_budget_check 5000000000 1000000000 /m; echo "rc=$? after"')"
 said "the skipped disk check is said" "$tmp/err" "could not be read"
+# Single quotes on purpose: the inner shell expands these.
+# shellcheck disable=SC2016
+check "asking for the GPU alone, with a driver that fails, does not end a strict caller" "g=0 after" "$(unset OLLAMA_BUDGET_GPU_BYTES; strict 'g="$(ollama_gpu_mem_bytes)"; echo "g=$g after"')"
+# shellcheck disable=SC2016
+check "nor does asking for free disk with a df that fails" "f= after" "$(unset OLLAMA_BUDGET_DISK_FREE_BYTES; strict 'f="$(ollama_disk_free_bytes /)"; echo "f=$f after"')"
 rm -f "$tmp/empty-path/nvidia-smi"
 fake_df "/dev/disk1s1 1000000 900000 100000 90% /"
-check "no arguments do not end a strict caller" "1 0 0 0 after" "$(strict 'a=0; ollama_endpoint_models || a=$?; b=0; ollama_models_file_get || b=2; ollama_models_file_names; ollama_model_tagged; c=0; ollama_endpoint_ensure_models || c=$?; ollama_models_missing; echo "$a 0 $c 0 after"')"
+# Single quotes on purpose: the inner shell expands these.
+# shellcheck disable=SC2016
+check "no arguments do not end a strict caller" "models=1 get=2 ensure=0 after" "$(strict 'a=0; ollama_endpoint_models || a=$?; b=0; ollama_models_file_get || b=$?; ollama_models_file_names; ollama_model_tagged; c=0; ollama_endpoint_ensure_models || c=$?; ollama_models_missing; echo "models=$a get=$b ensure=$c after"')"
 check "a refused name returns its code to a strict caller" "2 after" "$(strict "r=0; ollama_models_file_get '$tmp/env.env' 'A/B' || r=\$?; echo \"\$r after\"")"
 reset main:7b; echo big >"$tmp/state/mode"
 check "a long answer spread over lines is still an Ollama's, under pipefail" "1501" "$(strict "ollama_endpoint_models '$URL' | wc -l | tr -d ' '")"
@@ -455,9 +475,25 @@ said "and what Ollama said is passed on" "$tmp/err" "file does not exist"
 check "HTTP 500 is a failure" "1" "$(ollama_endpoint_pull "$URL" http500:1b 2>"$tmp/err"; echo $?)"
 said "with its reason" "$tmp/err" "no space left on device"
 check "success inside another object is not success" "1" "$(ollama_endpoint_pull "$URL" nested:1b 2>/dev/null; echo $?)"
+check "an error part way is a failure even when the stream ends in success" "1" "$(ollama_endpoint_pull "$URL" midfail:1b 2>/dev/null; echo $?)"
+ollama_endpoint_pull "http://user:s3cret@${URL#http://}" broken:1b >"$tmp/out" 2>"$tmp/err"
+if grep -q "s3cret" "$tmp/out" "$tmp/err"; then error "a refused pull printed the password: $(cat "$tmp/err")"; else ok "a refused pull does not print the password"; fi
+said "and still names the host" "$tmp/err" "${URL#http://}"
+# curl does not print credentials today. One that named the whole URL in its
+# error must not get them into a message either.
+mkdir -p "$tmp/loud-curl"
+# The stand-in's own "$@" and $last, not this script's.
+# shellcheck disable=SC2016
+printf '#!/bin/sh\nfor a in "$@"; do last="$a"; done\necho "curl: (6) Could not resolve host in $last" >&2\nexit 6\n' >"$tmp/loud-curl/curl"; chmod +x "$tmp/loud-curl/curl"
+PATH="$tmp/loud-curl:$PATH" ollama_endpoint_pull "http://user:s3cret@nowhere.example:11434" small:3b >"$tmp/out" 2>"$tmp/err"
+if grep -q "s3cret" "$tmp/out" "$tmp/err"; then error "an error text that names the URL printed the password: $(cat "$tmp/err")"; else ok "an error text that names the URL does not print the password"; fi
+said "and the rest of that text is kept" "$tmp/err" "Could not resolve host in http://nowhere.example:11434/api/pull"
+ollama_endpoint_pull "$URL" escape:1b >"$tmp/out" 2>"$tmp/err"
+check "an escape sequence in what Ollama said does not reach the terminal" "0" "$(grep -c "$(printf '\033')\[2J" "$tmp/err")"
 reset
 check "what is not a model reference is not sent" "1:" "$(ollama_endpoint_pull "$URL" 'x", "insecure": true, "y": "z' 2>/dev/null; echo "$?:$(pulled)")"
 check "nor a name with a quote" "1:" "$(ollama_endpoint_pull "$URL" 'a"b' 2>/dev/null; echo "$?:$(pulled)")"
+check "nor a name that climbs" "1:" "$(ollama_endpoint_pull "$URL" 'team/../main:7b' 2>/dev/null; echo "$?:$(pulled)")"
 check "nothing listening is a failure" "1" "$(ollama_endpoint_pull "http://127.0.0.1:1" small:3b 2>/dev/null; echo $?)"
 
 note "the corners of making sure"
@@ -492,6 +528,13 @@ note "what is said about an endpoint"
 check "a URL is shown without its user and password" "http://host.example:11434/x" "$(_ollama_ep_shown "http://user:s3cret@host.example:11434/x")"
 check "a URL without them is shown as it is" "$URL" "$(_ollama_ep_shown "$URL")"
 check "an at sign in the path is not a password" "http://host.example/a@b" "$(_ollama_ep_shown "http://host.example/a@b")"
+check "a password with an at sign in it goes whole, as curl reads it" "http://host.example:11434" "$(_ollama_ep_shown "http://user:p@ss@w0rd@host.example:11434")"
+check "an at sign in a query is not a password either" "http://host.example?a=b@c" "$(_ollama_ep_shown "http://host.example?a=b@c")"
+check "what the other end said is shown as one printable line" "last [31mline" "$(_ollama_ep_said "$(printf 'first\nlast \033[31mline\a\r\n')")"
+long_said="$(_ollama_ep_said "$(printf 'x%.0s' $(seq 1 500))")"
+check "and cut short" "300" "${#long_said}"
+ollama_endpoint_pull "http://user:s3cret@127.0.0.1:1" small:3b >"$tmp/out" 2>"$tmp/err"
+if grep -q "s3cret" "$tmp/out" "$tmp/err"; then error "a failed connection printed the password: $(cat "$tmp/err")"; else ok "a failed connection does not print the password"; fi
 SECRET_URL="http://user:s3cret@${URL#http://}"
 reset
 ollama_endpoint_ensure_models "$SECRET_URL" /models small:3b >"$tmp/out" 2>"$tmp/err"

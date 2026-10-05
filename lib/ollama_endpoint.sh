@@ -46,9 +46,18 @@ _ollama_ep_gb() {
 }
 
 # A URL as it may be shown: without the user and password it can carry
-# (http://user:secret@host). Messages go to logs.
+# (http://user:secret@host). Messages go to logs. Everything up to the last
+# "@" of the authority goes, which is where curl ends the credentials too: a
+# password may itself contain an "@".
 _ollama_ep_shown() {
-  printf '%s' "${1:-}" | sed -E 's#^([a-zA-Z][a-zA-Z0-9+.-]*://)[^/@]*@#\1#' || true
+  printf '%s' "${1:-}" | sed -E 's#^([a-zA-Z][a-zA-Z0-9+.-]*://)[^/?\#]*@#\1#' || true
+}
+
+# Text from the other end as it may be shown: one line, printable characters
+# only, cut short. What an endpoint answers is not ours, and a terminal obeys
+# the escape sequences in what it is shown.
+_ollama_ep_said() {
+  printf '%s' "${1:-}" | tr -d '\r' | tail -n 1 | LC_ALL=C tr -cd '[:print:]' | cut -c1-300 || true
 }
 
 # --- the models file ---------------------------------------------------------
@@ -389,7 +398,9 @@ ollama_endpoint_pull() {
       return 0
     fi
   fi
-  body="$(tail -n 1 <<<"$body" | cut -c1-300)" || true
+  body="$(_ollama_ep_said "$body")"
+  # curl names the URL it could not reach, credentials and all.
+  body="${body//"$url"/$(_ollama_ep_shown "$url")}"
   print_error "The Ollama at $(_ollama_ep_shown "$url") did not pull ${model}: ${body:-no answer}" >&2
   return 1
 }
