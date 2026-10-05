@@ -154,7 +154,9 @@ _hub__ui_yesno() {
     none) return 1 ;;
     dialog)
       dialog_init
-      dialog --title "$title" --defaultno --yesno "$text" 10 "$DIALOG_WIDTH"
+      # dialog_run: a box without --stdout draws on stdout, and a caller that
+      # captured it would be asked a question nobody can see.
+      dialog_run --title "$title" --defaultno --yesno "$text" 10 "$DIALOG_WIDTH"
       ;;
     plain)
       local v
@@ -169,7 +171,7 @@ _hub__ui_note() {
   local mode; mode="$(hub_ui_mode 2>/dev/null || echo none)"
   if [[ "$mode" == "dialog" ]]; then
     dialog_init
-    dialog --title "Corpus hub" --msgbox "$*" 12 "$DIALOG_WIDTH" 2>/dev/null || true
+    dialog_run --title "Corpus hub" --msgbox "$*" 12 "$DIALOG_WIDTH" 2>/dev/null || true
     return 0
   fi
   log_info "$*"

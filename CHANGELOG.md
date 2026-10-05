@@ -22,7 +22,8 @@
   `select_multiple_distros` and `check_if_dialog_installed` printed "User pressed Cancel.", "No
   distro selected." and "Dialog is not installed." on stdout, so a caller that captured the answer
   got the sentence as the answer. They go to stderr.
-- **The download error box could not be seen by a caller that captured stdout.** It goes through
+- **Three boxes could not be seen by a caller that captured stdout.** The download error box, and
+  the hub setup's yes/no question and its note when `HUB_UI=dialog` is forced. They go through
   `dialog_run`.
 
 ## 2026-09-29 — v0.44.1

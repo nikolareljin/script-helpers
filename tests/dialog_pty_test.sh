@@ -110,6 +110,16 @@ result="$(in_pty enter 'x=$(dialog_run --msgbox "Hello" 6 30); echo "OUT:rc=$? c
 check "dialog_run's box is drawn on the terminal though stdout is captured" "yes" "$(field screen)"
 check "and nothing of it reaches the caller" "rc=0 captured=0" "$(field out)"
 
+note "the hub setup's boxes, with dialog forced and stdout captured"
+hub_load="cd '$root_dir'; source ./helpers.sh; shlib_import logging dialog hub"
+# shellcheck disable=SC2016
+result="$(python3 "$tmp/in_pty.py" enter "$hub_load; "'x=$(HUB_UI=dialog _hub__ui_yesno "Title" "Sure?"; echo "rc=$?"); echo "OUT:captured=[$x]"' 2>&1)"
+check "the yes/no question is drawn on the terminal" "yes" "$(field screen)"
+check "and only its answer reaches the caller (Enter on a box that defaults to No)" "captured=[rc=1]" "$(field out)"
+# shellcheck disable=SC2016
+result="$(python3 "$tmp/in_pty.py" enter "$hub_load; "'x=$(HUB_UI=dialog _hub__ui_note "hello"); echo "OUT:captured=${#x}"' 2>&1)"
+check "the note is drawn on the terminal, and none of it is captured" "yes captured=0" "$(field screen) $(field out)"
+
 note "is there a terminal"
 # shellcheck disable=SC2016
 result="$(in_pty none 'if dialog_has_tty </dev/null >/dev/null 2>&1; then echo "OUT:tty=yes"; else echo "OUT:tty=no"; fi')"
