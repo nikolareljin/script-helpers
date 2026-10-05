@@ -29,8 +29,28 @@ _ollama_ep_is_name() { [[ "${1:-}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; }
 # cannot be sized here or matched against the names an Ollama lists.
 _ollama_ep_is_model() {
   [[ "${1:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._/:-]*$ ]] || return 1
-  case "$1" in *..*|*//*) return 1 ;; esac
+  # No empty part: "qwen3:" has no tag, "qwen3/" has no name after the slash.
+  # Ollama calls these an invalid model name. Without this they got as far as
+  # the registry and failed there with a message about the size.
+  case "$1" in *..*|*//*|*:|*/|*::*|*/:*|*:/*) return 1 ;; esac
   return 0
+}
+
+# Usage: _ollama_ep_on <NAME> <on|off>; true if the setting NAME is on. The
+# second argument is what an unset or empty NAME means.
+# On: 1 true yes on. Off: 0 false no off never. Case does not matter.
+# Any other value is a typo. It is reported and read as off, which for every
+# setting here is the careful side: pull nothing, skip no check.
+_ollama_ep_on() {
+  local name="${1:-}" default="${2:-off}" value
+  _ollama_ep_is_name "$name" || return 1
+  value="$(printf '%s' "${!name:-}" | tr 'A-Z' 'a-z' | tr -d ' \t\r')" || true
+  case "${value:-$default}" in
+    1|true|yes|on) return 0 ;;
+    0|false|no|off|never) return 1 ;;
+  esac
+  print_warning "${name} is neither on (1, true, yes) nor off (0, false, no): '$(_ollama_ep_said "${!name:-}")'. Read as off." >&2
+  return 1
 }
 
 # Usage: _ollama_ep_uint <value>; prints value as a whole number, or fails.
@@ -356,7 +376,7 @@ ollama_gpu_mem_bytes() {
 ollama_budget_check() {
   local dir="${3:-.}" pull largest reserve_gb headroom
   local free total available gpu need reserve after capacity
-  local disk_short=0 mem_short=0 say=print_error shown_dir
+  local disk_short=0 mem_short=0 say=print_error shown_dir ignore=0
   # A size that is not a number is the caller's mistake. Reading it as zero
   # would approve a download that was never measured. No argument means zero.
   if ! pull="$(_ollama_ep_uint "${1:-0}")" || ! largest="$(_ollama_ep_uint "${2:-0}")"; then
@@ -368,7 +388,7 @@ ollama_budget_check() {
   # A reserve or headroom larger than any machine is a typo: use the default.
   [[ "$reserve_gb" -le 100000 ]] || reserve_gb=10
   [[ "$headroom" -le 1000 ]] || headroom=20
-  [[ "${OLLAMA_IGNORE_BUDGET:-0}" != "1" ]] || say=print_warning
+  if _ollama_ep_on OLLAMA_IGNORE_BUDGET off; then ignore=1; say=print_warning; fi
   # The directory name comes from the caller: make it safe to print.
   shown_dir="$(_ollama_ep_said "$dir")"
 
@@ -406,7 +426,7 @@ ollama_budget_check() {
     fi
   fi
 
-  [[ "${OLLAMA_IGNORE_BUDGET:-0}" != "1" ]] || return 0
+  [[ "$ignore" -eq 0 ]] || return 0
   return $((disk_short + 2 * mem_short))
 }
 
@@ -512,7 +532,7 @@ ollama_endpoint_pull() {
 # ollama_budget_check, ollama_registry_size_bytes and ollama_endpoint_pull read.
 ollama_endpoint_ensure_models() {
   local url="${1:-}" dir="${2:-.}" present needed missing model size shown
-  local pull_bytes=0 largest=0 unknown="" unsized="" status=0
+  local pull_bytes=0 largest=0 unknown="" unsized="" status=0 ignore=0
   url="${url%/}"
   # If the directory is left out, there are no models either: the only
   # argument left is the URL, and it must not be read as a model.
@@ -537,10 +557,12 @@ ollama_endpoint_ensure_models() {
   missing="$(ollama_models_missing "$needed" "$present")"
   [[ -n "$missing" ]] || return 0
 
-  if [[ "${OLLAMA_PULL_MISSING:-1}" == "0" ]]; then
-    print_error "The Ollama at ${shown} lacks: $(tr '\n' ' ' <<<"$missing"). Pulling is off (OLLAMA_PULL_MISSING=0)." >&2
+  if ! _ollama_ep_on OLLAMA_PULL_MISSING on; then
+    print_error "The Ollama at ${shown} lacks: $(tr '\n' ' ' <<<"$missing"). Pulling is off (OLLAMA_PULL_MISSING)." >&2
     return 5
   fi
+  # Read once here, and passed on as 1 or 0, so a typo is reported once.
+  if _ollama_ep_on OLLAMA_IGNORE_BUDGET off; then ignore=1; fi
 
   # Get the size of every needed model. The missing ones add up to the
   # download. The largest of all of them must fit in memory.
@@ -564,14 +586,14 @@ ollama_endpoint_ensure_models() {
     print_warning "The size of ${unsized}could not be learned from the registry; memory was not checked for it." >&2
   fi
   if [[ -n "$unknown" ]]; then
-    if [[ "${OLLAMA_IGNORE_BUDGET:-0}" == "1" ]]; then
+    if [[ "$ignore" -eq 1 ]]; then
       print_warning "The size of ${unknown}could not be learned from the registry; pulling without a disk or memory check (OLLAMA_IGNORE_BUDGET=1)." >&2
     else
       print_error "The size of ${unknown}could not be learned from the registry, so nothing says whether it fits. Pull it by hand, or set OLLAMA_IGNORE_BUDGET=1 to pull unchecked." >&2
       return 7
     fi
   fi
-  if [[ "$pull_bytes" -gt 0 && "${OLLAMA_IGNORE_BUDGET:-0}" != "1" ]]; then
+  if [[ "$pull_bytes" -gt 0 && "$ignore" -eq 0 ]]; then
     if ! _ollama_ep_uint "$(ollama_disk_free_bytes "$dir")" >/dev/null; then
       # Unknown free space is as bad as unknown size: refuse.
       print_error "Free disk space at $(_ollama_ep_said "$dir") could not be read, so nothing says whether $(_ollama_ep_gb "$pull_bytes") fits. State it with OLLAMA_BUDGET_DISK_FREE_BYTES, or set OLLAMA_IGNORE_BUDGET=1 to pull unchecked." >&2
@@ -579,7 +601,7 @@ ollama_endpoint_ensure_models() {
     fi
   fi
 
-  ollama_budget_check "$pull_bytes" "$largest" "$dir" || status=$?
+  OLLAMA_IGNORE_BUDGET="$ignore" ollama_budget_check "$pull_bytes" "$largest" "$dir" || status=$?
   if [[ "$status" -ne 0 ]]; then
     print_error "Nothing was pulled. Missing: $(tr '\n' ' ' <<<"$missing")" >&2
     return "$status"

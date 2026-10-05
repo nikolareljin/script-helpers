@@ -48,16 +48,19 @@ mark at the start of the file is ignored.
 Environment
 -----------
 
-- `OLLAMA_PULL_MISSING` -- `0` never pulls; a missing model is then a refusal. Default `1`.
+- `OLLAMA_PULL_MISSING` -- off never pulls; a missing model is then a refusal. Default on.
 - `OLLAMA_DISK_RESERVE_GB` -- free space that must remain after the download. Default `10`. A GB is 10^9 bytes throughout, as Ollama shows a model's size.
 - `OLLAMA_MEM_HEADROOM_PERCENT` -- added to the largest model's size for the memory check (context, runtime). Default `20`.
-- `OLLAMA_IGNORE_BUDGET` -- `1` turns each refusal of the budget into a warning. Default off.
+- `OLLAMA_IGNORE_BUDGET` -- on turns each refusal of the budget into a warning. Default off.
 - `OLLAMA_REGISTRY_URL` -- where model sizes are asked. Default `https://registry.ollama.ai`.
 - `OLLAMA_REGISTRY_TIMEOUT` -- seconds per size request. Default `15`.
 - `OLLAMA_PULL_STALL_SECONDS` -- a pull is given up when nothing arrives for this long. Default `600`. There is no deadline for the whole download.
 - `OLLAMA_BUDGET_DISK_FREE_BYTES`, `OLLAMA_BUDGET_MEM_TOTAL_BYTES`, `OLLAMA_BUDGET_MEM_AVAILABLE_BYTES`,
   `OLLAMA_BUDGET_GPU_BYTES` -- state a figure instead of having it read. The figures read are this machine's:
   for an Ollama on another machine, state all four.
+
+On is `1`, `true`, `yes` or `on`; off is `0`, `false`, `no`, `off` or `never`; case does not matter.
+Any other value is reported and read as off: nothing is pulled, and no check is skipped.
 
 Numbers are decimal: `08` is eight. A value that is not a whole number of at most 15 digits is not used.
 
@@ -116,7 +119,7 @@ Functions
 
 - ollama_endpoint_pull base_url model
   - Purpose: Ask that Ollama to pull one model and wait for it, however long the download takes.
-  - Behavior: Asked for as a stream, so progress keeps the connection alive; given up when nothing arrives for `OLLAMA_PULL_STALL_SECONDS`. Each tenth of a layer of 100 MB or more is said on stderr as it arrives (`  qwen2.5:7b: 40% of 4.7 GB`); a layer that Ollama already holds says nothing. An error anywhere in the stream is a failure whatever the HTTP status. What is not a model reference (letters, digits and `. _ - / :`; no `@`, so neither credentials nor a digest) is not sent.
+  - Behavior: Asked for as a stream, so progress keeps the connection alive; given up when nothing arrives for `OLLAMA_PULL_STALL_SECONDS`. Each tenth of a layer of 100 MB or more is said on stderr as it arrives (`  qwen2.5:7b: 40% of 4.7 GB`); a layer that Ollama already holds says nothing. An error anywhere in the stream is a failure whatever the HTTP status. What is not a model reference (letters, digits and `. _ - / :`; no `@`, so neither credentials nor a digest; no empty part, as in `qwen3:` or `qwen3/`) is not sent.
   - Returns: 0 when the stream ends in success; 1 otherwise, with what Ollama said last on stderr.
 
 - ollama_endpoint_ensure_models base_url models_dir model...

@@ -447,6 +447,9 @@ check "neither fits" "3" "$(budget $((5 * GB)) $((40 * GB)) /models)"
 check "OLLAMA_IGNORE_BUDGET=1 lets it through" "0" "$(OLLAMA_IGNORE_BUDGET=1 budget $((5 * GB)) $((40 * GB)) /models)"
 check "and still says both" "2" "$(grep -c "Not enough" "$tmp/err")"
 check "as warnings, not as errors" "2:0" "$(grep -c 'Warning' "$tmp/err"):$(grep -c 'Error' "$tmp/err")"
+# The same setting in other spellings. Only the exact value 1 used to count.
+check "so do true and YES" "0:0" "$(OLLAMA_IGNORE_BUDGET=true budget $((5 * GB)) $((40 * GB)) /models):$(OLLAMA_IGNORE_BUDGET=YES budget $((5 * GB)) $((40 * GB)) /models)"
+check "0, no and a typo do not: the checks apply" "3:3:3" "$(OLLAMA_IGNORE_BUDGET=0 budget $((5 * GB)) $((40 * GB)) /models):$(OLLAMA_IGNORE_BUDGET=no budget $((5 * GB)) $((40 * GB)) /models):$(OLLAMA_IGNORE_BUDGET=ture budget $((5 * GB)) $((40 * GB)) /models)"
 roomy
 check "a size that is not a number is refused, not read as zero" "4" "$(budget abc 1000 /models)"
 said "and it says what it was given" "$tmp/err" "abc" "whole number"
@@ -516,6 +519,21 @@ check "the largest counts even when it is already there" "2" "$(ensure small:3b 
 roomy; reset
 check "pulling is off" "5" "$(OLLAMA_PULL_MISSING=0 ensure small:3b)"
 check "and nothing was pulled" "" "$(pulled)"
+# "Off" in the usual spellings. Only the exact value 0 used to count, so
+# OLLAMA_PULL_MISSING=false went on to pull.
+for spelling in false no OFF never; do
+  check "OLLAMA_PULL_MISSING=$spelling is off too, and nothing is pulled" "5:" "$(OLLAMA_PULL_MISSING=$spelling ensure small:3b):$(pulled)"
+done
+for spelling in 1 true Yes; do
+  reset
+  check "OLLAMA_PULL_MISSING=$spelling is on" "0:small:3b" "$(OLLAMA_PULL_MISSING=$spelling ensure small:3b):$(pulled)"
+done
+# A typo is not "on": it is reported, and nothing is pulled.
+reset
+check "a value that is neither is read as off" "5:" "$(OLLAMA_PULL_MISSING=flase ensure small:3b):$(pulled)"
+said "and it is reported" "$tmp/err" "OLLAMA_PULL_MISSING is neither on" "flase"
+# Back to an Ollama with nothing installed, for the cases that follow.
+roomy; reset
 check "a model whose size cannot be learned stops the pull" "7" "$(ensure small:3b hf.co/org/model:Q4)"
 check "nothing pulled" "" "$(pulled)"
 said "it names the way through" "$tmp/err" "OLLAMA_IGNORE_BUDGET"
@@ -601,6 +619,12 @@ reset
 check "what is not a model reference is not sent" "1:" "$(ollama_endpoint_pull "$URL" 'x", "insecure": true, "y": "z' 2>/dev/null; echo "$?:$(pulled)")"
 check "nor a name with a quote" "1:" "$(ollama_endpoint_pull "$URL" 'a"b' 2>/dev/null; echo "$?:$(pulled)")"
 check "nor a name that climbs" "1:" "$(ollama_endpoint_pull "$URL" 'team/../main:7b' 2>/dev/null; echo "$?:$(pulled)")"
+# A reference with an empty part. Ollama calls these an invalid model name.
+# They used to get as far as the registry and fail with a message about size.
+for bad in 'main:' 'main/' 'a::b' 'team/:7b'; do
+  check "a reference with an empty part is refused before anything is asked: $bad" "8::" "$(: >"$tmp/state/asked"; ollama_endpoint_ensure_models "$URL" /models "$bad" >/dev/null 2>&1; echo "$?:$(pulled):$(cat "$tmp/state/asked" 2>/dev/null)")"
+done
+check "a registry host with a port is still a model reference" "0" "$(_ollama_ep_is_model 'registry.example:5000/team/model:1b'; echo $?)"
 check "nothing listening is a failure" "1" "$(ollama_endpoint_pull "http://127.0.0.1:1" small:3b 2>/dev/null; echo $?)"
 
 note "the corners of making sure"

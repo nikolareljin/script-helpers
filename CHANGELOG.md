@@ -20,7 +20,10 @@
   they reach a pattern, a URL or a request body; a size that is not a number is refused, not read
   as zero; and no message carries a credential (also in a long error line or in another URL in the
   text), a control character or an escape sequence spelled out as text. A byte-order mark at the
-  start of the models file is ignored. bash 3.2 and BSD userland, with or without `set -euo pipefail`.
+  start of the models file is ignored. `OLLAMA_PULL_MISSING` and `OLLAMA_IGNORE_BUDGET` take the
+  usual spellings (`1/true/yes/on`, `0/false/no/off`); a value that is neither is reported and
+  read as off, so a typo pulls nothing and skips no check. bash 3.2 and BSD userland, with or
+  without `set -euo pipefail`.
 
 ### Fixed
 
