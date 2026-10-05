@@ -13,7 +13,9 @@
   everything fits: no partial pull, and each refusal gives the numbers and the setting behind it.
   Not knowing a missing model's size or the free disk space is a refusal too, with the override
   named. Works for an Ollama on the host and one in a container, with no `ollama` CLI; a pull has
-  no deadline and is given up only when it stalls. Linux and macOS figures are read, and each can
+  no deadline, is given up only when it stalls, and says each tenth of a large layer as it
+  arrives. A models file that is named and is not there is an error, not "no models", and a
+  model is matched without regard to letter case, as Ollama matches it. Linux and macOS figures are read, and each can
   be stated through an `OLLAMA_BUDGET_*` override. Names and model references are checked before
   they reach a pattern, a URL or a request body; a size that is not a number is refused, not read
   as zero; and no message carries a credential, a control character or an escape sequence spelled

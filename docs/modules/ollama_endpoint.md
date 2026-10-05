@@ -19,7 +19,8 @@ and a start does:
 source scripts/script-helpers/helpers.sh
 shlib_import logging ollama_endpoint
 
-models="$(ollama_models_required ai-models.env OLLAMA_MODEL CLASSIFY_MODEL OLLAMA_EMBED_MODEL)"
+# "|| exit": without it a refusal here leaves no models, and none is "all there".
+models="$(ollama_models_required ai-models.env OLLAMA_MODEL CLASSIFY_MODEL OLLAMA_EMBED_MODEL)" || exit $?
 # shellcheck disable=SC2086  # one model per word
 ollama_endpoint_ensure_models "http://127.0.0.1:11434" "$HOME/.ollama/models" $models || exit $?
 ```
@@ -77,7 +78,7 @@ Functions
 - ollama_models_required file [NAME...]
   - Purpose: Print the models a start needs, as Ollama lists them, one per line, each once.
   - Behavior: With no `NAME`, every name in the file except a tier's alternative: a name ending in `_SMALL`, `_LARGE` or `_XLARGE` is the model for another class of machine, and `_VRAM_GB` or `_RAM_GB` after that is a figure for the pick, not a model. For each name a non-blank value in the environment wins over the file, trimmed; load the project's `.env` first if it should count.
-  - Returns: 0; 2, printing nothing, when a `NAME` is not a variable name. A list cut short at the bad name would start a project with some of its models.
+  - Returns: 0; 2, printing nothing, when a `NAME` is not a variable name. A list cut short at the bad name would start a project with some of its models. 1, printing nothing, when `file` is named and is not there: a mistyped path would otherwise read as "needs no models". Pass `""` for no file, to take the names from the environment alone.
 
 - ollama_endpoint_models base_url [timeout_seconds=5]
   - Purpose: Print the models the Ollama at `base_url` has, as it names them.
@@ -86,7 +87,7 @@ Functions
 
 - ollama_models_missing needed present
   - Purpose: Given two newline-separated lists, print the needed models that are not present.
-  - Behavior: Whole names only: `qwen:7b` is not satisfied by `qwen:7b-instruct`.
+  - Behavior: Whole names only: `qwen:7b` is not satisfied by `qwen:7b-instruct`. Letter case does not count, as it does not to Ollama.
 
 - ollama_registry_size_bytes model
   - Purpose: Print the size of the model's download in bytes, from the registry manifest.
@@ -114,7 +115,7 @@ Functions
 
 - ollama_endpoint_pull base_url model
   - Purpose: Ask that Ollama to pull one model and wait for it, however long the download takes.
-  - Behavior: Asked for as a stream, so progress keeps the connection alive; given up when nothing arrives for `OLLAMA_PULL_STALL_SECONDS`. An error anywhere in the stream is a failure whatever the HTTP status. What is not a model reference (letters, digits and `. _ - / :`; no `@`, so neither credentials nor a digest) is not sent.
+  - Behavior: Asked for as a stream, so progress keeps the connection alive; given up when nothing arrives for `OLLAMA_PULL_STALL_SECONDS`. Each tenth of a layer of 100 MB or more is said on stderr as it arrives (`  qwen2.5:7b: 40% of 4.7 GB`); a layer that Ollama already holds says nothing. An error anywhere in the stream is a failure whatever the HTTP status. What is not a model reference (letters, digits and `. _ - / :`; no `@`, so neither credentials nor a digest) is not sent.
   - Returns: 0 when the stream ends in success; 1 otherwise, with what Ollama said last on stderr.
 
 - ollama_endpoint_ensure_models base_url models_dir model...
@@ -122,7 +123,7 @@ Functions
   - Behavior: Lists what the endpoint has; if nothing is missing, returns without asking the registry anything. Otherwise sizes every needed model (the missing ones add up to the download, the largest of all of them is what must fit in memory), checks the budget, and only then pulls, in the order given. Nothing is pulled unless everything fits: a start that ends with half its models is worse than one that says no. A credential in `base_url` is used and never printed.
   - `models_dir` is where that Ollama keeps its models, for the disk check: a directory on this machine, or Docker's data root for an Ollama in a container.
   - Returns:
-    - 0 every model is there
+    - 0 every model is there, or none was asked for
     - 1, 2, 3 the budget refused (as `ollama_budget_check`); nothing was pulled
     - 4 nothing answers at `base_url` as an Ollama
     - 5 models are missing and `OLLAMA_PULL_MISSING=0`

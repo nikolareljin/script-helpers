@@ -135,9 +135,16 @@ ollama_model_tagged() {
 #
 # Returns 2, printing nothing, when a NAME is not a variable name: a list cut
 # short at the bad name would start a project with some of its models.
+# Returns 1, printing nothing, when a file is named and is not there: a
+# mistyped path would otherwise read as "this project needs no models", and
+# the start that follows checks nothing. Pass "" for no file at all.
 ollama_models_required() {
   local file="${1:-}" name value names
   [[ $# -eq 0 ]] || shift
+  if [[ -n "$file" && ! -f "$file" ]]; then
+    print_error "No models file at $(_ollama_ep_said "$file")" >&2
+    return 1
+  fi
   if [[ $# -gt 0 ]]; then
     for name in "$@"; do
       if ! _ollama_ep_is_name "$name"; then
@@ -187,11 +194,13 @@ ollama_endpoint_models() {
 # Usage: ollama_models_missing <needed> <present>; both are newline-separated
 # lists. Prints the needed models that are not present, one per line. A model
 # matches only its whole name: "qwen:7b" is not satisfied by "qwen:7b-instruct".
+# Letter case does not count, as it does not to Ollama: it answers for
+# "Qwen:7B" with the model it lists as "qwen:7b".
 ollama_models_missing() {
   local needed="${1:-}" present="${2:-}" model
   while IFS= read -r model; do
     [[ -n "$model" ]] || continue
-    grep -qxF -- "$model" <<<"$present" || printf '%s\n' "$model"
+    grep -qixF -- "$model" <<<"$present" || printf '%s\n' "$model"
   done <<<"$needed"
   return 0
 }
@@ -399,30 +408,64 @@ ollama_budget_check() {
 # The download is not given a deadline: a large model on a slow line takes
 # hours. It is given up when nothing at all arrives for
 # OLLAMA_PULL_STALL_SECONDS (default 600); Ollama reports progress throughout.
+# Each tenth of a layer of 100 MB or more is said on stderr as it arrives, so
+# a download of an hour does not look like a start that hangs.
 # Returns 1 when the pull did not end in success; what Ollama said last is
 # printed on stderr.
 ollama_endpoint_pull() {
-  local url="${1:-}" model="${2:-}" body status stall
+  local url="${1:-}" model="${2:-}" verdict stall
   url="${url%/}"
   if [[ -z "$url" ]] || ! _ollama_ep_is_model "$model"; then
     print_error "Not a model reference: $(_ollama_ep_shown "$model")" >&2
     return 1
   fi
   stall="$(_ollama_ep_uint "${OLLAMA_PULL_STALL_SECONDS:-600}")" || stall=600
-  status=0
-  body="$(curl -sS -N --speed-limit 1 --speed-time "$stall" -H 'Content-Type: application/json' \
-    -d "{\"name\": \"${model}\", \"stream\": true}" "${url}/api/pull" 2>&1)" || status=$?
   # The stream is one JSON object per line; the last says how it ended. An
-  # error anywhere in it is a failed pull, whatever the HTTP status was.
-  if [[ "$status" -eq 0 ]] && ! grep -q '"error"[[:space:]]*:' <<<"$body"; then
-    if tail -n 1 <<<"$body" | grep -q '^[[:space:]]*{[[:space:]]*"status"[[:space:]]*:[[:space:]]*"success"'; then
-      return 0
-    fi
-  fi
-  body="$(_ollama_ep_said "$body")"
+  # error anywhere in it is a failure, whatever the HTTP status was. curl's
+  # own complaint arrives in the same stream (2>&1) and is then the last
+  # line, so a transfer that broke is not a success either. The stream is
+  # read as it comes and not kept: hours of progress are many megabytes.
+  # The model goes under both keys: "model" is the API's name for it, "name"
+  # is what an older Ollama reads.
+  verdict="$(curl -sS -N --speed-limit 1 --speed-time "$stall" -H 'Content-Type: application/json' \
+    -d "{\"model\": \"${model}\", \"name\": \"${model}\", \"stream\": true}" "${url}/api/pull" 2>&1 \
+    | awk -v model="$model" '
+      function field(key,   text) {
+        if (!match($0, "\"" key "\"[ \t]*:[ \t]*[0-9]+")) return -1
+        text = substr($0, RSTART, RLENGTH); sub(/^.*:[ \t]*/, "", text)
+        return text + 0
+      }
+      {
+        sub(/\r$/, "")
+        if ($0 == "") next
+        last = $0
+        if ($0 ~ /"error"[ \t]*:/) failed = 1
+        total = field("total"); done = field("completed")
+        if (total < 100000000 || done < 0) next
+        layer = match($0, /"digest"[ \t]*:[ \t]*"[^"]*"/) ? substr($0, RSTART, RLENGTH) : "-"
+        tenth = int(done * 10 / total)
+        if (!(layer in said)) {
+          # Nothing at the first sight of a layer that has not begun, or that
+          # this Ollama already holds whole.
+          said[layer] = tenth
+          if (tenth == 0 || tenth >= 10) next
+        } else if (tenth <= said[layer]) next
+        said[layer] = tenth
+        # Through cat, which inherits stderr as it is: an awk that opens
+        # /dev/stderr as a file starts the log of a caller again from its top.
+        # (No apostrophe in this program: it would end the shell string.)
+        printf "  %s: %d%% of %.1f GB\n", model, tenth * 10, total / 1000000000 | "cat 1>&2"
+        fflush("cat 1>&2")
+      }
+      END {
+        if (!failed && last ~ /^[ \t]*[{][ \t]*"status"[ \t]*:[ \t]*"success"/) print "ok"
+        else print "no:" last
+      }')" || true
+  [[ "$verdict" != "ok" ]] || return 0
+  verdict="$(_ollama_ep_said "${verdict#no:}")"
   # curl names the URL it could not reach, credentials and all.
-  body="${body//"$url"/$(_ollama_ep_shown "$url")}"
-  print_error "The Ollama at $(_ollama_ep_shown "$url") did not pull ${model}: ${body:-no answer}" >&2
+  verdict="${verdict//"$url"/$(_ollama_ep_shown "$url")}"
+  print_error "The Ollama at $(_ollama_ep_shown "$url") did not pull ${model}: ${verdict:-no answer}" >&2
   return 1
 }
 
@@ -453,7 +496,9 @@ ollama_endpoint_ensure_models() {
   local url="${1:-}" dir="${2:-.}" present needed missing model size shown
   local pull_bytes=0 largest=0 unknown="" unsized="" status=0
   url="${url%/}"
-  [[ $# -lt 2 ]] || shift 2
+  # With the directory left out there are no models either: what is left of
+  # the arguments is the URL, not a model.
+  if [[ $# -ge 2 ]]; then shift 2; else shift $#; fi
   shown="$(_ollama_ep_shown "$url")"
   needed=""
   for model in "$@"; do

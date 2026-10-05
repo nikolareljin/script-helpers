@@ -84,6 +84,7 @@ SIZES = {
     "library/broken:1b": [100000000],
     "library/http500:1b": [100000000],
     "library/nested:1b": [100000000],
+    "library/large:7b": [4700000000],
 }
 
 def read(name, default=""):
@@ -159,14 +160,28 @@ class H(BaseHTTPRequestHandler):
             note("pulled", "INVALID JSON " + repr(raw))
             return self.send(400, '{"error":"invalid json"}')
         if self.path == "/api/pull":
-            name = body.get("name", "")
-            note("pulled", name)
+            # The model under both keys: "model" is the API's, "name" is what
+            # an older Ollama reads. One that differs from the other is a bug.
+            name = body.get("model", "")
+            note("pulled", name if name == body.get("name") else "KEYS DIFFER " + repr(raw))
             note("stream", str(body.get("stream")))
-            if set(body) - {"name", "stream"}:
+            if set(body) - {"model", "name", "stream"}:
                 note("pulled", "EXTRA KEYS " + ",".join(sorted(body)))
             if name.startswith("http500"):
                 return self.send(500, '{"error":"no space left on device"}')
             progress = '{"status":"pulling manifest"}\n{"status":"pulling abc","total":10,"completed":5}\n'
+            if name.startswith("large"):
+                # A layer worth reporting, as Ollama streams one: no "completed"
+                # before it begins, many lines inside one tenth, a small layer
+                # beside it, one this Ollama already holds, and CRLF line ends
+                # with an empty line last.
+                big = '{"status":"pulling aa","digest":"sha256:aa","total":4700000000%s}\n'
+                lines = [big % ""] + [big % (',"completed":%d' % c) for c in
+                         (100, 480000000, 500000000, 900000000, 2400000000, 2500000000, 4700000000)]
+                lines.insert(3, '{"status":"pulling bb","digest":"sha256:bb","total":1200,"completed":600}\n')
+                lines.insert(5, '{"status":"pulling cc","digest":"sha256:cc","total":900000000,"completed":900000000}\r\n')
+                note("installed", name)
+                return self.send(200, '{"status":"pulling manifest"}\n' + "".join(lines) + '{"status":"success"}\r\n\r\n', "application/x-ndjson")
             if name.startswith("spelled"):
                 # The escape written out as text, as a careless server might echo it.
                 return self.send(200, progress + '{"error":"bad \\\\033[2J name"}\n', "application/x-ndjson")
@@ -285,7 +300,13 @@ check "the environment wins, trimmed" "mine:1b small:3b" "$(OLLAMA_MODEL='  mine
 check "a blank variable is not a model" "main:7b" "$(OLLAMA_MODEL='   ' ollama_models_required "$tmp/models.env" OLLAMA_MODEL)"
 check "two names for one model list it once" "main:7b" "$(CLASSIFY_MODEL=main:7b ollama_models_required "$tmp/models.env" OLLAMA_MODEL CLASSIFY_MODEL | one_line)"
 check "a name nothing sets is skipped" "main:7b" "$(ollama_models_required "$tmp/models.env" NO_SUCH OLLAMA_MODEL | one_line)"
-check "a missing file with nothing in the environment needs nothing" "" "$(ollama_models_required "$tmp/absent.env" OLLAMA_MODEL)"
+# A mistyped path must not read as "this project needs no models".
+check "a file that is named and is not there is an error, with names" "1:" "$(ollama_models_required "$tmp/absent.env" OLLAMA_MODEL 2>"$tmp/err"; echo "$?:")"
+said "and it says which file" "$tmp/err" "No models file" "absent.env"
+check "and without names" "1:" "$(ollama_models_required "$tmp/absent.env" 2>/dev/null; echo "$?:")"
+check "nor is the environment used in its place" "1:" "$(OLLAMA_MODEL=mine:1b ollama_models_required "$tmp/absent.env" OLLAMA_MODEL 2>/dev/null; echo "$?:")"
+check "no file named: the environment alone" "0:mine:1b" "$(m="$(OLLAMA_MODEL=mine:1b ollama_models_required "" OLLAMA_MODEL)"; echo "$?:$m")"
+check "no file named and nothing set needs nothing" "0:" "$(ollama_models_required "" OLLAMA_MODEL; echo "$?:")"
 check "a tier's alternative is a name's ending (_SMALL, _LARGE, _XLARGE and their floors), not any name with the word in it" "chat:1b quoted:1b single:1b noted:1b low:1b kept:1b tiny:1b wee:1b odd#name:1b" "$(ollama_models_required "$tmp/env.env" | one_line)"
 check "a bad name refuses the whole list, not the rest of it" "2:" "$(ollama_models_required "$tmp/models.env" OLLAMA_MODEL MY-MODEL CLASSIFY_MODEL 2>/dev/null; echo "$?:")"
 # The name is meant literally: it must reach the function unexpanded.
@@ -500,11 +521,29 @@ check "what answers is not an Ollama" "4" "$(ensure small:3b)"
 check "nothing asked of it" "" "$(pulled)"
 reset
 check "no models asked for is success" "0" "$(ensure)"
+# With the directory left out, what is left of the arguments is the URL.
+check "a URL alone is no models, not a model named by the URL" "0::" "$(ollama_endpoint_ensure_models "$URL" 2>"$tmp/err"; echo "$?:$(pulled):$(cat "$tmp/err")")"
+# Ollama answers for "Main:7B" with the model it lists as "main:7b".
+reset main:7b
+check "letter case does not make a model missing" "0::" "$(ensure Main:7B):$(pulled):$(cat "$tmp/state/asked" 2>/dev/null)"
+check "nor in the list of what is missing" "small:3b" "$(ollama_models_missing "$(printf 'MAIN:7b\nsmall:3b\n')" "main:7b" | one_line)"
+check "a longer name is still another model, in any case" "MAIN:7b" "$(ollama_models_missing "MAIN:7b" "main:7b-instruct" | one_line)"
 
 note "one pull"
 reset
 check "a pull that ends in success" "0" "$(ollama_endpoint_pull "$URL" small:3b 2>"$tmp/err"; echo $?)"
 check "is asked for as a stream, so progress keeps the line alive" "True" "$(tail -n 1 "$tmp/state/stream")"
+check "under both of the API's keys, and nothing else" "small:3b" "$(pulled)"
+check "a small download says nothing while it runs" "" "$(cat "$tmp/err")"
+reset
+check "a large one ends in success too" "0" "$(ollama_endpoint_pull "$URL" large:7b >"$tmp/out" 2>"$tmp/err"; echo $?)"
+check "and says each tenth of a large layer once: not 0%, not a small layer, not one already held" \
+  "  large:7b: 10% of 4.7 GB|  large:7b: 50% of 4.7 GB|  large:7b: 100% of 4.7 GB|" "$(tr '\n' '|' <"$tmp/err")"
+check "on stderr: stdout stays empty" "" "$(cat "$tmp/out")"
+# A caller's log is appended to, not started again from its top.
+echo "earlier line" >"$tmp/err"
+ollama_endpoint_pull "$URL" large:7b >/dev/null 2>>"$tmp/err"
+check "progress is added to a log the caller already wrote to" "earlier line|  large:7b: 10% of 4.7 GB|" "$(head -n 2 "$tmp/err" | tr '\n' '|')"
 check "a slash and a tag survive" "hf.co/org/model:Q4" "$(ollama_endpoint_pull "$URL" hf.co/org/model:Q4 2>/dev/null; tail -n 1 "$tmp/state/pulled")"
 check "an error in the stream is a failure, whatever the status" "1" "$(ollama_endpoint_pull "$URL" broken:1b 2>"$tmp/err"; echo $?)"
 said "and what Ollama said is passed on" "$tmp/err" "file does not exist"
