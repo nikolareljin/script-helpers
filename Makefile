@@ -106,9 +106,12 @@ test-bash32:
 # this target. With them set, a test that builds a temporary repository and
 # changes into it still reads the repository being pushed: tests failed inside
 # the hook that pass everywhere else, and a push from a worktree was refused.
-# They are git's variables for the hook, not for the suite.
+# They are git's variables for the hook, not for the suite. The list is git's
+# own (`git rev-parse --local-env-vars`: fifteen names today, GIT_SHALLOW_FILE
+# and GIT_CONFIG_PARAMETERS among them), with the six a hook always sets named
+# as well, for a machine where git cannot be asked.
 test:
-	@unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_OBJECT_DIRECTORY; \
+	@unset $$(git rev-parse --local-env-vars 2>/dev/null) GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_OBJECT_DIRECTORY; \
 	for f in tests/*_test.sh; do \
 	  [[ -f "$$f" ]] || continue; \
 	  printf '\n--- Running: %s ---\n' "$$f"; \

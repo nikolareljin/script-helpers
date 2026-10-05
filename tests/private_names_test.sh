@@ -30,8 +30,10 @@ trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 # GIT_DIR and its companions. With those set, a `cd` into one of the temporary
 # repositories below changes nothing: git still reads the repository being
 # pushed, and the cases that build their own repository fail there and nowhere
-# else. They are git's variables for the hook, not for this test.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+# else. They are git's variables for the hook, not for this test. The list is
+# git's own, so a variable it adds later is covered too.
+# shellcheck disable=SC2046  # one name per word, on purpose
+unset $(git rev-parse --local-env-vars 2>/dev/null) GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
 
 # The gate reads a machine-level allowlist from the configuration directory.
 # Whatever this machine has there is not part of these tests: with one present
