@@ -894,7 +894,7 @@ print('XXX')
 PY2
         sleep 0.5
       done
-    ) | dialog --no-shadow --title "$title" --gauge "Preparing model download..." "$gauge_height" "$gauge_width" 0; then
+    ) | dialog_gauge --no-shadow --title "$title" --gauge "Preparing model download..." "$gauge_height" "$gauge_width" 0; then
       dialog_rc=0
     else
       dialog_rc=$?

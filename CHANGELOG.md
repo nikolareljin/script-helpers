@@ -2,14 +2,16 @@
 
 ### Added
 
-- **`dialog_capture`, `dialog_run`, `dialog_has_tty`, `has_interactive_dialog_session`.** `dialog`
+- **`dialog_capture`, `dialog_run`, `dialog_gauge`, `dialog_has_tty`,
+  `has_interactive_dialog_session`.** `dialog`
   draws a box on its standard output unless it is asked for the answer there, so
   `$(dialog --msgbox ...)` and `value=$(dialog --inputbox ...)` capture the screen and show nobody
   anything. `dialog_run` and `dialog_capture` put the screen and the keys on the terminal device
-  and leave stdout to the answer, for any kind of box. `dialog_has_tty` opens the device to find
+  and leave stdout to the answer, for any kind of box; `dialog_gauge` moves only the screen, since
+  a gauge reads its progress from stdin. `dialog_has_tty` opens the device to find
   out whether there is one, because with no controlling terminal `/dev/tty` still looks readable
-  and writable. The model and size selectors in `lib/ollama.sh` and the distro selectors go through
-  `dialog_capture`; with `dialog` 1.3 they already showed, since a `--stdout` box finds the
+  and writable. The model and size selectors in `lib/ollama.sh`, the distro selectors and the hub
+  setup's menu, input and secret prompts go through `dialog_capture`; with `dialog` 1.3 they already showed, since a `--stdout` box finds the
   terminal by itself, and they no longer depend on that. `tests/dialog_pty_test.sh` runs the real
   program in a pseudo-terminal.
 
@@ -22,9 +24,11 @@
   `select_multiple_distros` and `check_if_dialog_installed` printed "User pressed Cancel.", "No
   distro selected." and "Dialog is not installed." on stdout, so a caller that captured the answer
   got the sentence as the answer. They go to stderr.
-- **Three boxes could not be seen by a caller that captured stdout.** The download error box, and
-  the hub setup's yes/no question and its note when `HUB_UI=dialog` is forced. They go through
-  `dialog_run`.
+- **Five boxes could not be seen by a caller that captured stdout.** The download error box, the
+  hub setup's yes/no question and its note when `HUB_UI=dialog` is forced, and the two progress
+  gauges (`dialog_download_file` and the model pull): measured with `dialog` 1.3, a captured gauge
+  left the terminal empty and 1,502 bytes of screen in the caller's variable. The boxes go through
+  `dialog_run`, the gauges through `dialog_gauge`.
 
 ## 2026-09-29 — v0.44.1
 

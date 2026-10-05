@@ -79,6 +79,22 @@ dialog_run() {
   fi
 }
 
+# Usage: <progress> | dialog_gauge <dialog args...>; runs dialog for a gauge:
+# the progress is read from stdin, as dialog reads it, and the screen is on
+# the terminal device when there is one. A gauge draws on its standard output
+# too (measured with dialog 1.3: under `$(...)` nothing on the terminal and
+# 1,502 bytes of screen in the caller's variable).
+# Returns dialog's own status. With no terminal device it is plain dialog.
+dialog_gauge() {
+  local tty
+  if dialog_has_tty; then
+    tty="$(_dialog_tty)"
+    dialog "$@" >>"$tty"
+  else
+    dialog "$@"
+  fi
+}
+
 # Usage: answer=$(dialog_capture <dialog args...>); runs dialog and prints the
 # answer on stdout. The screen and the keys are on the terminal device when
 # there is one. Do not pass --stdout: it is added. Nothing is written to disk.
@@ -348,7 +364,7 @@ dialog_download_file() {
       printf "Downloaded: %s\n" "$(_dialog__human_size "$cur_bytes")"
       printf "XXX\n"
     fi
-  ) | dialog --no-shadow --title "Downloading" --gauge "Preparing download..." "$gauge_height" "$gauge_width" 0
+  ) | dialog_gauge --no-shadow --title "Downloading" --gauge "Preparing download..." "$gauge_height" "$gauge_width" 0
   local dlg_rc=$?
 
   # If user cancelled the dialog, terminate the download

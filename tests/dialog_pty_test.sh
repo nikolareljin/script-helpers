@@ -120,6 +120,30 @@ check "and only its answer reaches the caller (Enter on a box that defaults to N
 result="$(python3 "$tmp/in_pty.py" enter "$hub_load; "'x=$(HUB_UI=dialog _hub__ui_note "hello"); echo "OUT:captured=${#x}"' 2>&1)"
 check "the note is drawn on the terminal, and none of it is captured" "yes captured=0" "$(field screen) $(field out)"
 
+note "a gauge"
+# A gauge draws on stdout as well, and reads its progress from stdin.
+# shellcheck disable=SC2016
+result="$(in_pty none 'x=$( (echo 30; sleep 1; echo 90; sleep 1) | dialog_gauge --no-shadow --title T --gauge "Preparing" 7 50 0); echo "OUT:rc=$? captured=${#x}"')"
+check "dialog_gauge draws on the terminal though stdout is captured" "yes" "$(field screen)"
+check "none of it reaches the caller, and it ends when its progress does" "rc=0 captured=0" "$(field out)"
+
+# The call site of the model pull gauge, which draws only when stderr is a terminal.
+ollama_load="cd '$root_dir'; source ./helpers.sh; shlib_import logging dialog os file json env ollama"
+# shellcheck disable=SC2016
+result="$(python3 "$tmp/in_pty.py" none "$ollama_load; "'x=$(_ollama_dialog_pull_command "Pulling" "alpha:7b" sleep 2); echo "OUT:rc=$? captured=${#x}"' 2>&1)"
+check "the model pull gauge is drawn on the terminal, and none of it is captured" "yes rc=0 captured=0" "$(field screen) $(field out)"
+
+note "the hub setup's prompts, with dialog forced, stdout captured and stdin elsewhere"
+# shellcheck disable=SC2016
+result="$(python3 "$tmp/in_pty.py" enter "$hub_load; "'x=$(HUB_UI=dialog _hub__ui_menu "Title" "Pick" b a First b Second </dev/null); echo "OUT:rc=$? answer=[$x]"' 2>&1)"
+check "the choice is drawn on the terminal and answered from it" "yes rc=0 answer=[b]" "$(field screen) $(field out)"
+# shellcheck disable=SC2016
+result="$(python3 "$tmp/in_pty.py" enter "$hub_load; "'x=$(HUB_UI=dialog _hub__ui_input "Title" "Name" "the default" </dev/null); echo "OUT:rc=$? answer=[$x]"' 2>&1)"
+check "so is the input" "yes rc=0 answer=[the default]" "$(field screen) $(field out)"
+# shellcheck disable=SC2016
+result="$(python3 "$tmp/in_pty.py" escape "$hub_load; "'x=$(HUB_UI=dialog _hub__ui_secret "Title" "Key" </dev/null); echo "OUT:rc=$? answer=[$x]"' 2>&1)"
+check "and the secret: escape is a refusal, with nothing as the answer" "yes rc=1 answer=[]" "$(field screen) $(field out)"
+
 note "is there a terminal"
 # shellcheck disable=SC2016
 result="$(in_pty none 'if dialog_has_tty </dev/null >/dev/null 2>&1; then echo "OUT:tty=yes"; else echo "OUT:tty=no"; fi')"

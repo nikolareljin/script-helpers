@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SCRIPT: dialog_capture_test.sh
-# DESCRIPTION: Tests for dialog_has_tty, dialog_run, dialog_capture and has_interactive_dialog_session, and the selectors that use them.
+# DESCRIPTION: Tests for dialog_has_tty, dialog_run, dialog_gauge, dialog_capture and has_interactive_dialog_session, and the selectors that use them.
 # USAGE: ./tests/dialog_capture_test.sh
 # PARAMETERS: No required parameters.
 # EXAMPLE: bash tests/dialog_capture_test.sh
@@ -148,6 +148,19 @@ fresh; export SHLIB_DIALOG_TTY="$tmp/none/tty"
 out="$(dialog_run --msgbox "Hello" 8 40 </dev/null 2>/dev/null)"
 check "with no terminal it is plain dialog" "SCREEN-OUT" "$out"
 
+# --- a gauge ----------------------------------------------------------------------
+note "a gauge"
+fresh; export SHLIB_DIALOG_TTY="$tty_file"
+out="$(printf 'from-the-caller\n' | dialog_gauge --gauge "Working" 7 40 0 2>"$tmp/caller-err")"; rc=$?
+check "with a terminal, the screen does not reach the caller's stdout" "0:" "$rc:$out"
+check "it is on the terminal" "1" "$(grep -c "SCREEN-OUT" "$tty_file")"
+check "its progress is read from the caller's stdin, not from the terminal" "from-the-caller" "$(logged stdin)"
+check "--stdout is not added to a gauge" "0" "$(logged stdout-flags)"
+check "its status is dialog's" "3" "$(printf '10\n' | FAKE_DIALOG_RC=3 dialog_gauge --gauge "Working" 7 40 0 >/dev/null 2>&1; echo $?)"
+fresh; export SHLIB_DIALOG_TTY="$tmp/none/tty"
+out="$(printf '10\n' | dialog_gauge --gauge "Working" 7 40 0 2>/dev/null)"
+check "with no terminal it is plain dialog" "SCREEN-OUT" "$out"
+
 # --- get_value --------------------------------------------------------------------
 note "get_value"
 fresh; export SHLIB_DIALOG_TTY="$tty_file"
@@ -174,6 +187,32 @@ IFS="$old_ifs"
 value="$(PATH="$no_dialog_path" "$BASH" -c 'source ./helpers.sh; shlib_import logging dialog; get_value T M' 2>"$tmp/caller-err")"; rc=$?
 check "with dialog not installed: a failure, and the message is not the value" "1:" "$rc:$value"
 check "the message is on stderr" "1" "$(grep -c "Dialog is not installed" "$tmp/caller-err")"
+
+# --- the callers -------------------------------------------------------------------
+# Each call site, not only the function it goes through: a caller put back on
+# plain `dialog` passes every test above.
+note "the callers: the download gauge and the hub setup's prompts"
+fresh; export SHLIB_DIALOG_TTY="$tty_file"
+if command -v curl >/dev/null 2>&1; then
+  printf 'payload\n' >"$tmp/src.bin"
+  out="$(dialog_download_file "file://$tmp/src.bin" "$tmp/dst.bin" curl 2>/dev/null)"
+  check "the download gauge is on the terminal, not in the caller's stdout" "0:1" "$(grep -c "SCREEN-OUT" <<<"$out"):$(grep -c "SCREEN-OUT" "$tty_file")"
+else
+  ok "(no curl: the download gauge is not run)"
+fi
+# (The model pull gauge draws only when stderr is a terminal: it is in
+# tests/dialog_pty_test.sh.)
+# The stand-in reads its key from stdin, so a prompt that is answered "from
+# the terminal" went through dialog_capture; plain dialog would read /dev/null.
+fresh
+out="$(shlib_import hub >/dev/null 2>&1; HUB_UI=dialog FAKE_DIALOG_ANSWER=b _hub__ui_menu "Title" "Pick" a a First b Second </dev/null 2>/dev/null)"
+check "the hub's menu is answered from the terminal" "b:from-the-terminal" "$out:$(logged stdin)"
+fresh
+out="$(shlib_import hub >/dev/null 2>&1; HUB_UI=dialog FAKE_DIALOG_ANSWER=typed _hub__ui_input "Title" "Name" "default" </dev/null 2>/dev/null)"
+check "its input too" "typed:from-the-terminal" "$out:$(logged stdin)"
+fresh
+out="$(shlib_import hub >/dev/null 2>&1; HUB_UI=dialog FAKE_DIALOG_ANSWER=s3cret _hub__ui_secret "Title" "Key" </dev/null 2>/dev/null)"
+check "and its secret, which is drawn on the terminal and nowhere else" "s3cret:from-the-terminal:0" "$out:$(logged stdin):$(grep -c "s3cret" "$tty_file")"
 
 # --- the selectors ----------------------------------------------------------------
 note "the selectors that use them"
