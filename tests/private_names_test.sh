@@ -26,19 +26,17 @@ tmp="$(mktemp -d)"
 # Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
-# Clear git's hook variables. Started from a git hook, this test inherits
-# GIT_DIR (and related variables) for the repository being pushed. GIT_DIR
-# overrides the current directory, so the cases below that create a temporary
-# repository would act on the pushed one and fail. `make test` and the
-# pre-push hook clear them already; this covers a direct run from another
-# hook. Git's own list, plus the six a hook always gets if git cannot be asked.
+# Unset git's hook variables. If this test is started from a git hook, git
+# has set GIT_DIR to the repository being pushed. GIT_DIR beats the current
+# directory, so the cases below that make a temporary repository would use
+# the pushed one and fail. `make test` and the pre-push hook already do this;
+# it is repeated here for a direct run from another hook.
 # shellcheck disable=SC2046  # the output is a list: one variable name per word
 unset $(git rev-parse --local-env-vars 2>/dev/null) GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
 
-# Use an empty configuration directory. The gate reads an allowlist from
-# <config>/script-helpers/private-names-allow, and a developer's own file
-# there made the override cases below fail locally while CI, which has none,
-# passed.
+# Use an empty config directory. The gate reads an allowlist from
+# <config>/script-helpers/private-names-allow. A developer's own file there
+# made the override cases below fail locally. CI has no such file and passed.
 export XDG_CONFIG_HOME="$tmp/no-config"
 
 # CI has no git identity, so it is injected per command rather than configured.
@@ -168,10 +166,10 @@ got="$(printf 'about bluewidget' | HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/.
 [[ "$got" == 1 ]] && ok "a machine-level allowlist does not disable the rest" \
                   || error "the machine-level allowlist disabled an unrelated name: exit $got"
 
-# PRIVATE_NAMES_ALLOW beside an allowlist file (written above: "beacon").
-# The override had no newline after it, so "bluewidget" joined the file's
-# first line as "bluewidgetbeacon", matched nothing, and did nothing. Only
-# machines with an allowlist file were affected, so CI never saw it.
+# PRIVATE_NAMES_ALLOW together with an allowlist file (it holds "beacon").
+# The bug: no newline after the override, so the two ran together as
+# "bluewidgetbeacon". That matched nothing and the override was ignored.
+# It needs an allowlist file to show, and CI has none.
 got="$(printf 'about bluewidget' | HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/.config" PRIVATE_NAMES_ALLOW=bluewidget \
   bash "$GATE" --stdin --list "$list" >/dev/null 2>&1; echo $?)"
 [[ "$got" == 0 ]] && ok "an override for this run applies beside a machine-level allowlist" \
@@ -180,7 +178,7 @@ got="$(printf 'about bluewidget and the beacon' | HOME="$tmp/home" XDG_CONFIG_HO
   bash "$GATE" --stdin --list "$list" >/dev/null 2>&1; echo $?)"
 [[ "$got" == 0 ]] && ok "the last of several names in an override applies there too" \
                   || error "the last name of PRIVATE_NAMES_ALLOW was lost: exit $got"
-# The same join between two files: a repository allowlist with no final
+# The same bug between two files: a repository allowlist with no final
 # newline, then the machine's.
 allow_repo="$tmp/allow-repo"
 mkdir -p "$allow_repo" && git -C "$allow_repo" init -q
@@ -194,16 +192,16 @@ got="$(cd "$allow_repo" && printf 'about bluewidget, the beacon and test coverag
 [[ "$got" == 0 ]] && ok "three sources at once each allow their own name" \
                   || error "three allow sources together lost a name: exit $got"
 
-# A linked worktree has its own git directory (.git/worktrees/<name>); the
-# repository's allowlist is in the shared one (the main checkout's .git).
-# Only the worktree's own used to be read, so linked worktrees ignored it.
+# A linked worktree. The repository's allowlist is in the shared git
+# directory (the main checkout's .git), not in the worktree's own
+# (.git/worktrees/<name>). Before, only the own one was read.
 git_t -C "$allow_repo" commit -q --allow-empty -m init
 git_t -C "$allow_repo" worktree add -q "$tmp/allow-wt" -b allow-wt >/dev/null 2>&1
 got="$(cd "$tmp/allow-wt" && printf 'about bluewidget' | bash "$GATE" --stdin --list "$list" >/dev/null 2>&1; echo $?)"
 [[ "$got" == 0 ]] && ok "a repository allowlist applies in a linked worktree" \
                   || error "the repository allowlist was not read from a linked worktree: exit $got"
-# An allowlist in the worktree's own git directory applies there, beside the
-# repository's, and not in the main checkout.
+# A list in the worktree's own git directory also applies there, but not in
+# the main checkout.
 wt_git_dir="$(cd "$tmp/allow-wt" && git rev-parse --absolute-git-dir)"
 printf 'beacon' > "$wt_git_dir/private-names-allow"
 got="$(cd "$tmp/allow-wt" && printf 'about bluewidget and the beacon' | bash "$GATE" --stdin --strict-ambiguous --list "$list" >/dev/null 2>&1; echo $?)"
@@ -212,9 +210,9 @@ got="$(cd "$tmp/allow-wt" && printf 'about bluewidget and the beacon' | bash "$G
 got="$(cd "$allow_repo" && printf 'about bluewidget and the beacon' | bash "$GATE" --stdin --strict-ambiguous --list "$list" >/dev/null 2>&1; echo $?)"
 [[ "$got" == 1 ]] && ok "a worktree's own allowlist does not reach the main checkout" \
                   || error "one worktree's allowlist applied in another: exit $got"
-# Outside a repository the refusal must offer no repository allowlist: it
-# used to print "/private-names-allow", at the filesystem root.
-# GIT_CEILING_DIRECTORIES keeps git from finding a repository above $tmp.
+# Outside a repository the refusal must not name a repository allowlist.
+# Before, it printed "/private-names-allow" (the filesystem root).
+# GIT_CEILING_DIRECTORIES stops git from finding a repository above $tmp.
 mkdir -p "$tmp/no-repo"
 out="$(cd "$tmp/no-repo" && printf 'about bluewidget' | GIT_CEILING_DIRECTORIES="$tmp" bash "$GATE" --stdin --list "$list" 2>&1; echo "exit=$?")"
 if grep -q 'exit=1' <<<"$out" && ! grep -q 'this repository' <<<"$out" && grep -q 'every repository here' <<<"$out"; then

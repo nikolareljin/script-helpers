@@ -451,25 +451,26 @@ run_tests() {
   echo "[pre-push] No test runner detected — skipping. Run tests manually before pushing."
 }
 
-# Clear git's hook variables before the repository's tests run.
+# Unset git's hook variables before running the repository's tests.
 #
-# Why: git gives a hook GIT_DIR (and related variables) for the repository
-# being pushed. The checks above need them; the tests below must not see
-# them. GIT_DIR overrides the current directory, so a test that creates its
-# own temporary repository would act on the pushed one. From a linked
-# worktree, where GIT_DIR is absolute, such a test failed only inside the
-# hook, and the push was refused. Cleared, tests run as they do by hand.
+# Why: git sets GIT_DIR (and similar variables) for a hook, pointing at the
+# repository being pushed. The checks above need them. Tests must not see
+# them: GIT_DIR beats the current directory, so a test that makes its own
+# temporary repository would use the pushed one instead. In a linked worktree
+# GIT_DIR is an absolute path, and there such tests failed only inside the
+# hook, and the push was refused.
 #
-# Kept when, without them, git finds no repository here, or another one, or
-# another work tree. That is `git --git-dir=... --work-tree=... push`: the
-# variables are then the only pointer to the right place.
+# Exception: the variables are kept if git, without them, would find no
+# repository here, a different repository, or a different work tree. That is
+# `git --git-dir=... --work-tree=... push`, where the variables are the only
+# way to find the right place.
 #
-# Cleared: all that `git rev-parse --local-env-vars` lists (so future ones
-# too), plus the six a hook always gets, in case that command is missing.
+# What is unset: the names `git rev-parse --local-env-vars` prints, plus the
+# six a hook always gets, written out in case that command is missing.
 _drop_git_hook_env() {
   local names with without
   names="$(git rev-parse --local-env-vars 2>/dev/null || true) GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_OBJECT_DIRECTORY"
-  # Git directory and work tree: as git sees them now, and without the variables.
+  # Where git looks now, and where it would look without the variables.
   with="$(git rev-parse --absolute-git-dir --show-toplevel 2>/dev/null)" || return 0
   # shellcheck disable=SC2086  # $names is a list: one variable name per word
   without="$(unset $names; git rev-parse --absolute-git-dir --show-toplevel 2>/dev/null)" || return 0

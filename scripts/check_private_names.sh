@@ -393,26 +393,26 @@ fi
 # ---- the override ---------------------------------------------------------
 allowed="$work/allowed"
 : > "$allowed"
-# Each source below ends with a newline, so its last name cannot join the
-# next source's first. Without it, PRIVATE_NAMES_ALLOW=widget plus a file
-# starting with "index" became "widgetindex": it matched nothing, and the
-# override silently did nothing. Extra blank lines are removed further down.
+# End each source with a newline, so two names cannot run together.
+# The bug: PRIVATE_NAMES_ALLOW=widget, then a file starting with "index",
+# gave "widgetindex". That matched nothing, and the override was ignored
+# without a message. Blank lines are removed further down.
 if [[ -n "${PRIVATE_NAMES_ALLOW:-}" ]]; then
   printf '%s\n' "$PRIVATE_NAMES_ALLOW" | tr ',' '\n' >> "$allowed"
 fi
 # The repository's allowlist: <git directory>/private-names-allow.
-# A linked worktree has two git directories: the shared one (--git-common-dir,
-# the main checkout's .git) and its own (--git-dir, .git/worktrees/<name>).
-#   1. The shared one is read: its list covers every worktree. Only the
-#      worktree's own used to be read, so linked worktrees ignored the list.
-#   2. The worktree's own is read too, for that worktree only: lists written
-#      there under the old behaviour keep working.
-# In an ordinary checkout both are one directory, read once.
-# - A git too old for --git-common-dir prints the option back, not a path.
-#   The -d test catches that, and --git-dir is used.
-# - Outside a repository both are empty: nothing is read, and repo_allow stays
-#   empty so the refusal below offers no path. (The old code looked for
-#   /private-names-allow at the filesystem root.)
+# A linked worktree has two git directories:
+#   shared (--git-common-dir): the main checkout's .git
+#   own    (--git-dir):        .git/worktrees/<name>
+# Both are read. The shared list applies to every worktree, the own list to
+# that worktree only. Before, only the own one was read, so a linked worktree
+# ignored the repository's list.
+# In a normal checkout both are the same directory, and it is read once.
+# An old git does not know --git-common-dir and prints the option back
+# instead of a path. The -d test catches that, and --git-dir is used.
+# Outside a repository both are empty: nothing is read, and repo_allow stays
+# empty so the refusal below shows no path. (Before, the check looked for
+# /private-names-allow at the filesystem root.)
 repo_allow=""
 repo_allow_dir="$(git rev-parse --git-common-dir 2>/dev/null)" || repo_allow_dir=""
 worktree_allow_dir="$(git rev-parse --git-dir 2>/dev/null)" || worktree_allow_dir=""
