@@ -48,10 +48,12 @@ Environment
   - Purpose: Use a dialog menu to select a model from the indexed official Ollama library catalog; returns the selected full model name on stdout.
   - Behavior: Reuses `OLLAMA_MODEL_MENU_CACHE_FILE` when present; otherwise reuses the default cache path while it remains fresh and non-empty, and regenerates it on demand when stale. When the dialog is cancelled, the function prints a message to stderr and returns a non-zero status, so callers using `set -e` must handle cancellations explicitly to avoid script termination. If the prepared cache contains no selectable models, the function returns a clear stderr error instead of invoking an empty dialog.
 
+  - The menu is drawn through `dialog_capture` (see the dialog module): on the terminal device, so a caller that captured stdout or redirected stderr still sees it.
 - ollama_dialog_select_size json_file model [current_size]
   - Purpose: Use a dialog menu to select a size for the model; returns `latest` if none are listed.
   - Behavior: Returns status `2` when the size dialog is cancelled so callers can reopen model selection.
 
+  - Drawn through `dialog_capture`, as the model menu is.
 - ollama_model_ref model [size=latest]
   - Purpose: Build model reference for Ollama (`name` or `name:tag` when tag is not `latest`).
 

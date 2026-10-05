@@ -23,6 +23,72 @@ check_if_dialog_installed() {
   dialog_init
 }
 
+# --- a dialog whose caller has captured or redirected the standard streams ----
+#
+# `choice=$(dialog --stdout --menu ...)` draws the menu on stderr and prints the
+# choice on stdout. That works until the caller redirects stderr, or runs with
+# its streams piped, and then there is a menu nobody can see. These three put
+# the screen on the terminal itself and leave stdout to the answer.
+
+# The terminal device. DIALOG_TTY names another one (a serial console; a file,
+# in tests).
+_dialog_tty() {
+  printf '%s' "${DIALOG_TTY:-/dev/tty}"
+}
+
+# Usage: dialog_has_tty; true when the terminal device can be opened.
+# Opened, not only looked at: with no controlling terminal /dev/tty still
+# exists and is readable and writable by its mode, and opening it fails.
+dialog_has_tty() {
+  local tty
+  tty="$(_dialog_tty)"
+  ( exec 3<>"$tty" ) 2>/dev/null
+}
+
+# Usage: has_interactive_dialog_session; true when a person can be shown a
+# dialog: one of the standard streams is a terminal, or the terminal device
+# opens. False under cron, a systemd unit, CI: prompt for nothing there.
+has_interactive_dialog_session() {
+  [[ -t 0 || -t 1 || -t 2 ]] || dialog_has_tty
+}
+
+# Usage: dialog_run <dialog args...>; runs dialog for a box with no answer to
+# capture (msgbox, infobox, yesno), on the terminal device when there is one.
+# Returns dialog's own status.
+dialog_run() {
+  local tty
+  if dialog_has_tty; then
+    tty="$(_dialog_tty)"
+    # One device for all three, on purpose; appended to, which is the same
+    # thing for a terminal and keeps a file that stands in for one readable.
+    # shellcheck disable=SC2094
+    dialog "$@" <"$tty" >>"$tty" 2>>"$tty"
+  else
+    dialog "$@"
+  fi
+}
+
+# Usage: answer=$(dialog_capture <dialog args...>); runs dialog and prints the
+# answer on stdout. The screen goes to the terminal device when there is one,
+# whatever the caller did with stderr. Do not pass --stdout: it is added.
+# Returns dialog's own status (1 cancel, 255 escape) and then prints nothing.
+dialog_capture() {
+  local tmp tty status=0
+  tmp="$(mktemp "${TMPDIR:-/tmp}/dialog.capture.XXXXXXXX")" || return 1
+  if dialog_has_tty; then
+    tty="$(_dialog_tty)"
+    # shellcheck disable=SC2094  # the terminal, read and drawn on
+    dialog --stdout "$@" <"$tty" >"$tmp" 2>>"$tty" || status=$?
+  else
+    dialog --stdout "$@" >"$tmp" || status=$?
+  fi
+  if [[ "$status" -eq 0 ]]; then
+    cat "$tmp"
+  fi
+  rm -f "$tmp"
+  return "$status"
+}
+
 # Prompt for a value using dialog; prints the value to stdout.
 # Usage: get_value "Title" "Message" "Default"
 get_value() {
@@ -33,17 +99,27 @@ get_value() {
   local tmp
   tmp=$(mktemp "/tmp/$(basename "$0").XXXXXXXXXX")
   local cancel_msg="User pressed Cancel. Exiting."
+  # On stderr: stdout is the value, and a caller that captured it was handed
+  # this sentence as what the person typed.
 
-  dialog --title "$title" --inputbox "$message" 10 60 "$default_value" 2>"$tmp"
-  local status=$?
+  local tty status=0
+  if dialog_has_tty; then
+    # The screen on the terminal, the answer (which dialog writes to stderr)
+    # in the file: a caller that captures stdout still sees the box.
+    tty="$(_dialog_tty)"
+    # shellcheck disable=SC2094  # the terminal, read and drawn on
+    dialog --title "$title" --inputbox "$message" 10 60 "$default_value" <"$tty" >>"$tty" 2>"$tmp" || status=$?
+  else
+    dialog --title "$title" --inputbox "$message" 10 60 "$default_value" 2>"$tmp" || status=$?
+  fi
   if [[ $status -ne 0 ]]; then
-    print_error "$cancel_msg"
+    print_error "$cancel_msg" >&2
     rm -f "$tmp"
     return 1
   fi
 
   if [[ -z "$(cat "$tmp")" ]]; then
-    print_error "$cancel_msg"
+    print_error "$cancel_msg" >&2
     rm -f "$tmp"
     return 1
   fi
@@ -72,7 +148,7 @@ select_multiple_distros() {
   for d in "${!DISTROS[@]}"; do
     options+=("$d" "${DISTROS[$d]}")
   done
-  if ! selected_distros=$(dialog --stdout --title "Select Linux Distro" --checklist "Choose Linux distributions to download:" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0 "${options[@]}"); then
+  if ! selected_distros=$(dialog_capture --title "Select Linux Distro" --checklist "Choose Linux distributions to download:" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0 "${options[@]}"); then
     print_error "No distro selected. Exiting..."
     return 1
   fi
@@ -87,7 +163,7 @@ select_distro() {
   for d in "${!DISTROS[@]}"; do
     options+=("$d" "${DISTROS[$d]}")
   done
-  if ! selected_distro=$(dialog --stdout --title "Select Linux Distro" --menu "Choose a Linux distribution to download:" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0 "${options[@]}"); then
+  if ! selected_distro=$(dialog_capture --title "Select Linux Distro" --menu "Choose a Linux distribution to download:" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0 "${options[@]}"); then
     print_error "No distro selected. Exiting..."
     return 1
   fi

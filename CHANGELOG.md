@@ -1,3 +1,21 @@
+## Unreleased
+
+### Added
+
+- **`dialog_capture`, `dialog_run`, `dialog_has_tty`, `has_interactive_dialog_session`.**
+  `choice=$(dialog --stdout --menu ...)` draws its menu on stderr, so a caller that has redirected
+  stderr, or runs with its streams piped, shows a menu nobody can see. `dialog_capture` puts the
+  screen on the terminal device and leaves stdout to the answer; `dialog_run` does the same for a
+  box with no answer. `dialog_has_tty` opens the device to find out, because with no controlling
+  terminal `/dev/tty` still looks readable and writable. The model and size selectors in
+  `lib/ollama.sh`, the distro selectors and `get_value` use them.
+
+### Fixed
+
+- **`get_value` handed its cancel message to the caller as the value.** The message was printed on
+  stdout, which is where the value goes; a caller that captured it got "User pressed Cancel."
+  as what the person typed. It goes to stderr.
+
 ## 2026-09-29 — v0.44.1
 
 ### Fixed
