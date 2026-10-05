@@ -114,6 +114,83 @@ grep -q 'PRE_PUSH_SKIP_TESTS=1 git push' <<<"$out" \
   && ok "the refusal names the tests-only escape" \
   || error "the refusal did not name the tests-only escape"
 
+# The hook must not pass git's hook variables to the tests it runs.
+# Git sets GIT_DIR for a hook, pointing at the repository being pushed (an
+# absolute path in a linked worktree). A test that makes its own repository
+# then used the pushed one, failed only inside the hook, and the push was
+# refused.
+#
+# The test file below does that: its new repository must have 0 commits, and
+# it must see none of git's variables.
+reset_repo
+mkdir -p "$repo/tests"
+cat > "$repo/tests/own_repo_test.sh" <<'T'
+#!/usr/bin/env bash
+fresh="$(mktemp -d)"
+git init -q "$fresh/r" && cd "$fresh/r" || exit 9
+commits="$(git rev-list --count --all 2>/dev/null)"
+seen=""
+for name in $(git rev-parse --local-env-vars); do [[ -z "${!name+x}" ]] || seen="$seen $name"; done
+echo "fresh-commits=[$commits] seen=[$seen ] kept=[${KEPT_FOR_THE_SUITE:-}]"
+cd / && rm -rf "$fresh"
+[[ "$commits" == 0 && -z "$seen" ]]
+T
+git -C "$repo" -c user.email=t@localhost -c user.name=t add tests
+git -C "$repo" -c user.email=t@localhost -c user.name=t commit -q -m "a suite that builds its own repository"
+git -C "$repo" worktree add -q "$tmp/linked" -b linked
+# as_git <dir>: run the hook in <dir> the way git does, with git's variables
+# set. KEPT_FOR_THE_SUITE is not git's and must reach the tests.
+as_git() {
+  local dir="$1"; shift
+  ( cd "$dir" && printf 'refs/heads/linked %s refs/heads/linked %s\n' "$(git rev-parse HEAD)" "$zeroes" \
+      | env GIT_DIR="$(git rev-parse --absolute-git-dir)" GIT_PREFIX="" GIT_CONFIG_PARAMETERS="'a.b=c'" \
+            KEPT_FOR_THE_SUITE=yes "$@" bash "$HOOK" origin git@example.invalid:x.git 2>&1 )
+}
+out="$(as_git "$tmp/linked")"; rc=$?
+if [[ $rc -eq 0 ]] && grep -q 'fresh-commits=\[0\] seen=\[ \]' <<<"$out"; then
+  ok "from a linked worktree, a suite that builds its own repository reads its own"
+else
+  error "the suite saw the repository being pushed (exit $rc): $(grep -E 'fresh-commits|refused' <<<"$out")"
+fi
+grep -q 'kept=\[yes\]' <<<"$out" && ok "the rest of the environment reaches the suite" \
+  || error "a variable that is not git's was dropped: $(grep fresh-commits <<<"$out")"
+out="$(as_git "$repo")"; rc=$?
+[[ $rc -eq 0 ]] && ok "and from the main checkout" || error "main checkout, as git runs the hook: exit $rc"
+# Control: without the hook, the same test file fails when GIT_DIR is set.
+# So the passes above come from the hook.
+if ( cd "$tmp/linked" && GIT_DIR="$(git rev-parse --absolute-git-dir)" bash tests/own_repo_test.sh >/dev/null 2>&1 ); then
+  error "the suite passes with GIT_DIR set, so it proves nothing"
+else
+  ok "(the suite does fail when it can see GIT_DIR)"
+fi
+# The variables must stay when the push used `git --git-dir=...
+# --work-tree=...`: unsetting them would lose the right place. Three cases.
+# 1. The directory is not a repository. Only GIT_DIR points at one.
+mkdir -p "$tmp/bare-tree/tests"
+printf '#!/usr/bin/env bash\necho "git-dir=[${GIT_DIR:-}]"\n' > "$tmp/bare-tree/tests/says_test.sh"
+out="$( cd "$tmp/bare-tree" && printf 'refs/heads/main %s refs/heads/main %s\n' "$(git -C "$repo" rev-parse HEAD)" "$zeroes" \
+        | GIT_DIR="$repo/.git" GIT_WORK_TREE="$tmp/bare-tree" GIT_CEILING_DIRECTORIES="$tmp" bash "$HOOK" origin git@example.invalid:x.git 2>&1 )"
+grep -qF "git-dir=[$repo/.git]" <<<"$out" && ok "a work tree that is found only through GIT_DIR keeps it" \
+  || error "GIT_DIR was dropped where nothing else finds the repository: $(grep -E 'git-dir|fatal' <<<"$out" | head -3)"
+# 2. The directory is a different repository. Unset, the tests would run
+#    against that one.
+git -c init.defaultBranch=main init -q "$tmp/bare-tree"
+out="$( cd "$tmp/bare-tree" && printf 'refs/heads/main %s refs/heads/main %s\n' "$(git -C "$repo" rev-parse HEAD)" "$zeroes" \
+        | GIT_DIR="$repo/.git" GIT_WORK_TREE="$tmp/bare-tree" bash "$HOOK" origin git@example.invalid:x.git 2>&1 )"
+grep -qF "git-dir=[$repo/.git]" <<<"$out" && ok "nor is it dropped where the directory is another repository" \
+  || error "GIT_DIR was dropped though the directory finds a different repository: $(grep -E 'git-dir|fatal' <<<"$out" | head -3)"
+
+# 3. Same repository, but GIT_WORK_TREE is another work tree (a subdirectory
+#    here). Unset, the tests would see the checkout's root instead.
+reset_repo
+mkdir -p "$repo/sub-tree/tests"
+cp "$tmp/bare-tree/tests/says_test.sh" "$repo/sub-tree/tests/says_test.sh"
+out="$( cd "$repo/sub-tree" && printf 'refs/heads/main %s refs/heads/main %s\n' "$(git -C "$repo" rev-parse HEAD)" "$zeroes" \
+        | GIT_DIR="$repo/.git" GIT_WORK_TREE="$repo/sub-tree" bash "$HOOK" origin git@example.invalid:x.git 2>&1 )"
+grep -qF "git-dir=[$repo/.git]" <<<"$out" && ok "nor where GIT_WORK_TREE names another work tree of the same repository" \
+  || error "GIT_DIR was dropped though the work tree differs without it: $(grep -E 'git-dir|fatal' <<<"$out" | head -3)"
+rm -rf "$repo/sub-tree"
+
 if [[ $failures -gt 0 ]]; then
   echo "[pre_push_shell_repo_test] FAILED ($failures)" >&2
   exit 1

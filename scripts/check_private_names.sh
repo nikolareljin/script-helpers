@@ -69,7 +69,8 @@
 #   PRIVATE_NAMES_ALLOW="term,term"   allow named terms for this run
 #   .git/private-names-allow          one term per line, for a repository where
 #                                     a word recurs innocently (inside .git, so
-#                                     it can never be committed anywhere)
+#                                     it can never be committed anywhere); read
+#                                     from every worktree of the repository
 #   <cache>/private-names-allow       the same, for every repository on this
 #                                     machine, beside the name list
 #   git push --no-verify              git's own escape, for a human
@@ -392,12 +393,41 @@ fi
 # ---- the override ---------------------------------------------------------
 allowed="$work/allowed"
 : > "$allowed"
+# End each source with a newline, so two names cannot run together.
+# The bug: PRIVATE_NAMES_ALLOW=widget, then a file starting with "index",
+# gave "widgetindex". That matched nothing, and the override was ignored
+# without a message. Blank lines are removed further down.
 if [[ -n "${PRIVATE_NAMES_ALLOW:-}" ]]; then
-  printf '%s' "$PRIVATE_NAMES_ALLOW" | tr ',' '\n' >> "$allowed"
+  printf '%s\n' "$PRIVATE_NAMES_ALLOW" | tr ',' '\n' >> "$allowed"
 fi
-repo_allow="$(git rev-parse --git-dir 2>/dev/null)/private-names-allow"
-if [[ -f "$repo_allow" ]]; then
-  cat "$repo_allow" >> "$allowed"
+# The repository's allowlist: <git directory>/private-names-allow.
+# A linked worktree has two git directories:
+#   shared (--git-common-dir): the main checkout's .git
+#   own    (--git-dir):        .git/worktrees/<name>
+# Both are read. The shared list applies to every worktree, the own list to
+# that worktree only. Before, only the own one was read, so a linked worktree
+# ignored the repository's list.
+# In a normal checkout both are the same directory, and it is read once.
+# An old git does not know --git-common-dir and prints the option back
+# instead of a path. The -d test catches that, and --git-dir is used.
+# Outside a repository both are empty: nothing is read, and repo_allow stays
+# empty so the refusal below shows no path. (Before, the check looked for
+# /private-names-allow at the filesystem root.)
+repo_allow=""
+repo_allow_dir="$(git rev-parse --git-common-dir 2>/dev/null)" || repo_allow_dir=""
+worktree_allow_dir="$(git rev-parse --git-dir 2>/dev/null)" || worktree_allow_dir=""
+[[ -n "$repo_allow_dir" && -d "$repo_allow_dir" ]] || repo_allow_dir="$worktree_allow_dir"
+if [[ -n "$repo_allow_dir" ]]; then
+  repo_allow="$repo_allow_dir/private-names-allow"
+  if [[ -f "$repo_allow" ]]; then
+    cat "$repo_allow" >> "$allowed"
+    echo >> "$allowed"
+  fi
+  if [[ -n "$worktree_allow_dir" && "$worktree_allow_dir" != "$repo_allow_dir" \
+        && -f "$worktree_allow_dir/private-names-allow" ]]; then
+    cat "$worktree_allow_dir/private-names-allow" >> "$allowed"
+    echo >> "$allowed"
+  fi
 fi
 # A machine-level allowlist beside the name list, for a word that recurs in
 # every repository rather than one. Without it a word that is also everyday English has to be
@@ -407,6 +437,7 @@ fi
 machine_allow="${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names-allow"
 if [[ -f "$machine_allow" ]]; then
   cat "$machine_allow" >> "$allowed"
+  echo >> "$allowed"
 fi
 # Blank lines are stripped before any use: a pattern file containing an empty
 # line makes grep match every line of input, which would turn either list into
@@ -646,7 +677,7 @@ fi
 if [[ "$found" -eq 1 ]]; then
   log_error "Nothing was changed -- this only reports. If it is a false positive:"
   log_error "  PRIVATE_NAMES_ALLOW=<name> <your command>      this run only"
-  log_error "  $(tilde "$(git rev-parse --git-dir 2>/dev/null)/private-names-allow")   this repository"
+  [[ -z "$repo_allow" ]] || log_error "  $(tilde "$repo_allow")   this repository"
   log_error "  $(tilde "$machine_allow")   every repository here"
   if [[ -n "${LIST:-}" && -f "${LIST:-}" ]]; then
     log_error "Checked against $(tilde "$LIST")$(
