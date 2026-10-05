@@ -1,3 +1,19 @@
+## Unreleased
+
+### Added
+
+- **`ollama_endpoint`: know whether the models fit before pulling them.** A new module for a
+  project's start script. It reads the project's models from one env-style file
+  (`ollama_models_required`), asks an Ollama over HTTP which of them it has
+  (`ollama_endpoint_models`, `ollama_models_missing`), learns the size of what is missing from the
+  registry manifest (`ollama_registry_size_bytes`), and checks it against the machine
+  (`ollama_budget_check`): the download must leave `OLLAMA_DISK_RESERVE_GB` free (default 10), and
+  the largest model plus `OLLAMA_MEM_HEADROOM_PERCENT` (default 20) must fit the machine's memory or
+  its GPU's. `ollama_endpoint_ensure_models` puts it together and pulls only when everything fits:
+  no partial pull, one line per refusal with the numbers. Works for an Ollama on the host and one in
+  a container, with no `ollama` CLI; Linux and macOS figures are read, and each can be stated
+  through an `OLLAMA_BUDGET_*` override. bash 3.2 and BSD userland.
+
 ## 2026-09-29 — v0.44.1
 
 ### Fixed

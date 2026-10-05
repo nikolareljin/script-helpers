@@ -26,6 +26,7 @@ This index lists all modules and their functions. See the linked module pages fo
 - [ci_stack](./modules/ci_stack.md)
 - [traps](./modules/traps.md)
 - [ollama](./modules/ollama.md)
+- [ollama_endpoint](./modules/ollama_endpoint.md)
 - [package_publish](./modules/package_publish.md)
 - [packaging](./modules/packaging.md)
 - [ci_defaults](./modules/ci_defaults.md)
