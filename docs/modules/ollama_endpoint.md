@@ -76,7 +76,7 @@ Functions
 
 - ollama_models_required file [NAME...]
   - Purpose: Print the models a start needs, as Ollama lists them, one per line, each once.
-  - Behavior: With no `NAME`, every name in the file except a large tier's (a name ending in `_LARGE` or `_LARGE_VRAM_GB`). For each name a non-blank value in the environment wins over the file, trimmed; load the project's `.env` first if it should count.
+  - Behavior: With no `NAME`, every name in the file except a tier's alternative: a name ending in `_SMALL`, `_LARGE` or `_XLARGE` is the model for another class of machine, and `_VRAM_GB` after that is its floor. For each name a non-blank value in the environment wins over the file, trimmed; load the project's `.env` first if it should count.
   - Returns: 0; 2, printing nothing, when a `NAME` is not a variable name. A list cut short at the bad name would start a project with some of its models.
 
 - ollama_endpoint_models base_url [timeout_seconds=5]

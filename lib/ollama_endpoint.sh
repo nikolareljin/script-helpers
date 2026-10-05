@@ -122,10 +122,11 @@ ollama_model_tagged() {
 # Usage: ollama_models_required <file> [NAME...]; prints the models a start
 # needs, as Ollama lists them, one per line, each once.
 #
-# With no NAME, every name in the file that is not part of a large tier (a
-# name ending in _LARGE or _LARGE_VRAM_GB). For each name a non-blank value in
-# the environment wins over the file, so a caller that has loaded its own .env
-# gets that machine's choice.
+# With no NAME, every name in the file that is not a tier's alternative: a
+# name ending in _SMALL, _LARGE or _XLARGE is the model for another class of
+# machine, and one ending in _VRAM_GB after that is its floor. For each name a
+# non-blank value in the environment wins over the file, so a caller that has
+# loaded its own .env gets that machine's choice.
 #
 # Returns 2, printing nothing, when a NAME is not a variable name: a list cut
 # short at the bad name would start a project with some of its models.
@@ -141,7 +142,7 @@ ollama_models_required() {
     done
     names="$(printf '%s\n' "$@")"
   else
-    names="$(ollama_models_file_names "$file" | grep -v -E '_LARGE(_VRAM_GB)?$' || true)"
+    names="$(ollama_models_file_names "$file" | grep -v -E '_(SMALL|LARGE|XLARGE)(_VRAM_GB)?$' || true)"
   fi
   while IFS= read -r name; do
     [[ -n "$name" ]] || continue

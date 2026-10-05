@@ -229,6 +229,12 @@ NOTED=noted:1b # the embedder
 lower_model=low:1b
 X_LARGE_MODEL=kept:1b
 Y_LARGE=dropped:9b
+Y_LARGE_VRAM_GB=12
+Y_SMALL=dropped:1b
+Y_XLARGE=dropped:20b
+Y_XLARGE_VRAM_GB=16
+SMALLEST=tiny:1b
+VERYSMALL=wee:1b
 HASH=odd#name:1b
 ENV
 check "export before a name is read" "chat:1b" "$(ollama_models_file_get "$tmp/env.env" CHAT_MODEL)"
@@ -236,7 +242,7 @@ check "double quotes are not part of the value" "quoted:1b" "$(ollama_models_fil
 check "single quotes neither, with a comment after" "single:1b" "$(ollama_models_file_get "$tmp/env.env" SINGLE)"
 check "a trailing comment is not part of the value" "noted:1b" "$(ollama_models_file_get "$tmp/env.env" NOTED)"
 check "a hash with no space before it is part of the value" "odd#name:1b" "$(ollama_models_file_get "$tmp/env.env" HASH)"
-check "every assigned name is listed, whatever its case" "CHAT_MODEL QUOTED SINGLE NOTED lower_model X_LARGE_MODEL Y_LARGE HASH" "$(ollama_models_file_names "$tmp/env.env" | one_line)"
+check "every assigned name is listed, whatever its case" "CHAT_MODEL QUOTED SINGLE NOTED lower_model X_LARGE_MODEL Y_LARGE Y_LARGE_VRAM_GB Y_SMALL Y_XLARGE Y_XLARGE_VRAM_GB SMALLEST VERYSMALL HASH" "$(ollama_models_file_names "$tmp/env.env" | one_line)"
 check "a name that is not a variable name is refused" "2:" "$(ollama_models_file_get "$tmp/env.env" 'CHAT.MODEL'; echo "$?:")"
 check "so a dot cannot stand for any character" "2:" "$(printf 'OLLAMAXMODEL=wrong:1b\n' >"$tmp/dot.env"; ollama_models_file_get "$tmp/dot.env" 'OLLAMA.MODEL'; echo "$?:")"
 ( cd "$tmp" && ollama_models_file_get "$tmp/env.env" "X/w $tmp/written/s/x" >/dev/null 2>&1; true )
@@ -260,7 +266,7 @@ check "a blank variable is not a model" "main:7b" "$(OLLAMA_MODEL='   ' ollama_m
 check "two names for one model list it once" "main:7b" "$(CLASSIFY_MODEL=main:7b ollama_models_required "$tmp/models.env" OLLAMA_MODEL CLASSIFY_MODEL | one_line)"
 check "a name nothing sets is skipped" "main:7b" "$(ollama_models_required "$tmp/models.env" NO_SUCH OLLAMA_MODEL | one_line)"
 check "a missing file with nothing in the environment needs nothing" "" "$(ollama_models_required "$tmp/absent.env" OLLAMA_MODEL)"
-check "the large tier is a name's ending, not any name with LARGE in it" "chat:1b quoted:1b single:1b noted:1b low:1b kept:1b odd#name:1b" "$(ollama_models_required "$tmp/env.env" | one_line)"
+check "a tier's alternative is a name's ending (_SMALL, _LARGE, _XLARGE and their floors), not any name with the word in it" "chat:1b quoted:1b single:1b noted:1b low:1b kept:1b tiny:1b wee:1b odd#name:1b" "$(ollama_models_required "$tmp/env.env" | one_line)"
 check "a bad name refuses the whole list, not the rest of it" "2:" "$(ollama_models_required "$tmp/models.env" OLLAMA_MODEL MY-MODEL CLASSIFY_MODEL 2>/dev/null; echo "$?:")"
 # The name is meant literally: it must reach the function unexpanded.
 # shellcheck disable=SC2016
