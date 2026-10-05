@@ -144,6 +144,16 @@ check "so is the input" "yes rc=0 answer=[the default]" "$(field screen) $(field
 result="$(python3 "$tmp/in_pty.py" escape "$hub_load; "'x=$(HUB_UI=dialog _hub__ui_secret "Title" "Key" </dev/null); echo "OUT:rc=$? answer=[$x]"' 2>&1)"
 check "and the secret: escape is a refusal, with nothing as the answer" "yes rc=1 answer=[]" "$(field screen) $(field out)"
 
+note "a call dialog would not understand"
+# For an unknown option, or a box with no arguments, the real dialog prints
+# its help text to stdout and exits 0.
+# shellcheck disable=SC2016
+result="$(in_pty none 'r=0; dialog_run --defaultno --yesn "Delete?" 6 30 2>/dev/null || r=$?; echo "OUT:rc=$r"')"
+check "a typo in a yes/no is 255, not 0 (Yes), and nothing is drawn" "no rc=255" "$(field screen) $(field out)"
+# shellcheck disable=SC2016
+result="$(in_pty none 'x=$(dialog_capture --menu 2>/dev/null); echo "OUT:rc=$? len=${#x}"')"
+check "a box with no arguments: 255 and no answer, not 66 lines of help" "rc=255 len=0" "$(field out)"
+
 note "is there a terminal"
 # shellcheck disable=SC2016
 result="$(in_pty none 'if dialog_has_tty </dev/null >/dev/null 2>&1; then echo "OUT:tty=yes"; else echo "OUT:tty=no"; fi')"

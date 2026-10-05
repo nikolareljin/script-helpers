@@ -24,28 +24,27 @@ check_if_dialog_installed() {
   dialog_init
 }
 
-# --- a box whose caller has captured the standard output ----------------------
+# --- boxes for a caller that has captured stdout -------------------------------
 #
-# dialog draws a box on its standard output unless it is asked for the answer
-# there. So `value=$(dialog --inputbox ...)` and `$(dialog --msgbox ...)` put
-# the whole screen into the caller's variable and show nobody anything
-# (measured with dialog 1.3 in a pseudo-terminal: 2,235 bytes of screen as the
-# "value", an empty terminal). With --stdout, dialog reopens the terminal by
-# itself and the box shows. The functions below do not depend on which of the
-# two a box is: the screen goes to the terminal device, stdout carries the
-# answer and nothing else.
+# How dialog uses its streams: without --stdout it draws the box on stdout and
+# prints the answer on stderr. So `value=$(dialog --inputbox ...)` or
+# `$(dialog --msgbox ...)` puts the whole screen into the variable and shows
+# nothing (measured with dialog 1.3: 2,235 bytes of screen as the "value").
+# With --stdout, dialog opens the terminal itself and the box shows.
+# The functions below work the same for either kind of box: the screen goes to
+# the terminal device, and stdout carries only the answer.
 
-# The terminal device. SHLIB_DIALOG_TTY names another one; it is for tests,
-# which give it a file. (Not DIALOG_TTY: dialog has a variable of that name.)
+# The terminal device. SHLIB_DIALOG_TTY can name another one; tests give it a
+# file. (Not DIALOG_TTY: that is a variable of dialog itself.)
 _dialog_tty() {
   printf '%s' "${SHLIB_DIALOG_TTY:-/dev/tty}"
 }
 
-# Usage: dialog_has_tty; true when the terminal device can be opened for
-# reading and writing. Opened, not only looked at: with no controlling
-# terminal /dev/tty still exists and is readable and writable by its mode, and
-# opening it fails. Never creates anything: a path that is not there, a
-# directory or a FIFO is not a terminal.
+# Usage: dialog_has_tty; true if the terminal device can be opened for reading
+# and writing. It is opened, not only tested with -r/-w: without a controlling
+# terminal, /dev/tty still exists and looks readable and writable, but opening
+# it fails. Nothing is created: a missing path, a directory or a FIFO is not a
+# terminal.
 dialog_has_tty() {
   local tty
   tty="$(_dialog_tty)"
@@ -54,24 +53,61 @@ dialog_has_tty() {
   ( exec 3<"$tty" 4>>"$tty" ) 2>/dev/null
 }
 
-# Usage: has_interactive_dialog_session; true when a person can be shown a
-# dialog: one of the standard streams is a terminal, or the terminal device
-# opens. False under cron, a systemd unit, CI: prompt for nothing there.
+# Usage: has_interactive_dialog_session; true if a person can see a dialog:
+# one of the standard streams is a terminal, or the terminal device opens.
+# False under cron, systemd or CI, where nothing should ask.
 has_interactive_dialog_session() {
   [[ -t 0 || -t 1 || -t 2 ]] || dialog_has_tty
 }
 
+# Usage: _dialog_call_ok <dialog args...>; true if dialog knows every
+# --option in the call.
+# Why: for an unknown option (a typo like --yesn) dialog prints its help text
+# to stdout and exits 0. Through dialog_run that 0 would mean "Yes"; through
+# dialog_capture the help text would become the answer. So every --option is
+# checked against the list that `dialog --help` prints (read once, cached).
+# If that list is empty (an unknown dialog), nothing is checked.
+# Returns 255, dialog's own code for an error, and names the option.
+_DIALOG_KNOWN_OPTIONS=""
+_dialog_call_ok() {
+  local arg
+  if [[ -z "$_DIALOG_KNOWN_OPTIONS" ]]; then
+    _DIALOG_KNOWN_OPTIONS=" $(dialog --help </dev/null 2>&1 | grep -o -- '--[a-z][a-z0-9-]*' | sort -u | tr '\n' ' ')" || true
+    [[ "$_DIALOG_KNOWN_OPTIONS" != " " ]] || _DIALOG_KNOWN_OPTIONS="*"
+  fi
+  [[ "$_DIALOG_KNOWN_OPTIONS" != "*" ]] || return 0
+  for arg in "$@"; do
+    case "$arg" in
+      --[a-zA-Z]*)
+        case "$_DIALOG_KNOWN_OPTIONS" in
+          *" $arg "*) ;;
+          *) print_error "dialog has no option '$arg'. Nothing was shown." >&2; return 255 ;;
+        esac
+        ;;
+    esac
+  done
+  return 0
+}
+
+# Usage: _dialog_is_help_text <text>; true if text is dialog's help output.
+# dialog prints it, and exits 0, for a box given no arguments. It must not be
+# taken for an answer.
+_dialog_is_help_text() {
+  [[ "${1:-}" == *"Usage: dialog"* ]] && head -n 1 <<<"${1:-}" | grep -q 'version'
+}
+
 # Usage: dialog_run <dialog args...>; runs dialog for a box with no answer to
-# capture (msgbox, infobox, yesno), on the terminal device when there is one,
-# so the box shows even when the caller's stdout is captured. Keys come from
-# the terminal too: not for a gauge, which reads its progress from stdin.
+# capture (msgbox, infobox, yesno). The box is drawn on the terminal device if
+# there is one, so it shows even if the caller captured stdout. Keys are read
+# from the terminal too, so this is not for a gauge (it reads stdin).
 # Returns dialog's own status. With no terminal device it is plain dialog.
 dialog_run() {
   local tty
+  _dialog_call_ok "$@" || return $?
   if dialog_has_tty; then
     tty="$(_dialog_tty)"
-    # One device for all three, on purpose; appended to, which is the same
-    # thing for a terminal and keeps a file that stands in for one readable.
+    # One device for all three streams, on purpose. Appended (>>): the same
+    # for a terminal, and it keeps a file that stands in for one readable.
     # shellcheck disable=SC2094
     dialog "$@" <"$tty" >>"$tty" 2>>"$tty"
   else
@@ -79,14 +115,15 @@ dialog_run() {
   fi
 }
 
-# Usage: <progress> | dialog_gauge <dialog args...>; runs dialog for a gauge:
-# the progress is read from stdin, as dialog reads it, and the screen is on
-# the terminal device when there is one. A gauge draws on its standard output
-# too (measured with dialog 1.3: under `$(...)` nothing on the terminal and
-# 1,502 bytes of screen in the caller's variable).
+# Usage: <progress> | dialog_gauge <dialog args...>; runs dialog for a gauge.
+# The progress comes from stdin, as dialog expects; the screen goes to the
+# terminal device if there is one. A gauge draws on stdout like any other box
+# (measured with dialog 1.3: under `$(...)` nothing on the terminal and 1,502
+# bytes of screen in the variable).
 # Returns dialog's own status. With no terminal device it is plain dialog.
 dialog_gauge() {
   local tty
+  _dialog_call_ok "$@" || return $?
   if dialog_has_tty; then
     tty="$(_dialog_tty)"
     dialog "$@" >>"$tty"
@@ -96,13 +133,14 @@ dialog_gauge() {
 }
 
 # Usage: answer=$(dialog_capture <dialog args...>); runs dialog and prints the
-# answer on stdout. The screen and the keys are on the terminal device when
-# there is one. Do not pass --stdout: it is added. Nothing is written to disk.
-# Returns dialog's own status (1 cancel, 255 escape or an error of dialog's)
-# and then prints nothing. What dialog says about a malformed call goes to the
-# terminal with the screen, not to the caller's stderr.
+# answer on stdout. Screen and keys use the terminal device if there is one.
+# Do not pass --stdout: it is added. Nothing is written to disk.
+# Returns dialog's own status (1 cancel, 255 escape or error) and then prints
+# nothing. What dialog says about a bad call goes to the terminal with the
+# screen, not to the caller's stderr.
 dialog_capture() {
   local tty answer status=0
+  _dialog_call_ok "$@" || return $?
   if dialog_has_tty; then
     tty="$(_dialog_tty)"
     # shellcheck disable=SC2094  # the terminal, read and drawn on
@@ -110,16 +148,20 @@ dialog_capture() {
   else
     answer="$(dialog --stdout "$@")" || status=$?
   fi
+  if [[ "$status" -eq 0 ]] && _dialog_is_help_text "$answer"; then
+    print_error "dialog printed its help text instead of an answer: a box was given no arguments. Nothing was shown." >&2
+    return 255
+  fi
   if [[ "$status" -eq 0 ]]; then
     printf '%s\n' "$answer"
   fi
   return "$status"
 }
 
-# Prompt for a value using dialog; prints the value to stdout.
-# Usage: value=$(get_value "Title" "Message" "Default")
-# Returns 1, printing nothing on stdout, when the person cancels or leaves the
-# box empty. Messages go to stderr: stdout is the value.
+# Usage: value=$(get_value "Title" "Message" "Default"); asks for a value in
+# an input box and prints it on stdout.
+# Returns 1 and prints nothing if the person cancels or leaves the box empty.
+# Messages go to stderr: stdout is only the value.
 get_value() {
   local title="${1:-}" message="${2:-}" default_value="${3:-}" value
   dialog_init

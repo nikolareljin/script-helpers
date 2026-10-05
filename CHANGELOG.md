@@ -13,7 +13,9 @@
   and writable. The model and size selectors in `lib/ollama.sh`, the distro selectors and the hub
   setup's menu, input and secret prompts go through `dialog_capture`; with `dialog` 1.3 they already showed, since a `--stdout` box finds the
   terminal by itself, and they no longer depend on that. `tests/dialog_pty_test.sh` runs the real
-  program in a pseudo-terminal.
+  program in a pseudo-terminal. A call with an option `dialog` does not know, or a box given no
+  arguments, returns 255 before anything is drawn: `dialog` itself prints its help text and exits
+  0 for both, which a `--yesno` caller would read as Yes and a `$(...)` caller as the answer.
 
 - **`ollama_endpoint`: know whether the models fit before pulling them.** A new module for a
   project's start script. It reads the project's models from one env-style file

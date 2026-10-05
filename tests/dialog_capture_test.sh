@@ -42,6 +42,7 @@ mkdir -p "$tmp/bin" "$tmp/work"
 # The stand-in's own "$@", not this script's.
 # shellcheck disable=SC2016
 printf '%s\n' '#!/bin/sh' \
+  '[ "$1" = "--help" ] && { echo "help=asked" >>"$FAKE_DIALOG_LOG"; printf "cdialog (ComeOn Dialog!) version 1.3-stand-in\nUsage: dialog <options>\n  --stdout --menu --checklist --inputbox --passwordbox --msgbox --infobox --yesno --gauge --title --default-item --defaultno --insecure --no-shadow\n"; exit 0; }' \
   'log="$FAKE_DIALOG_LOG"' \
   'answer=no; for a in "$@"; do [ "$a" = "--stdout" ] && answer=yes; done' \
   'n=0; for a in "$@"; do [ "$a" = "--stdout" ] && n=$((n+1)); done' \
@@ -133,6 +134,25 @@ check "the answer still comes back" "0:7b" "$rc:$answer"
 check "the screen goes where the caller's stderr goes" "SCREEN-ERR" "$(cat "$tmp/caller-err")"
 check "and keys come from the caller's stdin" "from-the-caller" "$(logged stdin)"
 
+# --- a call dialog would not understand ---------------------------------------------
+# For an unknown option, or a box with no arguments, dialog prints its help
+# text to stdout and exits 0. Through dialog_run that 0 would read as "Yes";
+# through dialog_capture the help text would be the answer.
+note "a call dialog would not understand"
+fresh; export SHLIB_DIALOG_TTY="$tty_file"
+check "a typo in a yes/no is 255, not 0 (Yes)" "255" "$(dialog_run --defaultno --yesn "Delete?" 6 30 </dev/null 2>"$tmp/caller-err"; echo $?)"
+check "it says which option, on the caller's stderr" "1" "$(grep -c -- "no option '--yesn'" "$tmp/caller-err")"
+check "and no box was run (only --help was asked)" "0" "$(grep -c '^args=' "$tmp/log")"
+check "a typo among the options of a menu: 255 and no answer" "255:" "$(answer="$(dialog_capture --default-itm a --menu Pick 10 40 2 a A </dev/null 2>/dev/null)"; echo "$?:$answer")"
+check "a typo in a gauge" "255" "$(printf '10\n' | dialog_gauge --gage "Working" 7 40 0 2>/dev/null; echo $?)"
+check "a text argument that starts with -- is left to dialog" "0:picked" "$(answer="$(dialog_capture --menu "-- pick --" 10 40 2 a A </dev/null 2>/dev/null)"; echo "$?:$answer")"
+# dialog's help text as the answer (a box with no arguments): not an answer.
+fresh
+check "help text in place of an answer is 255 and nothing is printed" "255:" "$(answer="$(FAKE_DIALOG_ANSWER="$(printf 'cdialog (ComeOn Dialog!) version 1.3\nUsage: dialog <options>\n')" dialog_capture --menu </dev/null 2>/dev/null)"; echo "$?:$answer")"
+check "a real two-line answer is not taken for help text" "0:a
+b" "$(answer="$(FAKE_DIALOG_ANSWER="$(printf 'a\nb')" dialog_capture --checklist Pick 10 40 2 a A on b B on </dev/null 2>/dev/null)"; echo "$?:$answer")"
+check "the option list is read from dialog once" "1" "$(: >"$tmp/log"; _DIALOG_KNOWN_OPTIONS=""; dialog_run --msgbox Hi 6 30 </dev/null >/dev/null 2>&1; dialog_run --msgbox Hi 6 30 </dev/null >/dev/null 2>&1; grep -c 'help=asked' "$tmp/log")"
+
 # --- a box with no answer ---------------------------------------------------------
 note "a box with no answer"
 fresh; export SHLIB_DIALOG_TTY="$tty_file"
@@ -220,6 +240,7 @@ if command -v jq >/dev/null 2>&1; then
   shlib_import os file json env ollama
   # shellcheck disable=SC2016
   printf '%s\n' '#!/bin/sh' \
+  '[ "$1" = "--help" ] && { echo "help=asked" >>"$FAKE_DIALOG_LOG"; printf "cdialog (ComeOn Dialog!) version 1.3-stand-in\nUsage: dialog <options>\n  --stdout --menu --checklist --inputbox --passwordbox --msgbox --infobox --yesno --gauge --title --default-item --defaultno --insecure --no-shadow\n"; exit 0; }' \
     'n=0; for a in "$@"; do [ "$a" = "--stdout" ] && n=$((n+1)); done' \
     'echo "stdout-flags=$n" >>"$FAKE_DIALOG_LOG"; echo "args=$*" >>"$FAKE_DIALOG_LOG"' \
     'echo "SCREEN-ERR" >&2' '[ "${FAKE_DIALOG_RC:-0}" = 0 ] && printf "%s\n" "${FAKE_DIALOG_ANSWER-picked}"' 'exit "${FAKE_DIALOG_RC:-0}"' >"$tmp/bin/dialog"
@@ -279,6 +300,7 @@ note "the distro selectors"
 if [[ "${BASH_VERSINFO[0]}" -ge 4 ]]; then
   # shellcheck disable=SC2016
   printf '%s\n' '#!/bin/sh' \
+  '[ "$1" = "--help" ] && { echo "help=asked" >>"$FAKE_DIALOG_LOG"; printf "cdialog (ComeOn Dialog!) version 1.3-stand-in\nUsage: dialog <options>\n  --stdout --menu --checklist --inputbox --passwordbox --msgbox --infobox --yesno --gauge --title --default-item --defaultno --insecure --no-shadow\n"; exit 0; }' \
     'n=0; for a in "$@"; do [ "$a" = "--stdout" ] && n=$((n+1)); done' \
     'echo "stdout-flags=$n" >>"$FAKE_DIALOG_LOG"; echo "args=$*" >>"$FAKE_DIALOG_LOG"' \
     'echo "SCREEN-ERR" >&2' '[ "${FAKE_DIALOG_RC:-0}" = 0 ] && printf "%s\n" "${FAKE_DIALOG_ANSWER-picked}"' 'exit "${FAKE_DIALOG_RC:-0}"' >"$tmp/bin/dialog"
