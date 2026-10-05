@@ -1,3 +1,16 @@
+## Unreleased
+
+### Fixed
+
+- **`PRIVATE_NAMES_ALLOW` did nothing on a machine that has an allowlist file.** The override was
+  written to the working list without a newline after it, so the first line of the repository's or
+  the machine's `private-names-allow` was glued to its last name: `PRIVATE_NAMES_ALLOW=widget`
+  became `widgetindex`, matched nothing, and the check refused as if no override had been given.
+  The same join happened between a repository allowlist with no final newline and the machine's.
+  Each source now ends in a newline of its own. `tests/private_names_test.sh` no longer reads the
+  machine's own allowlist: with one present its override cases failed, and passed in CI, which has
+  none.
+
 ## 2026-09-29 — v0.44.1
 
 ### Fixed

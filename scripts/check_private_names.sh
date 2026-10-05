@@ -392,12 +392,17 @@ fi
 # ---- the override ---------------------------------------------------------
 allowed="$work/allowed"
 : > "$allowed"
+# Each source ends in a newline of its own. Without one, the first name of the
+# next source was glued to the last name of this one: with any allowlist file
+# present, the last name in PRIVATE_NAMES_ALLOW matched nothing and the
+# override did nothing, without a word. A blank line this adds is stripped below.
 if [[ -n "${PRIVATE_NAMES_ALLOW:-}" ]]; then
-  printf '%s' "$PRIVATE_NAMES_ALLOW" | tr ',' '\n' >> "$allowed"
+  printf '%s\n' "$PRIVATE_NAMES_ALLOW" | tr ',' '\n' >> "$allowed"
 fi
 repo_allow="$(git rev-parse --git-dir 2>/dev/null)/private-names-allow"
 if [[ -f "$repo_allow" ]]; then
   cat "$repo_allow" >> "$allowed"
+  echo >> "$allowed"
 fi
 # A machine-level allowlist beside the name list, for a word that recurs in
 # every repository rather than one. Without it a word that is also everyday English has to be
@@ -407,6 +412,7 @@ fi
 machine_allow="${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names-allow"
 if [[ -f "$machine_allow" ]]; then
   cat "$machine_allow" >> "$allowed"
+  echo >> "$allowed"
 fi
 # Blank lines are stripped before any use: a pattern file containing an empty
 # line makes grep match every line of input, which would turn either list into

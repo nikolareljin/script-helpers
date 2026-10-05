@@ -26,6 +26,11 @@ tmp="$(mktemp -d)"
 # Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
+# The gate reads a machine-level allowlist from the configuration directory.
+# Whatever this machine has there is not part of these tests: with one present
+# the override tests below failed here and passed in CI, which has none.
+export XDG_CONFIG_HOME="$tmp/no-config"
+
 # CI has no git identity, so it is injected per command rather than configured.
 # A test that skipped silently here would be worse than no test.
 git_t() { git -c user.name='script-helpers tests' -c user.email='tests@localhost' "$@"; }
@@ -152,6 +157,33 @@ got="$(printf 'about bluewidget' | HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/.
   bash "$GATE" --stdin --list "$list" >/dev/null 2>&1; echo $?)"
 [[ "$got" == 1 ]] && ok "a machine-level allowlist does not disable the rest" \
                   || error "the machine-level allowlist disabled an unrelated name: exit $got"
+
+# An override for this run, on a machine that also has an allowlist file. The
+# override was written without a newline after it, so the file's first line
+# was glued to its last name: "bluewidget" became "bluewidgetbeacon", matched
+# nothing, and the override did nothing. Any machine with an allowlist had
+# this; CI has none, so nothing noticed.
+got="$(printf 'about bluewidget' | HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/.config" PRIVATE_NAMES_ALLOW=bluewidget \
+  bash "$GATE" --stdin --list "$list" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 0 ]] && ok "an override for this run applies beside a machine-level allowlist" \
+                  || error "PRIVATE_NAMES_ALLOW did nothing where a machine-level allowlist exists: exit $got"
+got="$(printf 'about bluewidget and the beacon' | HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/.config" PRIVATE_NAMES_ALLOW=coverage,bluewidget \
+  bash "$GATE" --stdin --list "$list" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 0 ]] && ok "the last of several names in an override applies there too" \
+                  || error "the last name of PRIVATE_NAMES_ALLOW was lost: exit $got"
+# The same join, between a repository's allowlist with no final newline and
+# the machine's.
+allow_repo="$tmp/allow-repo"
+mkdir -p "$allow_repo" && git -C "$allow_repo" init -q
+printf 'bluewidget' > "$allow_repo/.git/private-names-allow"
+got="$(cd "$allow_repo" && printf 'about bluewidget and the beacon' | HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/.config" \
+  bash "$GATE" --stdin --list "$list" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 0 ]] && ok "a repository allowlist without a final newline and a machine one both apply" \
+                  || error "two allowlist files ran into each other: exit $got"
+got="$(cd "$allow_repo" && printf 'about bluewidget, the beacon and test coverage' | HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/.config" PRIVATE_NAMES_ALLOW=coverage \
+  bash "$GATE" --stdin --list "$list" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 0 ]] && ok "three sources at once each allow their own name" \
+                  || error "three allow sources together lost a name: exit $got"
 
 # --- the file describes its own columns ------------------------------------
 # The format gained a `namespace` column. A parser reading the new file by the old
