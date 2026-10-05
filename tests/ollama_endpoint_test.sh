@@ -391,6 +391,9 @@ check "and still says both" "2" "$(grep -c "Not enough" "$tmp/err")"
 check "as warnings, not as errors" "2:0" "$(grep -c 'Warning' "$tmp/err"):$(grep -c 'Error' "$tmp/err")"
 roomy
 check "garbage for a size is zero, not a crash" "0" "$(budget abc '' /models)"
+esc_dir="$(printf '/mo\033[2Jdels')"
+check "a path with a control character still gets its refusal" "1" "$(OLLAMA_BUDGET_DISK_FREE_BYTES=$((1 * GB)) budget $((5 * GB)) 0 "$esc_dir")"
+check "and is shown without it" "0:1" "$(grep -c "$(printf '\033')\[2J" "$tmp/err"):$(grep -c 'at /mo\[2Jdels' "$tmp/err")"
 export OLLAMA_BUDGET_DISK_FREE_BYTES=$((14 * GB))
 check "a reserve written 08 is eight, not an error" "0" "$(OLLAMA_DISK_RESERVE_GB=08 budget $((5 * GB)) 0 /models)"
 check "(and said nothing about octal)" "" "$(cat "$tmp/err")"
@@ -514,6 +517,10 @@ reset
 printf '#!/bin/sh\nexit 1\n' >"$tmp/fake-df/df"
 check "free disk unknown is the same lack as size unknown: nothing is pulled" "7:" "$(unset OLLAMA_BUDGET_DISK_FREE_BYTES; PATH="$tmp/fake-df:$PATH" ollama_endpoint_ensure_models "$URL" /models small:3b >/dev/null 2>"$tmp/err"; echo "$?:$(pulled)")"
 said "and it names both ways through" "$tmp/err" "OLLAMA_BUDGET_DISK_FREE_BYTES" "OLLAMA_IGNORE_BUDGET"
+( unset OLLAMA_BUDGET_DISK_FREE_BYTES; PATH="$tmp/fake-df:$PATH" ollama_endpoint_ensure_models "$URL" "$esc_dir" small:3b >/dev/null 2>"$tmp/err"; true )
+check "that refusal shows the path without a control character too" "0:1" "$(grep -c "$(printf '\033')\[2J" "$tmp/err"):$(grep -c 'at /mo\[2Jdels' "$tmp/err")"
+( unset OLLAMA_BUDGET_DISK_FREE_BYTES; PATH="$tmp/fake-df:$PATH" ollama_budget_check 5000000000 0 "$esc_dir" >/dev/null 2>"$tmp/err"; true )
+check "as does the note that the disk could not be read" "0:1" "$(grep -c "$(printf '\033')\[2J" "$tmp/err"):$(grep -c 'at /mo\[2Jdels' "$tmp/err")"
 check "unless the budget is ignored" "0:small:3b" "$(unset OLLAMA_BUDGET_DISK_FREE_BYTES; PATH="$tmp/fake-df:$PATH" OLLAMA_IGNORE_BUDGET=1 ollama_endpoint_ensure_models "$URL" /models small:3b >/dev/null 2>&1; echo "$?:$(pulled)")"
 fake_df "/dev/disk1s1 1000000 900000 100000 90% /"
 roomy; reset

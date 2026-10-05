@@ -329,7 +329,7 @@ ollama_gpu_mem_bytes() {
 ollama_budget_check() {
   local dir="${3:-.}" pull largest reserve_gb headroom
   local free total available gpu need reserve after capacity
-  local disk_short=0 mem_short=0 say=print_error
+  local disk_short=0 mem_short=0 say=print_error shown_dir
   pull="$(_ollama_ep_uint "${1:-0}")" || pull=0
   largest="$(_ollama_ep_uint "${2:-0}")" || largest=0
   reserve_gb="$(_ollama_ep_uint "${OLLAMA_DISK_RESERVE_GB:-10}")" || reserve_gb=10
@@ -338,6 +338,8 @@ ollama_budget_check() {
   [[ "$reserve_gb" -le 100000 ]] || reserve_gb=10
   [[ "$headroom" -le 1000 ]] || headroom=20
   [[ "${OLLAMA_IGNORE_BUDGET:-0}" != "1" ]] || say=print_warning
+  # The path as it may be shown: a directory name is the caller's text.
+  shown_dir="$(_ollama_ep_said "$dir")"
 
   if [[ "$pull" -gt 0 ]]; then
     free="$(_ollama_ep_uint "$(ollama_disk_free_bytes "$dir")")" || free=""
@@ -346,10 +348,10 @@ ollama_budget_check() {
       after=$((free - pull))
       if [[ "$after" -lt "$reserve" ]]; then
         disk_short=1
-        "$say" "Not enough disk for the models: the download is $(_ollama_ep_gb "$pull"), $(_ollama_ep_gb "$free") is free at ${dir}, and ${reserve_gb} GB must stay free (OLLAMA_DISK_RESERVE_GB)." >&2
+        "$say" "Not enough disk for the models: the download is $(_ollama_ep_gb "$pull"), $(_ollama_ep_gb "$free") is free at ${shown_dir}, and ${reserve_gb} GB must stay free (OLLAMA_DISK_RESERVE_GB)." >&2
       fi
     else
-      print_warning "Free disk space at ${dir} could not be read; the download of $(_ollama_ep_gb "$pull") was not checked against it." >&2
+      print_warning "Free disk space at ${shown_dir} could not be read; the download of $(_ollama_ep_gb "$pull") was not checked against it." >&2
     fi
   fi
 
@@ -498,7 +500,7 @@ ollama_endpoint_ensure_models() {
   if [[ "$pull_bytes" -gt 0 && "${OLLAMA_IGNORE_BUDGET:-0}" != "1" ]]; then
     if ! _ollama_ep_uint "$(ollama_disk_free_bytes "$dir")" >/dev/null; then
       # Not knowing the room is the same lack as not knowing the size.
-      print_error "Free disk space at ${dir} could not be read, so nothing says whether $(_ollama_ep_gb "$pull_bytes") fits. State it with OLLAMA_BUDGET_DISK_FREE_BYTES, or set OLLAMA_IGNORE_BUDGET=1 to pull unchecked." >&2
+      print_error "Free disk space at $(_ollama_ep_said "$dir") could not be read, so nothing says whether $(_ollama_ep_gb "$pull_bytes") fits. State it with OLLAMA_BUDGET_DISK_FREE_BYTES, or set OLLAMA_IGNORE_BUDGET=1 to pull unchecked." >&2
       return 7
     fi
   fi
