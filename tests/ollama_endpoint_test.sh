@@ -233,6 +233,8 @@ Y_LARGE_VRAM_GB=12
 Y_SMALL=dropped:1b
 Y_XLARGE=dropped:20b
 Y_XLARGE_VRAM_GB=16
+AI_TIER_SMALL_RAM_GB=12
+AI_TIER_LARGE_RAM_GB=32
 SMALLEST=tiny:1b
 VERYSMALL=wee:1b
 HASH=odd#name:1b
@@ -242,7 +244,7 @@ check "double quotes are not part of the value" "quoted:1b" "$(ollama_models_fil
 check "single quotes neither, with a comment after" "single:1b" "$(ollama_models_file_get "$tmp/env.env" SINGLE)"
 check "a trailing comment is not part of the value" "noted:1b" "$(ollama_models_file_get "$tmp/env.env" NOTED)"
 check "a hash with no space before it is part of the value" "odd#name:1b" "$(ollama_models_file_get "$tmp/env.env" HASH)"
-check "every assigned name is listed, whatever its case" "CHAT_MODEL QUOTED SINGLE NOTED lower_model X_LARGE_MODEL Y_LARGE Y_LARGE_VRAM_GB Y_SMALL Y_XLARGE Y_XLARGE_VRAM_GB SMALLEST VERYSMALL HASH" "$(ollama_models_file_names "$tmp/env.env" | one_line)"
+check "every assigned name is listed, whatever its case" "CHAT_MODEL QUOTED SINGLE NOTED lower_model X_LARGE_MODEL Y_LARGE Y_LARGE_VRAM_GB Y_SMALL Y_XLARGE Y_XLARGE_VRAM_GB AI_TIER_SMALL_RAM_GB AI_TIER_LARGE_RAM_GB SMALLEST VERYSMALL HASH" "$(ollama_models_file_names "$tmp/env.env" | one_line)"
 check "a name that is not a variable name is refused" "2:" "$(ollama_models_file_get "$tmp/env.env" 'CHAT.MODEL'; echo "$?:")"
 check "so a dot cannot stand for any character" "2:" "$(printf 'OLLAMAXMODEL=wrong:1b\n' >"$tmp/dot.env"; ollama_models_file_get "$tmp/dot.env" 'OLLAMA.MODEL'; echo "$?:")"
 ( cd "$tmp" && ollama_models_file_get "$tmp/env.env" "X/w $tmp/written/s/x" >/dev/null 2>&1; true )

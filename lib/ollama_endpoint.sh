@@ -124,7 +124,8 @@ ollama_model_tagged() {
 #
 # With no NAME, every name in the file that is not a tier's alternative: a
 # name ending in _SMALL, _LARGE or _XLARGE is the model for another class of
-# machine, and one ending in _VRAM_GB after that is its floor. For each name a
+# machine, and one ending in _VRAM_GB or _RAM_GB after that is a figure for
+# the pick (a GPU floor, a memory boundary), not a model. For each name a
 # non-blank value in the environment wins over the file, so a caller that has
 # loaded its own .env gets that machine's choice.
 #
@@ -142,7 +143,7 @@ ollama_models_required() {
     done
     names="$(printf '%s\n' "$@")"
   else
-    names="$(ollama_models_file_names "$file" | grep -v -E '_(SMALL|LARGE|XLARGE)(_VRAM_GB)?$' || true)"
+    names="$(ollama_models_file_names "$file" | grep -v -E '_(SMALL|LARGE|XLARGE)(_V?RAM_GB)?$' || true)"
   fi
   while IFS= read -r name; do
     [[ -n "$name" ]] || continue
