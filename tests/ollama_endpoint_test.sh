@@ -180,7 +180,16 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, progress + '{"status":"success"}\n', "application/x-ndjson")
         self.send(404, "{}")
 
-server = HTTPServer(("127.0.0.1", 0), H)
+class Server(HTTPServer):
+    def server_bind(self):
+        # HTTPServer looks up this machine's own name here (socket.getfqdn),
+        # which on a macOS CI runner took longer than the test waits. The
+        # name is never used, so bind and say where.
+        import socketserver
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[0], self.server_address[1]
+
+server = Server(("127.0.0.1", 0), H)
 with open(sys.argv[1], "w") as port:
     port.write(str(server.server_address[1]))
 server.serve_forever()
@@ -188,9 +197,15 @@ PY
 mkdir -p "$tmp/state"
 python3 "$tmp/server.py" "$tmp/port" "$tmp/state" &
 server_pid=$!
-for _ in $(seq 1 50); do [[ -s "$tmp/port" ]] && break; sleep 0.1; done
+# Up to 30 seconds: a cold python on a loaded runner. Answering, not only
+# having written its port, is what "started" means.
+for _ in $(seq 1 150); do
+  if [[ -s "$tmp/port" ]] && curl -fsS --max-time 1 "http://127.0.0.1:$(cat "$tmp/port")/api/tags" >/dev/null 2>&1; then break; fi
+  sleep 0.2
+done
 [[ -s "$tmp/port" ]] || { error "the fake server did not start"; exit 1; }
 URL="http://127.0.0.1:$(cat "$tmp/port")"
+curl -fsS --max-time 2 "$URL/api/tags" >/dev/null 2>&1 || { error "the fake server does not answer at $URL"; exit 1; }
 export OLLAMA_REGISTRY_URL="$URL"
 
 reset() { # reset [installed model...]
