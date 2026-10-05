@@ -57,7 +57,9 @@ _ollama_ep_shown() {
 # only, cut short. What an endpoint answers is not ours, and a terminal obeys
 # the escape sequences in what it is shown.
 _ollama_ep_said() {
-  printf '%s' "${1:-}" | tr -d '\r' | tail -n 1 | LC_ALL=C tr -cd '[:print:]' | cut -c1-300 || true
+  # Control characters by their octal range: a character class such as
+  # [:print:] is not understood by every tr (busybox reads it as letters).
+  printf '%s' "${1:-}" | tr -d '\r' | tail -n 1 | LC_ALL=C tr -d '\000-\037\177' | cut -c1-300 || true
 }
 
 # --- the models file ---------------------------------------------------------
