@@ -529,7 +529,32 @@ check "a URL is shown without its user and password" "http://host.example:11434/
 check "a URL without them is shown as it is" "$URL" "$(_ollama_ep_shown "$URL")"
 check "an at sign in the path is not a password" "http://host.example/a@b" "$(_ollama_ep_shown "http://host.example/a@b")"
 check "a password with an at sign in it goes whole, as curl reads it" "http://host.example:11434" "$(_ollama_ep_shown "http://user:p@ss@w0rd@host.example:11434")"
-check "an at sign in a query is not a password either" "http://host.example?a=b@c" "$(_ollama_ep_shown "http://host.example?a=b@c")"
+check "a query is left out: a token travels there" "http://host.example:11434/v1" "$(_ollama_ep_shown "http://host.example:11434/v1?key=s3cret&x=1#frag")"
+check "and with it an at sign that was never a password" "http://host.example" "$(_ollama_ep_shown "http://host.example?a=b@c")"
+check "credentials without a scheme go too" "host.example:11434" "$(_ollama_ep_shown "user:s3cret@host.example:11434")"
+check "a control character in a URL is not shown" "http://host.example/x" "$(_ollama_ep_shown "$(printf 'http://host.example/\033x')")"
+bad_model="$(printf 'bad\033[2Jname')"
+bad_rc=0
+ollama_endpoint_ensure_models "$URL" /models "$bad_model" >"$tmp/out" 2>"$tmp/err" || bad_rc=$?
+check "a refused argument is refused" "8" "$bad_rc"
+check "and is not printed back with its escape sequence" "0" "$(grep -c "$(printf '\033')\[2J" "$tmp/err")"
+said "but is still named" "$tmp/err" "Not a model reference: bad[2Jname"
+reset
+cred_rc=0
+ollama_endpoint_ensure_models "$URL" /models "user:s3cret@registry.example/model:1b" >"$tmp/out" 2>"$tmp/err" || cred_rc=$?
+check "a model reference that carries credentials is refused" "8:" "$cred_rc:$(pulled)"
+if grep -q "s3cret" "$tmp/out" "$tmp/err"; then error "the refusal printed the password: $(cat "$tmp/err")"; else ok "and the refusal does not print them"; fi
+said "while naming the rest" "$tmp/err" "registry.example/model:1b"
+check "nor is it pulled on its own" "1:" "$(ollama_endpoint_pull "$URL" "user:s3cret@registry.example/model:1b" 2>"$tmp/err"; echo "$?:$(pulled)")"
+check "(that refusal is clean too)" "0" "$(grep -c s3cret "$tmp/err")"
+check "a digest after the name is still a model reference" "0" "$(_ollama_ep_is_model "team/model@sha256:abc123"; echo $?)"
+check "and so is one with no namespace" "0" "$(_ollama_ep_is_model "model@sha256:abc123"; echo $?)"
+ollama_endpoint_pull "$URL" "$bad_model" >"$tmp/out" 2>"$tmp/err"
+check "nor by a single pull" "0" "$(grep -c "$(printf '\033')\[2J" "$tmp/err")"
+ollama_models_required "$tmp/models.env" "$(printf 'A\033[2JB')" >"$tmp/out" 2>"$tmp/err"
+check "nor a refused name" "0" "$(grep -c "$(printf '\033')\[2J" "$tmp/err")"
+ollama_endpoint_ensure_models "$URL/?key=s3cret" /models small:3b >"$tmp/out" 2>"$tmp/err"
+if grep -q "s3cret" "$tmp/out" "$tmp/err"; then error "a token in the query reached a message: $(cat "$tmp/err")"; else ok "a token in the query does not reach a message"; fi
 check "what the other end said is shown as one printable line" "last [31mline" "$(_ollama_ep_said "$(printf 'first\nlast \033[31mline\a\r\n')")"
 long_said="$(_ollama_ep_said "$(printf 'x%.0s' $(seq 1 500))")"
 check "and cut short" "300" "${#long_said}"

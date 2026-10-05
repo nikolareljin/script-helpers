@@ -25,6 +25,10 @@ _ollama_ep_is_name() { [[ "${1:-}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; }
 _ollama_ep_is_model() {
   [[ "${1:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$ ]] || return 1
   case "$1" in *..*|*//*) return 1 ;; esac
+  # user:secret@registry/model: credentials do not belong in a reference
+  # that is printed, logged and stored. An "@" after the first "/" is a
+  # digest (model@sha256:...), which is fine.
+  case "${1%%/*}" in *@*) [[ "$1" != */* ]] || return 1 ;; esac
   return 0
 }
 
@@ -45,12 +49,14 @@ _ollama_ep_gb() {
   awk -v b="${1:-0}" 'BEGIN { printf "%.1f GB", b / 1000000000 }'
 }
 
-# A URL as it may be shown: without the user and password it can carry
-# (http://user:secret@host). Messages go to logs. Everything up to the last
-# "@" of the authority goes, which is where curl ends the credentials too: a
-# password may itself contain an "@".
+# A URL as it may be shown. Messages go to logs, so three things are left out:
+# the user and password (http://user:secret@host, with or without a scheme;
+# everything up to the last "@" of the authority, which is where curl ends
+# the credentials too, since a password may itself contain an "@"), a query
+# or fragment (where a token travels), and control characters.
 _ollama_ep_shown() {
-  printf '%s' "${1:-}" | sed -E 's#^([a-zA-Z][a-zA-Z0-9+.-]*://)[^/?\#]*@#\1#' || true
+  printf '%s' "${1:-}" | LC_ALL=C tr -d '\000-\037\177' \
+    | sed -E 's#[?\#].*$##; s#^([a-zA-Z][a-zA-Z0-9+.-]*://)?[^/]*@#\1#' || true
 }
 
 # Text from the other end as it may be shown: one line, printable characters
@@ -129,7 +135,7 @@ ollama_models_required() {
   if [[ $# -gt 0 ]]; then
     for name in "$@"; do
       if ! _ollama_ep_is_name "$name"; then
-        print_error "Not a variable name: ${name}" >&2
+        print_error "Not a variable name: $(_ollama_ep_said "$name")" >&2
         return 2
       fi
     done
@@ -386,7 +392,7 @@ ollama_endpoint_pull() {
   local url="${1:-}" model="${2:-}" body status stall
   url="${url%/}"
   if [[ -z "$url" ]] || ! _ollama_ep_is_model "$model"; then
-    print_error "Not a model reference: ${model}" >&2
+    print_error "Not a model reference: $(_ollama_ep_shown "$model")" >&2
     return 1
   fi
   stall="$(_ollama_ep_uint "${OLLAMA_PULL_STALL_SECONDS:-600}")" || stall=600
@@ -441,7 +447,7 @@ ollama_endpoint_ensure_models() {
     model="$(ollama_model_tagged "$model")"
     [[ -n "$model" ]] || continue
     if ! _ollama_ep_is_model "$model"; then
-      print_error "Not a model reference: ${model}" >&2
+      print_error "Not a model reference: $(_ollama_ep_shown "$model")" >&2
       return 8
     fi
     grep -qxF -- "$model" <<<"$needed" || needed="${needed}${needed:+$'\n'}${model}"
