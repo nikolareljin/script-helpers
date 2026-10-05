@@ -194,6 +194,33 @@ got="$(cd "$allow_repo" && printf 'about bluewidget, the beacon and test coverag
 [[ "$got" == 0 ]] && ok "three sources at once each allow their own name" \
                   || error "three allow sources together lost a name: exit $got"
 
+# A linked worktree has a git directory of its own. The repository's allowlist
+# is in the one all worktrees share, and reading only the worktree's own
+# ignored it from every worktree but the first.
+git_t -C "$allow_repo" commit -q --allow-empty -m init
+git_t -C "$allow_repo" worktree add -q "$tmp/allow-wt" -b allow-wt >/dev/null 2>&1
+got="$(cd "$tmp/allow-wt" && printf 'about bluewidget' | bash "$GATE" --stdin --list "$list" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 0 ]] && ok "a repository allowlist applies in a linked worktree" \
+                  || error "the repository allowlist was not read from a linked worktree: exit $got"
+# A list written beside one worktree applies there, and only there.
+wt_git_dir="$(cd "$tmp/allow-wt" && git rev-parse --absolute-git-dir)"
+printf 'beacon' > "$wt_git_dir/private-names-allow"
+got="$(cd "$tmp/allow-wt" && printf 'about bluewidget and the beacon' | bash "$GATE" --stdin --strict-ambiguous --list "$list" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 0 ]] && ok "a worktree's own allowlist applies beside the repository's" \
+                  || error "the worktree's own allowlist was not read, or ran into the repository's: exit $got"
+got="$(cd "$allow_repo" && printf 'about bluewidget and the beacon' | bash "$GATE" --stdin --strict-ambiguous --list "$list" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 1 ]] && ok "a worktree's own allowlist does not reach the main checkout" \
+                  || error "one worktree's allowlist applied in another: exit $got"
+# Outside a repository there is no allowlist to name, and none is read from
+# the filesystem root.
+mkdir -p "$tmp/no-repo"
+out="$(cd "$tmp/no-repo" && printf 'about bluewidget' | GIT_CEILING_DIRECTORIES="$tmp" bash "$GATE" --stdin --list "$list" 2>&1; echo "exit=$?")"
+if grep -q 'exit=1' <<<"$out" && ! grep -q 'this repository' <<<"$out" && grep -q 'every repository here' <<<"$out"; then
+  ok "outside a repository, no repository allowlist is offered"
+else
+  error "outside a repository the refusal named a repository allowlist: $out"
+fi
+
 # --- the file describes its own columns ------------------------------------
 # The format gained a `namespace` column. A parser reading the new file by the old
 # positions matches namespaces instead of repository names and reports every subject

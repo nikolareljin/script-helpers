@@ -10,6 +10,11 @@
   Each source now ends in a newline of its own. `tests/private_names_test.sh` no longer reads the
   machine's own allowlist: with one present its override cases failed, and passed in CI, which has
   none.
+- **`.git/private-names-allow` was ignored in a linked worktree.** The check read the allowlist
+  from the worktree's own git directory (`.git/worktrees/<name>`), so a repository's list applied
+  only in its first checkout. It is now read from the directory all worktrees share, and a list
+  beside one worktree still applies there. Outside a repository the check no longer looks for
+  `/private-names-allow` at the filesystem root, and the refusal no longer offers that path.
 - **`make test` failed inside the pre-push hook.** Git exports `GIT_DIR` and its companions to a
   hook, and the hook runs `make test`. With them set, a test that builds a temporary repository and
   changes into it still read the repository being pushed, so several tests failed there and nowhere

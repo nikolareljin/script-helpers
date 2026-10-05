@@ -134,7 +134,7 @@ Bundled CLIs
   | override | scope |
   |---|---|
   | `PRIVATE_NAMES_ALLOW="term,term"` | one run |
-  | `.git/private-names-allow` | one repository (inside `.git`, so it cannot be committed) |
+  | `.git/private-names-allow` | one repository, from every worktree of it (inside `.git`, so it cannot be committed) |
   | `<config>/script-helpers/private-names-allow` | every repository on this machine |
 
   Each prints what it allowed, so an override is never silent. `git push --no-verify`

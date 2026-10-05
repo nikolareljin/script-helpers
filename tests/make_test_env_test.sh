@@ -63,7 +63,8 @@ if grep -q 'kept:\[yes\]' <<<"$out"; then ok "and the rest of the environment is
 if command -v git >/dev/null 2>&1; then
   missing=""
   for name in $(git rev-parse --local-env-vars 2>/dev/null); do
-    grep -q "$name" "$tmp/repo/tests/sees_test.sh" || missing="$missing $name"
+    # A whole word: GIT_CONFIG is also the start of GIT_CONFIG_PARAMETERS.
+    grep -qw -- "$name" "$tmp/repo/tests/sees_test.sh" || missing="$missing $name"
   done
   if [[ -z "$missing" ]]; then ok "every variable this git calls repository-local is looked for"; else error "git lists variables this test does not look for:$missing"; fi
 fi
