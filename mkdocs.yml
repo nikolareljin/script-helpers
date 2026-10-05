@@ -192,6 +192,7 @@ nav:
           - svg: modules/svg.md
           - webshot: modules/webshot.md
           - ollama: modules/ollama.md
+          - ollama_endpoint: modules/ollama_endpoint.md
           - hub: modules/hub.md
           - cloudflare: modules/cloudflare.md
   - About: about.md

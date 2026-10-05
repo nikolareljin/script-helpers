@@ -15,6 +15,29 @@
   terminal by itself, and they no longer depend on that. `tests/dialog_pty_test.sh` runs the real
   program in a pseudo-terminal.
 
+- **`ollama_endpoint`: know whether the models fit before pulling them.** A new module for a
+  project's start script. It reads the project's models from one env-style file
+  (`ollama_models_required`), asks an Ollama over HTTP which of them it has
+  (`ollama_endpoint_models`, `ollama_models_missing`), learns the size of what is missing from the
+  registry manifest (`ollama_registry_size_bytes`), and checks it against the machine
+  (`ollama_budget_check`): the download must leave `OLLAMA_DISK_RESERVE_GB` free (default 10), and
+  the largest model plus `OLLAMA_MEM_HEADROOM_PERCENT` (default 20) must fit the machine's memory
+  and its GPUs' together. `ollama_endpoint_ensure_models` puts it together and pulls only when
+  everything fits: no partial pull, and each refusal gives the numbers and the setting behind it.
+  Not knowing a missing model's size or the free disk space is a refusal too, with the override
+  named. Works for an Ollama on the host and one in a container, with no `ollama` CLI; a pull has
+  no deadline, is given up only when it stalls, and says each tenth of a large layer as it
+  arrives. A models file that is named and is not there is an error, not "no models", and a
+  model is matched without regard to letter case, as Ollama matches it. Linux and macOS figures are read, and each can
+  be stated through an `OLLAMA_BUDGET_*` override. Names and model references are checked before
+  they reach a pattern, a URL or a request body; a size that is not a number is refused, not read
+  as zero; and no message carries a credential (also in a long error line or in another URL in the
+  text), a control character or an escape sequence spelled out as text. A byte-order mark at the
+  start of the models file is ignored. `OLLAMA_PULL_MISSING` and `OLLAMA_IGNORE_BUDGET` take the
+  usual spellings (`1/true/yes/on`, `0/false/no/off`); a value that is neither is reported and
+  read as off, so a typo pulls nothing and skips no check. bash 3.2 and BSD userland, with or
+  without `set -euo pipefail`.
+
 ### Fixed
 
 - **`value=$(get_value ...)` returned the screen and showed nothing.** Its box was drawn on the
@@ -29,6 +52,27 @@
   gauges (`dialog_download_file` and the model pull): measured with `dialog` 1.3, a captured gauge
   left the terminal empty and 1,502 bytes of screen in the caller's variable. The boxes go through
   `dialog_run`, the gauges through `dialog_gauge`.
+
+- **`PRIVATE_NAMES_ALLOW` did nothing on a machine that has an allowlist file.** The override was
+  written without a newline, so its last name joined the next source's first line:
+  `PRIVATE_NAMES_ALLOW=widget` plus a file starting with `index` became `widgetindex`, matched
+  nothing, and the check refused without a word. Two allowlist files joined the same way when the
+  first had no final newline. Each source now ends in its own newline.
+- **`.git/private-names-allow` was ignored in a linked worktree.** It was read from the worktree's
+  own git directory (`.git/worktrees/<name>`). It is now read from the directory all worktrees
+  share; a list in a worktree's own directory still applies there. Outside a repository the check
+  no longer looks for `/private-names-allow` at the filesystem root, or offers that path.
+- **The pre-push hook passed git's hook variables to the tests it runs.** Git gives a hook
+  `GIT_DIR` and related variables, and `GIT_DIR` overrides the current directory: a test that
+  creates its own repository acted on the one being pushed. From a linked worktree, where
+  `GIT_DIR` is absolute, such tests failed only inside the hook and the push was refused, in this
+  library and in every repository that uses the hook. The hook now clears git's repository-local
+  variables (`git rev-parse --local-env-vars`) after its own checks and before any test. It keeps
+  them when git would otherwise find no repository, another one, or another work tree
+  (`git --git-dir=... --work-tree=... push`). `make test` and `tests/private_names_test.sh` clear
+  them too, for a run from another hook.
+- **`tests/private_names_test.sh` read the machine's own allowlist**, so its override cases failed
+  on a machine that has one and passed in CI. It uses an empty configuration directory.
 
 ## 2026-09-29 — v0.44.1
 
@@ -148,13 +192,11 @@
   `cached (1 repos, under abcd)`. Both are refused now, with `--ttl 0` still
   accepted.
 
-
 - **No `HOME` reported a private name that was not there.** Under `set -u` an
   unguarded `$HOME` aborted the script with exit 1, and 1 is this gate's code
   for "a name was found" -- so in a container, a cron job or a systemd unit a
   hook refused the push and blamed a leak. It is exit 2, could-not-check, now.
   Pre-existing; found probing the file this change touches.
-
 
 - **The "no list yet" message named a path that does not exist in a
   consumer.** It printed `scripts/refresh_private_names.sh`, which is where
@@ -398,7 +440,6 @@
   was never created, because a caller sets the name before the start attempt.
   It says nothing unless there is something to remove.
 
-
 ## 2026-09-25 — v0.40.0
 
 ### Added
@@ -454,7 +495,6 @@
   mounted workdir, and it is removed on the way out. Verified with the run that
   first failed: `pip install "psycopg[binary]"` in one container, used by the
   migrate and test containers after it, against a real postgres.
-
 
 ## 2026-09-25 — v0.39.0
 
@@ -567,7 +607,6 @@
   in shipped code, because it read the practice files and not the shipping
   ones. It also fails when it finds no EXIT traps at all, since a scan that
   matches nothing otherwise reports success having examined nothing.
-
 
 ## 2026-09-25 — v0.38.1
 
@@ -982,7 +1021,6 @@
   refused by name instead. And a section that failed to parse fell through to
   the whole-document branch, printing a second, misleading message about the
   first line not being JSON; one failure now reports once.
-
 
 - **`ci_wp_plugin_check.sh` passed WP-CLI an argument it does not have (#81).**
   Four `wp` invocations used `wp --config=<path>`, which WP-CLI refuses before
