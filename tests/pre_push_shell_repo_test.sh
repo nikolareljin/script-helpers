@@ -114,10 +114,14 @@ grep -q 'PRE_PUSH_SKIP_TESTS=1 git push' <<<"$out" \
   && ok "the refusal names the tests-only escape" \
   || error "the refusal did not name the tests-only escape"
 
-# Git exports GIT_DIR and its companions to a hook, and from a linked worktree
-# GIT_DIR is absolute. A suite that builds a repository of its own then read
-# the repository being pushed: it failed inside the hook and nowhere else, and
-# the push was refused. The suite gets the environment it has when run by hand.
+# The hook must not pass git's hook variables on to the tests it runs.
+# Git gives a hook GIT_DIR (and related variables) pointing at the repository
+# being pushed, and from a linked worktree GIT_DIR is an absolute path. A test
+# that creates a repository of its own then still acted on the pushed one: it
+# failed inside the hook and nowhere else, and the push was refused.
+#
+# The test file below is such a test. It creates a fresh repository, which
+# must have 0 commits, and it must see none of git's variables.
 reset_repo
 mkdir -p "$repo/tests"
 cat > "$repo/tests/own_repo_test.sh" <<'T'
@@ -134,7 +138,8 @@ T
 git -C "$repo" -c user.email=t@localhost -c user.name=t add tests
 git -C "$repo" -c user.email=t@localhost -c user.name=t commit -q -m "a suite that builds its own repository"
 git -C "$repo" worktree add -q "$tmp/linked" -b linked
-# as_git <dir> [NAME=value...]: the hook, with what git exports to it there.
+# as_git <dir>: run the hook in <dir> with the variables git sets for a
+# pre-push hook there, plus one unrelated variable that must survive.
 as_git() {
   local dir="$1"; shift
   ( cd "$dir" && printf 'refs/heads/linked %s refs/heads/linked %s\n' "$(git rev-parse HEAD)" "$zeroes" \
@@ -151,22 +156,24 @@ grep -q 'kept=\[yes\]' <<<"$out" && ok "the rest of the environment reaches the 
   || error "a variable that is not git's was dropped: $(grep fresh-commits <<<"$out")"
 out="$(as_git "$repo")"; rc=$?
 [[ $rc -eq 0 ]] && ok "and from the main checkout" || error "main checkout, as git runs the hook: exit $rc"
-# The same suite does fail when it can see them: the cases above can fail.
+# Control: the same test file, run with GIT_DIR set and no hook to clear it,
+# fails. Without this, the cases above could pass for the wrong reason.
 if ( cd "$tmp/linked" && GIT_DIR="$(git rev-parse --absolute-git-dir)" bash tests/own_repo_test.sh >/dev/null 2>&1 ); then
   error "the suite passes with GIT_DIR set, so it proves nothing"
 else
   ok "(the suite does fail when it can see GIT_DIR)"
 fi
-# A push made with --git-dir and --work-tree from a directory that is no
-# repository has nothing else to find it by: there the variables stay.
+# The variables are kept when clearing them would lose the repository.
+# First case: `git --git-dir=... --work-tree=... push` from a directory that
+# is not a repository. GIT_DIR is the only thing that points at it.
 mkdir -p "$tmp/bare-tree/tests"
 printf '#!/usr/bin/env bash\necho "git-dir=[${GIT_DIR:-}]"\n' > "$tmp/bare-tree/tests/says_test.sh"
 out="$( cd "$tmp/bare-tree" && printf 'refs/heads/main %s refs/heads/main %s\n' "$(git -C "$repo" rev-parse HEAD)" "$zeroes" \
         | GIT_DIR="$repo/.git" GIT_WORK_TREE="$tmp/bare-tree" GIT_CEILING_DIRECTORIES="$tmp" bash "$HOOK" origin git@example.invalid:x.git 2>&1 )"
 grep -qF "git-dir=[$repo/.git]" <<<"$out" && ok "a work tree that is found only through GIT_DIR keeps it" \
   || error "GIT_DIR was dropped where nothing else finds the repository: $(grep -E 'git-dir|fatal' <<<"$out" | head -3)"
-# Nor are they dropped where the directory finds another repository: the
-# suite would then run against that one.
+# Second case: the same push, but the directory is itself a different
+# repository. Clearing GIT_DIR would run the tests against that one.
 git -c init.defaultBranch=main init -q "$tmp/bare-tree"
 out="$( cd "$tmp/bare-tree" && printf 'refs/heads/main %s refs/heads/main %s\n' "$(git -C "$repo" rev-parse HEAD)" "$zeroes" \
         | GIT_DIR="$repo/.git" GIT_WORK_TREE="$tmp/bare-tree" bash "$HOOK" origin git@example.invalid:x.git 2>&1 )"

@@ -6,13 +6,16 @@
 # EXAMPLE: bash tests/make_test_env_test.sh
 # ----------------------------------------------------
 #
-# The pre-push hook runs `make test`, and git has exported GIT_DIR to the hook.
-# A test that builds a temporary repository and changes into it then still
-# reads the repository being pushed: tests failed inside the hook that pass
-# everywhere else, and a push from a worktree was refused.
+# Background: the pre-push hook runs `make test`, and git gives a hook GIT_DIR
+# (and related variables) pointing at the repository being pushed. GIT_DIR
+# wins over the current directory, so a test that creates its own temporary
+# repository would still act on the pushed one. Such tests failed inside the
+# hook and nowhere else, and a push from a worktree was refused. `make test`
+# therefore clears those variables first.
 #
-# The real Makefile is copied beside a one-line suite that fails when it can
-# see any of those variables, and `make test` is run there with all of them set.
+# How this checks it: the real Makefile is copied into a temporary directory
+# next to a single test file that fails if it can see any of git's variables.
+# `make test` is then run there with all of them set.
 # ----------------------------------------------------
 set -uo pipefail
 
@@ -32,19 +35,25 @@ trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 mkdir -p "$tmp/repo/tests"
 cp Makefile "$tmp/repo/Makefile"
+# The single test file. It looks for every variable git itself lists, plus
+# the six a hook always gets (for the run below that has no git). The names
+# are asked of git rather than typed here, so this test does not start
+# failing when a later git adds one.
 cat >"$tmp/repo/tests/sees_test.sh" <<'T'
 #!/usr/bin/env bash
 seen=""
-for name in GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
-            GIT_SHALLOW_FILE GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT \
-            GIT_GRAFT_FILE GIT_NO_REPLACE_OBJECTS GIT_REPLACE_REF_BASE GIT_IMPLICIT_WORK_TREE GIT_CONFIG; do
+for name in $(git rev-parse --local-env-vars 2>/dev/null) \
+            GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_OBJECT_DIRECTORY; do
+  case " $seen " in *" $name "*) continue ;; esac
   [[ -z "${!name+x}" ]] || seen="$seen $name"
 done
 echo "seen:[$seen ] kept:[${KEPT_FOR_THE_SUITE:-}]"
 [[ -z "$seen" ]]
 T
 
-run() { # every variable git calls repository-local, and one that is nobody's business to remove
+# Run `make test` with the 15 variables git lists today set, each to a value
+# git accepts, and with one unrelated variable that must not be cleared.
+run() {
   GIT_DIR=/nonexistent/.git GIT_WORK_TREE=/nonexistent GIT_INDEX_FILE=/nonexistent/index \
   GIT_PREFIX=sub/ GIT_COMMON_DIR=/nonexistent/.git GIT_OBJECT_DIRECTORY=/nonexistent/objects \
   GIT_SHALLOW_FILE=/nonexistent/shallow GIT_ALTERNATE_OBJECT_DIRECTORIES=/nonexistent/alt \
@@ -55,21 +64,12 @@ run() { # every variable git calls repository-local, and one that is nobody's bu
 
 out="$(run)"; rc=$?
 if [[ "$rc" -eq 0 ]]; then ok "the suite does not see the variables git exports to a hook"; else error "make test let them through (exit $rc): $out"; fi
-if grep -q 'seen:\[ \]' <<<"$out"; then ok "none of the fifteen git lists"; else error "some were seen: $out"; fi
+if grep -q 'seen:\[ \]' <<<"$out"; then ok "none of the variables git lists, not only the six a hook always gets"; else error "some were seen: $out"; fi
 if grep -q 'kept:\[yes\]' <<<"$out"; then ok "and the rest of the environment is left alone"; else error "another variable was dropped: $out"; fi
 
-# The names checked above are the ones this git lists today. A name it has
-# that the one-line suite does not look for would pass unseen.
-if command -v git >/dev/null 2>&1; then
-  missing=""
-  for name in $(git rev-parse --local-env-vars 2>/dev/null); do
-    # A whole word: GIT_CONFIG is also the start of GIT_CONFIG_PARAMETERS.
-    grep -qw -- "$name" "$tmp/repo/tests/sees_test.sh" || missing="$missing $name"
-  done
-  if [[ -z "$missing" ]]; then ok "every variable this git calls repository-local is looked for"; else error "git lists variables this test does not look for:$missing"; fi
-fi
-
-# With no git to ask, the six a hook always sets are still dropped.
+# Without git on the PATH the Makefile cannot ask for the list. The six
+# variables a hook always gets are written out in it and must still be
+# cleared. The PATH below holds only the tools the run needs, and no git.
 mkdir -p "$tmp/no-git"
 for tool in make bash sh env grep sed cat ls printf dirname basename; do
   path="$(command -v "$tool" 2>/dev/null)" && [[ -x "$path" ]] && ln -sf "$path" "$tmp/no-git/$tool"
@@ -78,7 +78,9 @@ out="$(GIT_DIR=/nonexistent/.git GIT_WORK_TREE=/nonexistent GIT_INDEX_FILE=/none
   GIT_COMMON_DIR=/nonexistent/.git GIT_OBJECT_DIRECTORY=/nonexistent/objects PATH="$tmp/no-git" make -C "$tmp/repo" test 2>&1)"; rc=$?
 if [[ "$rc" -eq 0 ]] && grep -q 'seen:\[ \]' <<<"$out"; then ok "with no git on the PATH, the six a hook always sets are still dropped"; else error "without git (exit $rc): $out"; fi
 
-# The test can fail: the same suite, run without make, sees them.
+# Control: the same test file, run directly instead of through `make test`,
+# does see the variable and fails. Without this, the cases above could pass
+# because the test file never fails.
 if GIT_DIR=/nonexistent/.git bash "$tmp/repo/tests/sees_test.sh" >/dev/null 2>&1; then
   error "the one-line suite passes with GIT_DIR set, so it proves nothing"
 else

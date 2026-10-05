@@ -26,18 +26,22 @@ tmp="$(mktemp -d)"
 # Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
-# Run from a git hook (the pre-push hook runs `make test`), git has exported
-# GIT_DIR and its companions. With those set, a `cd` into one of the temporary
-# repositories below changes nothing: git still reads the repository being
-# pushed, and the cases that build their own repository fail there and nowhere
-# else. They are git's variables for the hook, not for this test. The list is
-# git's own, so a variable it adds later is covered too.
-# shellcheck disable=SC2046  # one name per word, on purpose
+# Clear git's hook variables. When this test is started from a git hook, git
+# has set GIT_DIR (and related variables) to the repository being pushed.
+# GIT_DIR wins over the current directory, so the cases below that create a
+# temporary repository and `cd` into it would still act on the pushed one,
+# and fail only there. `make test` and the pre-push hook clear them already;
+# this covers the test being run directly from some other hook.
+# The list is git's own, so a variable it adds later is covered; the six a
+# hook always gets are written out in case git cannot be asked.
+# shellcheck disable=SC2046  # the output is a list: one variable name per word
 unset $(git rev-parse --local-env-vars 2>/dev/null) GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
 
-# The gate reads a machine-level allowlist from the configuration directory.
-# Whatever this machine has there is not part of these tests: with one present
-# the override tests below failed here and passed in CI, which has none.
+# Point the configuration directory at an empty place. The gate reads an
+# allowlist from there (<config>/script-helpers/private-names-allow), and
+# whatever the developer's machine has in it must not change the results:
+# with such a file present the override cases below failed locally, while
+# CI, which has no such file, passed.
 export XDG_CONFIG_HOME="$tmp/no-config"
 
 # CI has no git identity, so it is injected per command rather than configured.
@@ -167,11 +171,12 @@ got="$(printf 'about bluewidget' | HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/.
 [[ "$got" == 1 ]] && ok "a machine-level allowlist does not disable the rest" \
                   || error "the machine-level allowlist disabled an unrelated name: exit $got"
 
-# An override for this run, on a machine that also has an allowlist file. The
-# override was written without a newline after it, so the file's first line
-# was glued to its last name: "bluewidget" became "bluewidgetbeacon", matched
-# nothing, and the override did nothing. Any machine with an allowlist had
-# this; CI has none, so nothing noticed.
+# PRIVATE_NAMES_ALLOW together with an allowlist file (written just above:
+# it holds "beacon"). The override used to be written with no newline after
+# it, so its last name joined the file's first line: "bluewidget" became
+# "bluewidgetbeacon", matched nothing, and the override had no effect. Every
+# machine with an allowlist file was affected. CI has no such file, so no
+# test noticed.
 got="$(printf 'about bluewidget' | HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/.config" PRIVATE_NAMES_ALLOW=bluewidget \
   bash "$GATE" --stdin --list "$list" >/dev/null 2>&1; echo $?)"
 [[ "$got" == 0 ]] && ok "an override for this run applies beside a machine-level allowlist" \
@@ -180,8 +185,8 @@ got="$(printf 'about bluewidget and the beacon' | HOME="$tmp/home" XDG_CONFIG_HO
   bash "$GATE" --stdin --list "$list" >/dev/null 2>&1; echo $?)"
 [[ "$got" == 0 ]] && ok "the last of several names in an override applies there too" \
                   || error "the last name of PRIVATE_NAMES_ALLOW was lost: exit $got"
-# The same join, between a repository's allowlist with no final newline and
-# the machine's.
+# The same joining of two names, between two files: a repository allowlist
+# with no final newline, followed by the machine's.
 allow_repo="$tmp/allow-repo"
 mkdir -p "$allow_repo" && git -C "$allow_repo" init -q
 printf 'bluewidget' > "$allow_repo/.git/private-names-allow"
@@ -194,15 +199,17 @@ got="$(cd "$allow_repo" && printf 'about bluewidget, the beacon and test coverag
 [[ "$got" == 0 ]] && ok "three sources at once each allow their own name" \
                   || error "three allow sources together lost a name: exit $got"
 
-# A linked worktree has a git directory of its own. The repository's allowlist
-# is in the one all worktrees share, and reading only the worktree's own
-# ignored it from every worktree but the first.
+# A linked worktree. It has its own git directory (.git/worktrees/<name>),
+# while the repository's allowlist is in the shared one (the main checkout's
+# .git). The gate used to read only the worktree's own, so the repository's
+# allowlist was ignored in every linked worktree.
 git_t -C "$allow_repo" commit -q --allow-empty -m init
 git_t -C "$allow_repo" worktree add -q "$tmp/allow-wt" -b allow-wt >/dev/null 2>&1
 got="$(cd "$tmp/allow-wt" && printf 'about bluewidget' | bash "$GATE" --stdin --list "$list" >/dev/null 2>&1; echo $?)"
 [[ "$got" == 0 ]] && ok "a repository allowlist applies in a linked worktree" \
                   || error "the repository allowlist was not read from a linked worktree: exit $got"
-# A list written beside one worktree applies there, and only there.
+# An allowlist in the worktree's own git directory applies in that worktree
+# (in addition to the repository's) and not in the main checkout.
 wt_git_dir="$(cd "$tmp/allow-wt" && git rev-parse --absolute-git-dir)"
 printf 'beacon' > "$wt_git_dir/private-names-allow"
 got="$(cd "$tmp/allow-wt" && printf 'about bluewidget and the beacon' | bash "$GATE" --stdin --strict-ambiguous --list "$list" >/dev/null 2>&1; echo $?)"
@@ -211,8 +218,10 @@ got="$(cd "$tmp/allow-wt" && printf 'about bluewidget and the beacon' | bash "$G
 got="$(cd "$allow_repo" && printf 'about bluewidget and the beacon' | bash "$GATE" --stdin --strict-ambiguous --list "$list" >/dev/null 2>&1; echo $?)"
 [[ "$got" == 1 ]] && ok "a worktree's own allowlist does not reach the main checkout" \
                   || error "one worktree's allowlist applied in another: exit $got"
-# Outside a repository there is no allowlist to name, and none is read from
-# the filesystem root.
+# Outside any repository there is no repository allowlist. The refusal must
+# not offer one: it used to print "/private-names-allow", a path at the
+# filesystem root. GIT_CEILING_DIRECTORIES stops git from finding a repository
+# above the temporary directory.
 mkdir -p "$tmp/no-repo"
 out="$(cd "$tmp/no-repo" && printf 'about bluewidget' | GIT_CEILING_DIRECTORIES="$tmp" bash "$GATE" --stdin --list "$list" 2>&1; echo "exit=$?")"
 if grep -q 'exit=1' <<<"$out" && ! grep -q 'this repository' <<<"$out" && grep -q 'every repository here' <<<"$out"; then

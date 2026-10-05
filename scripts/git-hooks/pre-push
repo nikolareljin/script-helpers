@@ -451,28 +451,36 @@ run_tests() {
   echo "[pre-push] No test runner detected — skipping. Run tests manually before pushing."
 }
 
-# Git exports GIT_DIR and its companions to a hook. Everything above is git's
-# business with this repository and has run. What follows is the repository's
-# own suite, and to a suite those variables are a trap: a test that builds a
-# temporary repository and changes into it still reads the repository being
-# pushed. From a linked worktree GIT_DIR is absolute, so such a test failed
-# here and nowhere else, and the push was refused. The suite gets the
-# environment it has when run by hand.
+# Clear git's hook variables before the repository's tests run.
 #
-# Only when this directory finds the same repository without them: a push made
-# with `git --git-dir=... --work-tree=...` from elsewhere has nothing else to
-# find it by, and keeps them. The list is git's own, so a variable it adds
-# later is covered; the six a hook always sets are named for a git that cannot
-# be asked.
+# Why: git gives every hook GIT_DIR (and related variables) pointing at the
+# repository being pushed. The checks above use them. The tests below must
+# not see them: GIT_DIR wins over the current directory, so a test that
+# creates its own temporary repository and changes into it would still act on
+# the repository being pushed. From a linked worktree GIT_DIR is an absolute
+# path, and there this happened: such a test failed inside the hook and
+# nowhere else, and the push was refused. With the variables cleared, the
+# tests get the same environment as when they are run by hand.
+#
+# When they are kept: if, without them, git finds no repository from this
+# directory, or finds a different one. That is `git --git-dir=...
+# --work-tree=... push` run from somewhere else: GIT_DIR is then the only
+# thing that points at the right repository, and clearing it would run the
+# tests against nothing or against the wrong one.
+#
+# Which variables: everything `git rev-parse --local-env-vars` prints, so a
+# variable git adds later is covered. The six that a hook always gets are
+# also written out, in case that command is not available.
 _drop_git_hook_env() {
-  local with without
+  local names with without
+  names="$(git rev-parse --local-env-vars 2>/dev/null || true) GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_OBJECT_DIRECTORY"
+  # The repository git finds now, and the one it finds without the variables.
   with="$(git rev-parse --absolute-git-dir 2>/dev/null)" || return 0
-  # shellcheck disable=SC2046  # one name per word, on purpose
-  without="$(unset $(git rev-parse --local-env-vars 2>/dev/null) GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
-             git rev-parse --absolute-git-dir 2>/dev/null)" || return 0
+  # shellcheck disable=SC2086  # $names is a list: one variable name per word
+  without="$(unset $names; git rev-parse --absolute-git-dir 2>/dev/null)" || return 0
   [[ -n "$with" && "$with" == "$without" ]] || return 0
-  # shellcheck disable=SC2046
-  unset $(git rev-parse --local-env-vars 2>/dev/null) GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+  # shellcheck disable=SC2086
+  unset $names
 }
 _drop_git_hook_env
 

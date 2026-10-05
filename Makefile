@@ -102,14 +102,18 @@ lint-docs:
 test-bash32:
 	@bash scripts/local_test_bash32.sh
 
-# Git exports GIT_DIR and its companions to a hook, and the pre-push hook runs
-# this target. With them set, a test that builds a temporary repository and
-# changes into it still reads the repository being pushed: tests failed inside
-# the hook that pass everywhere else, and a push from a worktree was refused.
-# They are git's variables for the hook, not for the suite. The list is git's
-# own (`git rev-parse --local-env-vars`: fifteen names today, GIT_SHALLOW_FILE
-# and GIT_CONFIG_PARAMETERS among them), with the six a hook always sets named
-# as well, for a machine where git cannot be asked.
+# The first line of the recipe clears git's hook variables before any test runs.
+#
+# Why: the pre-push hook runs this target, and git gives every hook GIT_DIR
+# (and related variables) pointing at the repository being pushed. GIT_DIR
+# wins over the current directory, so a test that creates its own temporary
+# repository and changes into it would still act on the real one. Such tests
+# passed everywhere except inside the hook, and the push was refused.
+#
+# Which variables: everything `git rev-parse --local-env-vars` prints (15
+# names today), so a variable git adds later is covered without a change
+# here. The six that a hook always gets are also written out, so they are
+# cleared even where git is not installed to be asked.
 test:
 	@unset $$(git rev-parse --local-env-vars 2>/dev/null) GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_OBJECT_DIRECTORY; \
 	for f in tests/*_test.sh; do \
