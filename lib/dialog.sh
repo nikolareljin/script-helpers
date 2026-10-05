@@ -16,33 +16,42 @@ dialog_init() {
 # Ensure `dialog` CLI exists.
 check_if_dialog_installed() {
   if ! command -v dialog >/dev/null 2>&1; then
-    print_error "Dialog is not installed. Please install it and try again."
+    # On stderr: several callers print their answer on stdout.
+    print_error "Dialog is not installed. Please install it and try again." >&2
     return 1
   fi
   # Also initialize dialog dimensions for compatibility with callers
   dialog_init
 }
 
-# --- a dialog whose caller has captured or redirected the standard streams ----
+# --- a box whose caller has captured the standard output ----------------------
 #
-# `choice=$(dialog --stdout --menu ...)` draws the menu on stderr and prints the
-# choice on stdout. That works until the caller redirects stderr, or runs with
-# its streams piped, and then there is a menu nobody can see. These three put
-# the screen on the terminal itself and leave stdout to the answer.
+# dialog draws a box on its standard output unless it is asked for the answer
+# there. So `value=$(dialog --inputbox ...)` and `$(dialog --msgbox ...)` put
+# the whole screen into the caller's variable and show nobody anything
+# (measured with dialog 1.3 in a pseudo-terminal: 2,235 bytes of screen as the
+# "value", an empty terminal). With --stdout, dialog reopens the terminal by
+# itself and the box shows. The functions below do not depend on which of the
+# two a box is: the screen goes to the terminal device, stdout carries the
+# answer and nothing else.
 
-# The terminal device. DIALOG_TTY names another one (a serial console; a file,
-# in tests).
+# The terminal device. SHLIB_DIALOG_TTY names another one; it is for tests,
+# which give it a file. (Not DIALOG_TTY: dialog has a variable of that name.)
 _dialog_tty() {
-  printf '%s' "${DIALOG_TTY:-/dev/tty}"
+  printf '%s' "${SHLIB_DIALOG_TTY:-/dev/tty}"
 }
 
-# Usage: dialog_has_tty; true when the terminal device can be opened.
-# Opened, not only looked at: with no controlling terminal /dev/tty still
-# exists and is readable and writable by its mode, and opening it fails.
+# Usage: dialog_has_tty; true when the terminal device can be opened for
+# reading and writing. Opened, not only looked at: with no controlling
+# terminal /dev/tty still exists and is readable and writable by its mode, and
+# opening it fails. Never creates anything: a path that is not there, a
+# directory or a FIFO is not a terminal.
 dialog_has_tty() {
   local tty
   tty="$(_dialog_tty)"
-  ( exec 3<>"$tty" ) 2>/dev/null
+  [[ -c "$tty" || -f "$tty" ]] || return 1
+  # shellcheck disable=SC2094  # opened both ways to see that it opens
+  ( exec 3<"$tty" 4>>"$tty" ) 2>/dev/null
 }
 
 # Usage: has_interactive_dialog_session; true when a person can be shown a
@@ -53,8 +62,10 @@ has_interactive_dialog_session() {
 }
 
 # Usage: dialog_run <dialog args...>; runs dialog for a box with no answer to
-# capture (msgbox, infobox, yesno), on the terminal device when there is one.
-# Returns dialog's own status.
+# capture (msgbox, infobox, yesno), on the terminal device when there is one,
+# so the box shows even when the caller's stdout is captured. Keys come from
+# the terminal too: not for a gauge, which reads its progress from stdin.
+# Returns dialog's own status. With no terminal device it is plain dialog.
 dialog_run() {
   local tty
   if dialog_has_tty; then
@@ -69,63 +80,45 @@ dialog_run() {
 }
 
 # Usage: answer=$(dialog_capture <dialog args...>); runs dialog and prints the
-# answer on stdout. The screen goes to the terminal device when there is one,
-# whatever the caller did with stderr. Do not pass --stdout: it is added.
-# Returns dialog's own status (1 cancel, 255 escape) and then prints nothing.
+# answer on stdout. The screen and the keys are on the terminal device when
+# there is one. Do not pass --stdout: it is added. Nothing is written to disk.
+# Returns dialog's own status (1 cancel, 255 escape or an error of dialog's)
+# and then prints nothing. What dialog says about a malformed call goes to the
+# terminal with the screen, not to the caller's stderr.
 dialog_capture() {
-  local tmp tty status=0
-  tmp="$(mktemp "${TMPDIR:-/tmp}/dialog.capture.XXXXXXXX")" || return 1
+  local tty answer status=0
   if dialog_has_tty; then
     tty="$(_dialog_tty)"
     # shellcheck disable=SC2094  # the terminal, read and drawn on
-    dialog --stdout "$@" <"$tty" >"$tmp" 2>>"$tty" || status=$?
+    answer="$(dialog --stdout "$@" <"$tty" 2>>"$tty")" || status=$?
   else
-    dialog --stdout "$@" >"$tmp" || status=$?
+    answer="$(dialog --stdout "$@")" || status=$?
   fi
   if [[ "$status" -eq 0 ]]; then
-    cat "$tmp"
+    printf '%s\n' "$answer"
   fi
-  rm -f "$tmp"
   return "$status"
 }
 
 # Prompt for a value using dialog; prints the value to stdout.
-# Usage: get_value "Title" "Message" "Default"
+# Usage: value=$(get_value "Title" "Message" "Default")
+# Returns 1, printing nothing on stdout, when the person cancels or leaves the
+# box empty. Messages go to stderr: stdout is the value.
 get_value() {
-  local title="$1" message="$2" default_value="${3:-}"
+  local title="${1:-}" message="${2:-}" default_value="${3:-}" value
   dialog_init
   check_if_dialog_installed || return 1
 
-  local tmp
-  tmp=$(mktemp "/tmp/$(basename "$0").XXXXXXXXXX")
   local cancel_msg="User pressed Cancel. Exiting."
-  # On stderr: stdout is the value, and a caller that captured it was handed
-  # this sentence as what the person typed.
-
-  local tty status=0
-  if dialog_has_tty; then
-    # The screen on the terminal, the answer (which dialog writes to stderr)
-    # in the file: a caller that captures stdout still sees the box.
-    tty="$(_dialog_tty)"
-    # shellcheck disable=SC2094  # the terminal, read and drawn on
-    dialog --title "$title" --inputbox "$message" 10 60 "$default_value" <"$tty" >>"$tty" 2>"$tmp" || status=$?
-  else
-    dialog --title "$title" --inputbox "$message" 10 60 "$default_value" 2>"$tmp" || status=$?
-  fi
-  if [[ $status -ne 0 ]]; then
+  if ! value="$(dialog_capture --title "$title" --inputbox "$message" 10 60 "$default_value")"; then
     print_error "$cancel_msg" >&2
-    rm -f "$tmp"
     return 1
   fi
-
-  if [[ -z "$(cat "$tmp")" ]]; then
+  if [[ -z "$value" ]]; then
     print_error "$cancel_msg" >&2
-    rm -f "$tmp"
     return 1
   fi
-
-  cat "$tmp"
-  rm -f "$tmp"
+  printf '%s\n' "$value"
 }
 
 
@@ -149,7 +142,7 @@ select_multiple_distros() {
     options+=("$d" "${DISTROS[$d]}")
   done
   if ! selected_distros=$(dialog_capture --title "Select Linux Distro" --checklist "Choose Linux distributions to download:" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0 "${options[@]}"); then
-    print_error "No distro selected. Exiting..."
+    print_error "No distro selected. Exiting..." >&2
     return 1
   fi
   echo "$selected_distros"
@@ -164,7 +157,7 @@ select_distro() {
     options+=("$d" "${DISTROS[$d]}")
   done
   if ! selected_distro=$(dialog_capture --title "Select Linux Distro" --menu "Choose a Linux distribution to download:" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0 "${options[@]}"); then
-    print_error "No distro selected. Exiting..."
+    print_error "No distro selected. Exiting..." >&2
     return 1
   fi
   echo "$selected_distro"
@@ -390,7 +383,7 @@ dialog_download_file() {
     # Try to show a dialog message with error details unless explicitly suppressed.
     local show_error_dialog="${DIALOG_DOWNLOAD_SHOW_ERROR_DIALOG:-1}"
     if [[ "$show_error_dialog" != "0" && "$show_error_dialog" != "false" && "$show_error_dialog" != "never" ]]; then
-      dialog --title "Download Error" \
+      dialog_run --title "Download Error" \
         --msgbox "Download failed (exit $rc) for:\n$url\n\nDetails:\n$err_preview" \
         "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 2>/dev/null || true
     fi

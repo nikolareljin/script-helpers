@@ -2,19 +2,28 @@
 
 ### Added
 
-- **`dialog_capture`, `dialog_run`, `dialog_has_tty`, `has_interactive_dialog_session`.**
-  `choice=$(dialog --stdout --menu ...)` draws its menu on stderr, so a caller that has redirected
-  stderr, or runs with its streams piped, shows a menu nobody can see. `dialog_capture` puts the
-  screen on the terminal device and leaves stdout to the answer; `dialog_run` does the same for a
-  box with no answer. `dialog_has_tty` opens the device to find out, because with no controlling
-  terminal `/dev/tty` still looks readable and writable. The model and size selectors in
-  `lib/ollama.sh`, the distro selectors and `get_value` use them.
+- **`dialog_capture`, `dialog_run`, `dialog_has_tty`, `has_interactive_dialog_session`.** `dialog`
+  draws a box on its standard output unless it is asked for the answer there, so
+  `$(dialog --msgbox ...)` and `value=$(dialog --inputbox ...)` capture the screen and show nobody
+  anything. `dialog_run` and `dialog_capture` put the screen and the keys on the terminal device
+  and leave stdout to the answer, for any kind of box. `dialog_has_tty` opens the device to find
+  out whether there is one, because with no controlling terminal `/dev/tty` still looks readable
+  and writable. The model and size selectors in `lib/ollama.sh` and the distro selectors go through
+  `dialog_capture`; with `dialog` 1.3 they already showed, since a `--stdout` box finds the
+  terminal by itself, and they no longer depend on that. `tests/dialog_pty_test.sh` runs the real
+  program in a pseudo-terminal.
 
 ### Fixed
 
-- **`get_value` handed its cancel message to the caller as the value.** The message was printed on
-  stdout, which is where the value goes; a caller that captured it got "User pressed Cancel."
-  as what the person typed. It goes to stderr.
+- **`value=$(get_value ...)` returned the screen and showed nothing.** Its box was drawn on the
+  captured stdout: measured with `dialog` 1.3, the caller's variable held 2,235 bytes of screen and
+  the terminal stayed empty. It is drawn on the terminal now, through `dialog_capture`.
+- **Messages printed where an answer goes.** `get_value`, `select_distro`,
+  `select_multiple_distros` and `check_if_dialog_installed` printed "User pressed Cancel.", "No
+  distro selected." and "Dialog is not installed." on stdout, so a caller that captured the answer
+  got the sentence as the answer. They go to stderr.
+- **The download error box could not be seen by a caller that captured stdout.** It goes through
+  `dialog_run`.
 
 ## 2026-09-29 — v0.44.1
 

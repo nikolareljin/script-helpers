@@ -176,7 +176,7 @@ Loader and modules
 - `helpers.sh`: resolves library path and provides `shlib_import` to source modules by name.
 - Modules live in `lib/*.sh` and are small, dependency-light files:
   - `logging.sh` — color constants and logging helpers (`print_info`, `log_info`, etc.).
-  - `dialog.sh` — dialog sizing helpers and `get_value`.
+  - `dialog.sh`: dialog sizing helpers, `get_value`, and boxes that show even when the caller has captured stdout (`dialog_capture`, `dialog_run`, `dialog_has_tty`, `has_interactive_dialog_session`).
   - `os.sh` — OS detection (`get_os`, `getos`, `is_wsl`) and conditional sudo helper.
   - `deps.sh` — install utilities (`install_dependencies`) where applicable.
   - `docker.sh` — docker compose detection/wrapper (`docker_compose`, `run_docker_compose_command`), status utility (`docker_status`).
