@@ -1,5 +1,30 @@
 ## Unreleased
 
+### Added
+
+- **`ollama_endpoint`: know whether the models fit before pulling them.** A new module for a
+  project's start script. It reads the project's models from one env-style file
+  (`ollama_models_required`), asks an Ollama over HTTP which of them it has
+  (`ollama_endpoint_models`, `ollama_models_missing`), learns the size of what is missing from the
+  registry manifest (`ollama_registry_size_bytes`), and checks it against the machine
+  (`ollama_budget_check`): the download must leave `OLLAMA_DISK_RESERVE_GB` free (default 10), and
+  the largest model plus `OLLAMA_MEM_HEADROOM_PERCENT` (default 20) must fit the machine's memory
+  and its GPUs' together. `ollama_endpoint_ensure_models` puts it together and pulls only when
+  everything fits: no partial pull, and each refusal gives the numbers and the setting behind it.
+  Not knowing a missing model's size or the free disk space is a refusal too, with the override
+  named. Works for an Ollama on the host and one in a container, with no `ollama` CLI; a pull has
+  no deadline, is given up only when it stalls, and says each tenth of a large layer as it
+  arrives. A models file that is named and is not there is an error, not "no models", and a
+  model is matched without regard to letter case, as Ollama matches it. Linux and macOS figures are read, and each can
+  be stated through an `OLLAMA_BUDGET_*` override. Names and model references are checked before
+  they reach a pattern, a URL or a request body; a size that is not a number is refused, not read
+  as zero; and no message carries a credential (also in a long error line or in another URL in the
+  text), a control character or an escape sequence spelled out as text. A byte-order mark at the
+  start of the models file is ignored. `OLLAMA_PULL_MISSING` and `OLLAMA_IGNORE_BUDGET` take the
+  usual spellings (`1/true/yes/on`, `0/false/no/off`); a value that is neither is reported and
+  read as off, so a typo pulls nothing and skips no check. bash 3.2 and BSD userland, with or
+  without `set -euo pipefail`.
+
 ### Fixed
 
 - **`PRIVATE_NAMES_ALLOW` did nothing on a machine that has an allowlist file.** The override was
