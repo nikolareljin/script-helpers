@@ -167,6 +167,9 @@ class H(BaseHTTPRequestHandler):
             if name.startswith("http500"):
                 return self.send(500, '{"error":"no space left on device"}')
             progress = '{"status":"pulling manifest"}\n{"status":"pulling abc","total":10,"completed":5}\n'
+            if name.startswith("spelled"):
+                # The escape written out as text, as a careless server might echo it.
+                return self.send(200, progress + '{"error":"bad \\\\033[2J name"}\n', "application/x-ndjson")
             if name.startswith("escape"):
                 return self.send(200, progress + '{"error":"bad \\u001b[2J\\u001b[31mred"}\n\x1b[2Jtail\x07\n', "application/x-ndjson")
             if name.startswith("midfail"):
@@ -413,7 +416,14 @@ check "OLLAMA_IGNORE_BUDGET=1 lets it through" "0" "$(OLLAMA_IGNORE_BUDGET=1 bud
 check "and still says both" "2" "$(grep -c "Not enough" "$tmp/err")"
 check "as warnings, not as errors" "2:0" "$(grep -c 'Warning' "$tmp/err"):$(grep -c 'Error' "$tmp/err")"
 roomy
-check "garbage for a size is zero, not a crash" "0" "$(budget abc '' /models)"
+check "a size that is not a number is refused, not read as zero" "4" "$(budget abc 1000 /models)"
+said "and it says what it was given" "$tmp/err" "abc" "whole number"
+check "the same for the model's size" "4" "$(budget 1000 abc /models)"
+check "and for one too long to count" "4" "$(budget 99999999999999999999 0 /models)"
+check "and for a negative or a fraction" "4:4" "$(budget -5 0 /models):$(budget 1.5 0 /models)"
+check "ignoring the budget does not make a non-number a number" "4" "$(OLLAMA_IGNORE_BUDGET=1 budget abc abc /models)"
+check "nothing given is zero: nothing to check" "0" "$(budget '' '' /models)"
+check "a size with a leading zero is decimal" "0" "$(budget 08 09 /models)"
 esc_dir="$(printf '/mo\033[2Jdels')"
 check "a path with a control character still gets its refusal" "1" "$(OLLAMA_BUDGET_DISK_FREE_BYTES=$((1 * GB)) budget $((5 * GB)) 0 "$esc_dir")"
 check "and is shown without it" "0:1" "$(grep -c "$(printf '\033')\[2J" "$tmp/err"):$(grep -c 'at /mo\[2Jdels' "$tmp/err")"
@@ -514,6 +524,8 @@ printf '#!/bin/sh\nfor a in "$@"; do last="$a"; done\necho "curl: (6) Could not 
 PATH="$tmp/loud-curl:$PATH" ollama_endpoint_pull "http://user:s3cret@nowhere.example:11434" small:3b >"$tmp/out" 2>"$tmp/err"
 if grep -q "s3cret" "$tmp/out" "$tmp/err"; then error "an error text that names the URL printed the password: $(cat "$tmp/err")"; else ok "an error text that names the URL does not print the password"; fi
 said "and the rest of that text is kept" "$tmp/err" "Could not resolve host in http://nowhere.example:11434/api/pull"
+ollama_endpoint_pull "$URL" spelled:1b >"$tmp/out" 2>"$tmp/err"
+check "a spelled-out escape in what Ollama said does not become one" "0:1" "$(grep -c "$(printf '\033')\[2J" "$tmp/err"):$(grep -cF '\033[2J name' "$tmp/err")"
 ollama_endpoint_pull "$URL" escape:1b >"$tmp/out" 2>"$tmp/err"
 check "an escape sequence in what Ollama said does not reach the terminal" "0" "$(grep -c "$(printf '\033')\[2J" "$tmp/err")"
 reset
@@ -563,6 +575,16 @@ check "a query is left out: a token travels there" "http://host.example:11434/v1
 check "and with it an at sign that was never a password" "http://host.example" "$(_ollama_ep_shown "http://host.example?a=b@c")"
 check "credentials without a scheme go too" "host.example:11434" "$(_ollama_ep_shown "user:s3cret@host.example:11434")"
 check "a control character in a URL is not shown" "http://host.example/x" "$(_ollama_ep_shown "$(printf 'http://host.example/\033x')")"
+# The logging helpers print with `echo -e`. The four characters \033 written
+# out in a URL, a path or an answer would become the escape they spell.
+spelled='http://host.example/\033[2J\x1b[31m\e[0m'
+check "a spelled-out escape in a URL has its backslashes doubled" 'http://host.example/\\033[2J\\x1b[31m\\e[0m' "$(_ollama_ep_shown "$spelled")"
+ollama_endpoint_ensure_models "$spelled" /models small:3b >"$tmp/out" 2>"$tmp/err"
+check "so the message carries no escape sequence" "0" "$(grep -c "$(printf '\033')\[2J" "$tmp/err")"
+said "and shows the text as it was written" "$tmp/err" 'http://host.example/\033[2J'
+check "the same for what the other end said" 'bad \\033[2J' "$(_ollama_ep_said 'bad \033[2J')"
+OLLAMA_BUDGET_DISK_FREE_BYTES=$((1 * GB)) ollama_budget_check $((5 * GB)) 0 '/mo\033[2Jdels' >"$tmp/out" 2>"$tmp/err"
+check "and for a path" "0:1" "$(grep -c "$(printf '\033')\[2J" "$tmp/err"):$(grep -cF 'at /mo\033[2Jdels' "$tmp/err")"
 bad_model="$(printf 'bad\033[2Jname')"
 bad_rc=0
 ollama_endpoint_ensure_models "$URL" /models "$bad_model" >"$tmp/out" 2>"$tmp/err" || bad_rc=$?
@@ -577,8 +599,13 @@ if grep -q "s3cret" "$tmp/out" "$tmp/err"; then error "the refusal printed the p
 said "while naming the rest" "$tmp/err" "registry.example/model:1b"
 check "nor is it pulled on its own" "1:" "$(ollama_endpoint_pull "$URL" "user:s3cret@registry.example/model:1b" 2>"$tmp/err"; echo "$?:$(pulled)")"
 check "(that refusal is clean too)" "0" "$(grep -c s3cret "$tmp/err")"
-check "a digest after the name is still a model reference" "0" "$(_ollama_ep_is_model "team/model@sha256:abc123"; echo $?)"
-check "and so is one with no namespace" "0" "$(_ollama_ep_is_model "model@sha256:abc123"; echo $?)"
+# A digest is not accepted either: split at its last colon it named another
+# repository and another manifest, so it could never be sized, and it never
+# equals a name an Ollama lists, so it would be pulled on every start.
+reset
+check "a reference by digest is refused, before anything is asked" "8::" "$(ollama_endpoint_ensure_models "$URL" /models "team/model@sha256:abc123" >/dev/null 2>&1; echo "$?:$(pulled):$(cat "$tmp/state/asked" 2>/dev/null)")"
+check "its size is not asked for under a wrong name" "1:" "$(ollama_registry_size_bytes "team/model@sha256:abc123" 2>/dev/null; echo "$?:$(cat "$tmp/state/asked" 2>/dev/null)")"
+check "nor is it pulled on its own" "1:" "$(ollama_endpoint_pull "$URL" "model@sha256:abc123" 2>/dev/null; echo "$?:$(pulled)")"
 ollama_endpoint_pull "$URL" "$bad_model" >"$tmp/out" 2>"$tmp/err"
 check "nor by a single pull" "0" "$(grep -c "$(printf '\033')\[2J" "$tmp/err")"
 ollama_models_required "$tmp/models.env" "$(printf 'A\033[2JB')" >"$tmp/out" 2>"$tmp/err"

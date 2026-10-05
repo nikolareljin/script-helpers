@@ -20,15 +20,15 @@
 # expansion evaluates a subscript: `x[$(cmd)]` runs cmd) or a sed program.
 _ollama_ep_is_name() { [[ "${1:-}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; }
 
-# A model reference: letters, digits and . _ - / : @ only, no "..". Checked
-# before a model reaches a URL or a JSON string built by hand.
+# A model reference: letters, digits and . _ - / : only, no "..". Checked
+# before a model reaches a URL or a JSON string built by hand. No "@": it
+# would be either credentials (user:secret@registry/model), which do not
+# belong in a reference that is printed and stored, or a digest
+# (model@sha256:...), which nothing here can size or match against what an
+# Ollama lists.
 _ollama_ep_is_model() {
-  [[ "${1:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$ ]] || return 1
+  [[ "${1:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._/:-]*$ ]] || return 1
   case "$1" in *..*|*//*) return 1 ;; esac
-  # user:secret@registry/model: credentials do not belong in a reference
-  # that is printed, logged and stored. An "@" after the first "/" is a
-  # digest (model@sha256:...), which is fine.
-  case "${1%%/*}" in *@*) [[ "$1" != */* ]] || return 1 ;; esac
   return 0
 }
 
@@ -55,8 +55,10 @@ _ollama_ep_gb() {
 # the credentials too, since a password may itself contain an "@"), a query
 # or fragment (where a token travels), and control characters.
 _ollama_ep_shown() {
+  # A backslash is doubled last: the logging helpers print with `echo -e`,
+  # which would turn the text \033[2J into the escape sequence it spells.
   printf '%s' "${1:-}" | LC_ALL=C tr -d '\000-\037\177' \
-    | sed -E 's#[?\#].*$##; s#^([a-zA-Z][a-zA-Z0-9+.-]*://)?[^/]*@#\1#' || true
+    | sed -E 's|[?#].*$||; s|^([a-zA-Z][a-zA-Z0-9+.-]*://)?[^/]*@|\1|; s|\\|\\\\|g' || true
 }
 
 # Text from the other end as it may be shown: one line, printable characters
@@ -65,7 +67,9 @@ _ollama_ep_shown() {
 _ollama_ep_said() {
   # Control characters by their octal range: a character class such as
   # [:print:] is not understood by every tr (busybox reads it as letters).
-  printf '%s' "${1:-}" | tr -d '\r' | tail -n 1 | LC_ALL=C tr -d '\000-\037\177' | cut -c1-300 || true
+  # Backslashes doubled as well, for the same `echo -e` (see _ollama_ep_shown).
+  printf '%s' "${1:-}" | tr -d '\r' | tail -n 1 | LC_ALL=C tr -d '\000-\037\177' | cut -c1-300 \
+    | sed 's|\\|\\\\|g' || true
 }
 
 # --- the models file ---------------------------------------------------------
@@ -314,9 +318,10 @@ ollama_gpu_mem_bytes() {
 # with the numbers.
 #
 # Returns 0 when it fits, 1 when the disk does not, 2 when memory does not,
-# 3 when neither does.
+# 3 when neither does, 4 when a size given is not a whole number (nothing
+# was checked; OLLAMA_IGNORE_BUDGET does not change that).
 #
-# - Disk: what is free after the download must stay above
+# - Disk: what is free after the download must be at least
 #   OLLAMA_DISK_RESERVE_GB (default 10).
 # - Memory: the largest model plus OLLAMA_MEM_HEADROOM_PERCENT (default 20)
 #   must fit in the machine's memory and its GPUs' together, since Ollama
@@ -332,8 +337,12 @@ ollama_budget_check() {
   local dir="${3:-.}" pull largest reserve_gb headroom
   local free total available gpu need reserve after capacity
   local disk_short=0 mem_short=0 say=print_error shown_dir
-  pull="$(_ollama_ep_uint "${1:-0}")" || pull=0
-  largest="$(_ollama_ep_uint "${2:-0}")" || largest=0
+  # A size that is not a number is the caller's mistake, and reading it as
+  # zero would pass a download nobody measured. Nothing given is zero.
+  if ! pull="$(_ollama_ep_uint "${1:-0}")" || ! largest="$(_ollama_ep_uint "${2:-0}")"; then
+    print_error "ollama_budget_check: a size in bytes is a whole number of at most 15 digits; got '$(_ollama_ep_said "${1:-}")' and '$(_ollama_ep_said "${2:-}")'." >&2
+    return 4
+  fi
   reserve_gb="$(_ollama_ep_uint "${OLLAMA_DISK_RESERVE_GB:-10}")" || reserve_gb=10
   headroom="$(_ollama_ep_uint "${OLLAMA_MEM_HEADROOM_PERCENT:-20}")" || headroom=20
   # A reserve or headroom beyond any machine is a typing mistake, not a wish.

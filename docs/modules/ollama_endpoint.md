@@ -105,16 +105,16 @@ Functions
 - ollama_budget_check pull_bytes largest_model_bytes models_dir
   - Purpose: Say whether the machine can take a download of `pull_bytes` into `models_dir` and then load a model of `largest_model_bytes`.
   - Behavior:
-    - Disk: what is free after the download must stay above `OLLAMA_DISK_RESERVE_GB`.
+    - Disk: what is free after the download must be at least `OLLAMA_DISK_RESERVE_GB`.
     - Memory: the largest model plus `OLLAMA_MEM_HEADROOM_PERCENT` must fit the machine's memory and its GPUs' together, since Ollama splits a model between them. More than that is a refusal. Not fitting what is available *right now* is a warning only: that changes by the minute, and a check that refuses a machine that could run the model gets switched off.
     - A figure that cannot be read is said and skipped, not guessed.
     - Each refusal is a message on stderr with the numbers and the setting that governs it.
-  - Returns: 0 fits; 1 disk; 2 memory; 3 both. Always 0 with `OLLAMA_IGNORE_BUDGET=1`.
+  - Returns: 0 fits; 1 disk; 2 memory; 3 both; 4 a size given is not a whole number of at most 15 digits (nothing was checked). With `OLLAMA_IGNORE_BUDGET=1`: 0 in place of 1, 2 and 3; still 4.
   - Note: the memory figure is an estimate (file size plus headroom). What a model needs to load also depends on the context length it is run with.
 
 - ollama_endpoint_pull base_url model
   - Purpose: Ask that Ollama to pull one model and wait for it, however long the download takes.
-  - Behavior: Asked for as a stream, so progress keeps the connection alive; given up when nothing arrives for `OLLAMA_PULL_STALL_SECONDS`. An error anywhere in the stream is a failure whatever the HTTP status. What is not a model reference (letters, digits and `. _ - / : @`) is not sent.
+  - Behavior: Asked for as a stream, so progress keeps the connection alive; given up when nothing arrives for `OLLAMA_PULL_STALL_SECONDS`. An error anywhere in the stream is a failure whatever the HTTP status. What is not a model reference (letters, digits and `. _ - / :`; no `@`, so neither credentials nor a digest) is not sent.
   - Returns: 0 when the stream ends in success; 1 otherwise, with what Ollama said last on stderr.
 
 - ollama_endpoint_ensure_models base_url models_dir model...

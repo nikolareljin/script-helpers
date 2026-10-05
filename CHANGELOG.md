@@ -15,8 +15,9 @@
   named. Works for an Ollama on the host and one in a container, with no `ollama` CLI; a pull has
   no deadline and is given up only when it stalls. Linux and macOS figures are read, and each can
   be stated through an `OLLAMA_BUDGET_*` override. Names and model references are checked before
-  they reach a pattern, a URL or a request body, and a credential in the endpoint URL is never
-  printed. bash 3.2 and BSD userland, with or without `set -euo pipefail`.
+  they reach a pattern, a URL or a request body; a size that is not a number is refused, not read
+  as zero; and no message carries a credential, a control character or an escape sequence spelled
+  out as text. bash 3.2 and BSD userland, with or without `set -euo pipefail`.
 
 ## 2026-09-29 — v0.44.1
 
