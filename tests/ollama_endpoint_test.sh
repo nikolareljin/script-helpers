@@ -42,6 +42,11 @@ said() {
   ok "$what"
 }
 
+if ! command -v python3 >/dev/null 2>&1; then
+  note "SKIP: python3 is needed for the fake Ollama and registry"
+  exit 0
+fi
+
 tmp="$(mktemp -d)"
 server_pid=""
 # Invoked only by the EXIT trap, so shellcheck reads it as unreachable.
@@ -70,16 +75,24 @@ STATE = sys.argv[2]
 # Layer sizes in bytes, then (when more than one) the config's size.
 SIZES = {
     "library/main:7b": [4000000000, 700000000, 1000],
+    "library/main:7b-instruct": [5000000000],
     "library/small:3b": [1900000000],
     "library/embed:latest": [274000000],
     "library/huge:70b": [40000000000],
+    "library/twenty:20b": [20000000000],
     "team/tool:1b": [500000000],
     "library/broken:1b": [100000000],
+    "library/http500:1b": [100000000],
+    "library/nested:1b": [100000000],
 }
 
 def read(name, default=""):
     path = os.path.join(STATE, name)
     return open(path).read() if os.path.exists(path) else default
+
+def note(name, line):
+    with open(os.path.join(STATE, name), "a") as log:
+        log.write(line + "\n")
 
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
@@ -94,20 +107,41 @@ class H(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        mode = read("mode").strip()
+        if self.requestline.split()[1].startswith("//"):
+            # Python's server collapses //api/tags and would quietly serve it.
+            # A real one may not, so the request as sent is what is judged.
+            return self.send(404, "{}")
         if self.path == "/api/tags":
-            if read("mode").strip() == "web":
+            if mode == "web":
                 return self.send(200, "<html>hello</html>", "text/html")
             names = [n for n in read("installed").splitlines() if n]
-            # "details" carries a "name" of its own that is not a model.
-            models = [{"name": n, "model": n, "size": 1, "details": {"family": "x"}} for n in names]
-            return self.send(200, json.dumps({"models": models}))
+            if mode == "old":
+                # An Ollama that lists "name" alone, and a nested "name" that is not a model.
+                models = [{"name": n, "size": 1, "details": {"family": "x", "name": "not-a-model"}} for n in names]
+            else:
+                # As Ollama answers: "name" then "model"; "details" has a "name" of its own.
+                models = [{"name": n, "model": n, "size": 1, "details": {"name": "not-a-model", "family": "x"}} for n in names]
+            if mode == "big":
+                models += [{"name": "filler-%d:latest" % i, "model": "filler-%d:latest" % i, "size": 1,
+                            "details": {"family": "x" * 150}} for i in range(1500)]
+            indent = 2 if mode in ("pretty", "big") else None
+            return self.send(200, json.dumps({"models": models}, indent=indent))
         if self.path.startswith("/v2/") and "/manifests/" in self.path:
-            with open(os.path.join(STATE, "asked"), "a") as log:
-                log.write(self.path + "\n")
+            note("asked", self.path)
             name, tag = self.path[len("/v2/"):].split("/manifests/")
-            sizes = SIZES.get(name + ":" + tag)
+            key = name + ":" + tag
+            if key == "library/index:1b":
+                # A list of manifests, not a manifest: it has sizes and no layers.
+                return self.send(200, json.dumps({"schemaVersion": 2, "manifests": [{"size": 1234}, {"size": 1250}]}))
+            if key == "library/page:1b":
+                return self.send(200, '<html>"size": 12</html>', "text/html")
+            if key == "library/float:1b":
+                return self.send(200, '{"layers":[{"size":4.7e9},{"size":100}]}')
+            sizes = SIZES.get(key)
             if sizes is None:
-                return self.send(404, '{"errors":[{"code":"MANIFEST_UNKNOWN"}]}')
+                # A refusal whose body would add up if it were read.
+                return self.send(404, '{"errors":[{"code":"MANIFEST_UNKNOWN"}],"layers":[{"size":999}]}')
             layers = sizes[:-1] if len(sizes) > 1 else sizes
             manifest = {"schemaVersion": 2, "layers": [{"mediaType": "x", "size": s} for s in layers]}
             if len(sizes) > 1:
@@ -118,16 +152,27 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length", 0) or 0)
-        body = json.loads(self.rfile.read(length) or b"{}")
+        raw = self.rfile.read(length) or b"{}"
+        try:
+            body = json.loads(raw)
+        except ValueError:
+            note("pulled", "INVALID JSON " + repr(raw))
+            return self.send(400, '{"error":"invalid json"}')
         if self.path == "/api/pull":
             name = body.get("name", "")
-            with open(os.path.join(STATE, "pulled"), "a") as log:
-                log.write(name + "\n")
+            note("pulled", name)
+            note("stream", str(body.get("stream")))
+            if set(body) - {"name", "stream"}:
+                note("pulled", "EXTRA KEYS " + ",".join(sorted(body)))
+            if name.startswith("http500"):
+                return self.send(500, '{"error":"no space left on device"}')
+            progress = '{"status":"pulling manifest"}\n{"status":"pulling abc","total":10,"completed":5}\n'
             if name.startswith("broken"):
-                return self.send(200, json.dumps({"error": "pull model manifest: file does not exist"}))
-            with open(os.path.join(STATE, "installed"), "a") as log:
-                log.write(name + "\n")
-            return self.send(200, json.dumps({"status": "success"}))
+                return self.send(200, progress + '{"error":"pull model manifest: file does not exist"}\n', "application/x-ndjson")
+            if name.startswith("nested"):
+                return self.send(200, progress + '{"status":"pulling","detail":{"status":"success"}}\n', "application/x-ndjson")
+            note("installed", name)
+            return self.send(200, progress + '{"status":"success"}\n', "application/x-ndjson")
         self.send(404, "{}")
 
 server = HTTPServer(("127.0.0.1", 0), H)
@@ -144,7 +189,7 @@ URL="http://127.0.0.1:$(cat "$tmp/port")"
 export OLLAMA_REGISTRY_URL="$URL"
 
 reset() { # reset [installed model...]
-  rm -f "$tmp/state/installed" "$tmp/state/pulled" "$tmp/state/asked" "$tmp/state/mode"
+  rm -f "$tmp/state/installed" "$tmp/state/pulled" "$tmp/state/asked" "$tmp/state/mode" "$tmp/state/stream"
   : >"$tmp/state/installed"
   local m
   for m in "$@"; do echo "$m" >>"$tmp/state/installed"; done
@@ -171,12 +216,35 @@ check "names, each once, in order" "OLLAMA_MODEL CLASSIFY_MODEL OLLAMA_MODEL_LAR
 printf 'OLLAMA_MODEL=first:1b\nOLLAMA_MODEL=second:1b\n' >"$tmp/twice.env"
 check "the last line for a name wins" "second:1b" "$(ollama_models_file_get "$tmp/twice.env" OLLAMA_MODEL)"
 
+cat >"$tmp/env.env" <<'ENV'
+export CHAT_MODEL=chat:1b
+QUOTED="quoted:1b"
+SINGLE='single:1b'  # why
+NOTED=noted:1b # the embedder
+lower_model=low:1b
+X_LARGE_MODEL=kept:1b
+Y_LARGE=dropped:9b
+HASH=odd#name:1b
+ENV
+check "export before a name is read" "chat:1b" "$(ollama_models_file_get "$tmp/env.env" CHAT_MODEL)"
+check "double quotes are not part of the value" "quoted:1b" "$(ollama_models_file_get "$tmp/env.env" QUOTED)"
+check "single quotes neither, with a comment after" "single:1b" "$(ollama_models_file_get "$tmp/env.env" SINGLE)"
+check "a trailing comment is not part of the value" "noted:1b" "$(ollama_models_file_get "$tmp/env.env" NOTED)"
+check "a hash with no space before it is part of the value" "odd#name:1b" "$(ollama_models_file_get "$tmp/env.env" HASH)"
+check "every assigned name is listed, whatever its case" "CHAT_MODEL QUOTED SINGLE NOTED lower_model X_LARGE_MODEL Y_LARGE HASH" "$(ollama_models_file_names "$tmp/env.env" | one_line)"
+check "a name that is not a variable name is refused" "2:" "$(ollama_models_file_get "$tmp/env.env" 'CHAT.MODEL'; echo "$?:")"
+check "so a dot cannot stand for any character" "2:" "$(printf 'OLLAMAXMODEL=wrong:1b\n' >"$tmp/dot.env"; ollama_models_file_get "$tmp/dot.env" 'OLLAMA.MODEL'; echo "$?:")"
+( cd "$tmp" && ollama_models_file_get "$tmp/env.env" "X/w $tmp/written/s/x" >/dev/null 2>&1; true )
+check "and a name cannot carry a sed command" "no" "$([[ -e "$tmp/written" ]] && echo yes || echo no)"
+
 note "tags"
 check "no tag gets :latest" "embed:latest" "$(ollama_model_tagged embed)"
 check "a tag is kept" "main:7b" "$(ollama_model_tagged main:7b)"
 check "a registry port is not a tag" "registry.example:5000/team/model:latest" "$(ollama_model_tagged registry.example:5000/team/model)"
 check "a port and a tag" "registry.example:5000/team/model:q4" "$(ollama_model_tagged registry.example:5000/team/model:q4)"
 check "nothing in, nothing out" "" "$(ollama_model_tagged "")"
+check "the default namespace is left out, as Ollama lists it" "main:7b" "$(ollama_model_tagged library/main:7b)"
+check "and the default registry's host" "main:7b" "$(ollama_model_tagged registry.ollama.ai/library/main:7b)"
 
 note "what a start needs"
 unset OLLAMA_MODEL CLASSIFY_MODEL OLLAMA_EMBED_MODEL OLLAMA_MODEL_OLD
@@ -187,17 +255,31 @@ check "a blank variable is not a model" "main:7b" "$(OLLAMA_MODEL='   ' ollama_m
 check "two names for one model list it once" "main:7b" "$(CLASSIFY_MODEL=main:7b ollama_models_required "$tmp/models.env" OLLAMA_MODEL CLASSIFY_MODEL | one_line)"
 check "a name nothing sets is skipped" "main:7b" "$(ollama_models_required "$tmp/models.env" NO_SUCH OLLAMA_MODEL | one_line)"
 check "a missing file with nothing in the environment needs nothing" "" "$(ollama_models_required "$tmp/absent.env" OLLAMA_MODEL)"
+check "the large tier is a name's ending, not any name with LARGE in it" "chat:1b quoted:1b single:1b noted:1b low:1b kept:1b odd#name:1b" "$(ollama_models_required "$tmp/env.env" | one_line)"
+check "a bad name refuses the whole list, not the rest of it" "2:" "$(ollama_models_required "$tmp/models.env" OLLAMA_MODEL MY-MODEL CLASSIFY_MODEL 2>/dev/null; echo "$?:")"
+( cd "$tmp" && ollama_models_required "$tmp/models.env" 'x[$(touch ran)]' >/dev/null 2>&1; true )
+check "and a name cannot run a command" "no" "$([[ -e "$tmp/ran" ]] && echo yes || echo no)"
+check "no arguments at all is nothing, not a crash" "0:" "$(ollama_models_required; echo "$?:")"
 
 # --- what an endpoint has ---------------------------------------------------------
 note "what an Ollama has"
 reset main:7b embed:latest
 check "its models, as it names them" "main:7b embed:latest" "$(ollama_endpoint_models "$URL" | one_line)"
 check "a trailing slash is tolerated" "main:7b embed:latest" "$(ollama_endpoint_models "$URL/" | one_line)"
+check "(the fake does not serve a doubled slash, so that was the module)" "404" "$(curl -s -o /dev/null -w '%{http_code}' "$URL//api/tags")"
 reset
 check "an Ollama with no models answers, with nothing" "0:" "$(ollama_endpoint_models "$URL"; echo "$?:")"
 echo web >"$tmp/state/mode"
 check "a web server that answers 200 is not an Ollama" "1" "$(ollama_endpoint_models "$URL" >/dev/null; echo $?)"
 check "nothing listening is not an Ollama" "1" "$(ollama_endpoint_models "http://127.0.0.1:1" 1 >/dev/null; echo $?)"
+
+reset main:7b embed:latest
+check "a nested name is not a model" "main:7b embed:latest" "$(ollama_endpoint_models "$URL" | one_line)"
+echo pretty >"$tmp/state/mode"
+check "an answer spread over lines is read the same" "main:7b embed:latest" "$(ollama_endpoint_models "$URL" | one_line)"
+echo old >"$tmp/state/mode"
+check "an Ollama that lists name alone is read too" "main:7b embed:latest" "$(ollama_endpoint_models "$URL" | one_line)"
+check "no URL is not an Ollama, and not a crash" "1" "$(ollama_endpoint_models >/dev/null 2>&1; echo $?)"
 
 note "what is missing"
 check "the ones not there" "small:3b" "$(ollama_models_missing "$(printf 'main:7b\nsmall:3b\nembed:latest')" "$(printf 'main:7b\nembed:latest\nother:1b')")"
@@ -213,7 +295,17 @@ check "a model with no tag is asked for as latest" "274000000" "$(ollama_registr
 check "that request went to library/ with the tag" "/v2/library/embed/manifests/latest" "$(tail -n 1 "$tmp/state/asked")"
 check "a namespaced model keeps its namespace" "500000000" "$(ollama_registry_size_bytes team/tool:1b)"
 check "a model the registry lacks" "1" "$(ollama_registry_size_bytes nosuch:1b >/dev/null; echo $?)"
+rm -f "$tmp/state/asked"
 check "a model on another registry host is not asked for" "2" "$(ollama_registry_size_bytes hf.co/org/model:Q4 >/dev/null; echo $?)"
+check "a host with a port neither" "2" "$(ollama_registry_size_bytes localhost:5000/a:1b >/dev/null; echo $?)"
+check "(nothing was requested for either)" "" "$(cat "$tmp/state/asked" 2>/dev/null)"
+check "the default registry's own host is the default registry" "4700001000" "$(ollama_registry_size_bytes registry.ollama.ai/library/main:7b)"
+check "a 404 is not read, whatever its body adds up to" "1:" "$(ollama_registry_size_bytes nosuch:1b; echo "$?:")"
+check "a list of manifests is not a model's manifest" "1:" "$(ollama_registry_size_bytes index:1b; echo "$?:")"
+check "a web page that says size is not one either" "1:" "$(ollama_registry_size_bytes page:1b; echo "$?:")"
+check "a size that is not a whole number is not counted" "100" "$(ollama_registry_size_bytes float:1b)"
+check "what is not a model reference is not asked for" "1" "$(ollama_registry_size_bytes 'a/b?x=1#:t' >/dev/null 2>&1; echo $?)"
+check "nor a path that climbs" "1" "$(ollama_registry_size_bytes '../../api/tags' >/dev/null 2>&1; echo $?)"
 check "a registry that does not answer" "1" "$(OLLAMA_REGISTRY_URL=http://127.0.0.1:1 OLLAMA_REGISTRY_TIMEOUT=1 ollama_registry_size_bytes main:7b >/dev/null; echo $?)"
 
 note "what the machine has"
@@ -226,8 +318,24 @@ real_available="$(unset OLLAMA_BUDGET_MEM_AVAILABLE_BYTES; ollama_mem_available_
 if [[ -z "$real_available" ]] || [[ "$real_available" =~ ^[0-9]+$ && "$real_available" -le "$real_total" ]]; then ok "available memory is a number no larger than the total, or unknown"; else error "available memory: [$real_available] of [$real_total]"; fi
 mkdir -p "$tmp/empty-path"
 check "no GPU tool means no GPU memory" "0" "$(unset OLLAMA_BUDGET_GPU_BYTES; PATH="$tmp/empty-path" ollama_gpu_mem_bytes)"
-printf '#!/bin/sh\necho 8192\necho 24576\n' >"$tmp/empty-path/nvidia-smi"; chmod +x "$tmp/empty-path/nvidia-smi"
-check "the largest GPU is the one that counts" "$((24576 * 1048576))" "$(unset OLLAMA_BUDGET_GPU_BYTES; PATH="$tmp/empty-path:$PATH" ollama_gpu_mem_bytes)"
+printf '#!/bin/sh\necho 24576\necho 8192\n' >"$tmp/empty-path/nvidia-smi"; chmod +x "$tmp/empty-path/nvidia-smi"
+check "GPUs count together: Ollama spreads a model over them" "$(((24576 + 8192) * 1048576))" "$(unset OLLAMA_BUDGET_GPU_BYTES; PATH="$tmp/empty-path:$PATH" ollama_gpu_mem_bytes)"
+printf '#!/bin/sh\necho "NVIDIA-SMI has failed because it could not communicate with the NVIDIA driver." >&2\nexit 9\n' >"$tmp/empty-path/nvidia-smi"
+check "a driver that cannot be reached is no GPU" "0" "$(unset OLLAMA_BUDGET_GPU_BYTES; PATH="$tmp/empty-path:$PATH" ollama_gpu_mem_bytes)"
+rm -f "$tmp/empty-path/nvidia-smi"
+# df as it prints a filesystem whose name has a space: the columns move.
+mkdir -p "$tmp/fake-df"
+fake_df() { printf '#!/bin/sh\necho "Filesystem 1024-blocks Used Available Capacity Mounted on"\necho "%s"\n' "$1" >"$tmp/fake-df/df"; chmod +x "$tmp/fake-df/df"; }
+df_free() { ( unset OLLAMA_BUDGET_DISK_FREE_BYTES; PATH="$tmp/fake-df:$PATH" ollama_disk_free_bytes / ); }
+fake_df "/dev/disk1s1 1000000 900000 100000 90% /"
+check "df, plainly" "$((100000 * 1024))" "$(df_free)"
+fake_df "//user@nas/Model Store 1000000 900000 100000 90% /Volumes/Model Store"
+check "df, a filesystem name with a space: available, not used" "$((100000 * 1024))" "$(df_free)"
+fake_df "map auto_home 500 400 100 80% /System/Volumes/Data/home"
+check "df, macOS auto_home" "$((100 * 1024))" "$(df_free)"
+printf '#!/bin/sh\nexit 1\n' >"$tmp/fake-df/df"
+check "df failing is nothing, and success" "0:" "$(df_free; echo "$?:")"
+check "a stated figure with a leading zero is decimal" "8" "$(OLLAMA_BUDGET_DISK_FREE_BYTES=08 ollama_disk_free_bytes /)"
 
 # --- the budget -------------------------------------------------------------------
 note "the budget"
@@ -249,17 +357,53 @@ said "the refusal gives what it needs (with headroom) and what there is" "$tmp/e
 check "headroom counts: 7 GB plus 20 percent does not fit 8 GB" "2" "$(budget 0 $((7 * GB)) /models)"
 check "and fits without headroom" "0" "$(OLLAMA_MEM_HEADROOM_PERCENT=0 budget 0 $((7 * GB)) /models)"
 check "a GPU that can hold it is enough" "0" "$(OLLAMA_BUDGET_GPU_BYTES=$((48 * GB)) budget 0 $((30 * GB)) /models)"
+check "memory and GPU hold it together: 16 and 12 take a 20 GB model" "0" "$(OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((16 * GB)) OLLAMA_BUDGET_GPU_BYTES=$((12 * GB)) budget 0 $((20 * GB)) /models)"
+check "and not a 24 GB one (28.8 with headroom, against 28)" "2" "$(OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((16 * GB)) OLLAMA_BUDGET_GPU_BYTES=$((12 * GB)) budget 0 $((24 * GB)) /models)"
+check "exactly the machine's memory fits" "0" "$(OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((12 * GB)) budget 0 $((10 * GB)) /models)"
+check "one step over does not" "2" "$(OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((12 * GB - 1)) budget 0 $((10 * GB)) /models)"
+check "memory unknown, GPU large enough: it fits" "0" "$(OLLAMA_BUDGET_MEM_TOTAL_BYTES=0 OLLAMA_BUDGET_GPU_BYTES=$((48 * GB)) budget 0 $((30 * GB)) /models)"
+check "and nothing is said" "" "$(cat "$tmp/err")"
+check "memory unknown, GPU too small: said and skipped" "0" "$(OLLAMA_BUDGET_MEM_TOTAL_BYTES=0 OLLAMA_BUDGET_GPU_BYTES=$((8 * GB)) budget 0 $((30 * GB)) /models)"
+said "it says the memory could not be read" "$tmp/err" "could not be read"
 roomy
 export OLLAMA_BUDGET_MEM_AVAILABLE_BYTES=$((2 * GB))
 check "fits the machine but not what is free now: a warning, not a refusal" "0" "$(budget 0 $((5 * GB)) /models)"
 said "and it says so" "$tmp/err" "available right now"
+check "what the GPU holds is not asked of the memory that is free" "" "$(OLLAMA_BUDGET_GPU_BYTES=$((4 * GB)) ollama_budget_check 0 $((5 * GB)) /models 2>&1)"
 roomy
 export OLLAMA_BUDGET_DISK_FREE_BYTES=$((1 * GB)) OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((4 * GB))
 check "neither fits" "3" "$(budget $((5 * GB)) $((40 * GB)) /models)"
 check "OLLAMA_IGNORE_BUDGET=1 lets it through" "0" "$(OLLAMA_IGNORE_BUDGET=1 budget $((5 * GB)) $((40 * GB)) /models)"
 check "and still says both" "2" "$(grep -c "Not enough" "$tmp/err")"
+check "as warnings, not as errors" "2:0" "$(grep -c 'Warning' "$tmp/err"):$(grep -c 'Error' "$tmp/err")"
 roomy
 check "garbage for a size is zero, not a crash" "0" "$(budget abc '' /models)"
+export OLLAMA_BUDGET_DISK_FREE_BYTES=$((14 * GB))
+check "a reserve written 08 is eight, not an error" "0" "$(OLLAMA_DISK_RESERVE_GB=08 budget $((5 * GB)) 0 /models)"
+check "(and said nothing about octal)" "" "$(cat "$tmp/err")"
+check "a reserve written 010 is ten, not eight" "1" "$(OLLAMA_DISK_RESERVE_GB=010 budget $((5 * GB)) 0 /models)"
+check "a headroom written 08 is eight percent" "0" "$(OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((11 * GB)) OLLAMA_MEM_HEADROOM_PERCENT=08 budget 0 $((10 * GB)) /models)"
+check "a figure too long to count is not a figure" "1" "$(OLLAMA_BUDGET_DISK_FREE_BYTES=99999999999999999999 PATH="$tmp/fake-df:$PATH" budget $((5 * GB)) 0 /models >/dev/null; grep -c "could not be read" "$tmp/err")"
+check "a headroom beyond any machine is the default" "0" "$(OLLAMA_MEM_HEADROOM_PERCENT=999999999999 budget 0 $((5 * GB)) /models)"
+roomy
+fake_df "/dev/disk1s1 1000000 900000 100000 90% /"
+
+note "a caller that runs strict"
+strict() { # strict <script>: run it in a new bash with -euo pipefail, the module loaded
+  PATH="$tmp/fake-df:$tmp/empty-path:$PATH" bash -euo pipefail -c "source ./helpers.sh; shlib_import logging ollama_endpoint; $1" 2>"$tmp/err"
+}
+printf '#!/bin/sh\nexit 1\n' >"$tmp/fake-df/df"
+printf '#!/bin/sh\nexit 9\n' >"$tmp/empty-path/nvidia-smi"; chmod +x "$tmp/empty-path/nvidia-smi"
+check "a failing df and a failing nvidia-smi are said and skipped, not fatal" "rc=0 after" "$(unset OLLAMA_BUDGET_DISK_FREE_BYTES OLLAMA_BUDGET_GPU_BYTES; strict 'ollama_budget_check 5000000000 1000000000 /m; echo "rc=$? after"')"
+said "the skipped disk check is said" "$tmp/err" "could not be read"
+rm -f "$tmp/empty-path/nvidia-smi"
+fake_df "/dev/disk1s1 1000000 900000 100000 90% /"
+check "no arguments do not end a strict caller" "1 0 0 0 after" "$(strict 'a=0; ollama_endpoint_models || a=$?; b=0; ollama_models_file_get || b=2; ollama_models_file_names; ollama_model_tagged; c=0; ollama_endpoint_ensure_models || c=$?; ollama_models_missing; echo "$a 0 $c 0 after"')"
+check "a refused name returns its code to a strict caller" "2 after" "$(strict "r=0; ollama_models_file_get '$tmp/env.env' 'A/B' || r=\$?; echo \"\$r after\"")"
+reset main:7b; echo big >"$tmp/state/mode"
+check "a long answer spread over lines is still an Ollama's, under pipefail" "1501" "$(strict "ollama_endpoint_models '$URL' | wc -l | tr -d ' '")"
+check "and a model in a long list is found" "" "$(strict "ollama_models_missing 'filler-0:latest' \"\$(ollama_endpoint_models '$URL')\"")"
+rm -f "$tmp/state/mode"
 
 # --- ensure -----------------------------------------------------------------------
 note "making sure an Ollama has its models"
@@ -300,6 +444,64 @@ check "what answers is not an Ollama" "4" "$(ensure small:3b)"
 check "nothing asked of it" "" "$(pulled)"
 reset
 check "no models asked for is success" "0" "$(ensure)"
+
+note "one pull"
+reset
+check "a pull that ends in success" "0" "$(ollama_endpoint_pull "$URL" small:3b 2>"$tmp/err"; echo $?)"
+check "is asked for as a stream, so progress keeps the line alive" "True" "$(tail -n 1 "$tmp/state/stream")"
+check "a slash and a tag survive" "hf.co/org/model:Q4" "$(ollama_endpoint_pull "$URL" hf.co/org/model:Q4 2>/dev/null; tail -n 1 "$tmp/state/pulled")"
+check "an error in the stream is a failure, whatever the status" "1" "$(ollama_endpoint_pull "$URL" broken:1b 2>"$tmp/err"; echo $?)"
+said "and what Ollama said is passed on" "$tmp/err" "file does not exist"
+check "HTTP 500 is a failure" "1" "$(ollama_endpoint_pull "$URL" http500:1b 2>"$tmp/err"; echo $?)"
+said "with its reason" "$tmp/err" "no space left on device"
+check "success inside another object is not success" "1" "$(ollama_endpoint_pull "$URL" nested:1b 2>/dev/null; echo $?)"
+reset
+check "what is not a model reference is not sent" "1:" "$(ollama_endpoint_pull "$URL" 'x", "insecure": true, "y": "z' 2>/dev/null; echo "$?:$(pulled)")"
+check "nor a name with a quote" "1:" "$(ollama_endpoint_pull "$URL" 'a"b' 2>/dev/null; echo "$?:$(pulled)")"
+check "nothing listening is a failure" "1" "$(ollama_endpoint_pull "http://127.0.0.1:1" small:3b 2>/dev/null; echo $?)"
+
+note "the corners of making sure"
+roomy; reset
+check "a model given twice, and under two spellings" "0" "$(ensure small:3b small:3b library/small:3b)"
+check "is pulled once" "small:3b" "$(pulled)"
+reset main:7b
+export OLLAMA_BUDGET_DISK_FREE_BYTES=$((16 * GB))
+check "a longer name missing does not make the shorter one missing: 5 GB to pull, not 9.7" "0" "$(ensure main:7b main:7b-instruct)"
+check "and only it is pulled" "main:7b-instruct" "$(pulled)"
+roomy; reset
+check "an argument that is not a model reference stops everything" "8" "$(ensure small:3b 'bad name')"
+check "before anything is asked" ":" "$(pulled):$(cat "$tmp/state/asked" 2>/dev/null)"
+reset hf.co/org/giant:Q8
+check "a present model of unknown size does not stop the rest" "0" "$(ensure small:3b hf.co/org/giant:Q8)"
+said "but it is said that memory was not checked for it" "$tmp/err" "hf.co/org/giant:Q8" "memory was not checked"
+reset
+printf '#!/bin/sh\nexit 1\n' >"$tmp/fake-df/df"
+check "free disk unknown is the same lack as size unknown: nothing is pulled" "7:" "$(unset OLLAMA_BUDGET_DISK_FREE_BYTES; PATH="$tmp/fake-df:$PATH" ollama_endpoint_ensure_models "$URL" /models small:3b >/dev/null 2>"$tmp/err"; echo "$?:$(pulled)")"
+said "and it names both ways through" "$tmp/err" "OLLAMA_BUDGET_DISK_FREE_BYTES" "OLLAMA_IGNORE_BUDGET"
+check "unless the budget is ignored" "0:small:3b" "$(unset OLLAMA_BUDGET_DISK_FREE_BYTES; PATH="$tmp/fake-df:$PATH" OLLAMA_IGNORE_BUDGET=1 ollama_endpoint_ensure_models "$URL" /models small:3b >/dev/null 2>&1; echo "$?:$(pulled)")"
+fake_df "/dev/disk1s1 1000000 900000 100000 90% /"
+roomy; reset
+ollama_endpoint_ensure_models "$URL" /models small:3b >"$tmp/out" 2>"$tmp/err"
+check "every message goes to stderr; stdout is the caller's" "" "$(cat "$tmp/out")"
+said "the pull is announced there" "$tmp/err" "Pulling small:3b"
+reset
+check "a pull that fails says why" "6" "$(ensure http500:1b)"
+said "in the words Ollama used" "$tmp/err" "no space left on device"
+
+note "what is said about an endpoint"
+check "a URL is shown without its user and password" "http://host.example:11434/x" "$(_ollama_ep_shown "http://user:s3cret@host.example:11434/x")"
+check "a URL without them is shown as it is" "$URL" "$(_ollama_ep_shown "$URL")"
+check "an at sign in the path is not a password" "http://host.example/a@b" "$(_ollama_ep_shown "http://host.example/a@b")"
+SECRET_URL="http://user:s3cret@${URL#http://}"
+reset
+ollama_endpoint_ensure_models "$SECRET_URL" /models small:3b >"$tmp/out" 2>"$tmp/err"
+check "the pull went through with the credentials in the URL" "small:3b" "$(pulled)"
+reset
+OLLAMA_PULL_MISSING=0 ollama_endpoint_ensure_models "$SECRET_URL" /models small:3b >>"$tmp/out" 2>>"$tmp/err"
+echo web >"$tmp/state/mode"
+ollama_endpoint_ensure_models "$SECRET_URL" /models small:3b >>"$tmp/out" 2>>"$tmp/err"
+if grep -q "s3cret" "$tmp/out" "$tmp/err"; then error "a password reached a message: $(cat "$tmp/out" "$tmp/err")"; else ok "no message carries the password (pulling, refusing, unreachable)"; fi
+said "and each still names the host" "$tmp/err" "${URL#http://}"
 
 if [[ "$failures" -gt 0 ]]; then
   note "FAILED: $failures"

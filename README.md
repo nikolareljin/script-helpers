@@ -196,6 +196,7 @@ Loader and modules
 - `hosts.sh` — `/etc/hosts` helpers.
 - `clipboard.sh` — `copy_to_clipboard`.
 - `ollama.sh` — Ollama helpers (`ollama_install_cli`, prepare models index from webfarmer/ollama-get-models, dialog selection, `ollama_pull_model`, `ollama_run_model`) and runtime helpers for local/docker (`ollama_runtime_*`).
+- `ollama_endpoint.sh`: for a start script. Which models a project needs (`ollama_models_required`), which an Ollama has (`ollama_endpoint_models`), and a disk and memory check before anything is pulled (`ollama_budget_check`, `ollama_endpoint_ensure_models`).
 
 Notes for Ollama model indexing:
 - Requires Python 3 (`python3` preferred; falls back to `python` if it is 3.x).

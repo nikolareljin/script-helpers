@@ -27,7 +27,21 @@ ollama_endpoint_ensure_models "http://127.0.0.1:11434" "$HOME/.ollama/models" $m
 Works against an Ollama on this machine and one in a container alike: every
 question is asked over its HTTP API, and the `ollama` CLI is not needed.
 
-Requires `curl`, `awk`, `sed`, `df`. Runs on bash 3.2 and BSD userland.
+Requires `curl`, `awk`, `sed`, `grep`, `df`, `tail`, `tr`, `cut`, `dirname`.
+Runs on bash 3.2 and BSD userland, under `set -euo pipefail` or without it.
+
+Expected imports
+----------------
+
+`logging` (`print_info`, `print_warning`, `print_error`). Every message goes
+to stderr; stdout carries only what a function is documented to print.
+
+The models file
+---------------
+
+One assignment per line, read as an env file is read: `export ` before the
+name, spaces around `=`, one pair of quotes around the value, a trailing
+` # comment` and a carriage return are not part of the value.
 
 Environment
 -----------
@@ -38,32 +52,36 @@ Environment
 - `OLLAMA_IGNORE_BUDGET` -- `1` turns each refusal of the budget into a warning. Default off.
 - `OLLAMA_REGISTRY_URL` -- where model sizes are asked. Default `https://registry.ollama.ai`.
 - `OLLAMA_REGISTRY_TIMEOUT` -- seconds per size request. Default `15`.
-- `OLLAMA_PULL_TIMEOUT` -- seconds to wait for one pull. Default `3600`.
+- `OLLAMA_PULL_STALL_SECONDS` -- a pull is given up when nothing arrives for this long. Default `600`. There is no deadline for the whole download.
 - `OLLAMA_BUDGET_DISK_FREE_BYTES`, `OLLAMA_BUDGET_MEM_TOTAL_BYTES`, `OLLAMA_BUDGET_MEM_AVAILABLE_BYTES`,
-  `OLLAMA_BUDGET_GPU_BYTES` -- state a figure instead of having it read: for a machine where it cannot be
-  read, for an Ollama on another machine, and for tests.
+  `OLLAMA_BUDGET_GPU_BYTES` -- state a figure instead of having it read. The figures read are this machine's:
+  for an Ollama on another machine, state all four.
+
+Numbers are decimal: `08` is eight. A value that is not a whole number of at most 15 digits is not used.
 
 Functions
 ---------
 
 - ollama_models_file_get file NAME
   - Purpose: Print the value of `NAME` in a models file.
-  - Behavior: Spaces around the name and the value are not part of it, nor is a carriage return; the last line for a name wins; a longer name does not match.
-  - Returns: 0, printing nothing when the file or the name is absent.
+  - Behavior: The last line for a name wins; a longer name does not match.
+  - Returns: 0, printing an empty line when the file or the name is absent; 2 when `NAME` is not a variable name (it is never put into a pattern unchecked).
 
 - ollama_models_file_names file
-  - Purpose: Print every name the file sets, one per line, in file order, each once.
+  - Purpose: Print every name the file assigns, one per line, in file order, each once.
 
 - ollama_model_tagged model
-  - Purpose: Print the model with a tag; a name without one gets `:latest`, which is how Ollama lists it.
+  - Purpose: Print the model as Ollama lists it: with a tag (`:latest` when none is given), without the default registry's host or its `library/` namespace.
   - Behavior: The tag is looked for in the last path segment only, so `registry.example:5000/team/model` gets `:latest` rather than being read as tagged `5000/team/model`.
 
 - ollama_models_required file [NAME...]
-  - Purpose: Print the models a start needs, tagged, one per line, each once.
-  - Behavior: With no `NAME`, every name in the file except a large tier's (`NAME_LARGE`, `NAME_LARGE_VRAM_GB`). For each name a non-blank value in the environment wins over the file, trimmed; load the project's `.env` first if it should count.
+  - Purpose: Print the models a start needs, as Ollama lists them, one per line, each once.
+  - Behavior: With no `NAME`, every name in the file except a large tier's (a name ending in `_LARGE` or `_LARGE_VRAM_GB`). For each name a non-blank value in the environment wins over the file, trimmed; load the project's `.env` first if it should count.
+  - Returns: 0; 2, printing nothing, when a `NAME` is not a variable name. A list cut short at the bad name would start a project with some of its models.
 
 - ollama_endpoint_models base_url [timeout_seconds=5]
   - Purpose: Print the models the Ollama at `base_url` has, as it names them.
+  - Behavior: A `name` nested inside a model's details is not a model. An answer spread over lines is read the same as one on a single line.
   - Returns: 0; 1 when nothing answers there, or when what answers is not an Ollama (a web server that says 200 to everything).
 
 - ollama_models_missing needed present
@@ -72,8 +90,8 @@ Functions
 
 - ollama_registry_size_bytes model
   - Purpose: Print the size of the model's download in bytes, from the registry manifest.
-  - Behavior: Sums every layer and the config. Layers the machine already holds for another model are counted again, so the figure can only overstate.
-  - Returns: 0; 1 when the registry does not answer or has no such model; 2 for a model on another registry host (for example `hf.co/...`), which is not asked for.
+  - Behavior: Sums every layer and the config. Layers the machine already holds for another model are counted again, so the figure can only overstate. An answer without `layers` (a list of manifests, a web page) is not a manifest and is not summed.
+  - Returns: 0; 1 when the registry does not answer, has no such model, answers with something else, or the argument is not a model reference; 2 for a model on another registry host (for example `hf.co/...` or `localhost:5000/...`), which is not asked for.
 
 - ollama_disk_free_bytes path
   - Purpose: Print the bytes free on the filesystem holding `path`, or its nearest existing parent. Prints nothing when it cannot be told.
@@ -82,25 +100,26 @@ Functions
   - Purpose: Print the machine's memory, and what a new process could have now. Linux reads `/proc/meminfo`; macOS reads `sysctl hw.memsize` and `vm_stat` (free plus inactive pages). Prints nothing when it cannot be told.
 
 - ollama_gpu_mem_bytes
-  - Purpose: Print the memory of the largest NVIDIA GPU (`nvidia-smi`), or `0`. Apple silicon shares memory with its GPU and is covered by the total.
+  - Purpose: Print the memory of this machine's NVIDIA GPUs together (`nvidia-smi`), or `0`: Ollama spreads a model over them. A driver that cannot be reached counts as no GPU. Apple silicon shares memory with its GPU and is covered by the total.
 
 - ollama_budget_check pull_bytes largest_model_bytes models_dir
   - Purpose: Say whether the machine can take a download of `pull_bytes` into `models_dir` and then load a model of `largest_model_bytes`.
   - Behavior:
     - Disk: what is free after the download must stay above `OLLAMA_DISK_RESERVE_GB`.
-    - Memory: the largest model plus `OLLAMA_MEM_HEADROOM_PERCENT` must fit the machine's memory or its GPU's. Not fitting what is available *right now* is a warning only: that changes by the minute, and a check that refuses a machine that could run the model gets switched off.
+    - Memory: the largest model plus `OLLAMA_MEM_HEADROOM_PERCENT` must fit the machine's memory and its GPUs' together, since Ollama splits a model between them. More than that is a refusal. Not fitting what is available *right now* is a warning only: that changes by the minute, and a check that refuses a machine that could run the model gets switched off.
     - A figure that cannot be read is said and skipped, not guessed.
-    - Each refusal is one line on stderr with the numbers and the setting that governs it.
+    - Each refusal is a message on stderr with the numbers and the setting that governs it.
   - Returns: 0 fits; 1 disk; 2 memory; 3 both. Always 0 with `OLLAMA_IGNORE_BUDGET=1`.
   - Note: the memory figure is an estimate (file size plus headroom). What a model needs to load also depends on the context length it is run with.
 
 - ollama_endpoint_pull base_url model
-  - Purpose: Ask that Ollama to pull one model and wait for it.
-  - Returns: 0 when it reports success; 1 otherwise.
+  - Purpose: Ask that Ollama to pull one model and wait for it, however long the download takes.
+  - Behavior: Asked for as a stream, so progress keeps the connection alive; given up when nothing arrives for `OLLAMA_PULL_STALL_SECONDS`. An error anywhere in the stream is a failure whatever the HTTP status. What is not a model reference (letters, digits and `. _ - / : @`) is not sent.
+  - Returns: 0 when the stream ends in success; 1 otherwise, with what Ollama said last on stderr.
 
 - ollama_endpoint_ensure_models base_url models_dir model...
   - Purpose: Make sure that Ollama has every model listed, pulling what is missing only when everything fits.
-  - Behavior: Lists what the endpoint has; if nothing is missing, returns without asking the registry anything. Otherwise sizes every needed model (the missing ones add up to the download, the largest of all of them is what must fit in memory), checks the budget, and only then pulls, in the order given. Nothing is pulled unless everything fits: a start that ends with half its models is worse than one that says no.
+  - Behavior: Lists what the endpoint has; if nothing is missing, returns without asking the registry anything. Otherwise sizes every needed model (the missing ones add up to the download, the largest of all of them is what must fit in memory), checks the budget, and only then pulls, in the order given. Nothing is pulled unless everything fits: a start that ends with half its models is worse than one that says no. A credential in `base_url` is used and never printed.
   - `models_dir` is where that Ollama keeps its models, for the disk check: a directory on this machine, or Docker's data root for an Ollama in a container.
   - Returns:
     - 0 every model is there
@@ -108,7 +127,9 @@ Functions
     - 4 nothing answers at `base_url` as an Ollama
     - 5 models are missing and `OLLAMA_PULL_MISSING=0`
     - 6 a pull failed
-    - 7 a missing model's size could not be learned, so nothing says whether it fits (`OLLAMA_IGNORE_BUDGET=1` pulls anyway)
+    - 7 the budget could not be checked: a missing model's size, or the free disk space, could not be learned (`OLLAMA_IGNORE_BUDGET=1` pulls anyway)
+    - 8 an argument is not a model reference
+  - A model that is already there and whose size cannot be learned does not stop the rest; it is said that memory was not checked for it.
 
 What this module does not do
 ----------------------------

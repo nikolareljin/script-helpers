@@ -8,11 +8,15 @@
   (`ollama_endpoint_models`, `ollama_models_missing`), learns the size of what is missing from the
   registry manifest (`ollama_registry_size_bytes`), and checks it against the machine
   (`ollama_budget_check`): the download must leave `OLLAMA_DISK_RESERVE_GB` free (default 10), and
-  the largest model plus `OLLAMA_MEM_HEADROOM_PERCENT` (default 20) must fit the machine's memory or
-  its GPU's. `ollama_endpoint_ensure_models` puts it together and pulls only when everything fits:
-  no partial pull, one line per refusal with the numbers. Works for an Ollama on the host and one in
-  a container, with no `ollama` CLI; Linux and macOS figures are read, and each can be stated
-  through an `OLLAMA_BUDGET_*` override. bash 3.2 and BSD userland.
+  the largest model plus `OLLAMA_MEM_HEADROOM_PERCENT` (default 20) must fit the machine's memory
+  and its GPUs' together. `ollama_endpoint_ensure_models` puts it together and pulls only when
+  everything fits: no partial pull, and each refusal gives the numbers and the setting behind it.
+  Not knowing a missing model's size or the free disk space is a refusal too, with the override
+  named. Works for an Ollama on the host and one in a container, with no `ollama` CLI; a pull has
+  no deadline and is given up only when it stalls. Linux and macOS figures are read, and each can
+  be stated through an `OLLAMA_BUDGET_*` override. Names and model references are checked before
+  they reach a pattern, a URL or a request body, and a credential in the endpoint URL is never
+  printed. bash 3.2 and BSD userland, with or without `set -euo pipefail`.
 
 ## 2026-09-29 — v0.44.1
 
