@@ -32,7 +32,7 @@ Environment
   - Purpose: Convenience function to print the expected JSON path within the repo.
 
 - ollama_list_models json_file
-  - Purpose: Print model names from the JSON index, in either of its shapes (a top-level array, or `{"models": [...]}`).
+  - Purpose: Print model names from the JSON index, in either of its shapes (a top-level array, or `{"models": [...]}`). Only names that can be a model reference are printed, as in the menu.
 
 - ollama_model_menu_cache_path json_file
   - Purpose: Build the persistent parsed menu-cache path for a JSON model index.
@@ -48,7 +48,7 @@ Environment
 
 - ollama_dialog_select_model json_file [current_model]
   - Purpose: Use a dialog menu to select a model from the index; returns the selected full model name on stdout.
-  - Behavior: Uses the cache at `OLLAMA_MODEL_MENU_CACHE_FILE`, or at the default cache path, while it is non-empty, newer than the index and less than 30 minutes old; otherwise the cache is rebuilt first, so an index that changed is in the menu at once. A cached row whose name cannot be a model reference is skipped. `current_model` is made the default item whatever its letter case. When the dialog is cancelled, the function prints a message to stderr and returns a non-zero status, so callers using `set -e` must handle cancellations explicitly to avoid script termination. If the prepared cache contains no selectable models, the function returns a clear stderr error instead of invoking an empty dialog.
+  - Behavior: Uses the cache at `OLLAMA_MODEL_MENU_CACHE_FILE`, or at the default cache path, while it is non-empty, newer than the index, less than 30 minutes old and has no empty column (one written by an earlier version may); otherwise the cache is rebuilt first, so an index that changed is in the menu at once. A cached row whose name cannot be a model reference is skipped. `current_model` is made the default item whatever its letter case. When the dialog is cancelled, the function prints a message to stderr and returns a non-zero status, so callers using `set -e` must handle cancellations explicitly to avoid script termination. If the prepared cache contains no selectable models, the function returns a clear stderr error instead of invoking an empty dialog.
 
 - ollama_dialog_select_size json_file model [current_size]
   - Purpose: Use a dialog menu to select a size for the model; returns `latest` if none are listed. Only a size that can be a tag (letters, digits and `. _ -`) is offered.

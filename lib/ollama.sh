@@ -289,7 +289,8 @@ ollama_list_models() {
     print_error "Models JSON not found: $json_file" >&2
     return 1
   fi
-  jq -r "$_OLLAMA_JQ_MODELS"' | .[].name | select(type == "string")' "$json_file"
+  # Only names that can be a model reference, as the menu offers them.
+  jq -r --arg name_re "$_OLLAMA_NAME_RE" "$_OLLAMA_JQ_MODELS"' | .[].name | select(type == "string" and test($name_re))' "$json_file"
 }
 
 ollama_model_menu_cache_path() {
@@ -417,7 +418,10 @@ ollama_dialog_select_model() {
   # Rebuilt unless the cache is newer than the index it was made from: an
   # index that changed (a refresh, an entry added by hand) used to keep its
   # old menu for half an hour.
-  if [[ ! -s "$cache_file" ]] || [[ ! "$cache_file" -nt "$json_file" ]] || ! ollama_model_menu_cache_is_fresh "$cache_file"; then
+  # Also when it has an empty column: only a version that lost that column
+  # in reading wrote one, and its rows would be read wrongly here too.
+  if [[ ! -s "$cache_file" ]] || [[ ! "$cache_file" -nt "$json_file" ]] \
+      || grep -q "$(printf '\t\t')" "$cache_file" || ! ollama_model_menu_cache_is_fresh "$cache_file"; then
     cache_file="$(ollama_prepare_model_menu_cache "$json_file" "$cache_file")" || return 1
   fi
 

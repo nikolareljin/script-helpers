@@ -344,6 +344,13 @@ INDEX
   printf '[{"name":"unused"}]\n' >"$tmp/index-hand.json"; sleep 1; touch "$tmp/menu-hand.cache.tsv"
   model="$(OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-hand.cache.tsv" FAKE_DIALOG_ANSWER=0002 ollama_dialog_select_model "$tmp/index-hand.json" </dev/null 2>/dev/null)"
   check "a cached row whose name is not a reference is skipped" "also/fine" "$model"
+  # A cache from before this fix has an empty sizes column. It is not read: it
+  # is made again from the index, however new it is.
+  printf '[{"name":"from-the-index","description":"words","sizes":[]}]\n' >"$tmp/index-old.json"; sleep 1
+  printf 'from-the-old-cache\tfrom-the-old-cache\t\twords\n' >"$tmp/menu-old.cache.tsv"
+  model="$(OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-old.cache.tsv" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model "$tmp/index-old.json" </dev/null 2>/dev/null)"
+  check "a cache written with an empty column is made again" "from-the-index" "$model"
+  check "names that are not a reference are not listed either" "good:7b registry.example:5000/team/model" "$(ollama_list_models "$tmp/index-bad.json" | sort | tr '\n' ' ' | sed 's/ $//')"
   # Case does not tell two models apart.
   printf '[{"name":"alpha"},{"name":"hf.co/Org/Model-GGUF"}]\n' >"$tmp/index-case.json"
   : >"$tmp/log"
