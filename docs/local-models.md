@@ -20,6 +20,9 @@ Contents
 - [What the person sees](#what-the-person-sees)
 - [Settings](#settings)
 - [Exit codes and what to do with them](#exit-codes-and-what-to-do-with-them)
+- [Messages and what they mean](#messages-and-what-they-mean)
+- [Adopting it in an existing project](#adopting-it-in-an-existing-project)
+- [In CI](#in-ci)
 - [Dialog boxes from a script that captures output](#dialog-boxes-from-a-script-that-captures-output)
 - [Testing a project that uses this](#testing-a-project-that-uses-this)
 - [Developing the module](#developing-the-module)
@@ -51,7 +54,11 @@ What goes into a repository
    `_XLARGE` is the model for another class of machine; a name ending in
    `_RAM_GB` or `_VRAM_GB` after that is a number for the pick. Neither is a
    model this machine needs by default, and `ollama_models_required` skips
-   them.
+   them. **Every other name is read as a model**, so the file holds models
+   only: `AI_MODEL_TIER=standard` or `OLLAMA_TIMEOUT_MS=180000` written there
+   is checked as the model `standard:latest` or `180000:latest`, and the start
+   stops with exit 7 ("the registry has no model named ..."). Settings go in
+   `.env`.
 
    The file may be written by hand or generated from a list shared by
    several projects; a generated one says so in its header, and is not edited.
@@ -96,13 +103,16 @@ What that one call does:
   (`_SMALL`, `_LARGE`, `_XLARGE`), as Ollama names them (`nomic-embed-text`
   becomes `nomic-embed-text:latest`). With names after the two files
   (`ollama_project_ensure_models ai-models.env .env OLLAMA_MODEL CLASSIFY_MODEL`)
-  only those are checked; with `""` for the models file, the names are taken
-  from `.env` and the environment alone.
+  only those are checked. With `""` for the models file the names must be
+  given (`ollama_project_ensure_models "" .env OLLAMA_MODEL`) and their values
+  come from `.env` and the environment alone; `""` with no names is exit 9,
+  because it would check nothing.
 - The address is `OLLAMA_URL`, `OLLAMA_BASE_URL` or `OLLAMA_HOST`, whichever
   has a value first, and `http://127.0.0.1:11434` when none has. A project
   with its own name for it says so: `OLLAMA_URL_VARS=MYAPP_OLLAMA_URL`, in
-  the environment or in `.env`. What projects store there is accepted as it is: `host:port`, a URL, a URL with
-  the API path (`http://ollama:11434/api/generate`).
+  the environment or in `.env`. What projects store there is accepted as it
+  is: `host:port`, a URL, a URL with the API path
+  (`http://ollama:11434/api/generate`, `/v1/chat/completions`).
 - `OLLAMA_MODE` says where that Ollama runs; see the next section.
 - It runs under `set -euo pipefail` or without it, under any `IFS`, and
   cannot end a strict caller by itself.
@@ -248,8 +258,8 @@ All optional, read from the environment or, through
 | `OLLAMA_MODELS` | see `ollama_models_dir` | Where that Ollama keeps its models, for the disk check. |
 | `OLLAMA_PULL_MISSING` | on (`remote`: off) | off: never pull; a missing model is exit 5. |
 | `OLLAMA_IGNORE_BUDGET` | off | on: a refusal of the disk or memory check becomes a warning, and an unknown size does not stop the pull. For a machine you know better than the numbers. |
-| `OLLAMA_DISK_RESERVE_GB` | 10 | Free space that must remain after the download. |
-| `OLLAMA_MEM_HEADROOM_PERCENT` | 20 | Added to the largest model's file size for the memory check (context, runtime). |
+| `OLLAMA_DISK_RESERVE_GB` | 10 | Free space that must remain after the download. Not a number, or above 100000, is read as a typo: 10. |
+| `OLLAMA_MEM_HEADROOM_PERCENT` | 20 | Added to the largest model's file size for the memory check (context, runtime). Not a number, or above 1000: 20. |
 | `OLLAMA_PULL_STALL_SECONDS` | 600 | A pull is given up when nothing arrives for this long. |
 | `OLLAMA_REGISTRY_URL` | `https://registry.ollama.ai` | Where sizes are asked. |
 | `OLLAMA_REGISTRY_TIMEOUT` | 15 | Seconds per size request. |
@@ -277,6 +287,10 @@ Exit codes and what to do with them
 | 8 | a model is not a model reference | a space, a quote, `@`, `..`, or an empty part such as `qwen3:` |
 | 9 | the project's configuration (`ollama_project_ensure_models` only): no models file at that path, a name that is not a variable name, an address that is not one, an `OLLAMA_MODE` that is none of the three or that the address contradicts, a published port that is not one, or a setting in `.env` the caller holds read-only | the message names the variable |
 
+`ollama_budget_check`, called on its own, also returns 4 when a size it is
+given is not a whole number: a size that was never measured is not read as
+zero.
+
 1 to 3 are always the disk and the memory. A project whose backend waits for
 Ollama by itself may go on from 4:
 `ollama_project_ensure_models ai-models.env .env || { rc=$?; [[ $rc -eq 4 ]] || exit $rc; }`.
@@ -284,6 +298,79 @@ Ollama by itself may go on from 4:
 `ollama_models_required` on its own: 1 for a models file that is named and
 absent, 2 for a `NAME` that is not a variable name. Both print nothing on
 stdout, so with `|| exit $?` the start stops instead of checking nothing.
+
+Messages and what they mean
+---------------------------
+
+What the start prints, and the one thing to do about each. `<...>` is filled
+in by the message.
+
+| Message (start) | Exit | What to do |
+|---|---|---|
+| `No Ollama answers at <address>.` | 4 | start Ollama, or fix the address. A one-word host in an unset mode adds a second line about compose service names: set `OLLAMA_MODE=docker` |
+| `<VAR> is not the address of an Ollama.` | 9 | the value is not shown on purpose; it is a host, `host:port` or an http(s) URL, and a password in it is percent-encoded |
+| `OLLAMA_MODE is not local ..., docker ... or remote ...` | 9 | fix the spelling; `host`, `container`, `api`, `external` and `auto` are also read |
+| `OLLAMA_MODE is local, and <address> is not this machine.` | 9 | `docker` for a container here, `remote` for another machine |
+| `OLLAMA_MODE is docker, and <address> is another machine.` | 9 | a container here is named by its compose service name or by `localhost` at its published port; otherwise `remote` |
+| `OLLAMA_PORT is not a port number (1 to 65535).` | 9 | the port the container is published on, as a number |
+| `<VAR> is set in <file> and cannot be set here: the caller holds it read-only.` | 9 | the start script made the variable `readonly`; remove that, or give it a value |
+| `No models file at <path>` | 9 | the path is relative to where the start script runs (the example `cd`s to the repository first) |
+| `No models file and no names` | 9 | name the file, or the variables after the two files |
+| `Not a model reference: <name>` | 8 | a space, a quote, `@`, `..` or an empty part (`qwen3:`) in a model name |
+| `The Ollama at <address> lacks: <models>. Pulling is off (OLLAMA_PULL_MISSING).` | 5 | `ollama pull <model>`, or set `OLLAMA_PULL_MISSING=1` |
+| `Nothing was pulled. Missing: <models>` | 1 to 3 | follows a disk or memory refusal, the line above it says which |
+| `That Ollama is another machine, so nothing is pulled from here ...` | 5 | pull on that machine, or ask for it (`OLLAMA_PULL_MISSING=1`) with its figures stated |
+| `That Ollama is another machine and lacks: <models>. Its free disk and its memory are not known here ...` | 7 | state `OLLAMA_BUDGET_DISK_FREE_BYTES` and `OLLAMA_BUDGET_MEM_TOTAL_BYTES` for that machine, or `OLLAMA_IGNORE_BUDGET=1` |
+| `The registry has no model named <model> ...` | 7 | a typo, or a setting written in the models file (see the models file above) |
+| `The size of <model> could not be learned ...` | 7 | no network to the registry; pull by hand, or `OLLAMA_IGNORE_BUDGET=1` |
+| `Free disk space at <dir> could not be read ...` | 7 | state `OLLAMA_BUDGET_DISK_FREE_BYTES`, or `OLLAMA_MODELS` when the directory is elsewhere |
+| `Not enough disk for the models: ...` | 1 | free space, or a smaller `OLLAMA_DISK_RESERVE_GB` for this machine |
+| `Not enough memory for the largest model: ...` | 2 | a smaller model in `.env` |
+| `The largest model needs about ... It fits this machine, but not beside what is running.` | (warning) | nothing; close something if the model is slow to load |
+| `The Ollama at <address> did not pull <model>: <what it said>` | 6 | what Ollama said: disk full, no network, an unknown model |
+| `<SETTING> is neither on (1, true, yes) nor off (0, false, no): ... Read as off.` | (warning) | fix the spelling; until then nothing is pulled and no check is skipped |
+
+Adopting it in an existing project
+----------------------------------
+
+Most projects already have an Ollama address and a model name somewhere.
+In order:
+
+1. Find every model name in the code and move it to `ai-models.env`; make the
+   code read the file (step 3 of "What goes into a repository").
+2. Keep the project's own name for the address: set
+   `OLLAMA_URL_VARS=MYAPP_OLLAMA_URL` in `.env` rather than renaming it.
+3. If the compose file starts its own Ollama, set `OLLAMA_MODE=docker` and
+   `OLLAMA_PORT` to the port it publishes. A service that publishes no port
+   cannot be reached from the start script; publish it on `127.0.0.1` or give
+   the call an address that can be reached.
+4. Add the one call to the start script before anything that uses a model,
+   and decide what 4 means for this project (stop, or go on because the
+   backend waits).
+5. Add `ai-models.env` to the image if a container reads it: an ignore rule
+   such as `*.env` in `.dockerignore` keeps it out unless it has its own `!`
+   line.
+6. Add the test of layer 1 below, so a model name cannot come back into the
+   code.
+
+Bash only: there is no PowerShell version of `lib/ollama_endpoint.sh`. A
+Windows project runs the start check under WSL or Git Bash, which have `curl`
+and `awk`.
+
+In CI
+-----
+
+A CI runner has no Ollama, or one that must not download gigabytes per run.
+Two ways:
+
+- Do not call the start check in CI; test the start script against a fake
+  Ollama instead (layer 2 below).
+- Call it with `OLLAMA_PULL_MISSING=0`: with the models already on the
+  runner it is 0, otherwise 5 with the missing ones named, and nothing is
+  downloaded.
+
+The registry is asked only when a model is missing, so a runner with its
+models cached needs no network for the check.
 
 Dialog boxes from a script that captures output
 -----------------------------------------------
@@ -341,13 +428,20 @@ budget is known, a pull of only some models, a model counted as present
 because a longer name contains it, a web server that answers 200 taken for
 an Ollama.
 
-**3. Once, for real.** On a machine with Ollama, name a small model it does
-not have for one run (`OLLAMA_EMBED_MODEL=smollm2:135m ./start`, 271 MB), so
-nothing the machine already has is touched: first with
-`OLLAMA_BUDGET_DISK_FREE_BYTES=1`, where the refusal must name the numbers
-and `ollama list` must not show the model, then without, watching the
-progress lines until it does. Remove it again afterwards
-(`ollama rm smollm2:135m`). Fakes encode what their author believes; this is
+**3. Once, for real.** Run a second Ollama for the test, with a models
+directory of its own, so nothing the machine's own Ollama has is touched:
+
+```bash
+scratch="$(mktemp -d)"
+OLLAMA_MODELS="$scratch" OLLAMA_HOST=127.0.0.1:11500 ollama serve &
+```
+
+Point the start at it (`OLLAMA_URL=http://127.0.0.1:11500 OLLAMA_MODELS="$scratch"`)
+and name a small model for one run (`OLLAMA_EMBED_MODEL=smollm2:135m`,
+271 MB): first with `OLLAMA_BUDGET_DISK_FREE_BYTES=1`, where the refusal must
+name the numbers and the scratch Ollama must list nothing, then without,
+watching the progress lines until it lists the model. Stop that Ollama and
+delete the scratch directory. Fakes encode what their author believes; this is
 the step that checks the belief. The first real pull showed that Ollama never
 reports a layer as complete, which no stand-in had said.
 
