@@ -559,6 +559,10 @@ ollama_endpoint_pull() {
   # the whole URL before the text is cut to length, so no part of it is left.
   verdict="${verdict#no:}"
   verdict="${verdict//"$url"/$(_ollama_ep_shown_url "$url")}"
+  # A proxy that echoes the request path ("Cannot POST /key/ollama/api/pull")
+  # would print the path, and a key in it, through the server's own words.
+  local path="${url#*://}"
+  if [[ "$path" == */* ]]; then path="/${path#*/}"; verdict="${verdict//"$path"/}"; fi
   verdict="$(_ollama_ep_said "$verdict")"
   print_error "The Ollama at $(_ollama_ep_shown_url "$url") did not pull ${model}: ${verdict:-no answer}" >&2
   return 1
@@ -745,14 +749,14 @@ ollama_endpoint_base_url() {
     *:*) _oep_host="${_oep_hostport%%:*}"; _oep_port="${_oep_hostport##*:}" ;;
     *) _oep_host="$_oep_hostport" ;;
   esac
-  [[ -z "$_oep_port" || "$_oep_port" =~ ^[0-9]+$ ]] || return 1
+  [[ -z "$_oep_port" || ( "$_oep_port" =~ ^[0-9]+$ && "${#_oep_port}" -le 5 && "$_oep_port" -ge 1 && "$_oep_port" -le 65535 ) ]] || return 1
   if [[ -z "$_oep_host" ]]; then
     # ":11434" and "http://:11434": the port of this machine, as Ollama reads it.
     [[ -n "$_oep_port" ]] || return 1
     _oep_host="127.0.0.1"
   fi
   case "$_oep_host" in
-    \[*\]) [[ "$_oep_host" =~ ^\[[0-9A-Fa-f:.%a-z]+\]$ ]] || return 1 ;;
+    \[*\]) [[ "$_oep_host" =~ ^\[[0-9A-Fa-f:.]+(%[A-Za-z0-9._-]+)?\]$ ]] || return 1 ;;
     *) [[ "$_oep_host" =~ ^[A-Za-z0-9._-]+$ ]] || return 1 ;;
   esac
   if [[ -z "$_oep_scheme" ]]; then
@@ -760,7 +764,12 @@ ollama_endpoint_base_url() {
     [[ -n "$_oep_port" ]] || _oep_port="11434"
   fi
   # The API path is not part of the base, when it is what the URL ends with.
-  _oep_path="$(printf '%s' "$_oep_path" | sed -E 's#/+$##; s#/(api(/(generate|chat|tags|embed|embeddings|pull|push|show|version|ps|create|copy|delete))?|v1(/(chat/completions|completions|embeddings|models))?)$##; s#/+$##')" || true
+  # An API path is removed however it was written: /v1, /api/v1, /api/v1/chat/completions.
+  local _oep_before=""
+  while [[ "$_oep_path" != "$_oep_before" ]]; do
+    _oep_before="$_oep_path"
+    _oep_path="$(printf '%s' "$_oep_path" | sed -E 's#/+$##; s#/(api(/(generate|chat|tags|embed|embeddings|pull|push|show|version|ps|create|copy|delete))?|v1(/(chat/completions|completions|embeddings|models))?)$##; s#/+$##')" || true
+  done
   printf '%s://%s%s%s%s\n' "$_oep_scheme" "$_oep_user" "$_oep_host" "${_oep_port:+:$_oep_port}" "$_oep_path"
 }
 
@@ -781,7 +790,12 @@ _ollama_ep_host() {
 }
 
 # True inside a container (Docker writes /.dockerenv).
-_ollama_ep_in_container() { [[ -e "${_OLLAMA_EP_DOCKERENV:-/.dockerenv}" ]]; }
+# Docker and Podman leave a marker file; Kubernetes sets a variable in every
+# pod. _OLLAMA_EP_DOCKERENV is a test seam: when set, it alone decides.
+_ollama_ep_in_container() {
+  if [[ -n "${_OLLAMA_EP_DOCKERENV:-}" ]]; then [[ -e "$_OLLAMA_EP_DOCKERENV" ]]; return; fi
+  [[ -e /.dockerenv || -e /run/.containerenv || -n "${KUBERNETES_SERVICE_HOST:-}" ]]
+}
 
 # Usage: ollama_endpoint_is_local <url>; returns 0 when the URL points at this
 # machine, so that this machine's disk and memory are the ones a pull would
@@ -843,7 +857,12 @@ ollama_env_file_export() {
     [[ -z "$_oep_value" ]] || continue
     _oep_value="$(ollama_models_file_get "$_oep_file" "$_oep_name")" || true
     [[ -n "$_oep_value" ]] || continue
-    export "$_oep_name=$_oep_value"
+    # A caller that holds the variable read-only and blank would keep its
+    # blank: the file's setting would be read as "not set", silently.
+    if ! export "$_oep_name=$_oep_value" 2>/dev/null; then
+      print_error "$_oep_name is set in $(_ollama_ep_said "$_oep_file") and cannot be set here: the caller holds it read-only." >&2
+      return 9
+    fi
   done
   return 0
 }
@@ -923,7 +942,14 @@ ollama_project_ensure_models() (
   local _oep_vars="${OLLAMA_URL_VARS:-OLLAMA_URL OLLAMA_BASE_URL OLLAMA_HOST}"
   local -a _oep_list=()
   if [[ $# -ge 2 ]]; then shift 2; else shift $#; fi
+  # Lists below are split into words; none may be read as a file pattern.
+  set -f
 
+  # OLLAMA_URL_VARS may itself be in the project's .env.
+  if [[ -n "$_oep_env" ]]; then
+    ollama_env_file_export "$_oep_env" OLLAMA_URL_VARS || exit 9
+    _oep_vars="${OLLAMA_URL_VARS:-OLLAMA_URL OLLAMA_BASE_URL OLLAMA_HOST}"
+  fi
   for _oep_name in $_oep_vars; do
     if ! _ollama_ep_is_name "$_oep_name"; then
       print_error "OLLAMA_URL_VARS names something that is not a variable: $(_ollama_ep_said "$_oep_name")" >&2
@@ -963,14 +989,17 @@ ollama_project_ensure_models() (
   done
   [[ -n "$_oep_url" ]] || _oep_url="${_OLLAMA_EP_DEFAULT_URL:-http://127.0.0.1:11434}"
 
-  _oep_mode="$(printf '%s' "${OLLAMA_MODE:-}" | tr 'A-Z' 'a-z' | tr -d ' \t\r\n')" || true
+  # Trimmed at the ends only: "lo cal" is a typo, not local. The value is not
+  # repeated in the message; it may be anything that was meant for another
+  # variable.
+  _oep_mode="$(printf '%s' "${OLLAMA_MODE:-}" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | tr 'A-Z' 'a-z')" || true
   case "$_oep_mode" in
     ""|auto) _oep_mode="auto" ;;
     local|host) _oep_mode="local" ;;
     docker|container) _oep_mode="docker" ;;
     remote|api|external) _oep_mode="remote" ;;
     *)
-      print_error "OLLAMA_MODE is '$(_ollama_ep_said "${OLLAMA_MODE:-}")': it is local (an Ollama on this machine), docker (one in a container here) or remote (an API on another machine)." >&2
+      print_error "OLLAMA_MODE is not local (an Ollama on this machine), docker (one in a container here) or remote (an API on another machine)." >&2
       exit 9
       ;;
   esac
@@ -981,20 +1010,34 @@ ollama_project_ensure_models() (
   if ! _ollama_ep_in_container; then
     case "$_oep_host" in
       host.docker.internal|gateway.docker.internal)
-        _oep_url="$(printf '%s' "$_oep_url" | sed -E 's#(://([^/@]*@)?)[^/:@]+#\1127.0.0.1#')" || true
+        _oep_url="$(printf '%s' "$_oep_url" | sed -E 's#(://([^/@]*@)?)(\[[^]/]*\]|[^/:@]+)#\1127.0.0.1#')" || true
         ;;
     esac
   fi
 
   case "$_oep_mode" in
     docker)
-      if ! ollama_endpoint_is_local "$_oep_url"; then
-        # The name a container calls it by. From here it is this machine, at
-        # the port the project publishes.
+      if ! ollama_endpoint_is_local "$_oep_url" && ! _ollama_ep_in_container; then
+        # On the host, the name a container calls it by (one label: a compose
+        # service) is this machine, at the port the project publishes. Any
+        # other name or address is another machine, and docker is the wrong
+        # word for it. Inside a container the name is the right one as it is.
+        if [[ "$_oep_host" == *.* || "$_oep_host" == *:* || "$_oep_host" =~ ^[0-9]+$ ]]; then
+          print_error "OLLAMA_MODE is docker, and $(_ollama_ep_shown_url "$_oep_url") is another machine. A container here is named by its compose service name, or by localhost at its published port; use remote for an Ollama elsewhere." >&2
+          exit 9
+        fi
         for _oep_name in OLLAMA_PORT OLLAMA_HOST_PORT; do
-          if _oep_value="$(_ollama_ep_uint "${!_oep_name:-}")"; then _oep_port="$_oep_value"; break; fi
+          _oep_value="$(printf '%s' "${!_oep_name:-}" | tr -d ' \t\r\n')" || true
+          [[ -n "$_oep_value" ]] || continue
+          # A typo here would send the pull to whatever listens on the
+          # address's own port: on many machines, the native Ollama.
+          if ! _oep_port="$(_ollama_ep_uint "$_oep_value")" || [[ "$_oep_port" -lt 1 || "$_oep_port" -gt 65535 ]]; then
+            print_error "$_oep_name is not a port number (1 to 65535)." >&2
+            exit 9
+          fi
+          break
         done
-        _oep_url="$(printf '%s' "$_oep_url" | sed -E 's#(://([^/@]*@)?)[^/:@]+#\1127.0.0.1#')" || true
+        _oep_url="$(printf '%s' "$_oep_url" | sed -E 's#(://([^/@]*@)?)(\[[^]/]*\]|[^/:@]+)#\1127.0.0.1#')" || true
         if [[ -n "$_oep_port" ]]; then
           _oep_url="$(printf '%s' "$_oep_url" | sed -E "s#(://([^/@]*@)?127\\.0\\.0\\.1)(:[0-9]+)?#\\1:${_oep_port}#")" || true
         fi

@@ -55,15 +55,17 @@
   (`http://ollama:11434/api/generate`), a URL behind a proxy. 9 is returned for a mistake in the
   project's configuration, so 1 to 3 are always the disk and the memory.
 - **`OLLAMA_MODE`: a project says where its models are served.** `local` is an Ollama on this
-  machine; `docker` one in a container here, reached at the published port (`OLLAMA_PORT`,
-  `OLLAMA_HOST_PORT`) though `.env` names the compose service, and measured against Docker's
-  disk; `remote` an API on another machine, an Ollama or a hosted one: nothing is measured there,
+  machine; `docker` one in a container here: on the host, a compose service's name in `.env`
+  is read as this machine at the published port (`OLLAMA_PORT`, `OLLAMA_HOST_PORT`; a port that
+  is not one is a mistake, 9), inside a container the name is used as written, and an address
+  that is another machine is refused; measured against Docker's disk. `remote` an API on another machine, an Ollama or a hosted one: nothing is measured there,
   nothing is pulled unless asked, the models a remote Ollama lacks are named, and what is not an
   Ollama is passed over. Not set, the address decides (`ollama_endpoint_is_local`). A pull into
   another machine is never checked against this machine: its disk and memory have to be stated,
   and this machine's GPU and free memory are not counted for it.
   In messages an address is named by its scheme, host and port: not with its credentials, and
-  not with its path or query, where a proxy may carry a key. A value that cannot be read as an
+  not with its path or query, where a proxy may carry a key; the path is removed from what the
+  other end said too, since a proxy's 404 echoes the request path. A value that cannot be read as an
   address is named by its variable and not shown.
 
 ### Fixed

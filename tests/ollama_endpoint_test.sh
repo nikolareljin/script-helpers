@@ -166,6 +166,9 @@ class H(BaseHTTPRequestHandler):
         self.send(404, "{}")
 
     def do_POST(self):
+        if "/echo-path/" in self.path:
+            # A proxy's 404, with the request path in it, as Express writes it.
+            return self.send(404, "<pre>Cannot POST %s</pre>" % self.path, "text/html")
         length = int(self.headers.get("Content-Length", 0) or 0)
         raw = self.rfile.read(length) or b"{}"
         try:
@@ -727,6 +730,9 @@ said "and names the address by its host: a path is not shown at all" "$tmp/err" 
 # In a host, where it is shown, a spelled-out escape still has its backslashes doubled.
 check "a spelled-out escape in what is shown of a URL has its backslashes doubled" 'http://host\\033[2J.example' "$(_ollama_ep_shown_url 'http://host\033[2J.example/path')"
 check "the same for what the other end said" 'bad \\033[2J' "$(_ollama_ep_said 'bad \033[2J')"
+check "what is shown of an address: scheme, host and port; no credentials, path, query or fragment, with or without a scheme" \
+  "http://h:1|http://h:1|h:1|h|https://[::1]:5|" \
+  "$(for a in 'http://u:p@h:1/x/y?q=1#f' 'http://h:1?q' 'h:1/path?q#f' 'h/path' 'https://u@[::1]:5/v1'; do _ollama_ep_shown_url "$a"; echo; done | tr '\n' '|')"
 OLLAMA_BUDGET_DISK_FREE_BYTES=$((1 * GB)) ollama_budget_check $((5 * GB)) 0 '/mo\033[2Jdels' >"$tmp/out" 2>"$tmp/err"
 check "and for a path" "0:1" "$(grep -c "$(printf '\033')\[2J" "$tmp/err"):$(grep -cF 'at /mo\033[2Jdels' "$tmp/err")"
 bad_model="$(printf 'bad\033[2Jname')"
@@ -807,6 +813,9 @@ check "a port alone is that port of this machine, as Ollama reads it" "http://12
 check "a host with a colon and no port gets Ollama's port" "http://h:11434 :0" "$(base h: | one_line)"
 check "an IPv6 address without brackets gets them, and the port" "http://[::1]:11434 :0" "$(base ::1 | one_line)"
 check "a port that is not a number is not an address" ":1|:1|:1|" "$(for a in h:abc http://h:12x 'http://[::1]:x'; do base "$a"; done | tr '\n' '|')"
+check "nor is a port outside 1 to 65535" ":1|:1|:1|" "$(for a in http://h:0 http://h:65536 'http://h:123456'; do base "$a"; done | tr '\n' '|')"
+check "an IPv6 literal holds hex digits, colons and dots: 'localhost:11434:' is not one" ":1|:1|http://[fe80::1%eth0]:11434 :0|" "$(for a in 'localhost:11434:' 'http://[localhost:11434:]:5' '[fe80::1%eth0]'; do printf '%s|' "$(base "$a" | one_line)"; done)"
+check "an API path is removed however deep it was written" "http://h:1|http://h:1|http://h:1/ollama|" "$(for a in http://h:1/api/v1 http://h:1/api/v1/chat/completions/ http://h:1/ollama/v1/models; do ollama_endpoint_base_url "$a"; done | tr '\n' '|')"
 check "a URL that lost its slashes is not a host called http" ":1|:1|:1|" "$(for a in http: http:/h HTTPS:h; do base "$a"; done | tr '\n' '|')"
 check "user and password before a bare host stay, and it gets the port" "http://user:pass@host:11434 :0" "$(base user:pass@host | one_line)"
 check "a query or a fragment goes, with or without an API path" "http://h:1|http://h:1|http://h:1/p|" "$(for a in 'http://h:1?x=1' 'http://h:1#f' 'http://h:1/p?x=1#f'; do ollama_endpoint_base_url "$a"; done | tr '\n' '|')"
@@ -828,6 +837,11 @@ for address in http://192.0.2.10:11434 http://ollama:11434 http://127.example.co
                http://localhost.example.com http://gpu-box:11434 ''; do
   check "not this machine: ${address:-(nothing)}" "other" "$(is_local "$address")"
 done
+# The short form of a fully qualified own name is this machine too, whatever
+# this machine's name happens to be: a stand-in hostname says so.
+mkdir -p "$tmp/fake-hostname"
+printf '#!/bin/sh\necho Box-Seven.example.lan\n' >"$tmp/fake-hostname/hostname"; chmod +x "$tmp/fake-hostname/hostname"
+check "this machine's own name, long or short, in any case" "local local other" "$(PATH="$tmp/fake-hostname:$PATH" bash -c 'source "$0/helpers.sh"; shlib_import logging ollama_endpoint; for a in http://box-seven.example.lan:1 http://BOX-SEVEN:1 http://box-seven.other.lan:1; do if ollama_endpoint_is_local "$a"; then echo local; else echo other; fi; done' "$PWD" | one_line)"
 this_host="$(hostname)"
 for address in http://remote.example/@localhost 'http://remote.example?x=@localhost' http://localhost@remote.example \
                'http://[::ffff:808:808]:1' 'http://[::ffff:8.8.8.8]:1' http://x127.0.0.1 http://127.0.0.1.example.com \
@@ -838,6 +852,7 @@ check "every address and the gateway name are this machine too" "local local" "$
 # Inside a container Docker's names for the host are the host: another
 # machine, with a disk this shell cannot see.
 : >"$tmp/dockerenv"
+check "a Kubernetes pod is a container too: the host is not this machine there" "other" "$( (unset _OLLAMA_EP_DOCKERENV; KUBERNETES_SERVICE_HOST=192.0.2.1 is_local http://host.docker.internal:1) )"
 check "inside a container, the host is not this machine" "other other local" "$( (_OLLAMA_EP_DOCKERENV="$tmp/dockerenv"; is_local http://host.docker.internal:11434; is_local http://gateway.docker.internal:1; is_local http://localhost:1) | one_line)"
 # One of the machine's own addresses, when a tool here lists any.
 own_address="$( { ip -o addr 2>/dev/null | awk '{ print $4 }'; ifconfig 2>/dev/null | awk '$1 == "inet" { print $2 }'; } | sed -E 's#/.*$##; s#^addr:##' | grep -E '^[0-9]+\.' | grep -v '^127\.' | head -n 1)"
@@ -905,6 +920,16 @@ roomy; reset main:7b small:3b
 printf 'MYAPP_OLLAMA_URL=%s/api/generate\n' "$URL" >"$tmp/proj/.env"
 check "a project's own name for the address, with the API path in it" "0:embed:latest" "$(OLLAMA_URL_VARS=MYAPP_OLLAMA_URL project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
 reset main:7b small:3b
+printf 'OLLAMA_URL_VARS=MYAPP_URL\nMYAPP_URL=%s\n' "$URL" >"$tmp/proj/.env"
+check "OLLAMA_URL_VARS may itself be in .env" "0:embed:latest" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+reset main:7b small:3b
+: >"$tmp/proj/secret-file-name.txt"
+check "a pattern in OLLAMA_URL_VARS is a name that is not one, not the files it matches" "9:1:0" "$( (cd "$tmp/proj" && OLLAMA_URL_VARS='OLLAMA_URL *' project "$tmp/proj/ai-models.env" "$tmp/proj/.env") ):$(grep -c 'not a variable: \*' "$tmp/err"):$(grep -c 'secret-file-name' "$tmp/err")"
+reset main:7b small:3b
+printf 'OLLAMA_URL=%s\nOLLAMA_PULL_MISSING=0\n' "$URL" >"$tmp/proj/.env"
+check "a setting the caller holds read-only and blank cannot be read from .env: 9, and nothing is pulled" "9:" "$( (readonly OLLAMA_PULL_MISSING=''; project "$tmp/proj/ai-models.env" "$tmp/proj/.env") ):$(pulled)"
+said "and it says which one" "$tmp/err" "OLLAMA_PULL_MISSING is set in" "read-only"
+reset main:7b small:3b
 printf 'OLLAMA_HOST=%s\n' "${URL#http://}" >"$tmp/proj/.env"
 check "OLLAMA_HOST as host:port" "0:embed:latest" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
 reset main:7b small:3b
@@ -928,6 +953,10 @@ printf 'OLLAMA_URL=http://127.0.0.1:9\n' >"$tmp/proj/.env"
 check "an address on this machine where nothing listens gets no such hint" "4:0" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 'compose service' "$tmp/err")"
 printf 'OLLAMA_URL=http://nothing.invalid:11434\n' >"$tmp/proj/.env"
 check "nor does a full host name" "4:0" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 'compose service' "$tmp/err")"
+printf 'OLLAMA_URL=http://localhost:9\n' >"$tmp/proj/.env"
+check "nor localhost, one word that is this machine" "4:0" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 'compose service' "$tmp/err")"
+printf 'OLLAMA_URL=http://[2001:db8::10]:9\n' >"$tmp/proj/.env"
+check "nor an IPv6 address of another machine" "4:0" "$(OLLAMA_REGISTRY_TIMEOUT=2 project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 'compose service' "$tmp/err")"
 printf 'OLLAMA_URL=%s\n' "$URL" >"$tmp/proj/.env"
 check "a models file that is not there is the project's mistake (9), not a full disk (1) and not no models" "9:" "$(project "$tmp/proj/absent.env" "$tmp/proj/.env"):$(pulled)"
 check "a bad name is the project's mistake too" "9:" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env" 'BAD NAME'):$(pulled)"
@@ -972,7 +1001,9 @@ check "and no part of the password is printed" "0" "$(grep -c -e 's3' -e 'cret' 
 printf 'OLLAMA_URL=sk-live-0123456789abcdef with a space\n' >"$tmp/proj/.env"
 check "a value that is not an address is named by its variable, never shown" "9:0:1" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 'sk-live' "$tmp/out" "$tmp/err" | awk -F: '{ n += $2 } END { print n + 0 }'):$(grep -c 'OLLAMA_URL is not the address of an Ollama' "$tmp/err")"
 # A proxy may serve an Ollama under a path that holds a key. A URL is named in
-# a message by its scheme, host and port.
+# a message by its scheme, host and port, and the path is removed from what
+# the other end said too: a proxy's 404 echoes the request path.
+check "a pull refused by a proxy that echoes the path: the path is not printed with it" "1:0:1" "$(ollama_endpoint_pull "$URL/t0ken-in-the-path/echo-path" small:3b >/dev/null 2>"$tmp/err"; echo "$?:$(grep -c 't0ken' "$tmp/err"):$(grep -c 'Cannot POST /api/pull' "$tmp/err")")"
 printf 'OLLAMA_URL=http://127.0.0.1:1/t0ken-in-the-path/ollama\nOLLAMA_MODE=remote\n' >"$tmp/proj/.env"
 check "a path is not part of how an address is named" "0:0:1" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 't0ken' "$tmp/err"):$(grep -c 'http://127.0.0.1:1 does not answer' "$tmp/err")"
 printf 'OLLAMA_URL=http://127.0.0.1:1/t0ken-in-the-path/ollama\n' >"$tmp/proj/.env"
@@ -984,7 +1015,9 @@ note "where the Ollama runs: OLLAMA_MODE"
 printf 'OLLAMA_URL=%s\n' "$URL" >"$tmp/proj/.env"
 reset main:7b
 check "a mode that is not one of the three is the project's mistake" "9:" "$(OLLAMA_MODE=cloud project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
-said "and the three are named" "$tmp/err" "OLLAMA_MODE is 'cloud'" "local" "docker" "remote"
+said "and the three are named, not the value: it may have been meant for another variable" "$tmp/err" "OLLAMA_MODE is not" "local" "docker" "remote"
+check "and the value is not repeated" "0" "$(grep -c cloud "$tmp/err")"
+check "a mode with a space inside is not one of the three (the ends only are trimmed)" "9:" "$(OLLAMA_MODE='lo cal' project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
 check "local: an Ollama on this machine, checked and pulled into" "0:small:3b embed:latest" "$(OLLAMA_MODE=local project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
 reset main:7b
 check "the mode may be written in any case, and host means local" "0:small:3b embed:latest" "$(OLLAMA_MODE=' Host ' project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
@@ -1012,6 +1045,34 @@ check "(OLLAMA_HOST_PORT too, with credentials kept)" "0:small:3b embed:latest" 
 reset main:7b
 printf 'OLLAMA_URL=%s\nOLLAMA_MODE=docker\nOLLAMA_PORT=9\n' "$URL" >"$tmp/proj/.env"
 check "an address that is this machine already is used as it is" "0:small:3b embed:latest" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+# Inside a container the service's name is the right one: a backend container
+# that said docker must not be sent to its own loopback.
+reset main:7b
+printf 'OLLAMA_URL=http://no-such-service-xq:%s\nOLLAMA_MODE=docker\n' "${URL##*:}" >"$tmp/proj/.env"
+: >"$tmp/dockerenv"
+check "docker inside a container: the name is used as written, not this machine" "4:" "$(_OLLAMA_EP_DOCKERENV="$tmp/dockerenv" OLLAMA_REGISTRY_TIMEOUT=2 project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+check "(nothing asked of what listens on this machine)" "" "$(cat "$tmp/state/asked" 2>/dev/null)"
+# Another machine is not a container here, whatever the mode says.
+reset main:7b
+for address in http://192.0.2.10:11434 http://gpu-box.example:11434 "http://[2001:db8::10]:11434" http://2130706433:11434; do
+  printf 'OLLAMA_URL=%s\nOLLAMA_MODE=docker\n' "$address" >"$tmp/proj/.env"
+  check "docker with another machine's address is a contradiction: $address" "9:" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+done
+said "it says what a container here is named by" "$tmp/err" "OLLAMA_MODE is docker" "compose service name" "remote"
+check "(the address is shown without its brackets broken, and nothing is asked)" "1:" "$(grep -c '2130706433' "$tmp/err"):$(cat "$tmp/state/asked" 2>/dev/null)"
+# A published port that is not one is a mistake, not "use the address's port":
+# that port is often the native Ollama's.
+reset main:7b
+for port in 1l435 99999 0 ' ' -1; do
+  printf 'OLLAMA_URL=http://ollama:%s\nOLLAMA_MODE=docker\nOLLAMA_PORT=%s\n' "${URL##*:}" "$port" >"$tmp/proj/.env"
+  expected="9:"
+  [[ "$port" == ' ' ]] && expected="0:small:3b embed:latest"  # blank: not set
+  check "OLLAMA_PORT='$port'" "$expected" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+  reset main:7b
+done
+said "and the setting is named" "$tmp/err" "OLLAMA_PORT is not a port number (1 to 65535)"
+printf 'OLLAMA_URL=http://ollama:%s\nOLLAMA_MODE=docker\nOLLAMA_HOST_PORT=70000\n' "${URL##*:}" >"$tmp/proj/.env"
+check "OLLAMA_HOST_PORT too" "9:" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
 reset main:7b
 printf 'OLLAMA_URL=%s\nOLLAMA_MODE=docker\n' "$URL" >"$tmp/proj/.env"
 check "its models are on Docker's disk: that is the one measured" "1:" "$(unset OLLAMA_BUDGET_DISK_FREE_BYTES; OLLAMA_DISK_RESERVE_GB=99999 PATH="$tmp/fake-docker:$PATH" project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
