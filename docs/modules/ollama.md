@@ -145,7 +145,7 @@ Runtime functions
 
 - ollama_runtime_run_model runtime env_file model [size=latest]
   - Purpose: Run model via local runtime (`docker` mode is API-only).
-  - Returns: 0 with the `docker` runtime or without the `ollama` command, having run nothing; otherwise 1, running nothing, for a model that is not a reference (see `ollama_pull_model`).
+  - Returns: 0 with the `docker` runtime or without the `ollama` command, having run nothing. With the local runtime and the command there: 1, running nothing, for a model that is not a reference (see `ollama_pull_model`).
 
 - ollama_runtime_ps runtime env_file
   - Purpose: Show runtime status (`docker ps` summary or local `ollama ps`).
