@@ -62,6 +62,9 @@
   Ollama is passed over. Not set, the address decides (`ollama_endpoint_is_local`). A pull into
   another machine is never checked against this machine: its disk and memory have to be stated,
   and this machine's GPU and free memory are not counted for it.
+  In messages an address is named by its scheme, host and port: not with its credentials, and
+  not with its path or query, where a proxy may carry a key. A value that cannot be read as an
+  address is named by its variable and not shown.
 
 ### Fixed
 

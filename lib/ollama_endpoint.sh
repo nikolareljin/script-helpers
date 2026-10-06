@@ -85,6 +85,16 @@ _ollama_ep_shown() {
     | sed -E 's|[?#].*$||; s|^([a-zA-Z][a-zA-Z0-9+.-]*://)?[^/]*@|\1|; s|\\|\\\\|g' || true
 }
 
+# A URL as it is named in a message: scheme, host and port only. Besides what
+# _ollama_ep_shown removes, the path goes too: a proxy may serve an Ollama
+# under a path that holds a key (https://gateway/KEY/ollama).
+_ollama_ep_shown_url() {
+  printf '%s' "${1:-}" | LC_ALL=C tr -d '\000-\037\177' \
+    | sed -E -e 's|[?#].*$||' -e 's|^([a-zA-Z][a-zA-Z0-9+.-]*://)?[^/]*@|\1|' \
+        -e '/:\/\//!s|^([^/]*)/.*$|\1|' -e 's|^([a-zA-Z][a-zA-Z0-9+.-]*://[^/]*)/.*$|\1|' \
+        -e 's|\\|\\\\|g' || true
+}
+
 # Text from the other side (Ollama, curl) that is safe to print: the last
 # line only, no control characters, at most 300 characters. A terminal obeys
 # escape sequences in what it prints, and this text is not ours.
@@ -548,9 +558,9 @@ ollama_endpoint_pull() {
   # curl prints the URL it could not reach, credentials included. Replace
   # the whole URL before the text is cut to length, so no part of it is left.
   verdict="${verdict#no:}"
-  verdict="${verdict//"$url"/$(_ollama_ep_shown "$url")}"
+  verdict="${verdict//"$url"/$(_ollama_ep_shown_url "$url")}"
   verdict="$(_ollama_ep_said "$verdict")"
-  print_error "The Ollama at $(_ollama_ep_shown "$url") did not pull ${model}: ${verdict:-no answer}" >&2
+  print_error "The Ollama at $(_ollama_ep_shown_url "$url") did not pull ${model}: ${verdict:-no answer}" >&2
   return 1
 }
 
@@ -585,7 +595,7 @@ ollama_endpoint_ensure_models() {
   # If the directory is left out, there are no models either: the only
   # argument left is the URL, and it must not be read as a model.
   if [[ $# -ge 2 ]]; then shift 2; else shift $#; fi
-  shown="$(_ollama_ep_shown "$url")"
+  shown="$(_ollama_ep_shown_url "$url")"
   needed=""
   for model in "$@"; do
     model="$(ollama_model_tagged "$model")"
@@ -943,10 +953,10 @@ ollama_project_ensure_models() (
     _oep_value="$(printf '%s' "${!_oep_name:-}" | tr -d ' \t\r\n')" || true
     [[ -n "$_oep_value" ]] || continue
     if ! _oep_url="$(ollama_endpoint_base_url "${!_oep_name}")"; then
-      # Only what follows the last "@" is shown. What precedes it may be a
-      # password, in an address that could not be read well enough to cut it.
-      _oep_value="${!_oep_name}"
-      print_error "${_oep_name} is not the address of an Ollama: $(_ollama_ep_said "${_oep_value##*@}")" >&2
+      # The value is not shown. It could not be read as an address, so what
+      # it is instead is not known: a password with a slash in it, or a key
+      # that was meant for another variable.
+      print_error "${_oep_name} is not the address of an Ollama. It is a host, host:port or an http(s) URL; a password in it must be percent-encoded." >&2
       exit 9
     fi
     break
@@ -994,7 +1004,7 @@ ollama_project_ensure_models() (
       ;;
     local)
       if ! ollama_endpoint_is_local "$_oep_url"; then
-        print_error "OLLAMA_MODE is local, and $(_ollama_ep_shown "$_oep_url") is not this machine. Use docker for an Ollama in a container here, or remote for one elsewhere." >&2
+        print_error "OLLAMA_MODE is local, and $(_ollama_ep_shown_url "$_oep_url") is not this machine. Use docker for an Ollama in a container here, or remote for one elsewhere." >&2
         exit 9
       fi
       _oep_where="here"
@@ -1021,7 +1031,7 @@ ollama_project_ensure_models() (
       if [[ "$_oep_mode" == "remote" ]]; then
         # A hosted API that is not an Ollama, or one that is not up: neither
         # is something a start script on this machine can check or mend.
-        print_info "OLLAMA_MODE is remote and $(_ollama_ep_shown "$_oep_url") does not answer as an Ollama: its models are not checked from here." >&2
+        print_info "OLLAMA_MODE is remote and $(_ollama_ep_shown_url "$_oep_url") does not answer as an Ollama: its models are not checked from here." >&2
         exit 0
       fi
     else

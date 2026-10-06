@@ -46,6 +46,11 @@ Expected imports
 `logging` (`print_info`, `print_warning`, `print_error`). Every message goes
 to stderr; stdout carries only what a function is documented to print.
 
+What a message shows of the configuration: an address is named by its scheme,
+host and port, never with its credentials, its path or its query (a proxy
+path may hold a key), and a value that could not be read as an address is
+named by its variable and not shown at all.
+
 The models file
 ---------------
 

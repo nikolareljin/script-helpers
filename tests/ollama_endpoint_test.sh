@@ -723,7 +723,9 @@ spelled='http://host.example/\033[2J\x1b[31m\e[0m'
 check "a spelled-out escape in a URL has its backslashes doubled" 'http://host.example/\\033[2J\\x1b[31m\\e[0m' "$(_ollama_ep_shown "$spelled")"
 ollama_endpoint_ensure_models "$spelled" /models small:3b >"$tmp/out" 2>"$tmp/err"
 check "so the message carries no escape sequence" "0" "$(grep -c "$(printf '\033')\[2J" "$tmp/err")"
-said "and shows the text as it was written" "$tmp/err" 'http://host.example/\033[2J'
+said "and names the address by its host: a path is not shown at all" "$tmp/err" 'No Ollama answers at http://host.example.'
+# In a host, where it is shown, a spelled-out escape still has its backslashes doubled.
+check "a spelled-out escape in what is shown of a URL has its backslashes doubled" 'http://host\\033[2J.example' "$(_ollama_ep_shown_url 'http://host\033[2J.example/path')"
 check "the same for what the other end said" 'bad \\033[2J' "$(_ollama_ep_said 'bad \033[2J')"
 OLLAMA_BUDGET_DISK_FREE_BYTES=$((1 * GB)) ollama_budget_check $((5 * GB)) 0 '/mo\033[2Jdels' >"$tmp/out" 2>"$tmp/err"
 check "and for a path" "0:1" "$(grep -c "$(printf '\033')\[2J" "$tmp/err"):$(grep -cF 'at /mo\033[2Jdels' "$tmp/err")"
@@ -965,6 +967,16 @@ check "a model value with a space in it is not two models" "8:" "$(project "" "$
 printf 'OLLAMA_URL=http://user:s3/cret@127.0.0.1:1\n' >"$tmp/proj/.env"
 check "an address with a slash in its password is refused" "9:" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
 check "and no part of the password is printed" "0" "$(grep -c -e 's3' -e 'cret' "$tmp/out" "$tmp/err" | awk -F: '{ n += $2 } END { print n + 0 }')"
+# Nor is anything else that is not an address: it may be a key put into the
+# wrong variable.
+printf 'OLLAMA_URL=sk-live-0123456789abcdef with a space\n' >"$tmp/proj/.env"
+check "a value that is not an address is named by its variable, never shown" "9:0:1" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 'sk-live' "$tmp/out" "$tmp/err" | awk -F: '{ n += $2 } END { print n + 0 }'):$(grep -c 'OLLAMA_URL is not the address of an Ollama' "$tmp/err")"
+# A proxy may serve an Ollama under a path that holds a key. A URL is named in
+# a message by its scheme, host and port.
+printf 'OLLAMA_URL=http://127.0.0.1:1/t0ken-in-the-path/ollama\nOLLAMA_MODE=remote\n' >"$tmp/proj/.env"
+check "a path is not part of how an address is named" "0:0:1" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 't0ken' "$tmp/err"):$(grep -c 'http://127.0.0.1:1 does not answer' "$tmp/err")"
+printf 'OLLAMA_URL=http://127.0.0.1:1/t0ken-in-the-path/ollama\n' >"$tmp/proj/.env"
+check "nor when nothing answers there, or a pull fails" "4:0|1:0" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 't0ken' "$tmp/err")|$(ollama_endpoint_pull "http://127.0.0.1:1/t0ken-in-the-path" small:3b >/dev/null 2>"$tmp/err"; echo "$?:$(grep -c 't0ken' "$tmp/err")")"
 printf 'OLLAMA_URL=http://user:s3cret@127.0.0.1:1\n' >"$tmp/proj/.env"
 check "a well-formed one is used, and not printed either" "4:0" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 's3cret' "$tmp/err")"
 
