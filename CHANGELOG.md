@@ -52,11 +52,16 @@
   `OLLAMA_URL`, `OLLAMA_BASE_URL`, `OLLAMA_HOST` (or the names in `OLLAMA_URL_VARS`) that has a
   value, and runs `ollama_endpoint_ensure_models`. `ollama_endpoint_base_url` makes a base URL of
   what projects store: a bare `host:port`, a URL with the API path in it
-  (`http://ollama:11434/api/generate`), a URL behind a proxy. `ollama_endpoint_is_local` says
-  whether an address is this machine; for one that is not, the models it lacks are named and
-  nothing is pulled into it unless `OLLAMA_PULL_MISSING` is set on, because the disk and memory
-  read here are not that machine's. To a script on the host, `host.docker.internal` is this
-  machine.
+  (`http://ollama:11434/api/generate`), a URL behind a proxy. 9 is returned for a mistake in the
+  project's configuration, so 1 to 3 are always the disk and the memory.
+- **`OLLAMA_MODE`: a project says where its models are served.** `local` is an Ollama on this
+  machine; `docker` one in a container here, reached at the published port (`OLLAMA_PORT`,
+  `OLLAMA_HOST_PORT`) though `.env` names the compose service, and measured against Docker's
+  disk; `remote` an API on another machine, an Ollama or a hosted one: nothing is measured there,
+  nothing is pulled unless asked, the models a remote Ollama lacks are named, and what is not an
+  Ollama is passed over. Not set, the address decides (`ollama_endpoint_is_local`). A pull into
+  another machine is never checked against this machine: its disk and memory have to be stated,
+  and this machine's GPU and free memory are not counted for it.
 
 ### Fixed
 
