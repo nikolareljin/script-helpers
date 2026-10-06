@@ -51,6 +51,20 @@ rc=0; ollama_update_env "$f" model $'llama3\ntouch PWNED' >/dev/null 2>&1 || rc=
 if [[ "$rc" == "1" && "$(cat "$f")" == "$before" ]]; then ok "a newline in the value is refused, file unchanged"; else error "newline value: rc=$rc $(cat "$f")"; fi
 rc=0; ollama_update_env "$f" model $'x\ry' >/dev/null 2>&1 || rc=$?
 if [[ "$rc" == "1" ]]; then ok "a carriage return is refused"; else error "CR value rc=$rc"; fi
+# The file is sourced by load_env. A value that would run something there, be
+# split in two, or leave a quote open is refused, and the file stays as it was.
+before="$(cat "$f")"
+for bad in "y;touch $tmp/PWNED" "7b \$(touch $tmp/PWNED)" "x\`touch $tmp/PWNED\`" "a|b" "a&b" "a>$tmp/PWNED" "a<b" "a(b)" 'two words' "tab$(printf '\t')here" "it's" 'say "x"' '$HOME'; do
+  rc=0; ollama_update_env "$f" model "$bad" >/dev/null 2>&1 || rc=$?
+  if [[ "$rc" == "1" && "$(cat "$f")" == "$before" ]]; then ok "refused, file unchanged: $(printf '%q' "$bad")"; else error "written or changed (rc=$rc) for $(printf '%q' "$bad"): $(cat "$f")"; fi
+done
+( load_env "$f" ) >/dev/null 2>&1
+if [[ -e "$tmp/PWNED" ]]; then error "a refused value ran when the file was loaded"; else ok "loading the file afterwards runs nothing"; fi
+rc=0; ollama_update_env "$f" 'model;touch' x >/dev/null 2>&1 || rc=$?
+if [[ "$rc" == "1" && "$(cat "$f")" == "$before" ]]; then ok "a key that is not a name is refused"; else error "bad key rc=$rc: $(cat "$f")"; fi
+ollama_update_env "$f" model 'hf.co/Org/Model-GGUF:Q4_K_M'
+ollama_update_env "$f" ollama_url 'http://user@[::1]:11434/base%20x,y+z=1'
+if grep -q '^model=hf.co/Org/Model-GGUF:Q4_K_M$' "$f" && grep -qF 'ollama_url=http://user@[::1]:11434/base%20x,y+z=1' "$f"; then ok "a model reference and a URL are written as given"; else error "plain values: $(cat "$f")"; fi
 printf 'aXb=1\n' >"$tmp/k.env"
 ollama_update_env "$tmp/k.env" a.b 2
 if grep -q '^aXb=1$' "$tmp/k.env" && grep -q '^a\.b=2$' "$tmp/k.env"; then ok "the key is matched literally"; else error "regex key: $(cat "$tmp/k.env")"; fi

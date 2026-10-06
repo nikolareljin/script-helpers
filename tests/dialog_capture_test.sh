@@ -291,7 +291,7 @@ if command -v jq >/dev/null 2>&1; then
   esac
   # A namespaced model (hf.co/org/model, user/model) is in the menu. The menu
   # used to drop every name with a slash, so it could not offer one.
-  printf '[{"name":"zeta","sizes":[]},{"name":"hf.co/org/quant","description":"from the hub","sizes":["Q4"]},{"name":"team/tool","sizes":[]}]\n' >"$tmp/index-ns.json"
+  printf '[{"name":"zeta","description":"the last one","sizes":[]},{"name":"hf.co/org/quant","description":"from the hub","sizes":["Q4"]},{"name":"team/tool","sizes":[]}]\n' >"$tmp/index-ns.json"
   : >"$tmp/log"
   model="$(OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-ns.cache.tsv" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model "$tmp/index-ns.json" </dev/null 2>/dev/null)"; rc=$?
   check "a namespaced model is offered and can be chosen" "0:hf.co/org/quant" "$rc:$model"
@@ -299,59 +299,122 @@ if command -v jq >/dev/null 2>&1; then
   # A row without sizes and with a description. Tab is whitespace to `read`,
   # so the empty column vanished and the description was shown as the sizes.
   case "$(logged args)" in
-    *"team/tool | sizes: latest"*"zeta | sizes: latest"*) ok "a model without sizes says latest" ;;
-    *) error "sizes of a model without any: $(logged args)" ;;
+    *"hf.co/org/quant | sizes: Q4 | from the hub"*"team/tool | sizes: latest"*"zeta | sizes: latest | the last one"*) ok "a model without sizes says latest, and its description stays a description" ;;
+    *) error "sizes and descriptions: $(logged args)" ;;
   esac
-  printf '[{"name":"solo","description":"words about it","sizes":[]}]\n' >"$tmp/index-nosize.json"
+  # A description that is not text, or has a control character in it.
+  printf '[{"name":"num","description":42},{"name":"esc","description":"a\\u001b[2Jb\\tc"}]\n' >"$tmp/index-desc.json"
   : >"$tmp/log"
-  OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-nosize.cache.tsv" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model "$tmp/index-nosize.json" </dev/null >/dev/null 2>&1
+  OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-desc.cache.tsv" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model "$tmp/index-desc.json" </dev/null >/dev/null 2>&1
   case "$(logged args)" in
-    *"solo | sizes: latest | words about it"*) ok "and its description stays a description" ;;
-    *) error "a description read as sizes: $(logged args)" ;;
+    *"esc | sizes: latest | a [2Jb c"*"num | sizes: latest | 42"*) ok "a description is shown as text, without its control characters" ;;
+    *) error "odd descriptions: $(logged args | od -c | head -5)" ;;
   esac
+
   # The menu follows the index: an entry added after the menu was last built
-  # is offered at once. The cache used to be reused for half an hour.
+  # is offered at once. The cache used to be reused for half an hour. The
+  # times are set, not waited for: the index is given a later one.
   printf '[{"name":"zeta","sizes":[]}]\n' >"$tmp/index-grow.json"
   model="$(OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-grow.cache.tsv" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model "$tmp/index-grow.json" </dev/null 2>/dev/null)"
   check "(the menu before the index changes)" "zeta" "$model"
-  sleep 1
   printf '[{"name":"zeta","sizes":[]},{"name":"aaa/new","sizes":[]}]\n' >"$tmp/index-grow.json"
+  touch -t 209901010000 "$tmp/index-grow.json"
   model="$(OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-grow.cache.tsv" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model "$tmp/index-grow.json" </dev/null 2>/dev/null)"
-  check "an index that changed gets a new menu, not the cached one" "aaa/new" "$model"
+  check "an index that is newer than the cache gets a new menu" "aaa/new" "$model"
+
+  # A cache is used as it is when it was made from this index and is newer
+  # than it. It is a file, so each row is held to the rule the index is: a
+  # row written by hand, or by an older version, with a name that is not a
+  # reference is skipped, and a row cut short still has sizes.
+  hand_cache() { # hand_cache <cache> <index it claims> <rows...>
+    local cache="$1" index="$2"; shift 2
+    { printf '#index\t%s\n' "$index"; printf '%b\n' "$@"; } >"$cache"
+  }
+  printf '[{"name":"only-in-the-index"}]\n' >"$tmp/index-hand.json"; touch -t 200001010000 "$tmp/index-hand.json"
+  hand_cache "$tmp/menu-hand.cache.tsv" "$tmp/index-hand.json" 'fine\tfine\tlatest\t' 'x;touch MARK\tx;touch MARK\tlatest\t' 'also/fine\talso/fine\t7b\tsome words' 'short\tshort' 'qwen3:\tqwen3:\tlatest\t' 'a..b\ta..b\tlatest\t'
+  : >"$tmp/log"
+  model="$(OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-hand.cache.tsv" FAKE_DIALOG_ANSWER=0002 ollama_dialog_select_model "$tmp/index-hand.json" </dev/null 2>/dev/null)"
+  check "a cache made from this index and newer than it is used, without its rows that are not references" "also/fine" "$model"
+  case "$(logged args)" in
+    *"Showing 3."*"0003 short | sizes: latest"*) ok "three rows are offered, and one cut short still says latest" ;;
+    *) error "rows of a hand-written cache: $(logged args)" ;;
+  esac
+  # The same cache is not used for another index (a cache path the caller
+  # gave, shared by two indexes), nor when it does not say which index it is
+  # from, nor when it has an empty column (only a version that lost that
+  # column in reading wrote one).
+  printf '[{"name":"from-the-other-index"}]\n' >"$tmp/index-other.json"; touch -t 200001010000 "$tmp/index-other.json"
+  model="$(OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-hand.cache.tsv" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model "$tmp/index-other.json" </dev/null 2>/dev/null)"
+  check "a cache made from another index is made again" "from-the-other-index" "$model"
+  printf 'no-header\tno-header\tlatest\t\n' >"$tmp/menu-hand.cache.tsv"
+  model="$(OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-hand.cache.tsv" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model "$tmp/index-hand.json" </dev/null 2>/dev/null)"
+  check "a cache that does not say which index it is from is made again" "only-in-the-index" "$model"
+  hand_cache "$tmp/menu-hand.cache.tsv" "$tmp/index-hand.json" 'from-the-old-cache\tfrom-the-old-cache\t\twords'
+  model="$(OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-hand.cache.tsv" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model "$tmp/index-hand.json" </dev/null 2>/dev/null)"
+  check "a cache written with an empty column is made again" "only-in-the-index" "$model"
+
   # The other shape the index may have: {"models": [...]}.
   printf '{"models":[{"name":"wrapped","sizes":["1b","2b"]},{"name":"hf.co/o/m","sizes":[]}]}\n' >"$tmp/index-obj.json"
   model="$(OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-obj.cache.tsv" FAKE_DIALOG_ANSWER=0002 ollama_dialog_select_model "$tmp/index-obj.json" </dev/null 2>/dev/null)"; rc=$?
   check "an index wrapped in an object gives the same menu" "0:wrapped" "$rc:$model"
   check "its sizes are found" "2b" "$(FAKE_DIALOG_ANSWER=2b ollama_dialog_select_size "$tmp/index-obj.json" wrapped </dev/null 2>/dev/null)"
   check "and its names are listed" "hf.co/o/m wrapped" "$(ollama_list_models "$tmp/index-obj.json" | sort | tr '\n' ' ' | sed 's/ $//')"
+
   # What the index names goes into a command line and into the .env that the
   # install flow writes and load_env sources. Only a name that can be a model
-  # reference is offered.
+  # reference is offered, and an entry that is no entry is passed over.
   cat >"$tmp/index-bad.json" <<'INDEX'
-[{"name":"good:7b","sizes":["7b","8b;touch MARK","$(id)","ok-1"]},
- {"name":"x/y;touch MARK"},{"name":"$(id)"},{"name":"two words"},{"name":"--menu/x"},
- {"name":""},{"description":"an entry with no name"},{"name":7},
- {"name":"registry.example:5000/team/model","sizes":"not-a-list"}]
+[{"name":"good","sizes":["7b","8b;touch MARK","$(id)","ok-1","-x","--help","a/b","7b:x","9b\nzz","a..b","two words",7,null]},
+ "a string", 7, null, ["a list"],
+ {"name":"x/y;touch MARK"},{"name":"$(id)"},{"name":"two words"},{"name":"--menu/x"},{"name":"-x"},
+ {"name":""},{"description":"an entry with no name"},{"name":7},{"name":null},
+ {"name":"qwen3:"},{"name":"a..b//c/"},{"name":"trailing/"},{"name":":7b"},{"name":"a::b"},
+ {"name":"line\nbreak"},{"name":"tab\there"},{"name":"mod\u00e8le"},{"name":"esc\u001b[2J"},{"name":"unit\u001fsep"},
+ {"name":"registry.example:5000/team/model","sizes":{"a":"7b"}},
+ {"name":"hf.co/org/tagged:Q4_K_M","sizes":["7b"]}]
 INDEX
   : >"$tmp/log"
-  model="$(OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-bad.cache.tsv" FAKE_DIALOG_ANSWER=0002 ollama_dialog_select_model "$tmp/index-bad.json" </dev/null 2>/dev/null)"; rc=$?
+  model="$(OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-bad.cache.tsv" FAKE_DIALOG_ANSWER=0003 ollama_dialog_select_model "$tmp/index-bad.json" </dev/null 2>/dev/null)"; rc=$?
   check "an index with unusable entries still gives a menu, of the usable ones" "0:registry.example:5000/team/model" "$rc:$model"
-  check "two rows, and none of the others" "2:0" "$(wc -l <"$tmp/menu-bad.cache.tsv" | tr -d ' '):$(grep -c -e 'touch' -e 'two words' -e '--menu/x' -e '(id)' "$tmp/log")"
-  check "a size that is not a tag is not offered either" "7b ok-1" "$(: >"$tmp/log"; FAKE_DIALOG_ANSWER=7b ollama_dialog_select_size "$tmp/index-bad.json" good:7b </dev/null >/dev/null 2>&1; logged args | sed -E 's/.* 10 //' | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/ $//')"
-  check "sizes that are not a list are no sizes" "latest" "$(ollama_dialog_select_size "$tmp/index-bad.json" registry.example:5000/team/model </dev/null 2>/dev/null)"
-  # A cache is a file too: a row written by an older version, or by hand.
-  printf 'fine\tfine\tlatest\t\nx;touch MARK\tx;touch MARK\tlatest\t\nalso/fine\talso/fine\t7b\tsome words\n' >"$tmp/menu-hand.cache.tsv"
-  printf '[{"name":"unused"}]\n' >"$tmp/index-hand.json"; sleep 1; touch "$tmp/menu-hand.cache.tsv"
-  model="$(OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-hand.cache.tsv" FAKE_DIALOG_ANSWER=0002 ollama_dialog_select_model "$tmp/index-hand.json" </dev/null 2>/dev/null)"
-  check "a cached row whose name is not a reference is skipped" "also/fine" "$model"
-  # A cache from before this fix has an empty sizes column. It is not read: it
-  # is made again from the index, however new it is.
-  printf '[{"name":"from-the-index","description":"words","sizes":[]}]\n' >"$tmp/index-old.json"; sleep 1
-  printf 'from-the-old-cache\tfrom-the-old-cache\t\twords\n' >"$tmp/menu-old.cache.tsv"
-  model="$(OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-old.cache.tsv" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model "$tmp/index-old.json" </dev/null 2>/dev/null)"
-  check "a cache written with an empty column is made again" "from-the-index" "$model"
-  check "names that are not a reference are not listed either" "good:7b registry.example:5000/team/model" "$(ollama_list_models "$tmp/index-bad.json" | sort | tr '\n' ' ' | sed 's/ $//')"
-  # Case does not tell two models apart.
+  check "three rows, and nothing of the others in the menu" "3:0" "$(grep -vc '^#' "$tmp/menu-bad.cache.tsv" | tr -d ' '):$(grep -c -e 'touch' -e 'two words' -e '--menu/x' -e '(id)' -e 'qwen3:' -e 'trailing' -e 'break' -e "$(printf '\303\250')" -e 'esc' -e 'unit' "$tmp/log")"
+  case "$(logged args)" in
+    *"good | sizes: 7b, ok-1 "*"hf.co/org/tagged:Q4_K_M | sizes: in the name "*) ok "the menu shows only the sizes that can be a tag, and none for a name that has its tag" ;;
+    *) error "sizes shown: $(logged args)" ;;
+  esac
+  check "names that are not a reference are not listed either" "good hf.co/org/tagged:Q4_K_M registry.example:5000/team/model" "$(ollama_list_models "$tmp/index-bad.json" | sort | tr '\n' ' ' | sed 's/ $//')"
+  check "a size that is not a tag is not offered: not an operator, not an option, not a path" "7b ok-1" "$(: >"$tmp/log"; FAKE_DIALOG_ANSWER=7b ollama_dialog_select_size "$tmp/index-bad.json" good </dev/null >/dev/null 2>&1; logged args | sed -E 's/.* 10 //' | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/ $//')"
+  check "sizes that are not a list are no sizes, and nothing is asked" "latest:" "$(: >"$tmp/log"; ollama_dialog_select_size "$tmp/index-bad.json" registry.example:5000/team/model </dev/null 2>/dev/null):$(cat "$tmp/log")"
+  # A name that carries its tag is the whole reference: a size chosen for it
+  # would be written to .env and never pulled.
+  check "a name with a tag gets no size menu" "latest:" "$(: >"$tmp/log"; ollama_dialog_select_size "$tmp/index-bad.json" hf.co/org/tagged:Q4_K_M </dev/null 2>/dev/null):$(cat "$tmp/log")"
+  # An index with no usable name gives no cache at all, not an empty one.
+  printf '[{"name":"x;y"},"a string"]\n' >"$tmp/index-none.json"
+  check "an index with nothing to offer is an error, and leaves no cache" "1:no" "$(ollama_prepare_model_menu_cache "$tmp/index-none.json" "$tmp/menu-none.cache.tsv" >/dev/null 2>&1; echo "$?:$(if [[ -e "$tmp/menu-none.cache.tsv" ]]; then echo yes; else echo no; fi)")"
+  # An index that cannot be read is an error. It used to answer "latest".
+  printf 'not json\n' >"$tmp/index-broken.json"
+  check "an index jq cannot read has no sizes to offer, and says so" "1:" "$(ollama_dialog_select_size "$tmp/index-broken.json" good </dev/null 2>/dev/null; echo "$?:")"
+  check "nor names to list" "1:" "$(ollama_list_models "$tmp/index-broken.json" 2>/dev/null; echo "$?:")"
+
+  # The rule, in one function. lib/ollama_endpoint.sh has its own for the same
+  # thing: the two must give one answer. This one gives it in any locale.
+  shlib_import ollama_endpoint
+  rule_differs=""
+  for name in qwen3 qwen3:8b hf.co/org/model user/model registry.example:5000/team/model:7b Qwen3.5:4B a_b-c.d \
+              '' ' ' 'qwen3:' 'qwen3/' ':7b' '/x' '-x' '--help' '.hidden' 'a..b' 'a//b' 'a::b' 'a/:b' 'a:/b' \
+              'a b' 'a;b' 'a$b' 'a@b' 'a\b' "a'b" 'a"b' 'a*b' 'a?b' 'a#b' 'a%b' 'a+b' 'a=b' 'a,b' 'a~b' \
+              "$(printf 'mod\303\250le')" "$(printf 'a\tb')" "$(printf 'a\033b')"; do
+    for locale in C en_US.UTF-8 C.UTF-8; do
+      one="$(LC_ALL=$locale; if _ollama_is_model_ref "$name" 2>/dev/null; then echo yes; else echo no; fi)"
+      other="$(LC_ALL=C; if _ollama_ep_is_model "$name"; then echo yes; else echo no; fi)"
+      [[ "$one" == "$other" ]] || rule_differs="$rule_differs [$name in $locale: menu $one, endpoint $other]"
+    done
+  done
+  check "the menu's rule and the endpoint module's rule agree on every name tried" "" "$rule_differs"
+  check "a letter with an accent is not a reference in any locale" "no no no" "$(for locale in C en_US.UTF-8 C.UTF-8; do (LC_ALL=$locale; shopt -s nocasematch; if _ollama_is_model_ref "$(printf 'mod\303\250le')" 2>/dev/null; then echo yes; else echo no; fi); done | tr '\n' ' ' | sed 's/ $//')"
+  check "a tag is a name without a slash, a colon or two dots" "yes yes no no no no no" "$(for size in 7b Q4_K_M a/b 7b:x -x '' a..b; do if _ollama_is_model_tag "$size"; then echo yes; else echo no; fi; done | tr '\n' ' ' | sed 's/ $//')"
+
+  # Case does not tell two models apart; of two that differ only by case, the
+  # one written the same way is the current one.
   printf '[{"name":"alpha"},{"name":"hf.co/Org/Model-GGUF"}]\n' >"$tmp/index-case.json"
   : >"$tmp/log"
   OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-case.cache.tsv" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model "$tmp/index-case.json" hf.co/org/model-gguf </dev/null >/dev/null 2>&1
@@ -361,11 +424,52 @@ INDEX
   esac
   check "matching without case is not left switched on for the caller" "off" "$(shopt -q nocasematch && echo on || echo off)"
   check "nor switched off for a caller that had it on" "on" "$(shopt -s nocasematch; OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-case.cache.tsv" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model "$tmp/index-case.json" </dev/null >/dev/null 2>&1; shopt -q nocasematch && echo on || echo off)"
+  printf '[{"name":"Org/Model"},{"name":"org/model"},{"name":"ORG/model"}]\n' >"$tmp/index-twins.json"
+  default_item() { : >"$tmp/log"; OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-twins.cache.tsv" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model "$tmp/index-twins.json" "$1" </dev/null >/dev/null 2>&1; logged args | sed -n -E 's/.*--default-item ([0-9]+) .*/\1/p'; }
+  check "of names that differ only by case, the one written the same way is the default item" "0001 0002 0003" "$(default_item Org/Model) $(default_item org/model) $(default_item ORG/model)"
+  check "and written a fourth way, the first of them" "0001" "$(default_item oRg/MoDeL)"
+
   # A name that carries its tag is the whole reference.
   check "a size is the tag of a name without one" "hf.co/org/model:Q4" "$(ollama_model_ref hf.co/org/model Q4)"
   check "a name with a tag does not get a second" "hf.co/org/model:Q4_K_M" "$(ollama_model_ref hf.co/org/model:Q4_K_M 7b)"
   check "a port in the registry host is not a tag" "registry.example:5000/team/model:7b" "$(ollama_model_ref registry.example:5000/team/model 7b)"
   check "latest is no tag" "qwen3" "$(ollama_model_ref qwen3 latest)"
+
+  # The install flow, with a stand-in for the ollama command. The index is a
+  # directory that is not a git checkout, so nothing is cloned.
+  # shellcheck disable=SC2016
+  printf '%s\n' '#!/bin/sh' 'echo "$# args: $*" >>"$FAKE_OLLAMA_LOG"' >"$tmp/bin/ollama"; chmod +x "$tmp/bin/ollama"
+  export FAKE_OLLAMA_LOG="$tmp/ollama.log"
+  mkdir -p "$tmp/repo/code"
+  printf '[{"name":"zeta"},{"name":"alpha"},{"name":"hf.co/org/tagged:Q4_K_M","sizes":["7b"]}]\n' >"$tmp/repo/code/ollama_models.json"
+  flow() { ( unset OLLAMA_MODEL_MENU_CACHE_FILE model size; "$@" ) </dev/null >/dev/null 2>"$tmp/flow.err"; echo $?; }
+  : >"$tmp/ollama.log"
+  check "the install flow runs for a caller with set -u and no env file yet" "0" "$(flow bash -c 'set -u; source ./helpers.sh; shlib_import logging os file json env python dialog ollama; FAKE_DIALOG_ANSWER=0001 ollama_install_model_flow "$1"' _ "$tmp/repo")"
+  check "and pulls what was chosen, as one argument" "2 args: pull alpha" "$(cat "$tmp/ollama.log")"
+  : >"$tmp/ollama.log"
+  check "with an env file that does not exist yet, too" "0" "$(flow bash -c 'set -u; source ./helpers.sh; shlib_import logging os file json env python dialog ollama; FAKE_DIALOG_ANSWER=0002 ollama_install_model_flow "$1" "$2"' _ "$tmp/repo" "$tmp/flow.env")"
+  check "a name with a tag is pulled as it is, and no size is recorded for it" "2 args: pull hf.co/org/tagged:Q4_K_M|model=hf.co/org/tagged:Q4_K_M size=latest" "$(cat "$tmp/ollama.log")|$(tr '\n' ' ' <"$tmp/flow.env" | sed 's/ $//')"
+  # The index is sorted on every run. Sorting an index that is sorted already
+  # must not make it newer than its menu cache, or the cache is never reused:
+  # a row added to the cache by hand is still offered on the next run.
+  # The index is given an old time, so "newer" does not hang on two files
+  # written within one second (bash 3.2 compares whole seconds).
+  touch -t 200001010000 "$tmp/repo/code/ollama_models.json"
+  printf 'marker\tmarker\tlatest\t\n' >>"$tmp/repo/code/ollama_models.model-menu.cache.tsv"
+  : >"$tmp/ollama.log"
+  flow bash -c 'source ./helpers.sh; shlib_import logging os file json env python dialog ollama; FAKE_DIALOG_ANSWER=0004 ollama_install_model_flow "$1"' _ "$tmp/repo" >/dev/null
+  check "a second run of the flow reuses the menu cache" "2 args: pull marker" "$(cat "$tmp/ollama.log")"
+
+  # What reaches `ollama pull` and `ollama run` is one word that starts with a
+  # letter or a digit, whoever built it.
+  for bad in '' '-x' '--insecure' 'two words' ':7b'; do
+    : >"$tmp/ollama.log"
+    check "ollama_pull_model refuses '$bad' and runs nothing" "1:" "$(ollama_pull_model "$bad" >/dev/null 2>&1; echo "$?:$(cat "$tmp/ollama.log")")"
+  done
+  : >"$tmp/ollama.log"
+  check "ollama_run_model refuses an option as well" "1:" "$(ollama_run_model '-x' >/dev/null 2>&1; echo "$?:$(cat "$tmp/ollama.log")")"
+  : >"$tmp/ollama.log"
+  check "a reference goes through as one argument, a digest too" "0:2 args: pull hf.co/org/model:Q4|2 args: pull name@sha256:abc" "$(ollama_pull_model hf.co/org/model Q4 >/dev/null 2>&1; rc=$?; ollama_pull_model name@sha256:abc >/dev/null 2>&1; echo "$rc:$(tr '\n' '|' <"$tmp/ollama.log" | sed 's/|$//')")"
   model="$(FAKE_DIALOG_RC=1 ollama_dialog_select_model "$tmp/index.json" </dev/null 2>/dev/null)"; rc=$?
   check "cancelling the model menu prints nothing on stdout" "1:" "$rc:$model"
   unset OLLAMA_MODEL_MENU_CACHE_FILE
