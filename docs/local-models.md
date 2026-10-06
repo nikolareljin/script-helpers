@@ -317,11 +317,13 @@ in by the message.
 | `No models file at <path>` | 9 | the path is relative to where the start script runs (the example `cd`s to the repository first) |
 | `No models file and no names` | 9 | name the file, or the variables after the two files |
 | `Not a model reference: <name>` | 8 | a space, a quote, `@`, `..` or an empty part (`qwen3:`) in a model name |
-| `Nothing was pulled. Missing: <models>` with pulling off | 5 | `ollama pull <model>`, or set `OLLAMA_PULL_MISSING=1` |
+| `The Ollama at <address> lacks: <models>. Pulling is off (OLLAMA_PULL_MISSING).` | 5 | `ollama pull <model>`, or set `OLLAMA_PULL_MISSING=1` |
+| `Nothing was pulled. Missing: <models>` | 1 to 3 | follows a disk or memory refusal, the line above it says which |
 | `That Ollama is another machine, so nothing is pulled from here ...` | 5 | pull on that machine, or ask for it (`OLLAMA_PULL_MISSING=1`) with its figures stated |
 | `That Ollama is another machine and lacks: <models>. Its free disk and its memory are not known here ...` | 7 | state `OLLAMA_BUDGET_DISK_FREE_BYTES` and `OLLAMA_BUDGET_MEM_TOTAL_BYTES` for that machine, or `OLLAMA_IGNORE_BUDGET=1` |
 | `The registry has no model named <model> ...` | 7 | a typo, or a setting written in the models file (see the models file above) |
 | `The size of <model> could not be learned ...` | 7 | no network to the registry; pull by hand, or `OLLAMA_IGNORE_BUDGET=1` |
+| `Free disk space at <dir> could not be read ...` | 7 | state `OLLAMA_BUDGET_DISK_FREE_BYTES`, or `OLLAMA_MODELS` when the directory is elsewhere |
 | `Not enough disk for the models: ...` | 1 | free space, or a smaller `OLLAMA_DISK_RESERVE_GB` for this machine |
 | `Not enough memory for the largest model: ...` | 2 | a smaller model in `.env` |
 | `The largest model needs about ... It fits this machine, but not beside what is running.` | (warning) | nothing; close something if the model is slow to load |
