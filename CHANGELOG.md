@@ -2,6 +2,21 @@
 
 ### Added
 
+- **`dialog_capture`, `dialog_run`, `dialog_gauge`, `dialog_has_tty`,
+  `has_interactive_dialog_session`.** `dialog`
+  draws a box on its standard output unless it is asked for the answer there, so
+  `$(dialog --msgbox ...)` and `value=$(dialog --inputbox ...)` capture the screen and show nobody
+  anything. `dialog_run` and `dialog_capture` put the screen and the keys on the terminal device
+  and leave stdout to the answer, for any kind of box; `dialog_gauge` moves only the screen, since
+  a gauge reads its progress from stdin. `dialog_has_tty` opens the device to find
+  out whether there is one, because with no controlling terminal `/dev/tty` still looks readable
+  and writable. The model and size selectors in `lib/ollama.sh`, the distro selectors and the hub
+  setup's menu, input and secret prompts go through `dialog_capture`; with `dialog` 1.3 they already showed, since a `--stdout` box finds the
+  terminal by itself, and they no longer depend on that. `tests/dialog_pty_test.sh` runs the real
+  program in a pseudo-terminal. A call with an option `dialog` does not know, or a box given no
+  arguments, returns 255 before anything is drawn: `dialog` itself prints its help text and exits
+  0 for both, which a `--yesno` caller would read as Yes and a `$(...)` caller as the answer.
+
 - **`ollama_endpoint`: know whether the models fit before pulling them.** A new module for a
   project's start script. It reads the project's models from one env-style file
   (`ollama_models_required`), asks an Ollama over HTTP which of them it has
@@ -26,6 +41,19 @@
   without `set -euo pipefail`.
 
 ### Fixed
+
+- **`value=$(get_value ...)` returned the screen and showed nothing.** Its box was drawn on the
+  captured stdout: measured with `dialog` 1.3, the caller's variable held 2,235 bytes of screen and
+  the terminal stayed empty. It is drawn on the terminal now, through `dialog_capture`.
+- **Messages printed where an answer goes.** `get_value`, `select_distro`,
+  `select_multiple_distros` and `check_if_dialog_installed` printed "User pressed Cancel.", "No
+  distro selected." and "Dialog is not installed." on stdout, so a caller that captured the answer
+  got the sentence as the answer. They go to stderr.
+- **Five boxes could not be seen by a caller that captured stdout.** The download error box, the
+  hub setup's yes/no question and its note when `HUB_UI=dialog` is forced, and the two progress
+  gauges (`dialog_download_file` and the model pull): measured with `dialog` 1.3, a captured gauge
+  left the terminal empty and 1,502 bytes of screen in the caller's variable. The boxes go through
+  `dialog_run`, the gauges through `dialog_gauge`.
 
 - **`PRIVATE_NAMES_ALLOW` did nothing on a machine that has an allowlist file.** The override was
   written without a newline, so its last name joined the next source's first line:
@@ -166,13 +194,11 @@
   `cached (1 repos, under abcd)`. Both are refused now, with `--ttl 0` still
   accepted.
 
-
 - **No `HOME` reported a private name that was not there.** Under `set -u` an
   unguarded `$HOME` aborted the script with exit 1, and 1 is this gate's code
   for "a name was found" -- so in a container, a cron job or a systemd unit a
   hook refused the push and blamed a leak. It is exit 2, could-not-check, now.
   Pre-existing; found probing the file this change touches.
-
 
 - **The "no list yet" message named a path that does not exist in a
   consumer.** It printed `scripts/refresh_private_names.sh`, which is where
@@ -416,7 +442,6 @@
   was never created, because a caller sets the name before the start attempt.
   It says nothing unless there is something to remove.
 
-
 ## 2026-09-25 — v0.40.0
 
 ### Added
@@ -472,7 +497,6 @@
   mounted workdir, and it is removed on the way out. Verified with the run that
   first failed: `pip install "psycopg[binary]"` in one container, used by the
   migrate and test containers after it, against a real postgres.
-
 
 ## 2026-09-25 — v0.39.0
 
@@ -585,7 +609,6 @@
   in shipped code, because it read the practice files and not the shipping
   ones. It also fails when it finds no EXIT traps at all, since a scan that
   matches nothing otherwise reports success having examined nothing.
-
 
 ## 2026-09-25 — v0.38.1
 
@@ -1000,7 +1023,6 @@
   refused by name instead. And a section that failed to parse fell through to
   the whole-document branch, printing a second, misleading message about the
   first line not being JSON; one failure now reports once.
-
 
 - **`ci_wp_plugin_check.sh` passed WP-CLI an argument it does not have (#81).**
   Four `wp` invocations used `wp --config=<path>`, which WP-CLI refuses before

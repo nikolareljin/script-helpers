@@ -428,12 +428,12 @@ ollama_dialog_select_model() {
   fi
 
   if [[ -n "$default_tag" ]]; then
-    if ! selected=$(dialog --stdout --default-item "$default_tag" --menu "$value" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" "$menu_height" "${menu_items[@]}"); then
+    if ! selected=$(dialog_capture --default-item "$default_tag" --menu "$value" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" "$menu_height" "${menu_items[@]}"); then
       print_error "No model selected." >&2
       return 1
     fi
   else
-    if ! selected=$(dialog --stdout --menu "$value" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" "$menu_height" "${menu_items[@]}"); then
+    if ! selected=$(dialog_capture --menu "$value" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" "$menu_height" "${menu_items[@]}"); then
       print_error "No model selected." >&2
       return 1
     fi
@@ -473,7 +473,7 @@ ollama_dialog_select_size() {
     return 1
   fi
   local -a menu_items=()
-  local -a dialog_args=(--stdout --menu "Select a size for: $model" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 10)
+  local -a dialog_args=(--menu "Select a size for: $model" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 10)
   local s has_default=""
   for s in $sizes; do
     menu_items+=("$s" "$s")
@@ -482,11 +482,11 @@ ollama_dialog_select_size() {
     fi
   done
   if [[ -n "$has_default" ]]; then
-    dialog_args=(--stdout --default-item "$current_size" --menu "Select a size for: $model" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 10)
+    dialog_args=(--default-item "$current_size" --menu "Select a size for: $model" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 10)
   fi
 
   local selected status=0
-  if selected=$(dialog "${dialog_args[@]}" "${menu_items[@]}"); then
+  if selected=$(dialog_capture "${dialog_args[@]}" "${menu_items[@]}"); then
     :
   else
     status=$?
@@ -894,7 +894,7 @@ print('XXX')
 PY2
         sleep 0.5
       done
-    ) | dialog --no-shadow --title "$title" --gauge "Preparing model download..." "$gauge_height" "$gauge_width" 0; then
+    ) | dialog_gauge --no-shadow --title "$title" --gauge "Preparing model download..." "$gauge_height" "$gauge_width" 0; then
       dialog_rc=0
     else
       dialog_rc=$?
