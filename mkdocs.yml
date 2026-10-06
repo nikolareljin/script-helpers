@@ -145,6 +145,7 @@ nav:
       - CI default versions: ci_defaults.md
       - Packaging: packaging.md
       - Bash compatibility: bash-compatibility.md
+      - Local models with Ollama: local-models.md
   - Modules:
       - api.md
       - Loader and output:

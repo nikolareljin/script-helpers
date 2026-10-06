@@ -2,6 +2,11 @@
 
 ### Added
 
+- **`docs/local-models.md`: a guide to local models with Ollama.** The models file, the one call a
+  start script makes, where the models are served (`OLLAMA_MODE`: local, docker, remote),
+  settings, exit codes, what the person sees, how to test a project that uses it and the rules
+  the module is developed by.
+
 - **`dialog_capture`, `dialog_run`, `dialog_gauge`, `dialog_has_tty`,
   `has_interactive_dialog_session`.** `dialog`
   draws a box on its standard output unless it is asked for the answer there, so
