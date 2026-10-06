@@ -289,6 +289,13 @@ if command -v jq >/dev/null 2>&1; then
     *"--default-item 0002 --menu"*) ok "the current model is the default item" ;;
     *) error "default item: $(logged args)" ;;
   esac
+  # A namespaced model (hf.co/org/model, user/model) is in the menu. The menu
+  # used to drop every name with a slash, so it could not offer one.
+  printf '[{"name":"zeta","sizes":[]},{"name":"hf.co/org/quant","description":"from the hub","sizes":["Q4"]},{"name":"team/tool","sizes":[]}]\n' >"$tmp/index-ns.json"
+  : >"$tmp/log"
+  model="$(OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-ns.cache.tsv" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model "$tmp/index-ns.json" </dev/null 2>/dev/null)"; rc=$?
+  check "a namespaced model is offered and can be chosen" "0:hf.co/org/quant" "$rc:$model"
+  check "all three are in the menu" "3" "$(grep -o -E 'hf.co/org/quant|team/tool|zeta' "$tmp/log" | sort -u | wc -l | tr -d ' ')"
   model="$(FAKE_DIALOG_RC=1 ollama_dialog_select_model "$tmp/index.json" </dev/null 2>/dev/null)"; rc=$?
   check "cancelling the model menu prints nothing on stdout" "1:" "$rc:$model"
   unset OLLAMA_MODEL_MENU_CACHE_FILE

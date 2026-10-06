@@ -41,7 +41,7 @@ Environment
   - Purpose: Check whether a parsed menu-cache file exists, is non-empty, and is recent enough to reuse.
 
 - ollama_prepare_model_menu_cache json_file [cache_file]
-  - Purpose: Convert the official un-namespaced Ollama library models from the JSON index into a TSV cache optimized for dialog-menu reuse.
+  - Purpose: Convert every model in the JSON index, namespaced ones (`hf.co/org/model`, `user/model`) included, into a TSV cache for the dialog menu.
   - Behavior: Writes cache updates atomically so interrupted or failed refreshes do not leave partial cache files behind, and refreshes a caller-supplied cache path in place when `OLLAMA_MODEL_MENU_CACHE_FILE` is set.
 
 - ollama_dialog_select_model json_file [current_model]

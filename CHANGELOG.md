@@ -42,6 +42,9 @@
 
 ### Fixed
 
+- **The model menu hid every namespaced model.** `ollama_prepare_model_menu_cache` dropped each
+  index entry whose name has a slash, so `hf.co/org/model` and `user/model` could not be chosen,
+  though they are valid references everywhere else in the library. They are in the menu now.
 - **`value=$(get_value ...)` returned the screen and showed nothing.** Its box was drawn on the
   captured stdout: measured with `dialog` 1.3, the caller's variable held 2,235 bytes of screen and
   the terminal stayed empty. It is drawn on the terminal now, through `dialog_capture`.

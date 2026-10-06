@@ -335,8 +335,11 @@ ollama_prepare_model_menu_cache() {
   fi
   tmp_file="$(mktemp "${cache_file}.tmp.XXXXXX")" || return 1
 
+  # Every model in the index, namespaced ones (hf.co/org/model, user/model)
+  # included. They used to be dropped here, so the menu could not offer a
+  # model that is a valid reference everywhere else in this library.
   jq -r '
-    map(select(.name | contains("/") | not) | . + { slug: .name })
+    map(. + { slug: .name })
     | sort_by(.slug | ascii_downcase)
     | .[]
     | [
