@@ -100,8 +100,8 @@ What that one call does:
   from `.env` and the environment alone.
 - The address is `OLLAMA_URL`, `OLLAMA_BASE_URL` or `OLLAMA_HOST`, whichever
   has a value first, and `http://127.0.0.1:11434` when none has. A project
-  with its own name for it says so: `OLLAMA_URL_VARS=MYAPP_OLLAMA_URL`. What
-  projects store there is accepted as it is: `host:port`, a URL, a URL with
+  with its own name for it says so: `OLLAMA_URL_VARS=MYAPP_OLLAMA_URL`, in
+  the environment or in `.env`. What projects store there is accepted as it is: `host:port`, a URL, a URL with
   the API path (`http://ollama:11434/api/generate`).
 - `OLLAMA_MODE` says where that Ollama runs; see the next section.
 - It runs under `set -euo pipefail` or without it, under any `IFS`, and
@@ -172,9 +172,15 @@ OLLAMA_URL=https://llm.example.com
 - `local`: an address that is not this machine is a contradiction, refused
   with the mode that would fit (exit 9).
 - `docker`: the address in `.env` is the one a container uses, and a compose
-  service's name does not resolve from a start script. It is read as
-  `127.0.0.1`, at `OLLAMA_PORT` or `OLLAMA_HOST_PORT` when one is set and at
-  the address's own port otherwise. The disk measured is Docker's data root
+  service's name (one label, no dots) does not resolve from a start script on
+  the host. There it is read as `127.0.0.1`, at `OLLAMA_PORT` or
+  `OLLAMA_HOST_PORT` when one is set and at the address's own port otherwise;
+  a published port that is not a number from 1 to 65535 is refused (exit 9),
+  because the address's own port is often the native Ollama's. Inside a
+  container (Docker, Podman, a Kubernetes pod) the name is used as written.
+  A name with a dot, an IP address or an IPv6 literal that is not this
+  machine is another machine, and `docker` is the wrong word for it: refused
+  (exit 9) with `remote` named. The disk measured is Docker's data root
   (`docker info`), or `OLLAMA_MODELS` when the project states it.
 - `remote`: a model a remote Ollama lacks is a refusal (exit 5) that names
   it. Nothing is pulled into another machine unless `OLLAMA_PULL_MISSING=1`
@@ -238,7 +244,7 @@ All optional, read from the environment or, through
 |---|---|---|
 | `OLLAMA_MODE` | the address decides | `local`, `docker` or `remote`: where the models are served. |
 | `OLLAMA_URL`, `OLLAMA_BASE_URL`, `OLLAMA_HOST` | `http://127.0.0.1:11434` | The address; the first with a value. `OLLAMA_URL_VARS` names other variables to read it from. |
-| `OLLAMA_PORT`, `OLLAMA_HOST_PORT` | the address's own port | `docker`: the port the container is published on. |
+| `OLLAMA_PORT`, `OLLAMA_HOST_PORT` | the address's own port | `docker`: the port the container is published on; 1 to 65535, or exit 9. |
 | `OLLAMA_MODELS` | see `ollama_models_dir` | Where that Ollama keeps its models, for the disk check. |
 | `OLLAMA_PULL_MISSING` | on (`remote`: off) | off: never pull; a missing model is exit 5. |
 | `OLLAMA_IGNORE_BUDGET` | off | on: a refusal of the disk or memory check becomes a warning, and an unknown size does not stop the pull. For a machine you know better than the numbers. |
@@ -269,7 +275,7 @@ Exit codes and what to do with them
 | 6 | a pull failed | the message has what Ollama said: no network, no space during the pull |
 | 7 | the budget could not be checked: a missing model's size or the free disk space could not be learned, the registry has no such model, or a pull into another machine was asked for without its figures | the message says which; a wrong name is said as a wrong name |
 | 8 | a model is not a model reference | a space, a quote, `@`, `..`, or an empty part such as `qwen3:` |
-| 9 | the project's configuration (`ollama_project_ensure_models` only): no models file at that path, a name that is not a variable name, an address that is not one, an `OLLAMA_MODE` that is none of the three or that the address contradicts | the message names the variable |
+| 9 | the project's configuration (`ollama_project_ensure_models` only): no models file at that path, a name that is not a variable name, an address that is not one, an `OLLAMA_MODE` that is none of the three or that the address contradicts, a published port that is not one, or a setting in `.env` the caller holds read-only | the message names the variable |
 
 1 to 3 are always the disk and the memory. A project whose backend waits for
 Ollama by itself may go on from 4:
@@ -430,10 +436,10 @@ Limits, and what comes next
   address). It does not start, stop or share one: bringing up a container,
   and one Ollama shared by several projects, is the next step and is not in
   this release.
-- **`docker` assumes the published port.** The compose service's name is read
-  as `127.0.0.1` at `OLLAMA_PORT`, `OLLAMA_HOST_PORT` or the address's own
-  port. A container published on another address, or not published at all,
-  needs the address given for the call.
+- **`docker` assumes the published port.** On the host, the compose
+  service's name is read as `127.0.0.1` at `OLLAMA_PORT`, `OLLAMA_HOST_PORT`
+  or the address's own port. A container published on another address, or
+  not published at all, needs the address given for the call.
 - **An Ollama on another machine** is listed and, when asked for, pulled
   into; its disk and memory cannot be read from here, so a pull needs them
   stated or the check waived. Whether a name is this machine is decided
