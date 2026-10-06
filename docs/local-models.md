@@ -81,7 +81,15 @@ shlib_import logging ollama_endpoint
 if [[ -f .env ]]; then set -a; source .env; set +a; fi
 
 OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
-OLLAMA_MODELS_DIR="${OLLAMA_MODELS_DIR:-$HOME/.ollama/models}"
+# Where this Ollama keeps its models, for the disk check. The Linux installer
+# sets Ollama up as a service with a user of its own: not under your home.
+if [[ -n "${OLLAMA_MODELS:-}" ]]; then
+  OLLAMA_MODELS_DIR="$OLLAMA_MODELS"
+elif [[ -d /usr/share/ollama/.ollama/models ]]; then
+  OLLAMA_MODELS_DIR=/usr/share/ollama/.ollama/models
+else
+  OLLAMA_MODELS_DIR="$HOME/.ollama/models"
+fi
 
 # "|| exit": a refusal here must stop the start. Without it the list is empty,
 # and an empty list is "nothing to check".
@@ -102,9 +110,13 @@ Line by line:
   those are checked. A file that is named and does not exist is an error
   (exit 1), so a mistyped path cannot read as "needs no models".
 - `ollama_endpoint_ensure_models URL DIR MODEL...` does the rest. `DIR` is
-  where that Ollama keeps its models, for the disk check: `~/.ollama/models`
-  for an Ollama on this machine, Docker's data root for one in a container
-  (`docker info -f '{{.DockerRootDir}}'`).
+  where that Ollama keeps its models, for the disk check. On this machine that
+  is `OLLAMA_MODELS` when set, `/usr/share/ollama/.ollama/models` for the
+  service the Linux installer sets up (measured: with both directories
+  present, the service used that one), and `~/.ollama/models` for an Ollama
+  started by hand and on macOS. For one in a container it is Docker's data
+  root (`docker info -f '{{.DockerRootDir}}'`). The wrong directory measures
+  the wrong disk when the two are on different filesystems.
 - Both run under `set -euo pipefail` or without it; neither can end a strict
   caller by itself.
 
