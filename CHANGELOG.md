@@ -2,6 +2,12 @@
 
 ### Added
 
+- **`docs/local-models.md`: messages, adoption and CI.** A table of every message the start
+  check prints with its exit code and what to do; the steps for a project that already has an
+  Ollama address and model names in its code; how to run it in CI; that the models file holds
+  models only (any other name in it is checked as a model); that there is no PowerShell
+  version. The real-pull test now uses a second Ollama with a models directory of its own,
+  instead of pulling into the machine's Ollama and removing the model after.
 - **`docs/local-models.md`: a guide to local models with Ollama.** The models file, the one call a
   start script makes, where the models are served (`OLLAMA_MODE`: local, docker, remote),
   settings, exit codes, what the person sees, how to test a project that uses it and the rules
@@ -75,6 +81,10 @@
 
 ### Fixed
 
+- **`ollama_project_ensure_models "" .env` checked nothing and returned 0.** With no models
+  file and no `NAME` there is nothing to check, and a start that went on from 0 believed its
+  models were there. It is now 9 with what to give. The guide said the names came from `.env`
+  in that case; they have to be given.
 - **The model menu dropped every namespaced model.** `ollama_prepare_model_menu_cache` left out each
   index entry whose name has a slash, so an index listing `hf.co/org/model` or `user/model` could
   not offer them. They are offered now. The default index is unchanged by this: its generator reads

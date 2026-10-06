@@ -958,6 +958,8 @@ check "nor localhost, one word that is this machine" "4:0" "$(project "$tmp/proj
 printf 'OLLAMA_URL=http://[2001:db8::10]:9\n' >"$tmp/proj/.env"
 check "nor an IPv6 address of another machine" "4:0" "$(OLLAMA_REGISTRY_TIMEOUT=2 project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 'compose service' "$tmp/err")"
 printf 'OLLAMA_URL=%s\n' "$URL" >"$tmp/proj/.env"
+check "no models file and no names is the project's mistake (9), not nothing to check" "9:" "$(project "" "$tmp/proj/.env"):$(pulled)"
+said "and it says what to give" "$tmp/err" "No models file and no names"
 check "a models file that is not there is the project's mistake (9), not a full disk (1) and not no models" "9:" "$(project "$tmp/proj/absent.env" "$tmp/proj/.env"):$(pulled)"
 check "a bad name is the project's mistake too" "9:" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env" 'BAD NAME'):$(pulled)"
 reset

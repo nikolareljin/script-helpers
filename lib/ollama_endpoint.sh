@@ -944,6 +944,12 @@ ollama_project_ensure_models() (
   if [[ $# -ge 2 ]]; then shift 2; else shift $#; fi
   # Lists below are split into words; none may be read as a file pattern.
   set -f
+  # No file and no names would check nothing and return 0: a start that
+  # believes its models are there.
+  if [[ -z "$_oep_file" && $# -eq 0 ]]; then
+    print_error "No models file and no names: name the models file, or the variables that hold the models (ollama_project_ensure_models \"\" .env OLLAMA_MODEL)." >&2
+    exit 9
+  fi
 
   # OLLAMA_URL_VARS may itself be in the project's .env.
   if [[ -n "$_oep_env" ]]; then
