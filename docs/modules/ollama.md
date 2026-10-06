@@ -18,7 +18,7 @@ Functions
 
 - ollama_prepare_models_index [repo_dir=ollama-get-models] [repo_url=https://github.com/webfarmer/ollama-get-models.git]
   - Purpose: Ensure a repo containing the models index exists; update/clone; generate `code/ollama_models.json`.
-  - Behavior: Uses existing `code/ollama_models.json` if present; otherwise ensures Python deps and runs `get_ollama_models.py` with Python 3. The generator combines `/library` with multiple `/search?q=` slices, deduplicates models, sorts JSON by name (a top-level array, or the `models` array of a `{"models": [...]}` object), and prints the JSON path.
+  - Behavior: Uses existing `code/ollama_models.json` if present; otherwise ensures Python deps and runs `get_ollama_models.py` with Python 3. The default generator reads `https://ollama.com/library` only, so its index holds the library's own models and no namespaced ones (`hf.co/org/model`, `user/model`); those come from an index of your own (`repo_url`, or a file edited by hand). The index is then sorted by name (a top-level array, or the `models` array of a `{"models": [...]}` object), and prints the JSON path.
   - Output: stdout carries only the JSON path, so `json_file="$(ollama_prepare_models_index)"` is safe; progress, warnings, git and generator output go to stderr.
   - Returns: non-zero on failure, including when the index cannot be sorted (no `.tmp` file is left behind).
 
@@ -32,7 +32,7 @@ Environment
   - Purpose: Convenience function to print the expected JSON path within the repo.
 
 - ollama_list_models json_file
-  - Purpose: Print model names from the JSON index.
+  - Purpose: Print model names from the JSON index, in either of its shapes (a top-level array, or `{"models": [...]}`).
 
 - ollama_model_menu_cache_path json_file
   - Purpose: Build the persistent parsed menu-cache path for a JSON model index.
@@ -41,19 +41,21 @@ Environment
   - Purpose: Check whether a parsed menu-cache file exists, is non-empty, and is recent enough to reuse.
 
 - ollama_prepare_model_menu_cache json_file [cache_file]
-  - Purpose: Convert every model in the JSON index, namespaced ones (`hf.co/org/model`, `user/model`) included, into a TSV cache for the dialog menu.
+  - Purpose: Convert the models in the JSON index, in either of its shapes, into a TSV cache for the dialog menu. Namespaced models (`hf.co/org/model`, `user/model`) are kept when the index lists them.
+  - Names: only an entry whose name can be a model reference is kept: letters, digits and `. _ - / :`, starting with a letter or a digit. A name from the index ends up in a command line and in the `.env` that `ollama_install_model_flow` writes and `load_env` sources. An entry with no name, or another kind of name, is left out and does not end the menu.
+  - Sizes: a model with none is written as `latest`, so no column is empty (an empty one made the description read as the sizes).
   - Behavior: Writes cache updates atomically so interrupted or failed refreshes do not leave partial cache files behind, and refreshes a caller-supplied cache path in place when `OLLAMA_MODEL_MENU_CACHE_FILE` is set.
 
 - ollama_dialog_select_model json_file [current_model]
-  - Purpose: Use a dialog menu to select a model from the indexed official Ollama library catalog; returns the selected full model name on stdout.
-  - Behavior: Reuses `OLLAMA_MODEL_MENU_CACHE_FILE` when present; otherwise reuses the default cache path while it remains fresh and non-empty, and regenerates it on demand when stale. When the dialog is cancelled, the function prints a message to stderr and returns a non-zero status, so callers using `set -e` must handle cancellations explicitly to avoid script termination. If the prepared cache contains no selectable models, the function returns a clear stderr error instead of invoking an empty dialog.
+  - Purpose: Use a dialog menu to select a model from the index; returns the selected full model name on stdout.
+  - Behavior: Uses the cache at `OLLAMA_MODEL_MENU_CACHE_FILE`, or at the default cache path, while it is non-empty, newer than the index and less than 30 minutes old; otherwise the cache is rebuilt first, so an index that changed is in the menu at once. A cached row whose name cannot be a model reference is skipped. `current_model` is made the default item whatever its letter case. When the dialog is cancelled, the function prints a message to stderr and returns a non-zero status, so callers using `set -e` must handle cancellations explicitly to avoid script termination. If the prepared cache contains no selectable models, the function returns a clear stderr error instead of invoking an empty dialog.
 
 - ollama_dialog_select_size json_file model [current_size]
-  - Purpose: Use a dialog menu to select a size for the model; returns `latest` if none are listed.
+  - Purpose: Use a dialog menu to select a size for the model; returns `latest` if none are listed. Only a size that can be a tag (letters, digits and `. _ -`) is offered.
   - Behavior: Returns status `2` when the size dialog is cancelled so callers can reopen model selection.
 
 - ollama_model_ref model [size=latest]
-  - Purpose: Build model reference for Ollama (`name` or `name:tag` when tag is not `latest`).
+  - Purpose: Build model reference for Ollama (`name` or `name:tag` when tag is not `latest`). A name that already carries a tag (`hf.co/org/model:Q4_K_M`) is returned as it is; a port in a registry host is not a tag.
 
 - ollama_model_ref_safe model [size=latest]
   - Purpose: Backward-compatible alias for `ollama_model_ref`.

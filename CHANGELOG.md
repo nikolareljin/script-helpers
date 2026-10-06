@@ -42,9 +42,27 @@
 
 ### Fixed
 
-- **The model menu hid every namespaced model.** `ollama_prepare_model_menu_cache` dropped each
-  index entry whose name has a slash, so `hf.co/org/model` and `user/model` could not be chosen,
-  though they are valid references everywhere else in the library. They are in the menu now.
+- **The model menu dropped every namespaced model.** `ollama_prepare_model_menu_cache` left out each
+  index entry whose name has a slash, so an index listing `hf.co/org/model` or `user/model` could
+  not offer them. They are offered now. The default index is unchanged by this: its generator reads
+  `ollama.com/library` only, which has no namespaced models (the module page said otherwise).
+- **The model menu, from the same review.**
+  - An index that changed kept its old menu for 30 minutes: the cache was reused by age alone. It
+    is rebuilt whenever the index is newer.
+  - A model with no sizes and a description showed the description as its sizes (`sizes: A
+    frontier model ...`; 26 of the library's 242 entries): the empty column was lost in reading.
+  - An index of the `{"models": [...]}` shape passed validation and then failed in the menu, the
+    size menu and `ollama_list_models`. All three read both shapes.
+  - An entry with no name ended the menu with a jq error. It is left out.
+  - A name or a size from the index reaches a command line and the `.env` that
+    `ollama_install_model_flow` writes and `load_env` sources, and nothing checked either:
+    `x;touch file` as a name ran `touch` at the next `load_env`. Only what can be part of a model
+    reference is offered now (letters, digits and `. _ -`, plus `/ :` in a name), from the index
+    and from a cache file alike.
+  - The current model was preselected only on an exact-case match, and a name that carries its tag
+    (`hf.co/org/model:Q4_K_M`) got the chosen size appended as a second one.
+  - `scripts/local_test_bash32.sh` installed no `jq`, so every selector test was skipped under
+    bash 3.2 and the run still said it passed.
 - **`value=$(get_value ...)` returned the screen and showed nothing.** Its box was drawn on the
   captured stdout: measured with `dialog` 1.3, the caller's variable held 2,235 bytes of screen and
   the terminal stayed empty. It is drawn on the terminal now, through `dialog_capture`.

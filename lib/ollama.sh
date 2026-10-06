@@ -270,6 +270,18 @@ ollama_models_json_path() {
   echo "$repo_dir/code/ollama_models.json"
 }
 
+# The index is an array of models, or an object holding one under "models":
+# _ollama_is_valid_models_json accepts both, so every reader takes both.
+_OLLAMA_JQ_MODELS='(if type == "array" then . else (.models // []) end)'
+
+# A name or a size from the index ends up in a command line and in the .env
+# that ollama_install_model_flow writes and load_env sources. So only what can
+# be part of a model reference is offered: letters, digits and . _ - (and / :
+# in a name), starting with a letter or a digit. The same characters
+# lib/ollama_endpoint.sh allows in a reference.
+_OLLAMA_NAME_RE='^[A-Za-z0-9][A-Za-z0-9._/:-]*$'
+_OLLAMA_SIZE_RE='^[A-Za-z0-9][A-Za-z0-9._-]*$'
+
 # List model names from JSON index
 ollama_list_models() {
   local json_file="$1"
@@ -277,7 +289,7 @@ ollama_list_models() {
     print_error "Models JSON not found: $json_file" >&2
     return 1
   fi
-  jq -r '.[].name' "$json_file"
+  jq -r "$_OLLAMA_JQ_MODELS"' | .[].name | select(type == "string")' "$json_file"
 }
 
 ollama_model_menu_cache_path() {
@@ -335,18 +347,24 @@ ollama_prepare_model_menu_cache() {
   fi
   tmp_file="$(mktemp "${cache_file}.tmp.XXXXXX")" || return 1
 
-  # Every model in the index, namespaced ones (hf.co/org/model, user/model)
-  # included. They used to be dropped here, so the menu could not offer a
-  # model that is a valid reference everywhere else in this library.
-  jq -r '
-    map(. + { slug: .name })
+  # Every model in the index whose name can be a model reference, namespaced
+  # ones (hf.co/org/model, user/model) included: those used to be dropped
+  # here. An entry without a name, or with one that is not a reference, is
+  # left out (see _OLLAMA_NAME_RE); it used to end the menu or become a row.
+  # No column is ever empty except the last: tab is whitespace to `read`, so
+  # an empty sizes column made the description read as the sizes.
+  jq -r --arg name_re "$_OLLAMA_NAME_RE" --arg size_re "$_OLLAMA_SIZE_RE" "$_OLLAMA_JQ_MODELS"'
+    | map(select((.name | type) == "string" and (.name | test($name_re))))
+    | map(. + { slug: .name })
     | sort_by(.slug | ascii_downcase)
     | .[]
     | [
         .slug,
         .name,
-        ((.sizes // []) | join(", ")),
-        ((.description // "") | gsub("[[:space:]]+"; " "))
+        ((if (.sizes | type) == "array" then .sizes else [] end)
+          | map(select(type == "string" and test($size_re)))
+          | join(", ") | if . == "" then "latest" else . end),
+        ((.description // "") | tostring | gsub("[[:space:]]+"; " "))
       ]
     | @tsv
   ' "$json_file" > "$tmp_file" || {
@@ -396,19 +414,25 @@ ollama_dialog_select_model() {
     cache_file="$(ollama_model_menu_cache_path "$json_file")"
   fi
 
-  if [[ ! -s "$cache_file" ]] || ! ollama_model_menu_cache_is_fresh "$cache_file"; then
+  # Rebuilt unless the cache is newer than the index it was made from: an
+  # index that changed (a refresh, an entry added by hand) used to keep its
+  # old menu for half an hour.
+  if [[ ! -s "$cache_file" ]] || [[ ! "$cache_file" -nt "$json_file" ]] || ! ollama_model_menu_cache_is_fresh "$cache_file"; then
     cache_file="$(ollama_prepare_model_menu_cache "$json_file" "$cache_file")" || return 1
   fi
 
+  # Case does not tell two models apart (Ollama reads "Qwen3" as "qwen3"), so
+  # the current model is found whichever way it was written.
+  local nocase_was_on=0
+  if shopt -q nocasematch; then nocase_was_on=1; fi
+  shopt -s nocasematch
   while IFS=$'	' read -r slug model_name sizes desc; do
+    # A cache is a file: one written by an older version, or by hand, is held
+    # to the same rule as the index.
+    [[ "$model_name" =~ $_OLLAMA_NAME_RE ]] || continue
     idx=$((idx + 1))
     tag=$(printf '%04d' "$idx")
-    summary="${slug}"
-    if [[ -n "$sizes" ]]; then
-      summary="${summary} | sizes: ${sizes}"
-    else
-      summary="${summary} | sizes: latest"
-    fi
+    summary="${slug} | sizes: ${sizes:-latest}"
     if [[ -n "$desc" ]]; then
       summary="${summary} | ${desc}"
     fi
@@ -419,13 +443,14 @@ ollama_dialog_select_model() {
       default_tag="$tag"
     fi
   done < "$cache_file"
+  [[ "$nocase_was_on" -eq 1 ]] || shopt -u nocasematch
 
   total_count="$idx"
   if [[ $total_count -eq 0 ]]; then
     print_error "No selectable Ollama models found in cache: $cache_file" >&2
     return 1
   fi
-  value="Browse official Ollama library models. Showing ${total_count} indexed models."
+  value="Browse the indexed Ollama models. Showing ${total_count}."
   if [[ -n "$current_model" ]]; then
     value="${value} Current selection: ${current_model}."
   fi
@@ -463,7 +488,12 @@ ollama_dialog_select_size() {
     return 1
   fi
 
-  local sizes; sizes=$(jq -r --arg m "$model" '.[] | select(.name == $m) | .sizes[]?' "$json_file")
+  # Only what can be a tag (see _OLLAMA_SIZE_RE): a size goes into a command
+  # line and into .env, and is split on spaces below.
+  local sizes; sizes=$(jq -r --arg m "$model" --arg size_re "$_OLLAMA_SIZE_RE" "$_OLLAMA_JQ_MODELS"'
+    | .[] | select(.name == $m) | .sizes
+    | if type == "array" then .[] else empty end
+    | select(type == "string" and test($size_re))' "$json_file")
   if [[ -z "$sizes" ]]; then
     print_warning "No sizes listed for $model; using 'latest'." >&2
     echo "latest"
@@ -504,11 +534,14 @@ ollama_dialog_select_size() {
   echo "$selected"
 }
 
-# Build Ollama model reference. Omits tag when size is empty/latest.
+# Build Ollama model reference. Omits tag when size is empty/latest, and when
+# the name carries a tag already (an index may list hf.co/org/model:Q4_K_M):
+# a second tag is not a reference.
 ollama_model_ref() {
   local model_name="$1"
   local model_size="${2:-latest}"
-  if [[ -z "$model_size" || "$model_size" == "latest" ]]; then
+  local last_segment="${model_name##*/}"
+  if [[ -z "$model_size" || "$model_size" == "latest" || "$last_segment" == *:* ]]; then
     echo "$model_name"
   else
     echo "${model_name}:${model_size}"
