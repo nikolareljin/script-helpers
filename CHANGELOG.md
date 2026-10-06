@@ -40,6 +40,9 @@
   read as off, so a typo pulls nothing and skips no check. bash 3.2 and BSD userland, with or
   without `set -euo pipefail`.
 
+- **`docs/local-models.md`: a guide to the models file, the start script, settings, exit codes, what
+  the person sees, how to test a project that uses it and how to develop the module.**
+
 ### Fixed
 
 - **`value=$(get_value ...)` returned the screen and showed nothing.** Its box was drawn on the
