@@ -38,7 +38,25 @@
   start of the models file is ignored. `OLLAMA_PULL_MISSING` and `OLLAMA_IGNORE_BUDGET` take the
   usual spellings (`1/true/yes/on`, `0/false/no/off`); a value that is neither is reported and
   read as off, so a typo pulls nothing and skips no check. bash 3.2 and BSD userland, with or
-  without `set -euo pipefail`.
+  without `set -euo pipefail`. `ollama_models_dir` prints where a local Ollama keeps its models:
+  `OLLAMA_MODELS`, else the Linux service's directory (`/usr/share/ollama/.ollama/models`; the
+  installer's service has a user of its own, so `~/.ollama/models` is the wrong disk to measure
+  there), else `~/.ollama/models`. A missing model the registry answers it does not have (HTTP
+  404, `MANIFEST_UNKNOWN`) is said as a wrong name, not as a size that "could not be learned"
+  with advice to pull by hand; `ollama_registry_size_bytes` returns 3 for it.
+  A pull that succeeds is said to reach 100%: Ollama never reports a layer as complete, so the
+  progress of a real pull stopped at 90%.
+- **`ollama_project_ensure_models`: the start check from a project's own configuration, in one
+  call.** `ollama_project_ensure_models ai-models.env .env || exit $?` reads the project's `.env`
+  as data (never sourced: `ollama_env_file_export`), takes the address from the first of
+  `OLLAMA_URL`, `OLLAMA_BASE_URL`, `OLLAMA_HOST` (or the names in `OLLAMA_URL_VARS`) that has a
+  value, and runs `ollama_endpoint_ensure_models`. `ollama_endpoint_base_url` makes a base URL of
+  what projects store: a bare `host:port`, a URL with the API path in it
+  (`http://ollama:11434/api/generate`), a URL behind a proxy. `ollama_endpoint_is_local` says
+  whether an address is this machine; for one that is not, the models it lacks are named and
+  nothing is pulled into it unless `OLLAMA_PULL_MISSING` is set on, because the disk and memory
+  read here are not that machine's. To a script on the host, `host.docker.internal` is this
+  machine.
 
 ### Fixed
 

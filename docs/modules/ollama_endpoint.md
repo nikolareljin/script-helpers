@@ -13,16 +13,25 @@ CLASSIFY_MODEL=qwen2.5:3b
 OLLAMA_EMBED_MODEL=nomic-embed-text
 ```
 
-and a start does:
+and a start does, in one call:
 
 ```bash
 source scripts/script-helpers/helpers.sh
 shlib_import logging ollama_endpoint
 
-# "|| exit": without it a refusal here leaves no models, and none is "all there".
+# "|| exit": a refusal must stop the start.
+ollama_project_ensure_models ai-models.env .env || exit $?
+```
+
+That reads the project's `.env` as data (it is never sourced), takes the
+address from `OLLAMA_URL`, `OLLAMA_BASE_URL` or `OLLAMA_HOST`, and pulls what is
+missing only when it fits. The same in steps, for a start that needs its own
+order:
+
+```bash
 models="$(ollama_models_required ai-models.env OLLAMA_MODEL CLASSIFY_MODEL OLLAMA_EMBED_MODEL)" || exit $?
 # shellcheck disable=SC2086  # one model per word
-ollama_endpoint_ensure_models "http://127.0.0.1:11434" "$HOME/.ollama/models" $models || exit $?
+ollama_endpoint_ensure_models "http://127.0.0.1:11434" "$(ollama_models_dir)" $models || exit $?
 ```
 
 Works against an Ollama on this machine and one in a container alike: every
@@ -96,7 +105,12 @@ Functions
 - ollama_registry_size_bytes model
   - Purpose: Print the size of the model's download in bytes, from the registry manifest.
   - Behavior: Sums every layer and the config. Layers the machine already holds for another model are counted again, so the figure can only overstate. An answer without `layers` (a list of manifests, a web page) is not a manifest and is not summed.
-  - Returns: 0; 1 when the registry does not answer, has no such model, answers with something else, or the argument is not a model reference; 2 for a model on another registry host (for example `hf.co/...` or `localhost:5000/...`), which is not asked for.
+  - Returns: 0; 1 when the registry does not answer, answers with something else, or the argument is not a model reference; 2 for a model on another registry host (for example `hf.co/...` or `localhost:5000/...`), which is not asked for; 3 when the registry answers that it has no such model or tag (HTTP 404 with `MANIFEST_UNKNOWN` or `NAME_UNKNOWN`). A 404 from anything else is 1: a mistyped `OLLAMA_REGISTRY_URL` is not a mistyped model.
+
+- ollama_models_dir
+  - Purpose: Print where an Ollama on this machine keeps its models, for the disk check.
+  - Behavior: `OLLAMA_MODELS` when set (Ollama's own variable); else `/usr/share/ollama/.ollama/models` when it exists, because the Linux installer sets Ollama up as a service with a user of its own; else `~/.ollama/models` (an Ollama started by hand, and macOS). The directory need not exist yet.
+  - Note: not for an Ollama in a container; pass Docker's data root there (`docker info -f '{{.DockerRootDir}}'`).
 
 - ollama_disk_free_bytes path
   - Purpose: Print the bytes free on the filesystem holding `path`, or its nearest existing parent. Prints nothing when it cannot be told.
@@ -125,20 +139,51 @@ Functions
 - ollama_endpoint_ensure_models base_url models_dir model...
   - Purpose: Make sure that Ollama has every model listed, pulling what is missing only when everything fits.
   - Behavior: Lists what the endpoint has; if nothing is missing, returns without asking the registry anything. Otherwise sizes every needed model (the missing ones add up to the download, the largest of all of them is what must fit in memory), checks the budget, and only then pulls, in the order given. Nothing is pulled unless everything fits: a start that ends with half its models is worse than one that says no. A credential in `base_url` is used and never printed.
-  - `models_dir` is where that Ollama keeps its models, for the disk check: a directory on this machine, or Docker's data root for an Ollama in a container.
+  - `models_dir` is where that Ollama keeps its models, for the disk check: `ollama_models_dir` for one on this machine, or Docker's data root for an Ollama in a container.
   - Returns:
     - 0 every model is there, or none was asked for
     - 1, 2, 3 the budget refused (as `ollama_budget_check`); nothing was pulled
     - 4 nothing answers at `base_url` as an Ollama
     - 5 models are missing and `OLLAMA_PULL_MISSING=0`
     - 6 a pull failed
-    - 7 the budget could not be checked: a missing model's size, or the free disk space, could not be learned (`OLLAMA_IGNORE_BUDGET=1` pulls anyway)
+    - 7 the budget could not be checked: a missing model's size, or the free disk space, could not be learned (`OLLAMA_IGNORE_BUDGET=1` pulls anyway). A missing model the registry says it does not have is 7 too, with a message of its own: the name is wrong, and neither waiting nor pulling by hand helps.
     - 8 an argument is not a model reference
   - A model that is already there and whose size cannot be learned does not stop the rest; it is said that memory was not checked for it.
+
+A project's own configuration
+-----------------------------
+
+Projects name their Ollama's address in different ways, some store the API
+path with it, and many keep it in a `.env` their start script never sources.
+
+- ollama_project_ensure_models models_file [env_file] [NAME...]
+  - Purpose: The whole start check from a project's own configuration: `.env`, models file, address, then `ollama_endpoint_ensure_models`.
+  - Configuration: `env_file` (`""` or absent for none) is read as data for the model names, the address and every setting under Environment above, plus `OLLAMA_MODELS`. A value already in the environment wins. Nothing read from it is left in the caller's environment.
+  - Models: as `ollama_models_required models_file [NAME...]`. Pass `""` for the file when the project names its models in `.env` alone.
+  - Address: the first variable of `OLLAMA_URL_VARS` that has a value (default `OLLAMA_URL OLLAMA_BASE_URL OLLAMA_HOST`; set it to the project's own name, for example `OLLAMA_URL_VARS=MYAPP_OLLAMA_URL`), made a base URL by `ollama_endpoint_base_url`; `http://127.0.0.1:11434` when none has. On the host, `host.docker.internal` is read as this machine.
+  - A compose service name (`http://ollama:11434`) does not resolve from a start script. Set the variable for the call to the published address: `OLLAMA_URL="http://127.0.0.1:${OLLAMA_PORT:-11434}" ollama_project_ensure_models ai-models.env .env`.
+  - Another machine: an address that is not this machine (`ollama_endpoint_is_local`) is asked what it has, and a model it lacks is a refusal (5) that says so, but nothing is pulled there unless `OLLAMA_PULL_MISSING` is set on: the disk and memory read here are not that machine's. Set on, the pull also needs `OLLAMA_BUDGET_DISK_FREE_BYTES` and `OLLAMA_BUDGET_MEM_TOTAL_BYTES` stated for that machine, or `OLLAMA_IGNORE_BUDGET=1`; without them it is a refusal (7), not a check against the wrong machine.
+  - Returns: as `ollama_endpoint_ensure_models`; 1 or 2 as `ollama_models_required`; 9 when the configured address is not an address.
+  - Note: 4 (nothing answers) is returned as it is. A project whose backend waits for Ollama by itself may go on from it: `ollama_project_ensure_models ... || { rc=$?; [[ $rc -eq 4 ]] || exit $rc; }`.
+
+- ollama_endpoint_base_url address
+  - Purpose: Print the base URL of the Ollama at an address as a project configures it.
+  - Behavior: `host` or `host:port` gets `http://`, and port 11434 when none is given, as Ollama reads `OLLAMA_HOST`. A URL keeps its scheme, its port (none given stays none, for an Ollama behind a proxy), its credentials and a path a proxy serves it under. The API path some projects store with it (`/api`, `/api/...`, `/v1`, `/v1/...`), a query, a fragment and a trailing slash are removed.
+  - Returns: 0; 1, printing nothing, for an empty address, another scheme, or text with a space or a control character.
+
+- ollama_endpoint_is_local url
+  - Purpose: Say whether a URL points at this machine, so that this machine's disk and memory are the ones a pull would use.
+  - Behavior: 0 for a loopback name or address (also IPv4 written inside IPv6), `0.0.0.0`, `host.docker.internal`, `gateway.docker.internal`, this host's name and its own addresses (`ip`, else `ifconfig`). 1 for anything else, including a name that only resolves to this machine: read as another machine, nothing is pulled into it unasked.
+
+- ollama_env_file_export file NAME...
+  - Purpose: Export each `NAME` from an env-style file, unless the environment already has a value for it that is not blank.
+  - Behavior: The file is read as the models file is, as data: it is never sourced, so `$`, a backquote or a space in a value is only a value. A file that is not there exports nothing.
+  - Returns: 0; 2, exporting nothing, when a `NAME` is not a variable name.
 
 What this module does not do
 ----------------------------
 
-It is told the endpoint. Finding one (an Ollama on the host that containers
-can reach, or a shared container when there is none) is the next step and
-is not in this module yet.
+It reads the address a project configured; it does not find or start an
+Ollama. Choosing between one on the host and one shared container, and
+turning a compose service name into the address a start script can reach, is
+the next step and is not in this module yet.
