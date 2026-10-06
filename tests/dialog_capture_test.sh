@@ -463,7 +463,7 @@ INDEX
   check "an index with no usable name lists nothing, and that is not a failure" "0:" "$(ollama_list_models "$tmp/index-none.json" 2>/dev/null; echo "$?:")"
 
   # The rule, in one function. lib/ollama_endpoint.sh has its own for the same
-  # thing: the two must give one answer. This one gives it in any locale.
+  # thing: the two must give one answer, each in any locale.
   shlib_import ollama_endpoint
   # The rules are pinned to the C locale. That only shows in a locale where
   # [A-Za-z] takes an accented letter, and not every machine has one: it is
@@ -483,7 +483,7 @@ INDEX
               "$(printf 'mod\303\250le')" "$(printf 'a\tb')" "$(printf 'a\033b')"; do
     for locale in "${rule_locales[@]}"; do
       one="$(LC_ALL=$locale; if _ollama_is_model_ref "$name" 2>/dev/null; then echo yes; else echo no; fi)"
-      other="$(LC_ALL=C; if _ollama_ep_is_model "$name"; then echo yes; else echo no; fi)"
+      other="$(LC_ALL=$locale; if _ollama_ep_is_model "$name"; then echo yes; else echo no; fi)"
       [[ "$one" == "$other" ]] || rule_differs="$rule_differs [$name in $locale: menu $one, endpoint $other]"
     done
   done

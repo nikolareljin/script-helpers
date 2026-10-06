@@ -20,7 +20,8 @@
 # True for a valid variable name. Checked before the name is used in
 # `${!name}` (bash would run a command hidden in `x[$(cmd)]`) or in a sed
 # program.
-_ollama_ep_is_name() { [[ "${1:-}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; }
+# LC_ALL=C in both rules: in other locales [A-Za-z] takes accented letters.
+_ollama_ep_is_name() { local LC_ALL=C; [[ "${1:-}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; }
 
 # True for a valid model reference: letters, digits and . _ - / : only, and no
 # "..". Checked before the model is put into a URL or a JSON string.
@@ -28,6 +29,7 @@ _ollama_ep_is_name() { [[ "${1:-}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; }
 # which must not be printed or stored, or a digest (model@sha256:...), which
 # cannot be sized here or matched against the names an Ollama lists.
 _ollama_ep_is_model() {
+  local LC_ALL=C
   [[ "${1:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._/:-]*$ ]] || return 1
   # No empty part: "qwen3:" has no tag, "qwen3/" has no name after the slash.
   # Ollama calls these an invalid model name. Without this they got as far as
@@ -81,6 +83,16 @@ _ollama_ep_shown() {
   # which would turn the text \033[2J into a real escape sequence.
   printf '%s' "${1:-}" | LC_ALL=C tr -d '\000-\037\177' \
     | sed -E 's|[?#].*$||; s|^([a-zA-Z][a-zA-Z0-9+.-]*://)?[^/]*@|\1|; s|\\|\\\\|g' || true
+}
+
+# A URL as it is named in a message: scheme, host and port only. Besides what
+# _ollama_ep_shown removes, the path goes too: a proxy may serve an Ollama
+# under a path that holds a key (https://gateway/KEY/ollama).
+_ollama_ep_shown_url() {
+  printf '%s' "${1:-}" | LC_ALL=C tr -d '\000-\037\177' \
+    | sed -E -e 's|[?#].*$||' -e 's|^([a-zA-Z][a-zA-Z0-9+.-]*://)?[^/]*@|\1|' \
+        -e '/:\/\//!s|^([^/]*)/.*$|\1|' -e 's|^([a-zA-Z][a-zA-Z0-9+.-]*://[^/]*)/.*$|\1|' \
+        -e 's|\\|\\\\|g' || true
 }
 
 # Text from the other side (Ollama, curl) that is safe to print: the last
@@ -167,32 +179,34 @@ ollama_model_tagged() {
 # mistyped path would otherwise mean "this project needs no models", and the
 # start would check nothing. Pass "" to use no file.
 ollama_models_required() {
-  local file="${1:-}" name value names
+  # Its own variables start with _oep_: a NAME is read through ${!NAME}, and a
+  # local called "name" or "value" would be read in place of the caller's.
+  local _oep_file="${1:-}" _oep_name _oep_value _oep_names
   [[ $# -eq 0 ]] || shift
-  if [[ -n "$file" && ! -f "$file" ]]; then
-    print_error "No models file at $(_ollama_ep_said "$file")" >&2
+  if [[ -n "$_oep_file" && ! -f "$_oep_file" ]]; then
+    print_error "No models file at $(_ollama_ep_said "$_oep_file")" >&2
     return 1
   fi
   if [[ $# -gt 0 ]]; then
-    for name in "$@"; do
-      if ! _ollama_ep_is_name "$name"; then
-        print_error "Not a variable name: $(_ollama_ep_said "$name")" >&2
+    for _oep_name in "$@"; do
+      if ! _ollama_ep_is_name "$_oep_name"; then
+        print_error "Not a variable name: $(_ollama_ep_said "$_oep_name")" >&2
         return 2
       fi
     done
-    names="$(printf '%s\n' "$@")"
+    _oep_names="$(printf '%s\n' "$@")"
   else
-    names="$(ollama_models_file_names "$file" | grep -v -E '_(SMALL|LARGE|XLARGE)(_V?RAM_GB)?$' || true)"
+    _oep_names="$(ollama_models_file_names "$_oep_file" | grep -v -E '_(SMALL|LARGE|XLARGE)(_V?RAM_GB)?$' || true)"
   fi
-  while IFS= read -r name; do
-    [[ -n "$name" ]] || continue
-    value="${!name:-}"
+  while IFS= read -r _oep_name; do
+    [[ -n "$_oep_name" ]] || continue
+    _oep_value="${!_oep_name:-}"
     # Trimmed: a padded value in the environment is the same model.
-    value="$(printf '%s' "$value" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')" || true
-    [[ -n "$value" ]] || value="$(ollama_models_file_get "$file" "$name")"
-    [[ -n "$value" ]] || continue
-    ollama_model_tagged "$value"
-  done <<<"$names" | awk '!seen[tolower($0)]++'
+    _oep_value="$(printf '%s' "$_oep_value" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')" || true
+    [[ -n "$_oep_value" ]] || _oep_value="$(ollama_models_file_get "$_oep_file" "$_oep_name")"
+    [[ -n "$_oep_value" ]] || continue
+    ollama_model_tagged "$_oep_value"
+  done <<<"$_oep_names" | awk '!seen[tolower($0)]++'
   return 0
 }
 
@@ -237,10 +251,12 @@ ollama_models_missing() {
 
 # Usage: ollama_registry_size_bytes <model>; prints the download size of the
 # model in bytes, read from the registry's manifest.
-# Returns 1 if the registry does not answer, does not have the model, answers
-# with something that is not a model's manifest, or the model reference is not
-# valid. Returns 2 if the model is on another registry host: its size is not
-# asked for.
+# Returns 1 if the registry does not answer, answers with something that is
+# not a model's manifest, or the model reference is not valid. Returns 2 if the
+# model is on another registry host: its size is not asked for. Returns 3 if
+# the registry answers that it has no such model or tag (measured: HTTP 404
+# with the code MANIFEST_UNKNOWN for both). That is a name to correct, not a
+# registry to wait for.
 # Env: OLLAMA_REGISTRY_URL (default https://registry.ollama.ai),
 # OLLAMA_REGISTRY_TIMEOUT (default 15 seconds).
 #
@@ -248,7 +264,7 @@ ollama_models_missing() {
 # already has from another model are counted again, so the number can be too
 # high but never too low.
 ollama_registry_size_bytes() {
-  local ref tag name path body first
+  local ref tag name path body first answer code
   local base="${OLLAMA_REGISTRY_URL:-https://registry.ollama.ai}"
   ref="$(ollama_model_tagged "${1:-}")"
   _ollama_ep_is_model "$ref" || return 1
@@ -267,9 +283,21 @@ ollama_registry_size_bytes() {
       ;;
     *) path="library/$name" ;;
   esac
-  body="$(curl -fsS -m "${OLLAMA_REGISTRY_TIMEOUT:-15}" \
+  # The status goes on a line of its own after the body: without -f, so that
+  # a 404's body can be read.
+  answer="$(curl -sS -m "${OLLAMA_REGISTRY_TIMEOUT:-15}" -w '\n%{http_code}' \
     -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
-    "${base%/}/v2/${path}/manifests/${tag}" 2>/dev/null | tr -d '\n\r')" || return 1
+    "${base%/}/v2/${path}/manifests/${tag}" 2>/dev/null)" || return 1
+  code="${answer##*$'\n'}"
+  body="$(printf '%s' "${answer%$'\n'*}" | tr -d '\n\r')" || true
+  if [[ "$code" == "404" ]]; then
+    # Only the registry's own "unknown" counts. Any web server says 404 for a
+    # path it does not have, and a mistyped OLLAMA_REGISTRY_URL is not a
+    # mistyped model.
+    grep -q -E '"(MANIFEST|NAME)_UNKNOWN"' <<<"$body" || return 1
+    return 3
+  fi
+  case "$code" in 2??) ;; *) return 1 ;; esac
   # A model's manifest has "layers". A list of manifests, or a web page that
   # contains "size", does not. Summing those would give a number that passes
   # any check.
@@ -277,6 +305,28 @@ ollama_registry_size_bytes() {
   { grep -o '"size"[[:space:]]*:[[:space:]]*[0-9][0-9]*[^0-9.eE]' <<<"$body" || true; } \
     | awk -F: '{ gsub(/[^0-9]/, "", $2); if ($2 != "") { total += $2; n++ } }
                END { if (!n) exit 1; printf "%.0f\n", total }'
+}
+
+# Usage: ollama_models_dir; prints where an Ollama on this machine keeps its
+# models, for the disk check:
+# - OLLAMA_MODELS when set (Ollama's own variable for it);
+# - else the directory of the Linux service, when there is one: the installer
+#   sets Ollama up as a service with a user of its own, and that user's home
+#   is not $HOME;
+# - else ~/.ollama/models (an Ollama started by hand, and macOS).
+# The directory need not exist yet: ollama_disk_free_bytes reads its nearest
+# existing parent. Not for an Ollama in a container: pass Docker's data root.
+ollama_models_dir() {
+  local service="${_OLLAMA_EP_SERVICE_MODELS:-/usr/share/ollama/.ollama/models}"
+  if [[ -n "${OLLAMA_MODELS:-}" ]]; then
+    printf '%s\n' "$OLLAMA_MODELS"
+  elif [[ -d "$service" || -d "${service%/.ollama/models}" ]]; then
+    # The service user's home is often closed to others (drwxr-x---): its
+    # being there is enough, and the disk is read from the nearest parent.
+    printf '%s\n' "$service"
+  else
+    printf '%s\n' "${HOME:-}/.ollama/models"
+  fi
 }
 
 # Usage: ollama_disk_free_bytes <path>; prints the free bytes on the
@@ -476,6 +526,7 @@ ollama_endpoint_pull() {
         total = field("total"); done = field("completed")
         if (total < 100000000 || done < 0) next
         layer = match($0, /"digest"[ \t]*:[ \t]*"[^"]*"/) ? substr($0, RSTART, RLENGTH) : "-"
+        size[layer] = total
         tenth = int(done * 10 / total)
         if (!(layer in said)) {
           # First time a layer is seen: print nothing if it has not started
@@ -493,16 +544,27 @@ ollama_endpoint_pull() {
         fflush("cat 1>&2")
       }
       END {
-        if (!failed && last ~ /^[ \t]*[{][ \t]*"status"[ \t]*:[ \t]*"success"/) print "ok"
-        else print "no:" last
+        if (!failed && last ~ /^[ \t]*[{][ \t]*"status"[ \t]*:[ \t]*"success"/) {
+          # Ollama goes from the last progress line to verifying without ever
+          # saying completed == total (measured: a real pull stopped at 90%).
+          # A layer that was being counted is said to be done once the pull is.
+          for (layer in said) if (said[layer] < 10) {
+            printf "  %s: 100%% of %.1f GB\n", model, size[layer] / 1000000000 | "cat 1>&2"
+          }
+          print "ok"
+        } else print "no:" last
       }')" || true
   [[ "$verdict" != "ok" ]] || return 0
   # curl prints the URL it could not reach, credentials included. Replace
   # the whole URL before the text is cut to length, so no part of it is left.
   verdict="${verdict#no:}"
-  verdict="${verdict//"$url"/$(_ollama_ep_shown "$url")}"
+  verdict="${verdict//"$url"/$(_ollama_ep_shown_url "$url")}"
+  # A proxy that echoes the request path ("Cannot POST /key/ollama/api/pull")
+  # would print the path, and a key in it, through the server's own words.
+  local path="${url#*://}"
+  if [[ "$path" == */* ]]; then path="/${path#*/}"; verdict="${verdict//"$path"/}"; fi
   verdict="$(_ollama_ep_said "$verdict")"
-  print_error "The Ollama at $(_ollama_ep_shown "$url") did not pull ${model}: ${verdict:-no answer}" >&2
+  print_error "The Ollama at $(_ollama_ep_shown_url "$url") did not pull ${model}: ${verdict:-no answer}" >&2
   return 1
 }
 
@@ -532,12 +594,12 @@ ollama_endpoint_pull() {
 # ollama_budget_check, ollama_registry_size_bytes and ollama_endpoint_pull read.
 ollama_endpoint_ensure_models() {
   local url="${1:-}" dir="${2:-.}" present needed missing model size shown
-  local pull_bytes=0 largest=0 unknown="" unsized="" status=0 ignore=0
+  local pull_bytes=0 largest=0 unknown="" unsized="" nowhere="" status=0 ignore=0 asked
   url="${url%/}"
   # If the directory is left out, there are no models either: the only
   # argument left is the URL, and it must not be read as a model.
   if [[ $# -ge 2 ]]; then shift 2; else shift $#; fi
-  shown="$(_ollama_ep_shown "$url")"
+  shown="$(_ollama_ep_shown_url "$url")"
   needed=""
   for model in "$@"; do
     model="$(ollama_model_tagged "$model")"
@@ -558,7 +620,7 @@ ollama_endpoint_ensure_models() {
   [[ -n "$missing" ]] || return 0
 
   if ! _ollama_ep_on OLLAMA_PULL_MISSING on; then
-    print_error "The Ollama at ${shown} lacks: $(tr '\n' ' ' <<<"$missing"). Pulling is off (OLLAMA_PULL_MISSING)." >&2
+    print_error "The Ollama at ${shown} lacks: ${missing//$'\n'/ }. Pulling is off (OLLAMA_PULL_MISSING)." >&2
     return 5
   fi
   # Read once here, and passed on as 1 or 0, so a typo is reported once.
@@ -568,7 +630,9 @@ ollama_endpoint_ensure_models() {
   # download. The largest of all of them must fit in memory.
   while IFS= read -r model; do
     [[ -n "$model" ]] || continue
-    size="$(ollama_registry_size_bytes "$model")" || size=""
+    asked=0
+    size="$(ollama_registry_size_bytes "$model")" || asked=$?
+    [[ "$asked" -eq 0 ]] || size=""
     if size="$(_ollama_ep_uint "$size")"; then
       [[ "$size" -le "$largest" ]] || largest="$size"
       if grep -qxF -- "$model" <<<"$missing"; then
@@ -576,6 +640,7 @@ ollama_endpoint_ensure_models() {
       fi
     elif grep -qxF -- "$model" <<<"$missing"; then
       unknown="${unknown}${model} "
+      [[ "$asked" -ne 3 ]] || nowhere="${nowhere}${model} "
     else
       unsized="${unsized}${model} "
     fi
@@ -584,6 +649,14 @@ ollama_endpoint_ensure_models() {
   if [[ -n "$unsized" ]]; then
     # Already present, so no download. But it may be the largest model.
     print_warning "The size of ${unsized}could not be learned from the registry; memory was not checked for it." >&2
+  fi
+  if [[ -n "$nowhere" && "$ignore" -eq 0 ]]; then
+    # Said apart from "could not be learned": waiting or pulling by hand does
+    # not help with a name that is wrong.
+    # "Or none it shows": the registry answers the same for a model that is
+    # private, when asked without signing in.
+    print_error "The registry has no model named ${nowhere% }, or none it shows without signing in: check the name and its tag. Nothing was pulled." >&2
+    return 7
   fi
   if [[ -n "$unknown" ]]; then
     if [[ "$ignore" -eq 1 ]]; then
@@ -603,7 +676,7 @@ ollama_endpoint_ensure_models() {
 
   OLLAMA_IGNORE_BUDGET="$ignore" ollama_budget_check "$pull_bytes" "$largest" "$dir" || status=$?
   if [[ "$status" -ne 0 ]]; then
-    print_error "Nothing was pulled. Missing: $(tr '\n' ' ' <<<"$missing")" >&2
+    print_error "Nothing was pulled. Missing: ${missing//$'\n'/ }" >&2
     return "$status"
   fi
 
@@ -614,3 +687,433 @@ ollama_endpoint_ensure_models() {
   done <<<"$missing"
   return 0
 }
+
+# --- a project's own configuration -------------------------------------------
+#
+# Projects name the address of their Ollama in different ways: OLLAMA_URL,
+# OLLAMA_BASE_URL, OLLAMA_HOST holding a URL, a name with the project's prefix.
+# Some put the API path in it, and a project whose backend is in a container
+# writes host.docker.internal or the compose service's name. Many keep the
+# value in a .env that their start script never sources. The functions below
+# turn that into what the rest of this module takes.
+#
+# Their own variables start with _oep_: a caller's NAME (an address variable
+# called "url", a model variable called "name") is read through ${!NAME}, and
+# a local of the same name would be read in its place.
+
+# Usage: ollama_endpoint_base_url <address>; prints the base URL of the Ollama
+# at an address as a project configures it:
+# - "host", "host:port" or ":port" gets http://, and port 11434 when none is
+#   given, as Ollama reads OLLAMA_HOST. No host is this machine (127.0.0.1),
+#   and an IPv6 address without brackets gets them;
+# - a URL keeps its scheme and port (none given stays none: 80 or 443, for an
+#   Ollama behind a proxy), its credentials and any path a proxy serves it under;
+# - the API path some projects store with it is removed when it ends the URL
+#   (/api, /v1, /api/generate, /api/chat, /v1/chat/completions and the other
+#   endpoints of the two APIs), with a query, a fragment and a trailing slash.
+#   "/api/ollama" is a proxy's path and stays.
+# Returns 1, printing nothing, for what is not an address: empty, another
+# scheme, a space or a control character in it, a port that is not a number, a
+# host with a character no host has, or an "@" after the first "/", "?" or
+# "#". That last one is a password with such a character in it: it has to be
+# percent-encoded, curl refuses the URL, and read by halves it would be
+# printed.
+ollama_endpoint_base_url() {
+  local LC_ALL=C
+  local _oep_value="${1:-}" _oep_scheme _oep_rest _oep_authority _oep_path="" _oep_hostport _oep_user="" _oep_host _oep_port=""
+  _oep_value="$(printf '%s' "$_oep_value" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')" || true
+  [[ -n "$_oep_value" ]] || return 1
+  [[ "$_oep_value" != *[[:space:][:cntrl:]]* ]] || return 1
+  case "$_oep_value" in
+    [Hh][Tt][Tt][Pp]://*) _oep_scheme="http"; _oep_rest="${_oep_value#*://}" ;;
+    [Hh][Tt][Tt][Pp][Ss]://*) _oep_scheme="https"; _oep_rest="${_oep_value#*://}" ;;
+    *://*) return 1 ;;
+    # "http:" and "http:/host": a URL that lost its slashes, not a host called http.
+    [Hh][Tt][Tt][Pp]:*|[Hh][Tt][Tt][Pp][Ss]:*) return 1 ;;
+    *) _oep_scheme=""; _oep_rest="$_oep_value" ;;
+  esac
+  case "$_oep_rest" in *[/?#]*@*) return 1 ;; esac
+  _oep_rest="${_oep_rest%%[?#]*}"
+  _oep_authority="${_oep_rest%%/*}"
+  [[ "$_oep_rest" != */* ]] || _oep_path="/${_oep_rest#*/}"
+  _oep_hostport="$_oep_authority"
+  if [[ "$_oep_authority" == *@* ]]; then
+    _oep_user="${_oep_authority%@*}@"
+    _oep_hostport="${_oep_authority##*@}"
+  fi
+  case "$_oep_hostport" in
+    \[*\]:*) _oep_host="${_oep_hostport%%\]*}]"; _oep_port="${_oep_hostport##*\]:}" ;;
+    \[*\]) _oep_host="$_oep_hostport" ;;
+    \[*|*\]*) return 1 ;;
+    *:*:*) _oep_host="[${_oep_hostport}]" ;;
+    *:*) _oep_host="${_oep_hostport%%:*}"; _oep_port="${_oep_hostport##*:}" ;;
+    *) _oep_host="$_oep_hostport" ;;
+  esac
+  [[ -z "$_oep_port" || ( "$_oep_port" =~ ^[0-9]+$ && "${#_oep_port}" -le 5 && "$_oep_port" -ge 1 && "$_oep_port" -le 65535 ) ]] || return 1
+  if [[ -z "$_oep_host" ]]; then
+    # ":11434" and "http://:11434": the port of this machine, as Ollama reads it.
+    [[ -n "$_oep_port" ]] || return 1
+    _oep_host="127.0.0.1"
+  fi
+  case "$_oep_host" in
+    \[*\]) [[ "$_oep_host" =~ ^\[[0-9A-Fa-f:.]+(%[A-Za-z0-9._-]+)?\]$ ]] || return 1 ;;
+    *) [[ "$_oep_host" =~ ^[A-Za-z0-9._-]+$ ]] || return 1 ;;
+  esac
+  if [[ -z "$_oep_scheme" ]]; then
+    _oep_scheme="http"
+    [[ -n "$_oep_port" ]] || _oep_port="11434"
+  fi
+  # The API path is not part of the base, when it is what the URL ends with.
+  # An API path is removed however it was written: /v1, /api/v1, /api/v1/chat/completions.
+  local _oep_before=""
+  while [[ "$_oep_path" != "$_oep_before" ]]; do
+    _oep_before="$_oep_path"
+    _oep_path="$(printf '%s' "$_oep_path" | sed -E 's#/+$##; s#/(api(/(generate|chat|tags|embed|embeddings|pull|push|show|version|ps|create|copy|delete))?|v1(/(chat/completions|completions|embeddings|models))?)$##; s#/+$##')" || true
+  done
+  printf '%s://%s%s%s%s\n' "$_oep_scheme" "$_oep_user" "$_oep_host" "${_oep_port:+:$_oep_port}" "$_oep_path"
+}
+
+# Usage: _ollama_ep_host <url>; prints the host of a URL, in lower case,
+# without credentials, port, brackets or a trailing dot. The path is cut
+# first: an "@" in it is not the end of credentials.
+_ollama_ep_host() {
+  local _oep_rest="${1:-}"
+  _oep_rest="${_oep_rest#*://}"
+  _oep_rest="${_oep_rest%%[/?#]*}"
+  _oep_rest="${_oep_rest##*@}"
+  case "$_oep_rest" in
+    \[*) _oep_rest="${_oep_rest#\[}"; _oep_rest="${_oep_rest%%\]*}" ;;
+    *) _oep_rest="${_oep_rest%%:*}" ;;
+  esac
+  _oep_rest="${_oep_rest%.}"
+  printf '%s\n' "$_oep_rest" | tr 'A-Z' 'a-z'
+}
+
+# True inside a container (Docker writes /.dockerenv).
+# Docker and Podman leave a marker file; Kubernetes sets a variable in every
+# pod. _OLLAMA_EP_DOCKERENV is a test seam: when set, it alone decides.
+_ollama_ep_in_container() {
+  if [[ -n "${_OLLAMA_EP_DOCKERENV:-}" ]]; then [[ -e "$_OLLAMA_EP_DOCKERENV" ]]; return; fi
+  [[ -e /.dockerenv || -e /run/.containerenv || -n "${KUBERNETES_SERVICE_HOST:-}" ]]
+}
+
+# Usage: ollama_endpoint_is_local <url>; returns 0 when the URL points at this
+# machine, so that this machine's disk and memory are the ones a pull would
+# use: a loopback name or address, 0.0.0.0, this host's name, one of its own
+# addresses, and Docker's names for the host (host.docker.internal,
+# gateway.docker.internal) when this is not a container itself. Inside one,
+# those names are another machine: the host, with a disk this shell cannot see.
+# Returns 1 for anything else, a name that only resolves to this machine
+# included: read as another machine, nothing is pulled into it unasked, which
+# is the safe way to be wrong.
+ollama_endpoint_is_local() {
+  local LC_ALL=C
+  local _oep_host _oep_own
+  _oep_host="$(_ollama_ep_host "${1:-}")"
+  [[ -n "$_oep_host" ]] || return 1
+  case "$_oep_host" in
+    localhost|*.localhost|::1|0.0.0.0|::) return 0 ;;
+    host.docker.internal|gateway.docker.internal)
+      if _ollama_ep_in_container; then return 1; fi
+      return 0
+      ;;
+  esac
+  # Loopback as an address, also written as IPv4 inside IPv6.
+  [[ ! "$_oep_host" =~ ^(::ffff:)?127\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 0
+  [[ ! "$_oep_host" =~ ^::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}$ ]] || return 0
+  _oep_own="$(hostname 2>/dev/null | tr 'A-Z' 'a-z')" || _oep_own=""
+  if [[ -n "$_oep_own" ]] && [[ "$_oep_host" == "$_oep_own" || "$_oep_host" == "${_oep_own%%.*}" ]]; then
+    return 0
+  fi
+  # This machine's own addresses, from every tool there is. Collected first
+  # and searched after: `grep -q` leaves a pipeline early, and under pipefail
+  # the tools it cut off would make a found address read as not found.
+  _oep_own="$({
+    ip -o addr 2>/dev/null | awk '{ print $4 }' || true
+    ifconfig 2>/dev/null | awk '$1 == "inet" || $1 == "inet6" { print $2 }' || true
+  } | sed -E 's#/.*$##; s#%.*$##; s#^addr:##' | tr 'A-Z' 'a-z')" || true
+  grep -qxF -- "$_oep_host" <<<"$_oep_own"
+}
+
+# Usage: ollama_env_file_export <file> NAME...; exports each NAME from an
+# env-style file, unless the environment already has a value for it that is
+# not blank (a blank one is no choice, and the file's is used). The file is
+# read as ollama_models_file_get reads one, as data: it is never sourced, so a
+# value with a "$", a backquote or a space in it is only a value. A file that
+# is not there exports nothing.
+# Returns 2, exporting nothing, when a NAME is not a variable name.
+ollama_env_file_export() {
+  local _oep_file="${1:-}" _oep_name _oep_value
+  [[ $# -eq 0 ]] || shift
+  for _oep_name in "$@"; do
+    if ! _ollama_ep_is_name "$_oep_name"; then
+      print_error "Not a variable name: $(_ollama_ep_said "$_oep_name")" >&2
+      return 2
+    fi
+  done
+  [[ -f "$_oep_file" ]] || return 0
+  for _oep_name in "$@"; do
+    _oep_value="$(printf '%s' "${!_oep_name:-}" | tr -d ' \t\r\n')" || true
+    [[ -z "$_oep_value" ]] || continue
+    _oep_value="$(ollama_models_file_get "$_oep_file" "$_oep_name")" || true
+    [[ -n "$_oep_value" ]] || continue
+    # A caller that holds the variable read-only and blank would keep its
+    # blank: the file's setting would be read as "not set", silently.
+    if ! export "$_oep_name=$_oep_value" 2>/dev/null; then
+      print_error "$_oep_name is set in $(_ollama_ep_said "$_oep_file") and cannot be set here: the caller holds it read-only." >&2
+      return 9
+    fi
+  done
+  return 0
+}
+
+# What a start check reads from a project's .env besides the models and the
+# address.
+_ollama_ep_settings() {
+  printf '%s' "OLLAMA_MODE OLLAMA_PORT OLLAMA_HOST_PORT OLLAMA_PULL_MISSING OLLAMA_IGNORE_BUDGET OLLAMA_DISK_RESERVE_GB OLLAMA_MEM_HEADROOM_PERCENT OLLAMA_PULL_STALL_SECONDS OLLAMA_REGISTRY_URL OLLAMA_REGISTRY_TIMEOUT OLLAMA_MODELS OLLAMA_BUDGET_DISK_FREE_BYTES OLLAMA_BUDGET_MEM_TOTAL_BYTES OLLAMA_BUDGET_MEM_AVAILABLE_BYTES OLLAMA_BUDGET_GPU_BYTES"
+}
+
+# Where Docker keeps its data on this machine: the disk an Ollama in a
+# container fills. OLLAMA_MODELS when the project states it.
+_ollama_ep_docker_models_dir() {
+  local _oep_root=""
+  if [[ -n "${OLLAMA_MODELS:-}" ]]; then
+    printf '%s\n' "$OLLAMA_MODELS"
+    return 0
+  fi
+  _oep_root="$(docker info -f '{{.DockerRootDir}}' 2>/dev/null | head -n 1)" || _oep_root=""
+  case "$_oep_root" in /*) ;; *) _oep_root="/var/lib/docker" ;; esac
+  printf '%s\n' "$_oep_root"
+}
+
+# Usage: ollama_project_ensure_models <models_file> [env_file] [NAME...]
+#
+# The whole start check for a project, from its own configuration:
+#   ollama_project_ensure_models ai-models.env .env || exit $?
+#
+# 1. Reads the project's .env (env_file; "" for none, and a file that is not
+#    there yet is no .env) as data, never sourcing it: the model names, the
+#    address, OLLAMA_MODE and the settings of this module. A value in the
+#    environment that is not blank wins.
+# 2. The models are those of ollama_models_required <models_file> [NAME...];
+#    pass "" for the file to take the NAMEs from the environment and .env alone.
+# 3. The address is the first of the variables in OLLAMA_URL_VARS that has a
+#    value (default: OLLAMA_URL, OLLAMA_BASE_URL, OLLAMA_HOST), made a base URL
+#    by ollama_endpoint_base_url; http://127.0.0.1:11434 when none has. On the
+#    host, Docker's name for the host (host.docker.internal) is this machine.
+# 4. OLLAMA_MODE says where that Ollama, or whatever answers for it, runs. A
+#    project sets it in .env; it is not guessed when it is set:
+#      local   an Ollama on this machine. Its models are in ollama_models_dir,
+#              and this machine's disk and memory are what a pull is checked
+#              against. An address that is not this machine is a mistake (9).
+#      docker  an Ollama in a container on this machine. The address a
+#              container uses for it (http://ollama:11434, a compose service)
+#              does not resolve from a start script, so it is read as this
+#              machine, at the port in OLLAMA_PORT or OLLAMA_HOST_PORT when
+#              one is set and at the address's own port otherwise. Its models
+#              are on Docker's disk (OLLAMA_MODELS, else Docker's data root).
+#      remote  an API on another machine: an Ollama, or anything else the
+#              project talks to (a hosted API in production). Nothing is
+#              measured here and nothing is pulled unless OLLAMA_PULL_MISSING
+#              is set on. If it answers as an Ollama, the models it lacks are
+#              a refusal (5); if it does not, there is nothing to check and
+#              the start goes on (0).
+#    Not set (or "auto"): local when the address is this machine
+#    (ollama_endpoint_is_local), otherwise as remote, except that nothing
+#    answering stays a refusal (4).
+# 5. A pull into another machine, asked for with OLLAMA_PULL_MISSING, needs
+#    that machine's figures stated (OLLAMA_BUDGET_DISK_FREE_BYTES and
+#    OLLAMA_BUDGET_MEM_TOTAL_BYTES) or OLLAMA_IGNORE_BUDGET: without them it
+#    is a refusal (7), not a check against this machine. This machine's free
+#    memory and GPU are never counted for it.
+#
+# Returns what ollama_endpoint_ensure_models returns, and 9 for the project's
+# configuration: a models file that is not there, a NAME or an entry of
+# OLLAMA_URL_VARS that is not a variable name, an address that is not one, an
+# OLLAMA_MODE that is not one of the three, or one the address contradicts.
+# Nothing it reads from .env is left in the caller's environment.
+ollama_project_ensure_models() (
+  # The caller's IFS must not split the lists below: a caller in "strict mode"
+  # has it set to newline and tab, and the names came out as one word.
+  local IFS=$' \t\n'
+  local _oep_file="${1:-}" _oep_env="${2:-}" _oep_url="" _oep_name _oep_value _oep_models _oep_names
+  local _oep_mode _oep_where _oep_dir _oep_host _oep_port="" _oep_present _oep_missing
+  local _oep_unasked=0 _oep_status=0 _oep_ignore=0
+  local _oep_vars="${OLLAMA_URL_VARS:-OLLAMA_URL OLLAMA_BASE_URL OLLAMA_HOST}"
+  local -a _oep_list=()
+  if [[ $# -ge 2 ]]; then shift 2; else shift $#; fi
+  # Lists below are split into words; none may be read as a file pattern.
+  set -f
+
+  # OLLAMA_URL_VARS may itself be in the project's .env.
+  if [[ -n "$_oep_env" ]]; then
+    ollama_env_file_export "$_oep_env" OLLAMA_URL_VARS || exit 9
+    _oep_vars="${OLLAMA_URL_VARS:-OLLAMA_URL OLLAMA_BASE_URL OLLAMA_HOST}"
+  fi
+  for _oep_name in $_oep_vars; do
+    if ! _ollama_ep_is_name "$_oep_name"; then
+      print_error "OLLAMA_URL_VARS names something that is not a variable: $(_ollama_ep_said "$_oep_name")" >&2
+      exit 9
+    fi
+  done
+
+  if [[ -n "$_oep_env" ]]; then
+    if [[ $# -gt 0 ]]; then
+      _oep_names="$*"
+    else
+      _oep_names="$(ollama_models_file_names "$_oep_file" | tr '\n' ' ')" || _oep_names=""
+    fi
+    # shellcheck disable=SC2046,SC2086  # lists of names, one per word
+    ollama_env_file_export "$_oep_env" $(_ollama_ep_settings) $_oep_vars $_oep_names || exit 9
+  fi
+
+  _oep_models="$(ollama_models_required "$_oep_file" "$@")" || exit 9
+  [[ -n "$_oep_models" ]] || exit 0
+  # One model per line. Split on lines, not on words: "small:3b embed" as one
+  # value is one reference that is not valid, not two models.
+  while IFS= read -r _oep_value; do
+    [[ -z "$_oep_value" ]] || _oep_list+=("$_oep_value")
+  done <<<"$_oep_models"
+
+  for _oep_name in $_oep_vars; do
+    _oep_value="$(printf '%s' "${!_oep_name:-}" | tr -d ' \t\r\n')" || true
+    [[ -n "$_oep_value" ]] || continue
+    if ! _oep_url="$(ollama_endpoint_base_url "${!_oep_name}")"; then
+      # The value is not shown. It could not be read as an address, so what
+      # it is instead is not known: a password with a slash in it, or a key
+      # that was meant for another variable.
+      print_error "${_oep_name} is not the address of an Ollama. It is a host, host:port or an http(s) URL; a password in it must be percent-encoded." >&2
+      exit 9
+    fi
+    break
+  done
+  [[ -n "$_oep_url" ]] || _oep_url="${_OLLAMA_EP_DEFAULT_URL:-http://127.0.0.1:11434}"
+
+  # Trimmed at the ends only: "lo cal" is a typo, not local. The value is not
+  # repeated in the message; it may be anything that was meant for another
+  # variable.
+  _oep_mode="$(printf '%s' "${OLLAMA_MODE:-}" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | tr 'A-Z' 'a-z')" || true
+  case "$_oep_mode" in
+    ""|auto) _oep_mode="auto" ;;
+    local|host) _oep_mode="local" ;;
+    docker|container) _oep_mode="docker" ;;
+    remote|api|external) _oep_mode="remote" ;;
+    *)
+      print_error "OLLAMA_MODE is not local (an Ollama on this machine), docker (one in a container here) or remote (an API on another machine)." >&2
+      exit 9
+      ;;
+  esac
+
+  # Written for a container to find the host. A start script is on the host
+  # (unless this is a container itself, where the name is the right one).
+  _oep_host="$(_ollama_ep_host "$_oep_url")"
+  if ! _ollama_ep_in_container; then
+    case "$_oep_host" in
+      host.docker.internal|gateway.docker.internal)
+        _oep_url="$(printf '%s' "$_oep_url" | sed -E 's#(://([^/@]*@)?)(\[[^]/]*\]|[^/:@]+)#\1127.0.0.1#')" || true
+        ;;
+    esac
+  fi
+
+  case "$_oep_mode" in
+    docker)
+      if ! ollama_endpoint_is_local "$_oep_url" && ! _ollama_ep_in_container; then
+        # On the host, the name a container calls it by (one label: a compose
+        # service) is this machine, at the port the project publishes. Any
+        # other name or address is another machine, and docker is the wrong
+        # word for it. Inside a container the name is the right one as it is.
+        if [[ "$_oep_host" == *.* || "$_oep_host" == *:* || "$_oep_host" =~ ^[0-9]+$ ]]; then
+          print_error "OLLAMA_MODE is docker, and $(_ollama_ep_shown_url "$_oep_url") is another machine. A container here is named by its compose service name, or by localhost at its published port; use remote for an Ollama elsewhere." >&2
+          exit 9
+        fi
+        for _oep_name in OLLAMA_PORT OLLAMA_HOST_PORT; do
+          _oep_value="$(printf '%s' "${!_oep_name:-}" | tr -d ' \t\r\n')" || true
+          [[ -n "$_oep_value" ]] || continue
+          # A typo here would send the pull to whatever listens on the
+          # address's own port: on many machines, the native Ollama.
+          if ! _oep_port="$(_ollama_ep_uint "$_oep_value")" || [[ "$_oep_port" -lt 1 || "$_oep_port" -gt 65535 ]]; then
+            print_error "$_oep_name is not a port number (1 to 65535)." >&2
+            exit 9
+          fi
+          break
+        done
+        _oep_url="$(printf '%s' "$_oep_url" | sed -E 's#(://([^/@]*@)?)(\[[^]/]*\]|[^/:@]+)#\1127.0.0.1#')" || true
+        if [[ -n "$_oep_port" ]]; then
+          _oep_url="$(printf '%s' "$_oep_url" | sed -E "s#(://([^/@]*@)?127\\.0\\.0\\.1)(:[0-9]+)?#\\1:${_oep_port}#")" || true
+        fi
+      fi
+      _oep_where="here"
+      _oep_dir="$(_ollama_ep_docker_models_dir)"
+      ;;
+    local)
+      if ! ollama_endpoint_is_local "$_oep_url"; then
+        print_error "OLLAMA_MODE is local, and $(_ollama_ep_shown_url "$_oep_url") is not this machine. Use docker for an Ollama in a container here, or remote for one elsewhere." >&2
+        exit 9
+      fi
+      _oep_where="here"
+      _oep_dir="$(ollama_models_dir)"
+      ;;
+    remote)
+      _oep_where="elsewhere"
+      ;;
+    *)
+      if ollama_endpoint_is_local "$_oep_url"; then
+        _oep_where="here"
+        _oep_dir="$(ollama_models_dir)"
+      else
+        _oep_where="elsewhere"
+      fi
+      ;;
+  esac
+
+  if [[ "$_oep_where" == "elsewhere" ]]; then
+    # Not a directory on this machine. The disk is read only if a pull was
+    # asked for, and then the stated figures are what counts.
+    _oep_dir="/"
+    if ! _oep_present="$(ollama_endpoint_models "$_oep_url")"; then
+      if [[ "$_oep_mode" == "remote" ]]; then
+        # A hosted API that is not an Ollama, or one that is not up: neither
+        # is something a start script on this machine can check or mend.
+        print_info "OLLAMA_MODE is remote and $(_ollama_ep_shown_url "$_oep_url") does not answer as an Ollama: its models are not checked from here." >&2
+        exit 0
+      fi
+    else
+      _oep_missing="$(ollama_models_missing "$_oep_models" "$_oep_present")"
+      _oep_value="$(printf '%s' "${OLLAMA_PULL_MISSING:-}" | tr -d ' \t\r\n')" || true
+      if [[ -z "$_oep_value" ]]; then
+        _oep_unasked=1
+        export OLLAMA_PULL_MISSING=0
+      elif [[ -n "$_oep_missing" ]] && _ollama_ep_on OLLAMA_PULL_MISSING on 2>/dev/null; then
+        # A pull into another machine was asked for. Said once here, so a typo
+        # in the setting that would waive the check is not swallowed.
+        if _ollama_ep_on OLLAMA_IGNORE_BUDGET off; then _oep_ignore=1; fi
+        if [[ "$_oep_ignore" -eq 0 ]]; then
+          if ! _ollama_ep_uint "${OLLAMA_BUDGET_DISK_FREE_BYTES:-}" >/dev/null || ! _ollama_ep_uint "${OLLAMA_BUDGET_MEM_TOTAL_BYTES:-}" >/dev/null; then
+            # Its disk and memory were not stated. What would be read is this
+            # machine's: the wrong one.
+            print_error "That Ollama is another machine and lacks: ${_oep_missing//$'\n'/ }. Its free disk and its memory are not known here: state them (OLLAMA_BUDGET_DISK_FREE_BYTES, OLLAMA_BUDGET_MEM_TOTAL_BYTES), or set OLLAMA_IGNORE_BUDGET=1 to pull unchecked. Nothing was pulled." >&2
+            exit 7
+          fi
+          # Nothing of this machine is counted for that one: not its GPU, and
+          # not what is free in its memory right now.
+          _ollama_ep_uint "${OLLAMA_BUDGET_GPU_BYTES:-}" >/dev/null || export OLLAMA_BUDGET_GPU_BYTES=0
+          _ollama_ep_uint "${OLLAMA_BUDGET_MEM_AVAILABLE_BYTES:-}" >/dev/null || export OLLAMA_BUDGET_MEM_AVAILABLE_BYTES="$OLLAMA_BUDGET_MEM_TOTAL_BYTES"
+        fi
+      fi
+    fi
+  fi
+
+  ollama_endpoint_ensure_models "$_oep_url" "$_oep_dir" "${_oep_list[@]}" || _oep_status=$?
+  if [[ "$_oep_status" -eq 4 && "$_oep_mode" == "auto" ]]; then
+    # A name of one word that is not this machine is most often a compose
+    # service: it resolves inside that network and nowhere else.
+    _oep_host="$(_ollama_ep_host "$_oep_url")"
+    if [[ "$_oep_host" != *.* && "$_oep_host" != *:* ]] && ! ollama_endpoint_is_local "$_oep_url"; then
+      print_error "If '$(_ollama_ep_said "$_oep_host")' is a compose service, its name resolves only inside that network. Set OLLAMA_MODE=docker (with OLLAMA_PORT when the published port differs), or give the address published on this machine." >&2
+    fi
+  fi
+  if [[ "$_oep_status" -eq 5 && "$_oep_unasked" -eq 1 ]]; then
+    print_error "That Ollama is another machine, so nothing is pulled from here: the disk and memory read here are not its own. Pull the models there, or set OLLAMA_PULL_MISSING=1 with OLLAMA_IGNORE_BUDGET=1 to pull from here unchecked." >&2
+  fi
+  exit "$_oep_status"
+)
