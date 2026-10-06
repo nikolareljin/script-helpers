@@ -43,7 +43,35 @@
   start of the models file is ignored. `OLLAMA_PULL_MISSING` and `OLLAMA_IGNORE_BUDGET` take the
   usual spellings (`1/true/yes/on`, `0/false/no/off`); a value that is neither is reported and
   read as off, so a typo pulls nothing and skips no check. bash 3.2 and BSD userland, with or
-  without `set -euo pipefail`.
+  without `set -euo pipefail`. `ollama_models_dir` prints where a local Ollama keeps its models:
+  `OLLAMA_MODELS`, else the Linux service's directory (`/usr/share/ollama/.ollama/models`; the
+  installer's service has a user of its own, so `~/.ollama/models` is the wrong disk to measure
+  there), else `~/.ollama/models`. A missing model the registry answers it does not have (HTTP
+  404, `MANIFEST_UNKNOWN`) is said as a wrong name, not as a size that "could not be learned"
+  with advice to pull by hand; `ollama_registry_size_bytes` returns 3 for it.
+  A pull that succeeds is said to reach 100%: Ollama never reports a layer as complete, so the
+  progress of a real pull stopped at 90%.
+- **`ollama_project_ensure_models`: the start check from a project's own configuration, in one
+  call.** `ollama_project_ensure_models ai-models.env .env || exit $?` reads the project's `.env`
+  as data (never sourced: `ollama_env_file_export`), takes the address from the first of
+  `OLLAMA_URL`, `OLLAMA_BASE_URL`, `OLLAMA_HOST` (or the names in `OLLAMA_URL_VARS`) that has a
+  value, and runs `ollama_endpoint_ensure_models`. `ollama_endpoint_base_url` makes a base URL of
+  what projects store: a bare `host:port`, a URL with the API path in it
+  (`http://ollama:11434/api/generate`), a URL behind a proxy. 9 is returned for a mistake in the
+  project's configuration, so 1 to 3 are always the disk and the memory.
+- **`OLLAMA_MODE`: a project says where its models are served.** `local` is an Ollama on this
+  machine; `docker` one in a container here: on the host, a compose service's name in `.env`
+  is read as this machine at the published port (`OLLAMA_PORT`, `OLLAMA_HOST_PORT`; a port that
+  is not one is a mistake, 9), inside a container the name is used as written, and an address
+  that is another machine is refused; measured against Docker's disk. `remote` an API on another machine, an Ollama or a hosted one: nothing is measured there,
+  nothing is pulled unless asked, the models a remote Ollama lacks are named, and what is not an
+  Ollama is passed over. Not set, the address decides (`ollama_endpoint_is_local`). A pull into
+  another machine is never checked against this machine: its disk and memory have to be stated,
+  and this machine's GPU and free memory are not counted for it.
+  In messages an address is named by its scheme, host and port: not with its credentials, and
+  not with its path or query, where a proxy may carry a key; the path is removed from what the
+  other end said too, since a proxy's 404 echoes the request path. A value that cannot be read as an
+  address is named by its variable and not shown.
 
 ### Fixed
 

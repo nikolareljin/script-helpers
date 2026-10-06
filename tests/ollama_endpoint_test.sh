@@ -144,10 +144,19 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, '{"layers":[{"size":4.7e9},{"size":100}]}')
             # The real registry answers for a name in any case (measured:
             # Qwen3:0.6B and qwen3:0.6b give the same manifest).
+            if key == "library/notfound-page:1b":
+                # Any web server's 404, not the registry's: nothing says the model is unknown.
+                return self.send(404, '<html>Not Found "layers" "size": 999</html>', "text/html")
+            if key == "library/noname:1b":
+                # The other "unknown" the registry protocol has.
+                return self.send(404, '{"errors":[{"code":"NAME_UNKNOWN","message":"repository name not known to registry"}]}')
+            if key == "library/down:1b":
+                return self.send(503, '{"layers":[{"size":999}]}')
             sizes = SIZES.get(key.lower())
             if sizes is None:
-                # A 404 whose body has a "size": it must not be summed.
-                return self.send(404, '{"errors":[{"code":"MANIFEST_UNKNOWN"}],"layers":[{"size":999}]}')
+                # What the real registry says for a model or a tag it does not have
+                # (measured). The body has a "size" here: it must not be summed.
+                return self.send(404, '{"errors":[{"code":"MANIFEST_UNKNOWN","message":"manifest unknown"}],"layers":[{"size":999}]}')
             layers = sizes[:-1] if len(sizes) > 1 else sizes
             manifest = {"schemaVersion": 2, "layers": [{"mediaType": "x", "size": s} for s in layers]}
             if len(sizes) > 1:
@@ -157,6 +166,9 @@ class H(BaseHTTPRequestHandler):
         self.send(404, "{}")
 
     def do_POST(self):
+        if "/echo-path/" in self.path:
+            # A proxy's 404, with the request path in it, as Express writes it.
+            return self.send(404, "<pre>Cannot POST %s</pre>" % self.path, "text/html")
         length = int(self.headers.get("Content-Length", 0) or 0)
         raw = self.rfile.read(length) or b"{}"
         try:
@@ -187,6 +199,16 @@ class H(BaseHTTPRequestHandler):
                 lines.insert(5, '{"status":"pulling cc","digest":"sha256:cc","total":900000000,"completed":900000000}\r\n')
                 note("installed", name)
                 return self.send(200, '{"status":"pulling manifest"}\n' + "".join(lines) + '{"status":"success"}\r\n\r\n', "application/x-ndjson")
+            if name.startswith("barely"):
+                # A large layer seen once, at 5%, and then success.
+                return self.send(200, '{"status":"pulling manifest"}\n{"status":"pulling ee","digest":"sha256:ee","total":2000000000,"completed":100000000}\n{"status":"success"}\n', "application/x-ndjson")
+            if name.startswith("nofinal") or name.startswith("cutshort"):
+                # As a real Ollama streams it: the last progress line is short of the
+                # total, then it verifies and says success. "cutshort" never does.
+                big = '{"status":"pulling dd","digest":"sha256:dd","total":2000000000,"completed":%d}\n'
+                lines = "".join(big % c for c in (100, 700000000, 1900000000))
+                end = '{"status":"verifying sha256 digest"}\n{"status":"success"}\n' if name.startswith("nofinal") else ""
+                return self.send(200, '{"status":"pulling manifest"}\n' + lines + end, "application/x-ndjson")
             if name.startswith("spelled"):
                 # The escape written out as text (\033...), as a careless server might.
                 return self.send(200, progress + '{"error":"bad \\\\033[2J name"}\n', "application/x-ndjson")
@@ -359,13 +381,15 @@ check "every layer and the config, summed" "4700001000" "$(ollama_registry_size_
 check "a model with no tag is asked for as latest" "274000000" "$(ollama_registry_size_bytes embed)"
 check "that request went to library/ with the tag" "/v2/library/embed/manifests/latest" "$(tail -n 1 "$tmp/state/asked")"
 check "a namespaced model keeps its namespace" "500000000" "$(ollama_registry_size_bytes team/tool:1b)"
-check "a model the registry lacks" "1" "$(ollama_registry_size_bytes nosuch:1b >/dev/null; echo $?)"
+check "a model the registry says it does not have is 3, and prints no size" "3:" "$(ollama_registry_size_bytes nosuch:1b; echo "$?:")"
+check "the registry's other word for it, NAME_UNKNOWN, is 3 as well" "3:" "$(ollama_registry_size_bytes noname:1b; echo "$?:")"
+check "a 404 that is not the registry's is no answer, not an unknown model" "1:" "$(ollama_registry_size_bytes notfound-page:1b; echo "$?:")"
+check "an error status with a manifest in its body is not a size" "1:" "$(ollama_registry_size_bytes down:1b; echo "$?:")"
 rm -f "$tmp/state/asked"
 check "a model on another registry host is not asked for" "2" "$(ollama_registry_size_bytes hf.co/org/model:Q4 >/dev/null; echo $?)"
 check "a host with a port neither" "2" "$(ollama_registry_size_bytes localhost:5000/a:1b >/dev/null; echo $?)"
 check "(nothing was requested for either)" "" "$(cat "$tmp/state/asked" 2>/dev/null)"
 check "the default registry's own host is the default registry" "4700001000" "$(ollama_registry_size_bytes registry.ollama.ai/library/main:7b)"
-check "a 404 is not read, whatever its body adds up to" "1:" "$(ollama_registry_size_bytes nosuch:1b; echo "$?:")"
 check "a list of manifests is not a model's manifest" "1:" "$(ollama_registry_size_bytes index:1b; echo "$?:")"
 check "a web page that says size is not one either" "1:" "$(ollama_registry_size_bytes page:1b; echo "$?:")"
 check "a size that is not a whole number is not counted" "100" "$(ollama_registry_size_bytes float:1b)"
@@ -380,6 +404,15 @@ check "(none of the four was requested)" "" "$(cat "$tmp/state/asked" 2>/dev/nul
 check "a registry that does not answer" "1" "$(OLLAMA_REGISTRY_URL=http://127.0.0.1:1 OLLAMA_REGISTRY_TIMEOUT=1 ollama_registry_size_bytes main:7b >/dev/null; echo $?)"
 
 note "what the machine has"
+# Where a local Ollama keeps its models. The Linux service runs as its own
+# user: on a machine set up by the installer, $HOME/.ollama/models is not it.
+mkdir -p "$tmp/service/models"
+check "the models directory is OLLAMA_MODELS when that is set" "/srv/m" "$(OLLAMA_MODELS=/srv/m _OLLAMA_EP_SERVICE_MODELS="$tmp/service/models" ollama_models_dir)"
+check "else the Linux service's, when there is one" "$tmp/service/models" "$(unset OLLAMA_MODELS; HOME="$tmp/home" _OLLAMA_EP_SERVICE_MODELS="$tmp/service/models" ollama_models_dir)"
+check "else the user's own, which need not exist yet" "$tmp/home/.ollama/models" "$(unset OLLAMA_MODELS; HOME="$tmp/home" _OLLAMA_EP_SERVICE_MODELS="$tmp/no-service" ollama_models_dir)"
+mkdir -p "$tmp/closed-service"
+check "the service's home is enough when its models directory cannot be seen" "$tmp/closed-service/.ollama/models" "$(unset OLLAMA_MODELS; HOME="$tmp/home" _OLLAMA_EP_SERVICE_MODELS="$tmp/closed-service/.ollama/models" ollama_models_dir)"
+check "an empty OLLAMA_MODELS is not a directory" "$tmp/service/models" "$(OLLAMA_MODELS="" _OLLAMA_EP_SERVICE_MODELS="$tmp/service/models" ollama_models_dir)"
 check "the disk override is used as given" "123" "$(OLLAMA_BUDGET_DISK_FREE_BYTES=123 ollama_disk_free_bytes /)"
 real_free="$(unset OLLAMA_BUDGET_DISK_FREE_BYTES; ollama_disk_free_bytes "$tmp/not/there/yet")"
 if [[ "$real_free" =~ ^[0-9]+$ && "$real_free" -gt 0 ]]; then ok "free space is read for a path that does not exist yet"; else error "free space for a missing path: [$real_free]"; fi
@@ -510,6 +543,7 @@ export OLLAMA_BUDGET_DISK_FREE_BYTES=$((11 * GB))
 check "the download does not fit the disk" "1" "$(ensure main:7b small:3b embed)"
 check "so nothing was pulled, not even the one that would fit alone" "" "$(pulled)"
 said "it says nothing was pulled and what is missing" "$tmp/err" "Nothing was pulled" "small:3b"
+check "the list of what is missing ends with its last model, not with a space" "1:0" "$(grep -c 'Missing: small:3b embed:latest' "$tmp/err"):$(grep -c 'embed:latest ' "$tmp/err")"
 roomy; reset
 export OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((8 * GB))
 check "the largest needed model does not fit memory" "2" "$(ensure small:3b huge:70b)"
@@ -517,8 +551,9 @@ check "nothing pulled then either" "" "$(pulled)"
 reset huge:70b
 check "the largest counts even when it is already there" "2" "$(ensure small:3b huge:70b)"
 roomy; reset
-check "pulling is off" "5" "$(OLLAMA_PULL_MISSING=0 ensure small:3b)"
+check "pulling is off" "5" "$(OLLAMA_PULL_MISSING=0 ensure small:3b embed)"
 check "and nothing was pulled" "" "$(pulled)"
+said "it lists what is missing as a sentence does" "$tmp/err" "lacks: small:3b embed:latest. Pulling is off"
 # "Off" in the usual spellings. Only the exact value 0 used to count, so
 # OLLAMA_PULL_MISSING=false went on to pull.
 for spelling in false no OFF never; do
@@ -534,6 +569,16 @@ check "a value that is neither is read as off" "5:" "$(OLLAMA_PULL_MISSING=flase
 said "and it is reported" "$tmp/err" "OLLAMA_PULL_MISSING is neither on" "flase"
 # Back to an Ollama with nothing installed, for the cases that follow.
 roomy; reset
+check "a model the registry does not have stops the pull" "7" "$(ensure small:3b nosuch:1b)"
+check "nothing pulled, not even the one that exists" "" "$(pulled)"
+said "it says the name is wrong, not that the size is unknown" "$tmp/err" "The registry has no model named nosuch:1b," "check the name"
+check "and it does not send anyone to pull it by hand" "0" "$(grep -c -e 'by hand' -e 'OLLAMA_IGNORE_BUDGET' "$tmp/err")"
+reset
+check "ignoring the budget pulls a model the registry does not have too: Ollama may know better" "0:small:3b nosuch:1b" "$(OLLAMA_IGNORE_BUDGET=1 ensure small:3b nosuch:1b):$(pulled)"
+reset
+check "a registry that only fails to answer is still \"could not be learned\"" "7" "$(ensure small:3b down:1b)"
+said "with the way through named" "$tmp/err" "could not be learned" "OLLAMA_IGNORE_BUDGET"
+reset
 check "a model whose size cannot be learned stops the pull" "7" "$(ensure small:3b hf.co/org/model:Q4)"
 check "nothing pulled" "" "$(pulled)"
 said "it names the way through" "$tmp/err" "OLLAMA_IGNORE_BUDGET"
@@ -576,6 +621,13 @@ check "and says each tenth of a large layer once: not 0%, not a small layer, not
   "  large:7b: 10% of 4.7 GB|  large:7b: 50% of 4.7 GB|  large:7b: 100% of 4.7 GB|" "$(tr '\n' '|' <"$tmp/err")"
 check "on stderr: stdout stays empty" "" "$(cat "$tmp/out")"
 # The caller's log must be appended to, not overwritten from the start.
+# A real Ollama never says completed == total for a layer: the progress used
+# to stop at 90% and the pull then simply ended.
+check "a pull whose last progress line is short of the total" "0" "$(ollama_endpoint_pull "$URL" nofinal:7b >/dev/null 2>"$tmp/err"; echo $?)"
+check "is still said to reach 100%, once" "  nofinal:7b: 30% of 2.0 GB|  nofinal:7b: 90% of 2.0 GB|  nofinal:7b: 100% of 2.0 GB|" "$(grep '% of' "$tmp/err" | tr '\n' '|')"
+check "a pull that stops short of success is a failure" "1" "$(ollama_endpoint_pull "$URL" cutshort:7b >/dev/null 2>"$tmp/err"; echo $?)"
+check "and is not said to reach 100%" "0" "$(grep -c '100% of' "$tmp/err")"
+check "a layer that never reached 10% is still said to be done" "0:  barely:7b: 100% of 2.0 GB|" "$(ollama_endpoint_pull "$URL" barely:7b >/dev/null 2>"$tmp/err"; echo "$?:$(grep '% of' "$tmp/err" | tr '\n' '|')")"
 echo "earlier line" >"$tmp/err"
 ollama_endpoint_pull "$URL" large:7b >/dev/null 2>>"$tmp/err"
 check "progress is added to a log the caller already wrote to" "earlier line|  large:7b: 10% of 4.7 GB|" "$(head -n 2 "$tmp/err" | tr '\n' '|')"
@@ -674,8 +726,13 @@ spelled='http://host.example/\033[2J\x1b[31m\e[0m'
 check "a spelled-out escape in a URL has its backslashes doubled" 'http://host.example/\\033[2J\\x1b[31m\\e[0m' "$(_ollama_ep_shown "$spelled")"
 ollama_endpoint_ensure_models "$spelled" /models small:3b >"$tmp/out" 2>"$tmp/err"
 check "so the message carries no escape sequence" "0" "$(grep -c "$(printf '\033')\[2J" "$tmp/err")"
-said "and shows the text as it was written" "$tmp/err" 'http://host.example/\033[2J'
+said "and names the address by its host: a path is not shown at all" "$tmp/err" 'No Ollama answers at http://host.example.'
+# In a host, where it is shown, a spelled-out escape still has its backslashes doubled.
+check "a spelled-out escape in what is shown of a URL has its backslashes doubled" 'http://host\\033[2J.example' "$(_ollama_ep_shown_url 'http://host\033[2J.example/path')"
 check "the same for what the other end said" 'bad \\033[2J' "$(_ollama_ep_said 'bad \033[2J')"
+check "what is shown of an address: scheme, host and port; no credentials, path, query or fragment, with or without a scheme" \
+  "http://h:1|http://h:1|h:1|h|https://[::1]:5|" \
+  "$(for a in 'http://u:p@h:1/x/y?q=1#f' 'http://h:1?q' 'h:1/path?q#f' 'h/path' 'https://u@[::1]:5/v1'; do _ollama_ep_shown_url "$a"; echo; done | tr '\n' '|')"
 OLLAMA_BUDGET_DISK_FREE_BYTES=$((1 * GB)) ollama_budget_check $((5 * GB)) 0 '/mo\033[2Jdels' >"$tmp/out" 2>"$tmp/err"
 check "and for a path" "0:1" "$(grep -c "$(printf '\033')\[2J" "$tmp/err"):$(grep -cF 'at /mo\033[2Jdels' "$tmp/err")"
 bad_model="$(printf 'bad\033[2Jname')"
@@ -720,6 +777,369 @@ echo web >"$tmp/state/mode"
 ollama_endpoint_ensure_models "$SECRET_URL" /models small:3b >>"$tmp/out" 2>>"$tmp/err"
 if grep -q "s3cret" "$tmp/out" "$tmp/err"; then error "a password reached a message: $(cat "$tmp/out" "$tmp/err")"; else ok "no message carries the password (pulling, refusing, unreachable)"; fi
 said "and each still names the host" "$tmp/err" "${URL#http://}"
+
+note "what counts as a name and a model, in any locale"
+accented="$(printf 'mod\303\250le')"
+check "a letter with an accent is not part of a model reference" "no no no" "$(for locale in C en_US.UTF-8 C.UTF-8; do (LC_ALL=$locale; if _ollama_ep_is_model "$accented" 2>/dev/null; then echo yes; else echo no; fi); done | tr '\n' ' ' | sed 's/ $//')"
+check "nor of a variable name" "no no no" "$(for locale in C en_US.UTF-8 C.UTF-8; do (LC_ALL=$locale; if _ollama_ep_is_name "$(printf 'N\303\211M')" 2>/dev/null; then echo yes; else echo no; fi); done | tr '\n' ' ' | sed 's/ $//')"
+# A NAME is read through ${!NAME}. A function's own variable of the same name
+# used to be read in its place.
+check "a model variable may be called name, value or file" "small:3b embed:latest main:7b" "$(name=small:3b value=embed file=main:7b; ollama_models_required "" name value file | one_line)"
+check "and so may the names an env file is asked for" "from-file:a b:c" "$(printf 'name=from-file\nvalue=a b\nfile=c\n' >"$tmp/shadow.env"; unset name value file; ollama_env_file_export "$tmp/shadow.env" name value file; echo "${name-unset}:${value-unset}:${file-unset}")"
+
+# --- a project's own configuration ---------------------------------------------
+# Not inside a container, wherever this file runs (the bash 3.2 gate runs it
+# in one): the cases that are about being in one say so.
+export _OLLAMA_EP_DOCKERENV="$tmp/no-dockerenv"
+note "the address a project configures"
+base() { ollama_endpoint_base_url "$1"; echo ":$?"; }
+check "a URL stays as it is" "http://localhost:11434 :0" "$(base http://localhost:11434 | one_line)"
+check "a bare host gets http and Ollama's port" "http://localhost:11434 :0" "$(base localhost | one_line)"
+check "host:port keeps its port" "http://127.0.0.1:11435 :0" "$(base 127.0.0.1:11435 | one_line)"
+check "the API path a project stored with it is not part of the base" "http://ollama:11434 :0" "$(base http://ollama:11434/api/generate | one_line)"
+check "nor /api alone, /v1, a query or a trailing slash" "http://h:1|http://h:1|http://h:1|http://h:1|" "$(for a in http://h:1/api http://h:1/v1/chat/completions 'http://h:1/api/tags?x=1#y' http://h:1/; do ollama_endpoint_base_url "$a"; done | tr '\n' '|')"
+check "a path a proxy serves it under is kept" "https://ai.example/ollama :0" "$(base https://ai.example/ollama/v1/ | one_line)"
+check "a path that only starts like the API's is kept too" "http://h:1/apiary :0" "$(base http://h:1/apiary | one_line)"
+check "a URL without a port gets none: 80 or 443 is meant" "https://ai.example :0" "$(base https://ai.example | one_line)"
+check "the scheme may be in any case" "http://Host:1 :0" "$(base HTTP://Host:1/ | one_line)"
+check "credentials stay, for a proxy that wants them" "http://u:p@h:9 :0" "$(base http://u:p@h:9/v1 | one_line)"
+check "an IPv6 address gets the port after its brackets" "http://[::1]:11434|http://[::1]:5|http://[::1]:11434|" "$(for a in '[::1]' '[::1]:5' 'http://[::1]:11434/api'; do ollama_endpoint_base_url "$a"; done | tr '\n' '|')"
+check "spaces around it are not part of it" "http://h:11434 :0" "$(base '  h  ' | one_line)"
+check "another scheme is not an Ollama's address" ":1" "$(base ftp://h)"
+check "nor is text with a space in it" ":1" "$(base 'a b')"
+check "nor nothing" ":1" "$(base '')"
+check "nor a scheme with no host" ":1" "$(base http:///api)"
+check "a port alone is that port of this machine, as Ollama reads it" "http://127.0.0.1:11434|http://127.0.0.1:11434|http://u:p@127.0.0.1:5|" "$(for a in :11434 http://:11434 u:p@:5; do ollama_endpoint_base_url "$a"; done | tr '\n' '|')"
+check "a host with a colon and no port gets Ollama's port" "http://h:11434 :0" "$(base h: | one_line)"
+check "an IPv6 address without brackets gets them, and the port" "http://[::1]:11434 :0" "$(base ::1 | one_line)"
+check "a port that is not a number is not an address" ":1|:1|:1|" "$(for a in h:abc http://h:12x 'http://[::1]:x'; do base "$a"; done | tr '\n' '|')"
+check "nor is a port outside 1 to 65535" ":1|:1|:1|" "$(for a in http://h:0 http://h:65536 'http://h:123456'; do base "$a"; done | tr '\n' '|')"
+check "an IPv6 literal holds hex digits, colons and dots: 'localhost:11434:' is not one" ":1|:1|http://[fe80::1%eth0]:11434 :0|" "$(for a in 'localhost:11434:' 'http://[localhost:11434:]:5' '[fe80::1%eth0]'; do printf '%s|' "$(base "$a" | one_line)"; done)"
+check "an API path is removed however deep it was written" "http://h:1|http://h:1|http://h:1/ollama|" "$(for a in http://h:1/api/v1 http://h:1/api/v1/chat/completions/ http://h:1/ollama/v1/models; do ollama_endpoint_base_url "$a"; done | tr '\n' '|')"
+check "a URL that lost its slashes is not a host called http" ":1|:1|:1|" "$(for a in http: http:/h HTTPS:h; do base "$a"; done | tr '\n' '|')"
+check "user and password before a bare host stay, and it gets the port" "http://user:pass@host:11434 :0" "$(base user:pass@host | one_line)"
+check "a query or a fragment goes, with or without an API path" "http://h:1|http://h:1|http://h:1/p|" "$(for a in 'http://h:1?x=1' 'http://h:1#f' 'http://h:1/p?x=1#f'; do ollama_endpoint_base_url "$a"; done | tr '\n' '|')"
+check "a proxy path that only contains /api or /v1 is kept whole" "https://gw.example/api/ollama|https://gw.example/v1/ollama|http://h:1/ollama|http://h:1/a/v1beta|" "$(for a in https://gw.example/api/ollama https://gw.example/v1/ollama/ http://h:1/ollama/api/chat/ http://h:1/a/v1beta; do ollama_endpoint_base_url "$a"; done | tr '\n' '|')"
+# A password with "/", "#" or "?" in it has to be percent-encoded. Read by
+# halves, the part after it was printed in the message about the address.
+check "a password with a slash, a hash or a question mark in it is not an address" ":1|:1|:1|" "$(for a in 'http://user:s3/cret@127.0.0.1:1' 'http://user:s3#cret@127.0.0.1:1' 'http://user:s3?cret@127.0.0.1:1'; do base "$a"; done | tr '\n' '|')"
+check "also when what precedes the slash could pass for a port" ":1|:1|" "$(for a in 'http://user:123/456@127.0.0.1:1' 'user:123/456@host'; do base "$a"; done | tr '\n' '|')"
+check "nor is a host with a character no host has" ":1|:1|:1|:1|" "$(for a in 'http://h$x:1' 'h`x`' 'http://h"x' "$(printf 'h\001x')"; do base "$a"; done | tr '\n' '|')"
+
+note "whether an address is this machine"
+is_local() { if ollama_endpoint_is_local "$1"; then echo local; else echo other; fi; }
+for address in http://localhost:1 http://LOCALHOST.:1/x http://app.localhost http://127.0.0.2:1 'http://[::1]:1' \
+               'http://[::ffff:127.0.0.1]:1' 'http://[::ffff:7f00:1]:1' http://0.0.0.0:11434 \
+               http://host.docker.internal:11434 http://u:p@localhost:1 "http://$(hostname):1"; do
+  check "this machine: ${address/$(hostname)/<its own name>}" "local" "$(is_local "$address")"
+done
+for address in http://192.0.2.10:11434 http://ollama:11434 http://127.example.com:1 http://1270.0.0.1 \
+               http://localhost.example.com http://gpu-box:11434 ''; do
+  check "not this machine: ${address:-(nothing)}" "other" "$(is_local "$address")"
+done
+# The short form of a fully qualified own name is this machine too, whatever
+# this machine's name happens to be: a stand-in hostname says so.
+mkdir -p "$tmp/fake-hostname"
+printf '#!/bin/sh\necho Box-Seven.example.lan\n' >"$tmp/fake-hostname/hostname"; chmod +x "$tmp/fake-hostname/hostname"
+check "this machine's own name, long or short, in any case" "local local other" "$(PATH="$tmp/fake-hostname:$PATH" bash -c 'source "$0/helpers.sh"; shlib_import logging ollama_endpoint; for a in http://box-seven.example.lan:1 http://BOX-SEVEN:1 http://box-seven.other.lan:1; do if ollama_endpoint_is_local "$a"; then echo local; else echo other; fi; done' "$PWD" | one_line)"
+this_host="$(hostname)"
+for address in http://remote.example/@localhost 'http://remote.example?x=@localhost' http://localhost@remote.example \
+               'http://[::ffff:808:808]:1' 'http://[::ffff:8.8.8.8]:1' http://x127.0.0.1 http://127.0.0.1.example.com \
+               "http://${this_host}x:1" "http://${this_host}.elsewhere.example:1" "http://x${this_host}:1"; do
+  check "not this machine, though it looks like it: ${address//$this_host/<its own name>}" "other" "$(is_local "$address")"
+done
+check "every address and the gateway name are this machine too" "local local" "$(is_local 'http://[::]:1') $(is_local http://gateway.docker.internal:11434)"
+# Inside a container Docker's names for the host are the host: another
+# machine, with a disk this shell cannot see.
+: >"$tmp/dockerenv"
+check "a Kubernetes pod is a container too: the host is not this machine there" "other" "$( (unset _OLLAMA_EP_DOCKERENV; KUBERNETES_SERVICE_HOST=192.0.2.1 is_local http://host.docker.internal:1) )"
+check "inside a container, the host is not this machine" "other other local" "$( (_OLLAMA_EP_DOCKERENV="$tmp/dockerenv"; is_local http://host.docker.internal:11434; is_local http://gateway.docker.internal:1; is_local http://localhost:1) | one_line)"
+# One of the machine's own addresses, when a tool here lists any.
+own_address="$( { ip -o addr 2>/dev/null | awk '{ print $4 }'; ifconfig 2>/dev/null | awk '$1 == "inet" { print $2 }'; } | sed -E 's#/.*$##; s#^addr:##' | grep -E '^[0-9]+\.' | grep -v '^127\.' | head -n 1)"
+if [[ -n "$own_address" ]]; then
+  check "one of this machine's own addresses is this machine" "local" "$(is_local "http://$own_address:11434")"
+  check "a part of one, or one with a digit more, is not" "other other" "$(is_local "http://${own_address%?}:1") $(is_local "http://${own_address}9:1" 2>/dev/null)"
+else
+  ok "(no address of its own to try here)"
+fi
+
+note "a project's .env, read as data"
+mkdir -p "$tmp/proj"
+cat >"$tmp/proj/.env" <<'ENVFILE'
+# what a project keeps beside its start script
+SMTP_PASS=a$HOME`touch /tmp/should-never-exist-ollama-ep`b
+QUOTED="two words"
+OLLAMA_PULL_MISSING=0
+FROM_FILE=file
+BLANK_IN_ENV=file
+EMPTY=
+ENVFILE
+check "a value is exported as written, not evaluated" 'a$HOME`touch /tmp/should-never-exist-ollama-ep`b' "$(unset SMTP_PASS; ollama_env_file_export "$tmp/proj/.env" SMTP_PASS; printf '%s' "$SMTP_PASS")"
+check "and nothing in it was run" "no" "$(if [[ -e /tmp/should-never-exist-ollama-ep ]]; then echo yes; else echo no; fi)"
+check "quotes are not part of a value" "two words" "$(unset QUOTED; ollama_env_file_export "$tmp/proj/.env" QUOTED; printf '%s' "$QUOTED")"
+check "the environment wins over the file" "env" "$(FROM_FILE="env"; ollama_env_file_export "$tmp/proj/.env" FROM_FILE; printf '%s' "$FROM_FILE")"
+check "a blank in the environment does not" "file" "$(BLANK_IN_ENV='  '; ollama_env_file_export "$tmp/proj/.env" BLANK_IN_ENV; printf '%s' "$BLANK_IN_ENV")"
+check "a name the file leaves empty, or lacks, stays unset" "unset:unset" "$(unset EMPTY NOT_THERE; ollama_env_file_export "$tmp/proj/.env" EMPTY NOT_THERE; echo "${EMPTY-unset}:${NOT_THERE-unset}")"
+check "it is exported, for the programs the caller starts" "file" "$(unset FROM_FILE; ollama_env_file_export "$tmp/proj/.env" FROM_FILE; bash -c 'printf "%s" "${FROM_FILE-}"')"
+check "a file that is not there exports nothing and is no error" "0:unset" "$(unset FROM_FILE; ollama_env_file_export "$tmp/proj/none.env" FROM_FILE; echo "$?:${FROM_FILE-unset}")"
+check "a name that is not one is refused, and nothing is exported" "2:unset" "$(unset FROM_FILE; ollama_env_file_export "$tmp/proj/.env" FROM_FILE 'BAD NAME' 2>/dev/null; echo "$?:${FROM_FILE-unset}")"
+
+note "a project's start check, in one call"
+cat >"$tmp/proj/ai-models.env" <<'MODELS'
+OLLAMA_MODEL=main:7b
+CLASSIFY_MODEL=small:3b
+OLLAMA_EMBED_MODEL=embed
+OLLAMA_MODEL_LARGE=huge:70b
+MODELS
+project() { ollama_project_ensure_models "$@" >"$tmp/out" 2>"$tmp/err"; echo $?; }
+# Nothing here may reach the default address: a developer's own Ollama may be
+# listening there, and a regression in what is under test would send it a
+# pull. The default is moved to a port nothing listens on.
+export _OLLAMA_EP_DEFAULT_URL="http://127.0.0.1:1"
+unset OLLAMA_URL OLLAMA_BASE_URL OLLAMA_HOST OLLAMA_URL_VARS OLLAMA_MODEL CLASSIFY_MODEL OLLAMA_EMBED_MODEL OLLAMA_MODELS
+unset OLLAMA_MODE OLLAMA_PORT OLLAMA_HOST_PORT
+roomy; reset main:7b
+printf 'OLLAMA_URL=%s\n' "$URL" >"$tmp/proj/.env"
+check "the address comes from the project's .env, and what is missing is pulled" "0:small:3b embed:latest" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+check "nothing read from .env is left in the caller's environment" "unset" "${OLLAMA_URL-unset}"
+reset main:7b small:3b embed:latest
+check "everything there: nothing to do" "0:" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+reset main:7b embed:latest
+printf 'OLLAMA_URL=%s\nCLASSIFY_MODEL=team/tool:1b\n' "$URL" >"$tmp/proj/.env"
+check "a model named in .env is the one checked, not the file's" "0:team/tool:1b" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+reset main:7b embed:latest
+check "and the environment wins over .env" "0:small:3b" "$(CLASSIFY_MODEL=small:3b project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+reset main:7b
+printf 'OLLAMA_URL=%s\nOLLAMA_PULL_MISSING=0\n' "$URL" >"$tmp/proj/.env"
+check "a setting in .env counts: pulling is off" "5:" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+check "and the environment wins there too" "0:small:3b embed:latest" "$(OLLAMA_PULL_MISSING=1 project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+reset main:7b
+printf 'OLLAMA_URL=%s\nOLLAMA_BUDGET_DISK_FREE_BYTES=1000\n' "$URL" >"$tmp/proj/.env"
+check "the machine's figures can be stated in .env" "1:" "$(unset OLLAMA_BUDGET_DISK_FREE_BYTES; project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+roomy; reset main:7b small:3b
+printf 'MYAPP_OLLAMA_URL=%s/api/generate\n' "$URL" >"$tmp/proj/.env"
+check "a project's own name for the address, with the API path in it" "0:embed:latest" "$(OLLAMA_URL_VARS=MYAPP_OLLAMA_URL project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+reset main:7b small:3b
+printf 'OLLAMA_URL_VARS=MYAPP_URL\nMYAPP_URL=%s\n' "$URL" >"$tmp/proj/.env"
+check "OLLAMA_URL_VARS may itself be in .env" "0:embed:latest" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+reset main:7b small:3b
+: >"$tmp/proj/secret-file-name.txt"
+check "a pattern in OLLAMA_URL_VARS is a name that is not one, not the files it matches" "9:1:0" "$( (cd "$tmp/proj" && OLLAMA_URL_VARS='OLLAMA_URL *' project "$tmp/proj/ai-models.env" "$tmp/proj/.env") ):$(grep -c 'not a variable: \*' "$tmp/err"):$(grep -c 'secret-file-name' "$tmp/err")"
+reset main:7b small:3b
+printf 'OLLAMA_URL=%s\nOLLAMA_PULL_MISSING=0\n' "$URL" >"$tmp/proj/.env"
+check "a setting the caller holds read-only and blank cannot be read from .env: 9, and nothing is pulled" "9:" "$( (readonly OLLAMA_PULL_MISSING=''; project "$tmp/proj/ai-models.env" "$tmp/proj/.env") ):$(pulled)"
+said "and it says which one" "$tmp/err" "OLLAMA_PULL_MISSING is set in" "read-only"
+reset main:7b small:3b
+printf 'OLLAMA_HOST=%s\n' "${URL#http://}" >"$tmp/proj/.env"
+check "OLLAMA_HOST as host:port" "0:embed:latest" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+reset main:7b small:3b
+printf 'OLLAMA_BASE_URL=http://192.0.2.1:9\nOLLAMA_URL=%s\n' "$URL" >"$tmp/proj/.env"
+check "the first variable of the list that has a value is the address" "0:embed:latest" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+reset main:7b small:3b
+check "with no .env the environment alone is read" "0:embed:latest" "$(OLLAMA_BASE_URL="$URL" project "$tmp/proj/ai-models.env"):$(pulled)"
+reset main:7b small:3b
+printf 'OLLAMA_URL=http://host.docker.internal:%s\n' "${URL##*:}" >"$tmp/proj/.env"
+check "Docker's name for the host is this machine, to a script on the host" "0:embed:latest" "$(_OLLAMA_EP_DOCKERENV="$tmp/no-such-file" project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+reset
+printf 'OLLAMA_URL=ftp://somewhere\n' >"$tmp/proj/.env"
+check "an address that is not one is refused before anything is asked" "9::" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled):$(cat "$tmp/state/asked" 2>/dev/null)"
+said "and it names the variable" "$tmp/err" "OLLAMA_URL is not the address of an Ollama"
+# A compose service name does not resolve from a start script. The name is one
+# no resolver has (RFC 6761 keeps .invalid for that; a bare word behaves the same).
+printf 'OLLAMA_URL=http://no-such-service-xq:11434\n' >"$tmp/proj/.env"
+check "a service name that does not resolve here is no Ollama" "4:" "$(OLLAMA_REGISTRY_TIMEOUT=2 project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+said "and it says what such a name usually is, and what to give" "$tmp/err" "no-such-service-xq" "compose service" "published on this machine"
+printf 'OLLAMA_URL=http://127.0.0.1:9\n' >"$tmp/proj/.env"
+check "an address on this machine where nothing listens gets no such hint" "4:0" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 'compose service' "$tmp/err")"
+printf 'OLLAMA_URL=http://nothing.invalid:11434\n' >"$tmp/proj/.env"
+check "nor does a full host name" "4:0" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 'compose service' "$tmp/err")"
+printf 'OLLAMA_URL=http://localhost:9\n' >"$tmp/proj/.env"
+check "nor localhost, one word that is this machine" "4:0" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 'compose service' "$tmp/err")"
+printf 'OLLAMA_URL=http://[2001:db8::10]:9\n' >"$tmp/proj/.env"
+check "nor an IPv6 address of another machine" "4:0" "$(OLLAMA_REGISTRY_TIMEOUT=2 project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 'compose service' "$tmp/err")"
+printf 'OLLAMA_URL=%s\n' "$URL" >"$tmp/proj/.env"
+check "a models file that is not there is the project's mistake (9), not a full disk (1) and not no models" "9:" "$(project "$tmp/proj/absent.env" "$tmp/proj/.env"):$(pulled)"
+check "a bad name is the project's mistake too" "9:" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env" 'BAD NAME'):$(pulled)"
+reset
+check "only the names asked for are checked" "0:small:3b" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env" CLASSIFY_MODEL):$(pulled)"
+reset
+printf 'OLLAMA_URL=%s\nOLLAMA_MODEL=small:3b\n' "$URL" >"$tmp/proj/.env"
+check "a project with no models file names its models in .env" "0:small:3b" "$(project "" "$tmp/proj/.env" OLLAMA_MODEL):$(pulled)"
+printf 'OLLAMA_URL=%s\n' "$URL" >"$tmp/proj/.env"
+check "no models named anywhere is nothing to do" "0:" "$(reset; project "" "$tmp/proj/.env" OLLAMA_MODEL):$(pulled)"
+reset main:7b
+check "a strict caller survives a refusal and gets its code" "5:after" "$( (set -euo pipefail; rc=0; OLLAMA_PULL_MISSING=0 ollama_project_ensure_models "$tmp/proj/ai-models.env" "$tmp/proj/.env" >/dev/null 2>&1 || rc=$?; echo "$rc:after") )"
+# With no address anywhere, the default is used.
+reset
+check "no address anywhere is the default address" "4:" "$(project "$tmp/proj/ai-models.env" ""):$(pulled)"
+said "(which these tests moved to a closed port)" "$tmp/err" "No Ollama answers at http://127.0.0.1:1."
+printf 'OLLAMA_URL=%s\n' "$URL" >"$tmp/proj/.env"
+# A caller in "strict mode" sets IFS to newline and tab. The lists of names
+# then came out as one word: the address was not found and the default used.
+reset main:7b
+check "a caller's IFS of newline and tab does not change what is read" "0:small:3b embed:latest" "$( (IFS=$'\n\t'; project "$tmp/proj/ai-models.env" "$tmp/proj/.env") ):$(pulled)"
+reset main:7b
+check "nor does one of a comma" "0:small:3b embed:latest" "$( (IFS=,; OLLAMA_URL="$URL" project "$tmp/proj/ai-models.env") ):$(pulled)"
+# A project's own names may be the function's own.
+reset main:7b small:3b
+check "an address variable may be called url, name or value" "0:embed:latest" "$(url="$URL"; export url; OLLAMA_URL_VARS=url project "$tmp/proj/ai-models.env"):$(pulled)"
+reset main:7b small:3b
+check "the first address variable may be blank: the next one counts" "0:embed:latest" "$(OLLAMA_URL='  ' OLLAMA_BASE_URL="$URL" project "$tmp/proj/ai-models.env"):$(pulled)"
+check "a name in OLLAMA_URL_VARS that is not one is the project's mistake, with or without a .env" "9:9" "$(OLLAMA_URL_VARS='OLLAMA_URL 1BAD' project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(OLLAMA_URL_VARS='1BAD' project "$tmp/proj/ai-models.env")"
+reset main:7b small:3b
+check "a .env that is not there yet is no .env" "0:embed:latest" "$(OLLAMA_URL="$URL" project "$tmp/proj/ai-models.env" "$tmp/proj/not-yet.env"):$(pulled)"
+# One value is one model. Split on spaces, "small:3b embed" was two.
+reset
+printf 'OLLAMA_URL=%s\nOLLAMA_MODEL="small:3b embed"\n' "$URL" >"$tmp/proj/.env"
+check "a model value with a space in it is not two models" "8:" "$(project "" "$tmp/proj/.env" OLLAMA_MODEL):$(pulled)"
+# A password in an address that cannot be read is not printed.
+printf 'OLLAMA_URL=http://user:s3/cret@127.0.0.1:1\n' >"$tmp/proj/.env"
+check "an address with a slash in its password is refused" "9:" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+check "and no part of the password is printed" "0" "$(grep -c -e 's3' -e 'cret' "$tmp/out" "$tmp/err" | awk -F: '{ n += $2 } END { print n + 0 }')"
+# Nor is anything else that is not an address: it may be a key put into the
+# wrong variable.
+printf 'OLLAMA_URL=sk-live-0123456789abcdef with a space\n' >"$tmp/proj/.env"
+check "a value that is not an address is named by its variable, never shown" "9:0:1" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 'sk-live' "$tmp/out" "$tmp/err" | awk -F: '{ n += $2 } END { print n + 0 }'):$(grep -c 'OLLAMA_URL is not the address of an Ollama' "$tmp/err")"
+# A proxy may serve an Ollama under a path that holds a key. A URL is named in
+# a message by its scheme, host and port, and the path is removed from what
+# the other end said too: a proxy's 404 echoes the request path.
+check "a pull refused by a proxy that echoes the path: the path is not printed with it" "1:0:1" "$(ollama_endpoint_pull "$URL/t0ken-in-the-path/echo-path" small:3b >/dev/null 2>"$tmp/err"; echo "$?:$(grep -c 't0ken' "$tmp/err"):$(grep -c 'Cannot POST /api/pull' "$tmp/err")")"
+printf 'OLLAMA_URL=http://127.0.0.1:1/t0ken-in-the-path/ollama\nOLLAMA_MODE=remote\n' >"$tmp/proj/.env"
+check "a path is not part of how an address is named" "0:0:1" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 't0ken' "$tmp/err"):$(grep -c 'http://127.0.0.1:1 does not answer' "$tmp/err")"
+printf 'OLLAMA_URL=http://127.0.0.1:1/t0ken-in-the-path/ollama\n' >"$tmp/proj/.env"
+check "nor when nothing answers there, or a pull fails" "4:0|1:0" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 't0ken' "$tmp/err")|$(ollama_endpoint_pull "http://127.0.0.1:1/t0ken-in-the-path" small:3b >/dev/null 2>"$tmp/err"; echo "$?:$(grep -c 't0ken' "$tmp/err")")"
+printf 'OLLAMA_URL=http://user:s3cret@127.0.0.1:1\n' >"$tmp/proj/.env"
+check "a well-formed one is used, and not printed either" "4:0" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 's3cret' "$tmp/err")"
+
+note "where the Ollama runs: OLLAMA_MODE"
+printf 'OLLAMA_URL=%s\n' "$URL" >"$tmp/proj/.env"
+reset main:7b
+check "a mode that is not one of the three is the project's mistake" "9:" "$(OLLAMA_MODE=cloud project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+said "and the three are named, not the value: it may have been meant for another variable" "$tmp/err" "OLLAMA_MODE is not" "local" "docker" "remote"
+check "and the value is not repeated" "0" "$(grep -c cloud "$tmp/err")"
+check "a mode with a space inside is not one of the three (the ends only are trimmed)" "9:" "$(OLLAMA_MODE='lo cal' project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+check "local: an Ollama on this machine, checked and pulled into" "0:small:3b embed:latest" "$(OLLAMA_MODE=local project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+reset main:7b
+check "the mode may be written in any case, and host means local" "0:small:3b embed:latest" "$(OLLAMA_MODE=' Host ' project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+reset main:7b
+printf 'OLLAMA_URL=%s\nOLLAMA_MODE=local\nOLLAMA_BUDGET_DISK_FREE_BYTES=1000\n' "$URL" >"$tmp/proj/.env"
+check "it is read from .env, and the disk it measures is the local Ollama's" "1:" "$(unset OLLAMA_BUDGET_DISK_FREE_BYTES; _OLLAMA_EP_SERVICE_MODELS="$tmp/service/models" project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+said "(the service's directory)" "$tmp/err" "is free at $tmp/service/models"
+printf 'OLLAMA_URL=http://192.0.2.10:11434\nOLLAMA_MODE=local\n' >"$tmp/proj/.env"
+reset
+check "local with an address that is another machine is a contradiction, and nothing is asked" "9:" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(cat "$tmp/state/asked" 2>/dev/null)"
+said "it says which mode would fit" "$tmp/err" "OLLAMA_MODE is local" "192.0.2.10" "docker" "remote"
+# docker: the address in .env is the one a container uses. A start script is
+# on the host, where a compose service's name does not resolve.
+mkdir -p "$tmp/fake-docker"
+printf '#!/bin/sh\n[ "$1" = info ] && echo /srv/docker-root\n' >"$tmp/fake-docker/docker"; chmod +x "$tmp/fake-docker/docker"
+reset main:7b
+printf 'OLLAMA_URL=http://ollama:%s\nOLLAMA_MODE=docker\n' "${URL##*:}" >"$tmp/proj/.env"
+check "docker: a compose service's name is this machine, at the same port" "0:small:3b embed:latest" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+reset main:7b
+printf 'OLLAMA_URL=http://ollama:11434/api/generate\nOLLAMA_MODE=docker\nOLLAMA_PORT=%s\n' "${URL##*:}" >"$tmp/proj/.env"
+check "or at the port the project publishes it on (OLLAMA_PORT)" "0:small:3b embed:latest" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+reset main:7b
+printf 'OLLAMA_URL=http://user:pw@ollama:11434\nOLLAMA_MODE=docker\nOLLAMA_HOST_PORT=%s\n' "${URL##*:}" >"$tmp/proj/.env"
+check "(OLLAMA_HOST_PORT too, with credentials kept)" "0:small:3b embed:latest" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+reset main:7b
+printf 'OLLAMA_URL=%s\nOLLAMA_MODE=docker\nOLLAMA_PORT=9\n' "$URL" >"$tmp/proj/.env"
+check "an address that is this machine already is used as it is" "0:small:3b embed:latest" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+# Inside a container the service's name is the right one: a backend container
+# that said docker must not be sent to its own loopback.
+reset main:7b
+printf 'OLLAMA_URL=http://no-such-service-xq:%s\nOLLAMA_MODE=docker\n' "${URL##*:}" >"$tmp/proj/.env"
+: >"$tmp/dockerenv"
+check "docker inside a container: the name is used as written, not this machine" "4:" "$(_OLLAMA_EP_DOCKERENV="$tmp/dockerenv" OLLAMA_REGISTRY_TIMEOUT=2 project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+check "(nothing asked of what listens on this machine)" "" "$(cat "$tmp/state/asked" 2>/dev/null)"
+# Another machine is not a container here, whatever the mode says.
+reset main:7b
+for address in http://192.0.2.10:11434 http://gpu-box.example:11434 "http://[2001:db8::10]:11434" http://2130706433:11434; do
+  printf 'OLLAMA_URL=%s\nOLLAMA_MODE=docker\n' "$address" >"$tmp/proj/.env"
+  check "docker with another machine's address is a contradiction: $address" "9:" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+done
+said "it says what a container here is named by" "$tmp/err" "OLLAMA_MODE is docker" "compose service name" "remote"
+check "(the address is shown without its brackets broken, and nothing is asked)" "1:" "$(grep -c '2130706433' "$tmp/err"):$(cat "$tmp/state/asked" 2>/dev/null)"
+# A published port that is not one is a mistake, not "use the address's port":
+# that port is often the native Ollama's.
+reset main:7b
+for port in 1l435 99999 0 ' ' -1; do
+  printf 'OLLAMA_URL=http://ollama:%s\nOLLAMA_MODE=docker\nOLLAMA_PORT=%s\n' "${URL##*:}" "$port" >"$tmp/proj/.env"
+  expected="9:"
+  [[ "$port" == ' ' ]] && expected="0:small:3b embed:latest"  # blank: not set
+  check "OLLAMA_PORT='$port'" "$expected" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+  reset main:7b
+done
+said "and the setting is named" "$tmp/err" "OLLAMA_PORT is not a port number (1 to 65535)"
+printf 'OLLAMA_URL=http://ollama:%s\nOLLAMA_MODE=docker\nOLLAMA_HOST_PORT=70000\n' "${URL##*:}" >"$tmp/proj/.env"
+check "OLLAMA_HOST_PORT too" "9:" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+reset main:7b
+printf 'OLLAMA_URL=%s\nOLLAMA_MODE=docker\n' "$URL" >"$tmp/proj/.env"
+check "its models are on Docker's disk: that is the one measured" "1:" "$(unset OLLAMA_BUDGET_DISK_FREE_BYTES; OLLAMA_DISK_RESERVE_GB=99999 PATH="$tmp/fake-docker:$PATH" project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+said "(Docker's data root)" "$tmp/err" "is free at /srv/docker-root"
+check "or the directory the project states" "1:1" "$(unset OLLAMA_BUDGET_DISK_FREE_BYTES; OLLAMA_MODELS=/srv/stated OLLAMA_DISK_RESERVE_GB=99999 PATH="$tmp/fake-docker:$PATH" project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 'is free at /srv/stated' "$tmp/err")"
+# remote: an API on another machine. Nothing is measured, and nothing is
+# pulled unless asked. The stand-in is on this machine; the mode says it is
+# not, and the mode is what counts.
+reset main:7b small:3b embed:latest
+printf 'OLLAMA_URL=%s\nOLLAMA_MODE=remote\n' "$URL" >"$tmp/proj/.env"
+check "remote: an Ollama that has every model is fine" "0:" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+reset main:7b
+check "one that lacks a model is a refusal, with nothing pulled and no size asked" "5::" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled):$(cat "$tmp/state/asked" 2>/dev/null)"
+said "it names what is missing" "$tmp/err" "small:3b embed:latest." "another machine"
+check "a blank OLLAMA_PULL_MISSING is not asking" "5:" "$(OLLAMA_PULL_MISSING='  ' project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+check "asked for, with that machine's figures stated, it is pulled there" "0:small:3b embed:latest" "$(OLLAMA_PULL_MISSING=1 project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+# A hosted API in production is not an Ollama. There is nothing to check, and
+# the start must not stop for it.
+reset; echo web >"$tmp/state/mode"
+check "what does not answer as an Ollama is nothing to check: the start goes on" "0:" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+said "and that is said" "$tmp/err" "OLLAMA_MODE is remote" "does not answer as an Ollama"
+reset
+printf 'OLLAMA_URL=http://user:s3cret@127.0.0.1:1/v1\nOLLAMA_MODE=remote\n' >"$tmp/proj/.env"
+check "nor is one that is not up, and its password is not in the message" "0:0" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 's3cret' "$tmp/err")"
+printf 'OLLAMA_URL=%s\n' "$URL" >"$tmp/proj/.env"
+
+# An Ollama on another machine. The stand-in is on this one, so the answer to
+# "is it this machine" is given here; the rule is tested above.
+remote() { ( ollama_endpoint_is_local() { return 1; }; ollama_project_ensure_models "$@" >"$tmp/out" 2>"$tmp/err"; echo $? ); }
+roomy; reset main:7b small:3b embed:latest
+check "another machine that has every model is fine" "0:" "$(remote "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+reset main:7b
+check "one that lacks a model is a refusal, and nothing is pulled into it" "5::" "$(remote "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled):$(cat "$tmp/state/asked" 2>/dev/null)"
+said "it says why, and the way through" "$tmp/err" "small:3b" "another machine" "OLLAMA_PULL_MISSING=1"
+check "asked for, the pull happens there" "0:small:3b embed:latest" "$(OLLAMA_PULL_MISSING=1 remote "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+# Asked for without that machine's figures: this machine's would be read.
+reset main:7b
+check "a pull into another machine whose disk and memory are not stated is refused" "7:" "$(unset OLLAMA_BUDGET_DISK_FREE_BYTES; OLLAMA_PULL_MISSING=1 remote "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+said "it names what is missing and what to state" "$tmp/err" "small:3b embed:latest." "OLLAMA_BUDGET_DISK_FREE_BYTES" "OLLAMA_IGNORE_BUDGET=1"
+check "memory not stated is the same refusal" "7:" "$(unset OLLAMA_BUDGET_MEM_TOTAL_BYTES; OLLAMA_PULL_MISSING=1 remote "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+check "unless the check is ignored" "0:small:3b embed:latest" "$(unset OLLAMA_BUDGET_DISK_FREE_BYTES; OLLAMA_PULL_MISSING=1 OLLAMA_IGNORE_BUDGET=1 remote "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+reset main:7b small:3b embed:latest
+check "or nothing is missing there" "0:" "$(unset OLLAMA_BUDGET_DISK_FREE_BYTES; OLLAMA_PULL_MISSING=1 remote "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+# Memory on another machine: this machine's GPU and free memory are not its.
+mkdir -p "$tmp/fake-gpu"
+printf '#!/bin/sh\necho 24000\n' >"$tmp/fake-gpu/nvidia-smi"; chmod +x "$tmp/fake-gpu/nvidia-smi"
+printf 'OLLAMA_URL=%s\nOLLAMA_MODEL=twenty:20b\n' "$URL" >"$tmp/proj/gpu.env"
+reset
+check "a GPU on this machine does not make room on that one" "2:" "$(unset OLLAMA_BUDGET_GPU_BYTES OLLAMA_BUDGET_MEM_AVAILABLE_BYTES; export OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((8 * GB)); PATH="$tmp/fake-gpu:$PATH" OLLAMA_PULL_MISSING=1 remote "" "$tmp/proj/gpu.env" OLLAMA_MODEL):$(pulled)"
+check "one stated for that machine does" "0:twenty:20b" "$(unset OLLAMA_BUDGET_MEM_AVAILABLE_BYTES; export OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((8 * GB)) OLLAMA_BUDGET_GPU_BYTES=$((24 * GB)); OLLAMA_PULL_MISSING=1 remote "" "$tmp/proj/gpu.env" OLLAMA_MODEL):$(pulled)"
+# Nor is what is free in this machine's memory right now. What the check is
+# handed for that machine is what was stated for it, and nothing read here.
+reset
+check "the check for that machine is handed its stated memory, and no GPU and no free memory of this one" "avail=64000000000 gpu=0" "$(unset OLLAMA_BUDGET_GPU_BYTES OLLAMA_BUDGET_MEM_AVAILABLE_BYTES; export OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((64 * GB)) OLLAMA_PULL_MISSING=1; ( ollama_endpoint_is_local() { return 1; }; ollama_endpoint_ensure_models() { echo "avail=${OLLAMA_BUDGET_MEM_AVAILABLE_BYTES:-unset} gpu=${OLLAMA_BUDGET_GPU_BYTES:-unset}"; }; ollama_project_ensure_models "" "$tmp/proj/gpu.env" OLLAMA_MODEL 2>/dev/null ))"
+roomy; reset main:7b
+check "a typo in the setting that would waive the check is reported, not swallowed" "7:1" "$(unset OLLAMA_BUDGET_DISK_FREE_BYTES; OLLAMA_PULL_MISSING=1 OLLAMA_IGNORE_BUDGET=ture remote "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 'OLLAMA_IGNORE_BUDGET is neither on' "$tmp/err")"
+reset main:7b
+printf 'OLLAMA_URL=http://127.0.0.1:9\n' >"$tmp/proj/closed.env"
+check "asked to pull into one that does not answer: no Ollama (4), not an unknown budget (7)" "4:" "$(unset OLLAMA_BUDGET_DISK_FREE_BYTES; OLLAMA_PULL_MISSING=1 remote "$tmp/proj/ai-models.env" "$tmp/proj/closed.env"):$(pulled)"
+# Inside a container the host's Ollama is another machine: its disk is not
+# the container's.
+reset main:7b
+printf 'OLLAMA_URL=http://host.docker.internal:%s\n' "${URL##*:}" >"$tmp/proj/in-container.env"
+check "inside a container, Docker's name for the host is not mapped to the container itself" "4:" "$(_OLLAMA_EP_DOCKERENV="$tmp/dockerenv" OLLAMA_REGISTRY_TIMEOUT=2 project "$tmp/proj/ai-models.env" "$tmp/proj/in-container.env"):$(pulled)"
+reset main:7b
+check "pulling switched off by the project is not that message's case" "5:0" "$(OLLAMA_PULL_MISSING=0 remote "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 'another machine' "$tmp/err")"
+roomy; reset
 
 if [[ "$failures" -gt 0 ]]; then
   note "FAILED: $failures"
