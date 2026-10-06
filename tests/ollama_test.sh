@@ -54,14 +54,30 @@ if [[ "$rc" == "1" ]]; then ok "a carriage return is refused"; else error "CR va
 # The file is sourced by load_env. A value that would run something there, be
 # split in two, or leave a quote open is refused, and the file stays as it was.
 before="$(cat "$f")"
-for bad in "y;touch $tmp/PWNED" "7b \$(touch $tmp/PWNED)" "x\`touch $tmp/PWNED\`" "a|b" "a&b" "a>$tmp/PWNED" "a<b" "a(b)" 'two words' "tab$(printf '\t')here" "it's" 'say "x"' '$HOME'; do
+# Each character on its own as well: a value with two of them says nothing
+# about the second.
+for bad in "y;touch $tmp/PWNED" "7b \$(touch $tmp/PWNED)" "x\`touch $tmp/PWNED\`" "a|b" "a&b" "a>$tmp/PWNED" "a<b" "a(b)" 'two words' "tab$(printf '\t')here" "it's" 'say "x"' '$HOME' \
+           'a;b' 'a`b' 'a(b' 'a)b' 'a"b' "a'b" 'a$b' 'a b' 'C:\models\' '\'; do
   rc=0; ollama_update_env "$f" model "$bad" >/dev/null 2>&1 || rc=$?
   if [[ "$rc" == "1" && "$(cat "$f")" == "$before" ]]; then ok "refused, file unchanged: $(printf '%q' "$bad")"; else error "written or changed (rc=$rc) for $(printf '%q' "$bad"): $(cat "$f")"; fi
 done
 ( load_env "$f" ) >/dev/null 2>&1
 if [[ -e "$tmp/PWNED" ]]; then error "a refused value ran when the file was loaded"; else ok "loading the file afterwards runs nothing"; fi
-rc=0; ollama_update_env "$f" 'model;touch' x >/dev/null 2>&1 || rc=$?
-if [[ "$rc" == "1" && "$(cat "$f")" == "$before" ]]; then ok "a key that is not a name is refused"; else error "bad key rc=$rc: $(cat "$f")"; fi
+# A backslash at the end of a value joins the next line to it when the file is
+# loaded, and a comment line after it then runs.
+printf 'model=old\n# touch %s\nsize=7b\n' "$tmp/RAN" >"$tmp/join.env"
+rc=0; ollama_update_env "$tmp/join.env" model 'C:\models\' >/dev/null 2>&1 || rc=$?
+( load_env "$tmp/join.env" ) >/dev/null 2>&1
+if [[ "$rc" == "1" && ! -e "$tmp/RAN" && "$(head -n 1 "$tmp/join.env")" == "model=old" ]]; then ok "a value that ends in a backslash is refused, and the comment after it does not run"; else error "trailing backslash: rc=$rc ran=$([[ -e "$tmp/RAN" ]] && echo yes || echo no) $(head -n 1 "$tmp/join.env")"; fi
+for bad_key in 'model;touch' '1abc' 'a-b' '-x' 'a b' '.a' 'a=b'; do
+  rc=0; ollama_update_env "$f" "$bad_key" x >/dev/null 2>&1 || rc=$?
+  if [[ "$rc" == "1" && "$(cat "$f")" == "$before" ]]; then ok "a key that is not a name is refused: $bad_key"; else error "bad key $bad_key rc=$rc: $(cat "$f")"; fi
+done
+# Every refusal says why on stderr. stdout stays empty: a function that is
+# captured (ollama_runtime_sync_env_url) calls this one.
+out="$(ollama_update_env "$f" model 'two words' 2>/dev/null; ollama_update_env "$f" 'a-b' x 2>/dev/null; ollama_update_env "$f" '' x 2>/dev/null; ollama_update_env "$f" model $'a\nb' 2>/dev/null)"
+said="$(ollama_update_env "$f" model 'two words' 2>&1 >/dev/null; ollama_update_env "$f" 'a-b' x 2>&1 >/dev/null; ollama_update_env "$f" '' x 2>&1 >/dev/null; ollama_update_env "$f" model $'a\nb' 2>&1 >/dev/null)"
+if [[ -z "$out" && "$(printf '%s\n' "$said" | grep -c 'Error')" == "4" ]]; then ok "each of the four refusals says so on stderr, and nothing on stdout"; else error "refusals: stdout $(printf '%q' "$out"), stderr lines $(printf '%s\n' "$said" | grep -c 'Error')"; fi
 ollama_update_env "$f" model 'hf.co/Org/Model-GGUF:Q4_K_M'
 ollama_update_env "$f" ollama_url 'http://user@[::1]:11434/base%20x,y+z=1'
 if grep -q '^model=hf.co/Org/Model-GGUF:Q4_K_M$' "$f" && grep -qF 'ollama_url=http://user@[::1]:11434/base%20x,y+z=1' "$f"; then ok "a model reference and a URL are written as given"; else error "plain values: $(cat "$f")"; fi
@@ -79,6 +95,21 @@ if [[ -L "$tmp/proj/.env" ]]; then ok "a symlinked .env is still a symlink"; els
 if grep -q '^model=qwen2$' "$tmp/dots/real.env"; then ok "the update reached the link's target"; else error "target not updated: $(cat "$tmp/dots/real.env")"; fi
 if [[ "$(file_mode "$tmp/dots/real.env")" == "600" ]]; then ok "the target of a symlinked 0600 .env stays 0600"; else error "target mode became $(file_mode "$tmp/dots/real.env")"; fi
 if ls "$tmp"/proj/.env.* >/dev/null 2>&1; then error "temporary files left next to the link"; else ok "no temporary files left next to the link"; fi
+
+note "ollama_runtime_sync_env_url"
+# Called as url="$(ollama_runtime_sync_env_url file)". An address that
+# ollama_update_env will not write is still the address: stdout is the URL and
+# nothing else, the reason is on stderr, and the file is left as it was.
+# The dollars are literal: the file is read, not sourced.
+# shellcheck disable=SC2016
+printf 'ollama_host=https://user:pa$$w0rd@ollama.example.com\n' >"$tmp/sync.env"
+rc=0; url="$(unset ollama_host ollama_url ollama_port ollama_scheme; ollama_runtime_sync_env_url "$tmp/sync.env" 2>"$tmp/sync.err")" || rc=$?
+# shellcheck disable=SC2016
+if [[ "$rc" == "0" && "$url" == 'https://user:pa$$w0rd@ollama.example.com:11434' ]]; then ok "an address that cannot be saved is still returned, and only it"; else error "captured rc=$rc $(printf '%q' "$url")"; fi
+if grep -q 'was not saved' "$tmp/sync.err" && ! grep -q '^ollama_url=' "$tmp/sync.env"; then ok "it says on stderr that the address was not saved, and the file has no ollama_url"; else error "stderr: $(cat "$tmp/sync.err") file: $(cat "$tmp/sync.env")"; fi
+printf 'ollama_host=ollama.example.com\n' >"$tmp/sync.env"
+url="$(unset ollama_host ollama_url ollama_port ollama_scheme; ollama_runtime_sync_env_url "$tmp/sync.env" 2>"$tmp/sync.err")"
+if [[ "$url" == "$(grep '^ollama_url=' "$tmp/sync.env" | cut -d= -f2-)" && -n "$url" && ! -s "$tmp/sync.err" ]]; then ok "a plain address is returned and saved, with nothing on stderr"; else error "plain address: $(printf '%q' "$url") file: $(cat "$tmp/sync.env") stderr: $(cat "$tmp/sync.err")"; fi
 
 note "ollama_runtime_type"
 printf 'ollama_runtime=Dockr\n' >"$tmp/rt.env"

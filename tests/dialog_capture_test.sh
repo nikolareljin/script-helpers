@@ -267,6 +267,11 @@ if command -v jq >/dev/null 2>&1; then
   esac
   check "an empty answer from the size menu is a cancel" "2" "$(FAKE_DIALOG_ANSWER="" ollama_dialog_select_size "$tmp/models.json" alpha </dev/null >/dev/null 2>&1; echo $?)"
   check "a model with no sizes asks nothing" "latest:" "$(: >"$tmp/log"; ollama_dialog_select_size "$tmp/models.json" beta </dev/null 2>/dev/null):$(cat "$tmp/log")"
+  # A caller in strict mode has no space in IFS. The sizes were split by it,
+  # so the menu had one item made of all of them.
+  fresh
+  size="$(IFS=$'\n\t'; FAKE_DIALOG_ANSWER=13b ollama_dialog_select_size "$tmp/models.json" alpha </dev/null 2>/dev/null)"
+  check "each size is its own item for a caller whose IFS has no space" "13b:7b 7b 13b 13b" "$size:$(logged args | sed -E 's/.* 10 //')"
 
   note "the model menu"
   export OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu.cache.tsv"
@@ -328,7 +333,7 @@ if command -v jq >/dev/null 2>&1; then
   # reference is skipped, and a row cut short still has sizes.
   hand_cache() { # hand_cache <cache> <index it claims> <rows...>
     local cache="$1" index="$2"; shift 2
-    { printf '#index\t%s\n' "$index"; printf '%b\n' "$@"; } >"$cache"
+    { printf '#index\t%s\n' "$(_ollama_index_id "$index")"; printf '%b\n' "$@"; } >"$cache"
   }
   printf '[{"name":"only-in-the-index"}]\n' >"$tmp/index-hand.json"; touch -t 200001010000 "$tmp/index-hand.json"
   hand_cache "$tmp/menu-hand.cache.tsv" "$tmp/index-hand.json" 'fine\tfine\tlatest\t' 'x;touch MARK\tx;touch MARK\tlatest\t' 'also/fine\talso/fine\t7b\tsome words' 'short\tshort' 'qwen3:\tqwen3:\tlatest\t' 'a..b\ta..b\tlatest\t'
@@ -352,6 +357,49 @@ if command -v jq >/dev/null 2>&1; then
   hand_cache "$tmp/menu-hand.cache.tsv" "$tmp/index-hand.json" 'from-the-old-cache\tfrom-the-old-cache\t\twords'
   model="$(OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-hand.cache.tsv" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model "$tmp/index-hand.json" </dev/null 2>/dev/null)"
   check "a cache written with an empty column is made again" "only-in-the-index" "$model"
+  # Half an hour is still the limit for a cache nothing else is wrong with.
+  hand_cache "$tmp/menu-hand.cache.tsv" "$tmp/index-hand.json" 'from-the-old-cache\tfrom-the-old-cache\tlatest\t'
+  model="$(OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-hand.cache.tsv" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model "$tmp/index-hand.json" </dev/null 2>/dev/null)"
+  check "(a cache written just now is used)" "from-the-old-cache" "$model"
+  hand_cache "$tmp/menu-hand.cache.tsv" "$tmp/index-hand.json" 'from-the-old-cache\tfrom-the-old-cache\tlatest\t'
+  touch -t 200001020000 "$tmp/menu-hand.cache.tsv"
+  model="$(OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-hand.cache.tsv" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model "$tmp/index-hand.json" </dev/null 2>/dev/null)"
+  check "the same cache, newer than the index but older than half an hour, is made again" "only-in-the-index" "$model"
+  # A line that starts with "#" is never a row, whatever its second column.
+  hand_cache "$tmp/menu-hand.cache.tsv" "$tmp/index-hand.json" '#note\tnot-a-row\tlatest\t' 'a-row\ta-row\tlatest\t'
+  : >"$tmp/log"
+  model="$(OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-hand.cache.tsv" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model "$tmp/index-hand.json" </dev/null 2>/dev/null)"
+  check "a line of the cache that starts with # is not offered" "a-row:1:0" "$model:$(logged args | grep -c 'Showing 1\.'):$(logged args | grep -c 'not-a-row')"
+
+  # The index named by a relative path, as the library's own default is
+  # (ollama-get-models/code/ollama_models.json). The line that says which
+  # index a cache is from was read as a row and offered first: choosing 0001
+  # pulled the path of the index.
+  mkdir -p "$tmp/pa/idx" "$tmp/pb/idx"
+  printf '[{"name":"only-in-a","sizes":["7b"]},{"name":"second-in-a"}]\n' >"$tmp/pa/idx/models.json"
+  printf '[{"name":"only-in-b"}]\n' >"$tmp/pb/idx/models.json"
+  touch -t 200001010000 "$tmp/pa/idx/models.json" "$tmp/pb/idx/models.json"
+  : >"$tmp/log"
+  model="$(cd "$tmp/pa" && unset OLLAMA_MODEL_MENU_CACHE_FILE && FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model idx/models.json </dev/null 2>/dev/null)"; rc=$?
+  check "with a relative index path the first item is the first model" "0:only-in-a" "$rc:$model"
+  check "and the menu has the two models, not the cache's first line" "1:0" "$(logged args | grep -c 'Showing 2\.'):$(logged args | grep -c '#index')"
+  # Two indexes named by the same relative path from two directories, and one
+  # cache path given by the caller: each gets its own menu.
+  shared="$tmp/shared.cache.tsv"
+  model="$(cd "$tmp/pa" && OLLAMA_MODEL_MENU_CACHE_FILE="$shared" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model idx/models.json </dev/null 2>/dev/null)"
+  check "(the first directory's menu, through the shared cache path)" "only-in-a" "$model"
+  model="$(cd "$tmp/pb" && OLLAMA_MODEL_MENU_CACHE_FILE="$shared" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model idx/models.json </dev/null 2>/dev/null)"
+  check "the same relative path in another directory is another index" "only-in-b" "$model"
+  # The directory is resolved from here, whatever CDPATH says, and the answer
+  # is one line whatever the path holds.
+  check "a relative index is found from the current directory, not through CDPATH" "$(cd "$tmp/pa/idx" && pwd -P)/models.json" "$(cd "$tmp/pa" && CDPATH="$tmp/pb" _ollama_index_id idx/models.json)"
+  mkdir -p "$tmp/pa/two"$'\n'"lines"
+  check "an index path with a line break in it is still named on one line" "one line" "$(id="$(_ollama_index_id "$tmp/pa/two"$'\n'"lines/models.json")"; if [[ "$id" == *$'\n'* ]]; then echo "more than one"; else echo "one line"; fi)"
+  # And one index spelled three ways is one index: the cache is used again,
+  # shown by a row added to it by hand.
+  model="$(cd "$tmp/pa" && OLLAMA_MODEL_MENU_CACHE_FILE="$shared" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model idx/models.json </dev/null 2>/dev/null)"
+  printf 'marker\tmarker\tlatest\t\n' >>"$shared"
+  check "one index spelled three ways uses one cache" "marker marker marker" "$(for spelled in idx/models.json ./idx/models.json "$tmp/pa/idx/models.json"; do (cd "$tmp/pa" && OLLAMA_MODEL_MENU_CACHE_FILE="$shared" FAKE_DIALOG_ANSWER=0003 ollama_dialog_select_model "$spelled" </dev/null 2>/dev/null); done | tr '\n' ' ' | sed 's/ $//')"
 
   # The other shape the index may have: {"models": [...]}.
   printf '{"models":[{"name":"wrapped","sizes":["1b","2b"]},{"name":"hf.co/o/m","sizes":[]}]}\n' >"$tmp/index-obj.json"
@@ -394,23 +442,64 @@ INDEX
   printf 'not json\n' >"$tmp/index-broken.json"
   check "an index jq cannot read has no sizes to offer, and says so" "1:" "$(ollama_dialog_select_size "$tmp/index-broken.json" good </dev/null 2>/dev/null; echo "$?:")"
   check "nor names to list" "1:" "$(ollama_list_models "$tmp/index-broken.json" 2>/dev/null; echo "$?:")"
+  # A reader that has what it wants and leaves (`... | head -n 1`) is not a
+  # failure of the list, also for a caller with pipefail. bash writes a line
+  # at a time, so the reader can be gone before the last one, and SIGPIPE
+  # then ended the function. `| true` leaves before the first.
+  { printf '['; for n in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40; do printf '{"name":"model-%s"},' "$n"; done; printf '{"name":"last"}]\n'; } >"$tmp/index-forty.json"
+  pipe_failures=0
+  for n in 1 2 3 4 5 6 7 8 9 10; do
+    first="$(set -o pipefail; ollama_list_models "$tmp/index-forty.json" 2>"$tmp/pipe.err" | head -n 1; echo "rc=$?")"
+    [[ "$first" == "model-1"$'\n'"rc=0" && ! -s "$tmp/pipe.err" ]] || pipe_failures=$((pipe_failures + 1))
+  done
+  check "the first name of a list, read under pipefail: ten runs, none failed and nothing on stderr" "0" "$pipe_failures"
+  check "a reader that leaves without reading is not a failure either, and nothing is said" "0 0:" "$(set -o pipefail; ollama_list_models "$tmp/index-forty.json" 2>"$tmp/pipe.err" | true; echo "${PIPESTATUS[*]}:$(cat "$tmp/pipe.err")")"
+  if [[ -e /dev/full ]]; then
+    check "a write that fails for another reason is a failure, and says so" "1:1" "$(ollama_list_models "$tmp/index-forty.json" 2>"$tmp/pipe.err" >/dev/full; echo "$?:$(grep -c 'Could not write the model names' "$tmp/pipe.err")")"
+  else
+    note "SKIP: no /dev/full here, so a write that fails without a closed pipe is not exercised"
+  fi
+  check "and the list is the 41 names, one a line" "41:model-1:last" "$(ollama_list_models "$tmp/index-forty.json" | wc -l | tr -d ' '):$(ollama_list_models "$tmp/index-forty.json" | sed -n '1p'):$(ollama_list_models "$tmp/index-forty.json" | tail -n 1)"
+  check "an index with no usable name lists nothing, and that is not a failure" "0:" "$(ollama_list_models "$tmp/index-none.json" 2>/dev/null; echo "$?:")"
 
   # The rule, in one function. lib/ollama_endpoint.sh has its own for the same
   # thing: the two must give one answer. This one gives it in any locale.
   shlib_import ollama_endpoint
+  # The rules are pinned to the C locale. That only shows in a locale where
+  # [A-Za-z] takes an accented letter, and not every machine has one: it is
+  # looked for, and when there is none the cases say SKIP, not ok.
+  accent="$(printf 'mod\303\250le')"
+  wide_locale=""
+  for locale in en_US.UTF-8 $(locale -a 2>/dev/null | grep -i -E 'utf-?8$' | grep -v -i -E '^(C|POSIX)\.'); do
+    if (LC_ALL=$locale; [[ "$accent" =~ ^[A-Za-z]+$ ]]) 2>/dev/null; then wide_locale="$locale"; break; fi
+  done
+  rule_locales=(C)
+  if [[ -z "$( (LC_ALL=C.UTF-8) 2>&1)" ]]; then rule_locales+=(C.UTF-8); fi
+  if [[ -n "$wide_locale" ]]; then rule_locales+=("$wide_locale"); fi
   rule_differs=""
   for name in qwen3 qwen3:8b hf.co/org/model user/model registry.example:5000/team/model:7b Qwen3.5:4B a_b-c.d \
               '' ' ' 'qwen3:' 'qwen3/' ':7b' '/x' '-x' '--help' '.hidden' 'a..b' 'a//b' 'a::b' 'a/:b' 'a:/b' \
               'a b' 'a;b' 'a$b' 'a@b' 'a\b' "a'b" 'a"b' 'a*b' 'a?b' 'a#b' 'a%b' 'a+b' 'a=b' 'a,b' 'a~b' \
               "$(printf 'mod\303\250le')" "$(printf 'a\tb')" "$(printf 'a\033b')"; do
-    for locale in C en_US.UTF-8 C.UTF-8; do
+    for locale in "${rule_locales[@]}"; do
       one="$(LC_ALL=$locale; if _ollama_is_model_ref "$name" 2>/dev/null; then echo yes; else echo no; fi)"
       other="$(LC_ALL=C; if _ollama_ep_is_model "$name"; then echo yes; else echo no; fi)"
       [[ "$one" == "$other" ]] || rule_differs="$rule_differs [$name in $locale: menu $one, endpoint $other]"
     done
   done
   check "the menu's rule and the endpoint module's rule agree on every name tried" "" "$rule_differs"
-  check "a letter with an accent is not a reference in any locale" "no no no" "$(for locale in C en_US.UTF-8 C.UTF-8; do (LC_ALL=$locale; shopt -s nocasematch; if _ollama_is_model_ref "$(printf 'mod\303\250le')" 2>/dev/null; then echo yes; else echo no; fi); done | tr '\n' ' ' | sed 's/ $//')"
+  if [[ -n "$wide_locale" ]]; then
+    # One answer per rule: a reference, a tag, a command argument, an env key.
+    check "in $wide_locale, where [A-Za-z] takes an accented letter, no rule does" "no no no no" "$(LC_ALL=$wide_locale; shopt -s nocasematch
+      for call in "_ollama_is_model_ref $accent" "_ollama_is_model_tag $accent" "_ollama_ref_is_arg $(printf '\303\250x')" "_ollama_env_key_ok $accent"; do
+        # Split on purpose: a function and its one argument.
+        # shellcheck disable=SC2086
+        if $call; then echo yes; else echo no; fi
+      done | tr '\n' ' ' | sed 's/ $//')"
+  else
+    note "SKIP: no locale here in which [A-Za-z] takes an accented letter, so the C-locale pin of the rules is not exercised"
+  fi
+  check "a letter with an accent is not a reference in the locales that are here (${rule_locales[*]})" "" "$(for locale in "${rule_locales[@]}"; do (LC_ALL=$locale; shopt -s nocasematch; if _ollama_is_model_ref "$accent"; then echo "$locale"; fi); done | tr '\n' ' ' | sed 's/ $//')"
   check "a tag is a name without a slash, a colon or two dots" "yes yes no no no no no" "$(for size in 7b Q4_K_M a/b 7b:x -x '' a..b; do if _ollama_is_model_tag "$size"; then echo yes; else echo no; fi; done | tr '\n' ' ' | sed 's/ $//')"
 
   # Case does not tell two models apart; of two that differ only by case, the
@@ -459,6 +548,12 @@ INDEX
   : >"$tmp/ollama.log"
   flow bash -c 'source ./helpers.sh; shlib_import logging os file json env python dialog ollama; FAKE_DIALOG_ANSWER=0004 ollama_install_model_flow "$1"' _ "$tmp/repo" >/dev/null
   check "a second run of the flow reuses the menu cache" "2 args: pull marker" "$(cat "$tmp/ollama.log")"
+  # The flow with the library's default index path, which is relative.
+  mkdir -p "$tmp/relflow/ollama-get-models/code"
+  printf '[{"name":"alpha","sizes":[]},{"name":"beta"}]\n' >"$tmp/relflow/ollama-get-models/code/ollama_models.json"
+  : >"$tmp/ollama.log"
+  flow bash -c 'cd "$2" || exit 9; source "$1/helpers.sh"; shlib_import logging os file json env python dialog ollama; FAKE_DIALOG_ANSWER=0001 ollama_install_model_flow "" flow.env' _ "$root_dir" "$tmp/relflow" >/dev/null
+  check "the flow with the default, relative index pulls the first model and records it" "2 args: pull alpha|model=alpha size=latest" "$(cat "$tmp/ollama.log")|$(tr '\n' ' ' <"$tmp/relflow/flow.env" | sed 's/ $//')"
 
   # What reaches `ollama pull` and `ollama run` is one word that starts with a
   # letter or a digit, whoever built it.
@@ -468,6 +563,18 @@ INDEX
   done
   : >"$tmp/ollama.log"
   check "ollama_run_model refuses an option as well" "1:" "$(ollama_run_model '-x' >/dev/null 2>&1; echo "$?:$(cat "$tmp/ollama.log")")"
+  : >"$tmp/ollama.log"
+  check "a control character in the name is refused too" "1:" "$(ollama_pull_model "$(printf 'a\001b')" >/dev/null 2>&1; echo "$?:$(cat "$tmp/ollama.log")")"
+  # The functions that take the runtime hold the model to the same rule. The
+  # models directory is one of this test's, so nothing is made elsewhere.
+  printf 'ollama_shared_model_store=0\nollama_local_models_dir=%s\n' "$tmp/rt-models" >"$tmp/rt.env"
+  : >"$tmp/ollama.log"
+  check "ollama_runtime_pull_model refuses an option and runs nothing" "1:" "$(ollama_runtime_pull_model local "$tmp/rt.env" '-x' </dev/null >/dev/null 2>&1; echo "$?:$(cat "$tmp/ollama.log")")"
+  check "ollama_runtime_export_model too, and makes no directory for it" "1::no" "$(ollama_runtime_export_model local "$tmp/rt.env" '-x' "$tmp/export-out/model.bin" </dev/null >/dev/null 2>&1; echo "$?:$(cat "$tmp/ollama.log"):$(if [[ -e "$tmp/export-out" ]]; then echo yes; else echo no; fi)")"
+  # It starts the model in the background: given a second to show up in the log.
+  check "ollama_runtime_run_model too" "1:" "$(ollama_runtime_run_model local "$tmp/rt.env" '-x' </dev/null >/dev/null 2>&1; rc=$?; sleep 1; echo "$rc:$(cat "$tmp/ollama.log")")"
+  : >"$tmp/ollama.log"
+  check "and a reference goes through them as one argument" "0:2 args: pull hf.co/org/model:Q4" "$(ollama_runtime_pull_model local "$tmp/rt.env" hf.co/org/model Q4 </dev/null >/dev/null 2>&1; echo "$?:$(cat "$tmp/ollama.log")")"
   : >"$tmp/ollama.log"
   check "a reference goes through as one argument, a digest too" "0:2 args: pull hf.co/org/model:Q4|2 args: pull name@sha256:abc" "$(ollama_pull_model hf.co/org/model Q4 >/dev/null 2>&1; rc=$?; ollama_pull_model name@sha256:abc >/dev/null 2>&1; echo "$rc:$(tr '\n' '|' <"$tmp/ollama.log" | sed 's/|$//')")"
   model="$(FAKE_DIALOG_RC=1 ollama_dialog_select_model "$tmp/index.json" </dev/null 2>/dev/null)"; rc=$?

@@ -330,8 +330,22 @@ _ollama_ref_is_arg() {
 # reference, and what it is instead is not known.
 _ollama_ref_checked() {
   if _ollama_ref_is_arg "${1:-}"; then return 0; fi
-  print_error "Not a model reference (empty, starting with a dash or a colon, or with a space in it); nothing was run." >&2
+  print_error "Not a model reference (it has to start with a letter or a digit, and have no space or control character in it); nothing was run." >&2
   return 1
+}
+
+# Usage: _ollama_index_id <index file>; prints the index as one line that is
+# the same however the path was spelled: its directory as the system resolves
+# it, and the file name. "idx/models.json" named from two directories is two
+# indexes, and "./x.json", "x.json" and the full path are one. A line break in
+# the path becomes a space, so the answer stays one line.
+_ollama_index_id() {
+  local file="${1:-}" dir id nl=$'\n' cr=$'\r'
+  dir="$(dirname -- "$file")"
+  if dir="$(CDPATH='' cd -- "$dir" 2>/dev/null && pwd -P)"; then :; else dir="$(dirname -- "$file")"; fi
+  id="${dir%/}/$(basename -- "$file")"
+  id="${id//$nl/ }"
+  printf '%s' "${id//$cr/ }"
 }
 
 # List model names from JSON index
@@ -343,11 +357,22 @@ ollama_list_models() {
   fi
   # Only names that can be a model reference, as the menu offers them. An
   # entry that is not an object, or has no name, is passed over.
-  local names name
+  local names name out="" nl=$'\n'
   names="$(jq -r "$(_ollama_jq_models)"' | .[] | objects | .name | strings | select(plain)' "$json_file")" || return 1
   while IFS= read -r name; do
-    if _ollama_is_model_ref "$name"; then printf '%s\n' "$name"; fi
+    if _ollama_is_model_ref "$name"; then out="${out}${out:+$nl}${name}"; fi
   done <<<"$names"
+  [[ -n "$out" ]] || return 0
+  # A reader that has what it wants and leaves (`ollama_list_models x | head
+  # -n 1`) is not a failure of this function, also for a caller with pipefail.
+  # bash writes a line at a time, so the reader can be gone before the last
+  # one. Written in a subshell: SIGPIPE then ends the subshell and not the
+  # function, and a write that failed on a pipe or a socket is not reported.
+  # A write that fails anywhere else (a full disk) still is.
+  if (printf '%s\n' "$out") 2>/dev/null; then return 0; fi
+  if [[ -p /dev/stdout || -S /dev/stdout ]]; then return 0; fi
+  print_error "Could not write the model names" >&2
+  return 1
 }
 
 ollama_model_menu_cache_path() {
@@ -435,10 +460,12 @@ ollama_prepare_model_menu_cache() {
   }
 
   {
-    # The index this cache was made from. A cache path may be given by the
-    # caller (OLLAMA_MODEL_MENU_CACHE_FILE): the same path with another index
-    # is another menu. Not a model reference, so no reader takes it for a row.
-    printf '#index\t%s\n' "$json_file"
+    # The index this cache was made from (_ollama_index_id). A cache path may
+    # be given by the caller (OLLAMA_MODEL_MENU_CACHE_FILE): the same path
+    # with another index is another menu. The reader skips every line that
+    # starts with "#": the path after the tab can pass for a model reference
+    # ("dir/models.json" does), so the rule alone does not keep it out.
+    printf '#index\t%s\n' "$(_ollama_index_id "$json_file")"
     while IFS=$'\037' read -r name raw_sizes desc; do
       _ollama_is_model_ref "$name" || continue
       sizes=""
@@ -509,7 +536,7 @@ ollama_dialog_select_model() {
   # - a cache path the caller gave may have been filled from another index.
   local made_from=""
   if [[ -s "$cache_file" ]]; then IFS= read -r made_from <"$cache_file" || true; fi
-  if [[ "$made_from" != "#index"$'\t'"$json_file" ]] || [[ ! "$cache_file" -nt "$json_file" ]] \
+  if [[ "$made_from" != "#index"$'\t'"$(_ollama_index_id "$json_file")" ]] || [[ ! "$cache_file" -nt "$json_file" ]] \
       || grep -q "$(printf '\t\t')" "$cache_file" || ! ollama_model_menu_cache_is_fresh "$cache_file"; then
     cache_file="$(ollama_prepare_model_menu_cache "$json_file" "$cache_file")" || return 1
   fi
@@ -522,7 +549,9 @@ ollama_dialog_select_model() {
   shopt -s nocasematch
   while IFS=$'	' read -r slug model_name sizes desc; do
     # A cache is a file: a row written by an older version, or by hand, is
-    # held to the same rule as the index. The first line is not a row.
+    # held to the same rule as the index. A line that starts with "#" is not
+    # a row: the first one names the index.
+    [[ "$slug" != "#"* ]] || continue
     _ollama_is_model_ref "$model_name" || continue
     idx=$((idx + 1))
     tag=$(printf '%04d' "$idx")
@@ -596,7 +625,10 @@ ollama_dialog_select_size() {
   # Only what can be a tag (_ollama_is_model_tag): a size goes into a command
   # line and into .env. A jq that fails is an error, not "no sizes": it used
   # to answer "latest" for an index it could not read.
-  local sizes="" raw_sizes s
+  # An array: a string split by `for s in $sizes` was one item for a caller
+  # whose IFS has no space (IFS=$'\n\t').
+  local raw_sizes s
+  local -a sizes=()
   if ! raw_sizes="$(jq -r --arg m "$model" "$(_ollama_jq_models)"'
       | .[] | objects | select(.name == $m) | .sizes
       | if type == "array" then .[] else empty end | strings | select(plain)' "$json_file")"; then
@@ -604,9 +636,9 @@ ollama_dialog_select_size() {
     return 1
   fi
   while IFS= read -r s; do
-    if _ollama_is_model_tag "$s"; then sizes="${sizes}${sizes:+ }${s}"; fi
+    if _ollama_is_model_tag "$s"; then sizes+=("$s"); fi
   done <<<"$raw_sizes"
-  if [[ -z "$sizes" ]]; then
+  if [[ ${#sizes[@]} -eq 0 ]]; then
     print_warning "No sizes listed for $model; using 'latest'." >&2
     echo "latest"
     return 0
@@ -620,7 +652,7 @@ ollama_dialog_select_size() {
   local -a menu_items=()
   local -a dialog_args=(--menu "Select a size for: $model" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 10)
   local has_default=""
-  for s in $sizes; do
+  for s in "${sizes[@]}"; do
     menu_items+=("$s" "$s")
     if [[ -n "$current_size" && "$s" == "$current_size" ]]; then
       has_default=1
@@ -728,8 +760,13 @@ ollama_runtime_sync_env_url() {
   local base_url
 
   base_url="$(ollama_runtime_build_base_url "$env_file")"
+  # stdout is the address and nothing else: callers capture it. An address
+  # ollama_update_env will not write (a "$" or "&" in a password) is still the
+  # address for this run; it is only not saved.
   if [[ -n "$env_file" ]]; then
-    ollama_update_env "$env_file" ollama_url "$base_url"
+    if ! ollama_update_env "$env_file" ollama_url "$base_url"; then
+      print_warning "ollama_url was not saved to ${env_file}; the address is used for this run only." >&2
+    fi
   fi
   echo "$base_url"
 }
@@ -1241,7 +1278,19 @@ ollama_run_model() {
   nohup ollama run "$model_ref" >/dev/null 2>&1 &
 }
 
+# A key ollama_update_env writes: a letter or an underscore, then letters,
+# digits, underscores and dots. In the C locale, where [A-Za-z] has no accented
+# letters. A dot is kept because keys with one are written today. bash does not
+# take such a line as an assignment: load_env prints "command not found" for it
+# and loads the rest, and a caller running with `set -e` ends there.
+_ollama_env_key_ok() {
+  local LC_ALL=C
+  [[ "${1:-}" =~ ^[A-Za-z_][A-Za-z0-9_.]*$ ]]
+}
+
 # Update key=value in .env (create or replace line); portable sed/awk approach.
+# Its messages go to stderr: ollama_runtime_sync_env_url calls it and is
+# captured.
 #
 # The key is compared literally (a regex test found "a.b" in "aXb=" and then
 # the literal replace wrote nothing), values travel through ENVIRON (awk -v
@@ -1251,27 +1300,31 @@ ollama_run_model() {
 ollama_update_env() {
   local env_file="${1:-.env}" key="${2:-}" value="${3:-}"
   if [[ -z "$key" ]]; then
-    print_error "env key is required"
+    print_error "env key is required" >&2
     return 1
   fi
   case "$key$value" in
     *$'\n'*|*$'\r'*)
-      print_error "env key and value must not contain a newline or carriage return"
+      print_error "env key and value must not contain a newline or carriage return" >&2
       return 1
       ;;
   esac
   # The file is one that load_env sources. A line "key=value" runs what is in
   # the value when it holds a shell operator, a substitution or a second word
   # ("model=two words" runs `words`), and an unclosed quote stops the whole
-  # file from loading. Such a value is refused, not written. What only a glob
-  # or a backslash would change is still written as given, as before.
-  if ! [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_.]*$ ]]; then
-    print_error "env key is not a name: nothing was written"
+  # file from loading. A backslash at the end joins the next line to this
+  # one, and a comment line after it then runs. Such a value is refused, not
+  # written.
+  # Still written as given, as before, though load_env reads them changed: a
+  # backslash inside the value (a\b loads as ab) and a tilde at its start
+  # (~/x loads as the home directory's x).
+  if ! _ollama_env_key_ok "$key"; then
+    print_error "env key is not a name: nothing was written" >&2
     return 1
   fi
   case "$value" in
-    *[[:space:]\;\&\|\$\`\(\)\<\>\'\"]*)
-      print_error "the value for ${key} has a space, a quote or a shell operator in it; ${env_file} is sourced, so it was not written"
+    *[[:space:]\;\&\|\$\`\(\)\<\>\'\"]*|*\\)
+      print_error "the value for ${key} has a space, a quote or a shell operator in it, or ends in a backslash; ${env_file} is sourced, so it was not written" >&2
       return 1
       ;;
   esac
