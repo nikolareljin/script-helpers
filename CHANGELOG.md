@@ -42,6 +42,48 @@
 
 ### Fixed
 
+- **The model menu dropped every namespaced model.** `ollama_prepare_model_menu_cache` left out each
+  index entry whose name has a slash, so an index listing `hf.co/org/model` or `user/model` could
+  not offer them. They are offered now. The default index is unchanged by this: its generator reads
+  `ollama.com/library` only, which has no namespaced models (the module page said otherwise).
+- **The model menu, from reviews of that change.**
+  - An index that changed kept its old menu for 30 minutes: the cache was reused by age alone. It
+    is rebuilt whenever the index is newer, and says which index it was made from, by its
+    resolved path, so a cache path shared by two indexes no longer shows one the other's menu,
+    and one index spelled two ways (`x.json`, `./x.json`) keeps one. The index itself is left
+    untouched when sorting changes nothing; rewritten on every call, it was always the newer.
+  - A model with no sizes and a description showed the description as its sizes (`sizes: A
+    frontier model ...`; 26 entries of the library's index): the empty column was lost in reading.
+  - An index of the `{"models": [...]}` shape passed validation and then failed in the menu, the
+    size menu and `ollama_list_models`. All three read both shapes.
+  - An entry that is not an object, or has no name, ended the menu with a jq error. It is passed
+    over. The size menu answered `latest` for an index jq could not read; that is an error now.
+  - A name or a size from the index reaches a command line and the `.env` that
+    `ollama_install_model_flow` writes and `load_env` sources, and nothing checked either:
+    `x;touch file` as a name ran `touch` at the next `load_env`. Three things close that:
+    only what can be a model reference is offered, from the index and from a cache file alike
+    (the rule `lib/ollama_endpoint.sh` has, in the C locale, with a test that holds the two
+    together); `ollama_update_env` refuses a value with a space, a quote or a shell operator
+    in it, or a backslash at its end, and a key that is not a name; and `ollama_pull_model`,
+    `ollama_run_model` and the runtime pull, export and run functions hand `ollama` only a
+    reference that starts with a letter or a digit and has no space in it.
+  - What a caller can notice from that:
+    - `ollama_update_env` returns 1, with the reason on stderr, for such a value and for a key
+      with a dash or a leading digit; both keys were written before.
+    - `ollama_runtime_sync_env_url` still prints an address it could not save, and only the
+      address; a warning on stderr says it was not saved.
+    - `ollama_pull_model _x` is refused; it was handed to `ollama pull` before. Ollama takes
+      names that start with `_` or hold `..`; the menu and `ollama_list_models` leave them out.
+  - The current model was preselected only on an exact-case match. Case is ignored now, and of
+    names that differ only by case the one written the same way wins.
+  - A name that carries its tag (`hf.co/org/model:Q4_K_M`) got the chosen size appended as a
+    second tag. It is the whole reference: no size is asked for, and `latest` is recorded as
+    its size. `scripts/install_ollama_model.sh` printed such a name with the size as a second
+    tag in its last line.
+  - `ollama_install_model_flow` ended a caller under `set -u` that had no env file yet
+    (`current_model: unbound variable`).
+  - `scripts/local_test_bash32.sh` installed no `jq`, so every selector test was skipped under
+    bash 3.2 and the run still said it passed.
 - **`value=$(get_value ...)` returned the screen and showed nothing.** Its box was drawn on the
   captured stdout: measured with `dialog` 1.3, the caller's variable held 2,235 bytes of screen and
   the terminal stayed empty. It is drawn on the terminal now, through `dialog_capture`.
