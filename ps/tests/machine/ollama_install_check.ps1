@@ -52,7 +52,13 @@ New-Item -ItemType Directory -Path $work | Out-Null
 try {
     Write-Host "`n1. install the real release into an empty directory"
     $a = Join-Path $work 'a'
+    $head = Invoke-WebRequest -Uri $url -Method Head -UseBasicParsing
+    $mb = [math]::Round([double]($head.Headers['Content-Length'] | Select-Object -First 1) / 1e6)
+    Write-Host "   downloading $url ($mb MB); this takes a while, and PowerShell shows no progress"
+    $started = Get-Date
     $rc = ollama_install -Prefix $a
+    $unpacked = [math]::Round((Get-ChildItem $a -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1e6)
+    Write-Host "   took $([int]((Get-Date) - $started).TotalSeconds) s; $unpacked MB unpacked in $a"
     case_ 'install exits 0' 0 $rc
     case_ 'ollama.exe runs and reports the pinned version' $pinned (version_of (Join-Path $a 'ollama.exe'))
     case_ 'its libraries are in lib\ollama' $true ([bool](Get-ChildItem (Join-Path $a 'lib/ollama') -ErrorAction SilentlyContinue))

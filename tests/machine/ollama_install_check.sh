@@ -77,7 +77,16 @@ version_of() { ollama_installed_version "$1" || true; }
 
 echo
 echo "1. install the real release into an empty directory"
-rc="$(run "" --prefix "$work/a")"
+url="https://github.com/ollama/ollama/releases/download/v${pinned}/${asset}"
+size="$(curl -fsSIL "$url" | tr -d '\r' | awk 'tolower($1) == "content-length:" { n = $2 } END { if (n) printf "%.0f MB", n / 1000000 }')"
+echo "   downloading $url (${size:-size unknown}); the installer's own output follows"
+started="$(date +%s)"
+rc=0
+PATH="$CLEAN_PATH" "$CLEAN_PATH/bash" -c \
+  'source "$1/helpers.sh"; shlib_import logging ollama_install; shift; ollama_install "$@"' _ "$ROOT" --prefix "$work/a" 2>&1 \
+  | tee "$work/out" || true
+rc="$(if grep -q 'installed at' "$work/out"; then echo 0; else echo 1; fi)"
+echo "   took $(( $(date +%s) - started )) s; $(du -sh "$work/a" 2>/dev/null | cut -f1) unpacked in $work/a"
 case_ "install exits 0" "0" "$rc"
 case_ "bin/ollama runs and reports the pinned version" "$pinned" "$(version_of "$work/a/bin/ollama")"
 case_ "its libraries are in lib/ollama" "yes" "$([[ -n "$(ls -A "$work/a/lib/ollama" 2>/dev/null)" ]] && echo yes || echo no)"
