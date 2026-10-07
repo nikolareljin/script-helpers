@@ -54,5 +54,5 @@ Functions
 Dependencies
 ------------
 
-- `lsof`/`ss`/`netstat`/`fuser` (any subset available), optional `sudo` when allowed.
+- `lsof`/`ss`/`netstat`/`fuser` (any subset available), optional `sudo` when allowed. BusyBox `lsof` (Alpine) ignores its options and lists every open file, so it is skipped and `ss`/`netstat`/`fuser` answer instead.
 - Any POSIX awk: gawk, mawk (Debian/Ubuntu default) and BSD awk (macOS) all parse the `ss`/`netstat` output.

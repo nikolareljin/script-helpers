@@ -20,13 +20,24 @@
   shown and a port is asked for; without one it is an error naming the owner
   and the setting to change. `docs_site.sh serve` and `preview` use it.
 
+- **`service`: start, stop, restart, status, logs and readiness for a repository's own
+  services.** A new module, `lib/service.sh`. A repository sets `SVC_BACKEND` (`compose` or
+  `proc`) and plain `SVC_*` variables; `svc_start`, `svc_stop`, `svc_restart`, `svc_status`,
+  `svc_logs` and `svc_wait_ready` do the rest. Native processes run in their own process
+  group, so a stop also ends their children; pids and logs live in `.run/`. A taken port
+  refuses the start and names its owner, a stale pidfile is removed and reported, a pid
+  reused by another process is never signalled, and a readiness timeout prints the last 40
+  log lines. Exit codes: 0 ok, 1 failure, 2 usage.
+
 ### Fixed
 
 - **BusyBox `lsof` was read as a port's listener.** It ignores `-iTCP`,
   `-sTCP` and `-t` and lists every open file, so `port_in_use_by` named an
   unrelated process (PID 1) and `list_port_listener_pids` returned
   `PID<tab>path` lines for every process. Output without lsof's `COMMAND`
-  header is not read, and a PID is kept only when it is a bare number.
+  header is not read, a PID is kept only when it is a bare number, and BusyBox
+  `lsof` is not asked at all (`lsof --help` says BusyBox): `ss`, `netstat` or
+  `fuser` answer.
 
 ### Changed
 

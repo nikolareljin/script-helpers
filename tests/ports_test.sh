@@ -134,6 +134,22 @@ out="$(list_port_listener_pids 018765)"
 PATH="$saved_path"
 if [[ "$out" == "4242" ]]; then ok "a leading zero is the same port"; else error "leading zero port gave [$out]"; fi
 
+# BusyBox lsof ignores its options and lists every open file. Its output must
+# not be read as listeners, or kill-port would get every PID on the machine.
+cat >"$tmp/lsof" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "--help" ]]; then echo "BusyBox v1.37.0 multi-call binary." >&2; exit 1; fi
+printf '1\t/bin/busybox\t0\t/dev/null\n77\t/usr/bin/bash\t1\tpipe:[1]\n'
+EOF
+chmod +x "$tmp/lsof"
+bin="$tmp/bin-busybox-lsof"; make_bin "$bin" "$sys_awk"; ln -sf "$tmp/lsof" "$bin/lsof"; ln -sf "$tmp/ss" "$bin/ss"
+PATH="$bin"
+d="$(list_port_usage_details "$port")"
+p="$(list_port_listener_pids "$port")"
+PATH="$saved_path"
+if [[ "$d" == "python3 (PID 4242)" ]]; then ok "busybox lsof: skipped, ss names the owner"; else error "busybox lsof: details [$d]"; fi
+if [[ "$p" == "4242" ]]; then ok "busybox lsof: skipped, ss gives the pid"; else error "busybox lsof: pids [$p]"; fi
+
 if [[ $failures -eq 0 ]]; then
   note "all ports tests passed"
   exit 0
