@@ -116,6 +116,19 @@ rc=0; DOCS_SITE_BUILD_CMD="false" docs_site_check "$repo" >"$tmp/out" 2>&1 || rc
 check "a failing build command fails the check" "1" "$rc"
 unset DOCS_SITE_BUILD_CMD DOCS_SITE_OUT
 
+# --- clean removes only what it owns -----------------------------------------
+victim="$tmp/victim"; mkdir -p "$victim" "$repo/inside"; : >"$victim/keep"; : >"$repo/inside/x"
+rc=0; DOCS_SITE_BUILD_CMD=true DOCS_SITE_OUT="$victim" DOCS_VENV="$tmp/novenv" bash scripts/docs_site.sh clean --dir "$repo" >/dev/null 2>"$tmp/err" || rc=$?
+check "clean refuses an output directory outside the repository, and keeps it" "1:yes" "$rc:$([[ -f "$victim/keep" ]] && echo yes)"
+rc=0; DOCS_SITE_BUILD_CMD=true DOCS_SITE_OUT="inside/../.." DOCS_VENV="$tmp/novenv" bash scripts/docs_site.sh clean --dir "$repo" >/dev/null 2>&1 || rc=$?
+check "and one that climbs out with .., or is the repository itself" "1:yes" "$rc:$([[ -d "$repo" ]] && echo yes)"
+rc=0; DOCS_SITE_BUILD_CMD=true DOCS_SITE_OUT="inside" DOCS_VENV="$victim" bash scripts/docs_site.sh clean --dir "$repo" >/dev/null 2>&1 || rc=$?
+check "a --venv that is not a virtualenv is not removed" "1:yes" "$rc:$([[ -f "$victim/keep" ]] && echo yes)"
+check "while the output inside the repository was" "no" "$([[ -e "$repo/inside" ]] && echo yes || echo no)"
+mkdir -p "$repo/inside" "$tmp/venv"; : >"$tmp/venv/pyvenv.cfg"
+rc=0; DOCS_SITE_BUILD_CMD=true DOCS_SITE_OUT="inside" DOCS_VENV="$tmp/venv" bash scripts/docs_site.sh clean --dir "$repo" >/dev/null 2>&1 || rc=$?
+check "the output and a real virtualenv are removed" "0:no:no" "$rc:$([[ -e "$repo/inside" ]] && echo yes || echo no):$([[ -e "$tmp/venv" ]] && echo yes || echo no)"
+
 # --- port_choose -------------------------------------------------------------
 # A listener of our own, on a port the OS picked, stands for a taken port.
 port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"

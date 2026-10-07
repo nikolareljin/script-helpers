@@ -78,8 +78,25 @@ case "$mode" in
   verify)  docs_site_verify "$repo" ;;
   deps)    docs_site_toolchain "$repo" >/dev/null && log_info "docs_site: toolchain ready" ;;
   clean)
+    # Both paths come from settings (site_dir, DOCS_SITE_OUT, --venv), so
+    # neither is removed unless it is what it claims to be: the output inside
+    # the repository, and a virtualenv.
+    repo="$(cd "$repo" && pwd -P)"
     out="$(docs_site_out "$repo")"
-    rm -rf "$out" "${DOCS_VENV:-${XDG_CACHE_HOME:-$HOME/.cache}/nr-docs-venv/$(basename "$repo")}"
-    log_info "docs_site: removed ${out} and the virtualenv"
+    if [[ -e "$out" ]]; then
+      out_real="$(cd "$out" && pwd -P)"
+      case "$out_real" in
+        "$repo"/?*) rm -rf "$out_real"; log_info "docs_site: removed ${out_real}" ;;
+        *) log_error "docs_site: not removing ${out_real}: the site directory must be inside ${repo}"; exit 1 ;;
+      esac
+    fi
+    venv="${DOCS_VENV:-${XDG_CACHE_HOME:-$HOME/.cache}/nr-docs-venv/$(basename "$repo")}"
+    if [[ -e "$venv" ]]; then
+      if [[ -f "$venv/pyvenv.cfg" ]]; then
+        rm -rf "$venv"; log_info "docs_site: removed the virtualenv ${venv}"
+      else
+        log_error "docs_site: not removing ${venv}: it is not a virtualenv (no pyvenv.cfg)"; exit 1
+      fi
+    fi
     ;;
 esac
