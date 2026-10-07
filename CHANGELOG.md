@@ -1,5 +1,7 @@
 ## Unreleased
 
+## 2026-10-07 — v0.45.1
+
 ### Fixed
 
 - **`ollama_project_ensure_models` pulled into another machine after one failed listing.** With
