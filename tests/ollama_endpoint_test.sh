@@ -579,6 +579,8 @@ _ollama_ep_can_ask() { return 1; }
 reset
 check "ask with no terminal is a refusal, and nothing is pulled" "5:" "$(OLLAMA_PULL_MISSING=ask ensure small:3b):$(pulled)"
 said "it says why, and what would be downloaded" "$tmp/err" "no terminal to ask on" "small:3b" "GB to download"
+reset
+check "with a size unknown and the budget waived, no total is claimed" "5:0" "$(OLLAMA_PULL_MISSING=ask OLLAMA_IGNORE_BUDGET=1 ensure small:3b down:1b):$(grep -c 'to download' "$tmp/err")"
 _ollama_ep_can_ask() { return 0; }
 for answer in y YES " yes"; do
   reset

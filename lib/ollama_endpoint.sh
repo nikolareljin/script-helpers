@@ -727,7 +727,11 @@ ollama_endpoint_ensure_models() {
   # question, and the sizes are known for the listing.
   if [[ "$pull_mode" == "ask" ]]; then
     if ! _ollama_ep_can_ask; then
-      print_error "The Ollama at ${shown} lacks: ${missing//$'\n'/ } ($(_ollama_ep_gb "$pull_bytes") to download). OLLAMA_PULL_MISSING=ask and there is no terminal to ask on: run this again from a terminal, or pull it (ollama pull <model>). Nothing was pulled." >&2
+      # A total is only said when every size is known (OLLAMA_IGNORE_BUDGET
+      # lets an unknown one through), or it would understate the download.
+      local total=""
+      [[ -n "$unknown" ]] || total=" ($(_ollama_ep_gb "$pull_bytes") to download)"
+      print_error "The Ollama at ${shown} lacks: ${missing//$'\n'/ }${total}. OLLAMA_PULL_MISSING=ask and there is no terminal to ask on: run this again from a terminal, or pull it (ollama pull <model>). Nothing was pulled." >&2
       return 5
     fi
     if ! _ollama_ep_ask_pull "$shown" "${listing%$'\n'}"; then
