@@ -101,10 +101,18 @@ export CI_DEFAULT_OLLAMA_VERSION=0.40.0
 export CI_DEFAULT_OLLAMA_SHA256_LINUX_AMD64="$good_sha"
 export CI_DEFAULT_OLLAMA_SHA256_WINDOWS_AMD64="$win_sha"
 
+# The tools the installer needs, wherever this machine keeps them (Homebrew's
+# zstd on macOS is not in /usr/bin), without the directory they came from: an
+# ollama installed beside them must not be found.
+mkdir -p "$tmp/tools"
+for tool in zstd unzip curl shasum openssl; do
+  found="$(command -v "$tool" 2>/dev/null)" || continue
+  ln -s "$found" "$tmp/tools/$tool"
+done
 # Run with the fake uname first on PATH, and no real ollama on it.
 run() { # run [args...]; prints the exit code
   local rc=0
-  PATH="$tmp/fake-bin:$tmp/no-ollama:/usr/bin:/bin" ollama_install "$@" >"$tmp/out" 2>&1 || rc=$?
+  PATH="$tmp/fake-bin:$tmp/tools:/usr/bin:/bin" ollama_install "$@" >"$tmp/out" 2>&1 || rc=$?
   echo "$rc"
 }
 requests() { if [[ -f "$tmp/requests" ]]; then wc -l <"$tmp/requests" | tr -d ' '; else echo 0; fi; }
@@ -134,16 +142,16 @@ else
   mkdir -p "$tmp/winget-bin"
   printf '#!/bin/sh\necho "$@" >>"%s/winget-calls"\nexit "${FAKE_WINGET_RC:-0}"\n' "$tmp" >"$tmp/winget-bin/winget"; chmod +x "$tmp/winget-bin/winget"
   before="$(requests)"
-  rc=0; FAKE_OS=MINGW64_NT-10.0 LOCALAPPDATA="$tmp/appdata" PATH="$tmp/fake-bin:$tmp/winget-bin:/usr/bin:/bin" ollama_install >"$tmp/out" 2>&1 || rc=$?
+  rc=0; FAKE_OS=MINGW64_NT-10.0 LOCALAPPDATA="$tmp/appdata" PATH="$tmp/fake-bin:$tmp/winget-bin:$tmp/tools:/usr/bin:/bin" ollama_install >"$tmp/out" 2>&1 || rc=$?
   check "winget when it is there: Ollama's own package, nothing downloaded here" "0:1:$before" \
     "$rc:$(grep -c -- '--id Ollama.Ollama -e' "$tmp/winget-calls" 2>/dev/null):$(requests)"
-  rc=0; FAKE_WINGET_RC=1 FAKE_OS=MINGW64_NT-10.0 LOCALAPPDATA="$tmp/appdata" PATH="$tmp/fake-bin:$tmp/winget-bin:/usr/bin:/bin" ollama_install >"$tmp/out" 2>&1 || rc=$?
+  rc=0; FAKE_WINGET_RC=1 FAKE_OS=MINGW64_NT-10.0 LOCALAPPDATA="$tmp/appdata" PATH="$tmp/fake-bin:$tmp/winget-bin:$tmp/tools:/usr/bin:/bin" ollama_install >"$tmp/out" 2>&1 || rc=$?
   check "a failed winget falls back to the checked zip, per user" "0:yes:yes" \
     "$rc:$([[ -f "$tmp/appdata/Programs/Ollama/ollama.exe" ]] && echo yes || echo no):$([[ -f "$tmp/appdata/Programs/Ollama/lib/ollama/ggml-base.dll" ]] && echo yes || echo no)"
   check "(it asked for the Windows zip of the pinned version)" "1" "$(grep -c '^/v0.40.0/ollama-windows-amd64.zip$' "$tmp/requests")"
-  rc=0; FAKE_OS=MSYS_NT-10.0 PATH="$tmp/fake-bin:/usr/bin:/bin" ollama_install --prefix "$tmp/win2" >"$tmp/out" 2>&1 || rc=$?
+  rc=0; FAKE_OS=MSYS_NT-10.0 PATH="$tmp/fake-bin:$tmp/tools:/usr/bin:/bin" ollama_install --prefix "$tmp/win2" >"$tmp/out" 2>&1 || rc=$?
   check "without winget, or with --prefix: the zip into that prefix" "0:yes" "$rc:$([[ -f "$tmp/win2/ollama.exe" ]] && echo yes || echo no)"
-  rc=0; CI_DEFAULT_OLLAMA_SHA256_WINDOWS_AMD64="$good_sha" FAKE_OS=CYGWIN_NT-10.0 PATH="$tmp/fake-bin:/usr/bin:/bin" ollama_install --prefix "$tmp/win3" >"$tmp/out" 2>&1 || rc=$?
+  rc=0; CI_DEFAULT_OLLAMA_SHA256_WINDOWS_AMD64="$good_sha" FAKE_OS=CYGWIN_NT-10.0 PATH="$tmp/fake-bin:$tmp/tools:/usr/bin:/bin" ollama_install --prefix "$tmp/win3" >"$tmp/out" 2>&1 || rc=$?
   check "a Windows zip that does not match is not unpacked" "1:no" "$rc:$([[ -e "$tmp/win3/ollama.exe" ]] && echo yes || echo no)"
   check "an ARM Windows machine has its own pinned zip" "ollama-windows-arm64.zip:yes" \
     "$(FAKE_OS=MINGW64_NT-10.0 FAKE_ARCH=aarch64 PATH="$tmp/fake-bin:$PATH" ollama_install_asset):$([[ "$CI_DEFAULT_OLLAMA_SHA256_WINDOWS_ARM64" =~ ^[0-9a-f]{64}$ ]] && echo yes || echo no)"
@@ -152,13 +160,13 @@ else
   mkdir -p "$tmp/have"
   printf '#!/bin/sh\necho "ollama version is %s"\n' 0.40.0 >"$tmp/have/ollama"; chmod +x "$tmp/have/ollama"
   before="$(requests)"
-  rc=0; PATH="$tmp/fake-bin:$tmp/have:/usr/bin:/bin" ollama_install --prefix "$tmp/p7" >"$tmp/out" 2>&1 || rc=$?
+  rc=0; PATH="$tmp/fake-bin:$tmp/have:$tmp/tools:/usr/bin:/bin" ollama_install --prefix "$tmp/p7" >"$tmp/out" 2>&1 || rc=$?
   check "the pinned version on PATH: nothing to do, nothing downloaded" "0:$before:no" "$rc:$(requests):$([[ -e "$tmp/p7" ]] && echo yes || echo no)"
   printf '#!/bin/sh\necho "Warning: could not connect to a running Ollama instance"\necho "Warning: client version is 0.30.2"\n' >"$tmp/have/ollama"
-  rc=0; PATH="$tmp/fake-bin:$tmp/have:/usr/bin:/bin" ollama_install --prefix "$tmp/p8" >"$tmp/out" 2>&1 || rc=$?
+  rc=0; PATH="$tmp/fake-bin:$tmp/have:$tmp/tools:/usr/bin:/bin" ollama_install --prefix "$tmp/p8" >"$tmp/out" 2>&1 || rc=$?
   check "an older one (read while no server runs) is replaced" "0:yes" "$rc:$([[ -x "$tmp/p8/bin/ollama" ]] && echo yes || echo no)"
   printf '#!/bin/sh\necho "ollama version is 0.40.0"\n' >"$tmp/have/ollama"
-  rc=0; PATH="$tmp/fake-bin:$tmp/have:/usr/bin:/bin" ollama_install --prefix "$tmp/p9" --force >"$tmp/out" 2>&1 || rc=$?
+  rc=0; PATH="$tmp/fake-bin:$tmp/have:$tmp/tools:/usr/bin:/bin" ollama_install --prefix "$tmp/p9" --force >"$tmp/out" 2>&1 || rc=$?
   check "--force installs over the same version" "0:yes" "$rc:$([[ -x "$tmp/p9/bin/ollama" ]] && echo yes || echo no)"
 fi
 
