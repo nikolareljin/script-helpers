@@ -12,6 +12,13 @@
   alone, and an older one is upgraded (`brew upgrade`, `winget upgrade`, or the archive);
   replacing one says that a running Ollama keeps its version until restarted.
   `install_dependencies_ai_runner` calls it whether or not Ollama is there, so it upgrades too.
+- **Real-machine checks, and an entry script per feature.** `tests/machine/` (bash) and
+  `ps/tests/machine/` (PowerShell) hold checks that run the real thing on a real machine and
+  print PASS/FAIL per case; `make test` stays offline and does not run them. The first is
+  `ollama_install_check`: the pinned Ollama release, downloaded and installed into throwaway
+  directories (install, nothing to do, mismatch, damaged archive, upgrade of a running older
+  install, launcher prefix). `scripts/install_ollama.sh` and `ps/scripts/install_ollama.ps1`
+  run the installer from a checkout, with `--check` / `-Check` to see what would happen.
   `--prefix "$HOME/.local"` installs without root.
 - **`docs/local-models.md`: which models, and installing Ollama.** The library names no model:
   the project's models file decides, and a fleet that wants one list generates each project's

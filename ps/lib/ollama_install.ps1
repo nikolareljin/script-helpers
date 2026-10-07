@@ -41,9 +41,17 @@ function ollama_install_expected_sha256([string]$Asset) {
 }
 
 # ollama_installed_version: the version of the ollama on PATH, or $null.
-function ollama_installed_version {
-    if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) { return $null }
-    $out = (& ollama --version 2>&1 | Out-String)
+# `ollama --version` reports a running server's version first; the binary's own
+# is the "client version" line. It is asked with OLLAMA_HOST at a port nothing
+# listens on, and a "client version" line wins.
+function ollama_installed_version([string]$Binary = 'ollama') {
+    if (-not (Get-Command $Binary -ErrorAction SilentlyContinue)) { return $null }
+    $saved = $env:OLLAMA_HOST
+    try {
+        $env:OLLAMA_HOST = '127.0.0.1:9'
+        $out = (& $Binary --version 2>&1 | Out-String)
+    } finally { $env:OLLAMA_HOST = $saved }
+    if ($out -match 'client version is (\d+\.\d+\.\d+)') { return $Matches[1] }
     if ($out -match '(\d+)\.(\d+)\.(\d+)') { return $Matches[0] }
     return $null
 }

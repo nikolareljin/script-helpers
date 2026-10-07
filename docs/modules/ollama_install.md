@@ -35,6 +35,26 @@ platform has no checkable source.
 Usage
 -----
 
+From a checkout, without writing a script:
+
+```bash
+scripts/install_ollama.sh --check            # what is installed, what is pinned, what would happen
+scripts/install_ollama.sh                    # install or upgrade
+scripts/install_ollama.sh --prefix ~/tmp-ollama
+```
+
+```powershell
+.\ps\scripts\install_ollama.ps1 -Check
+.\ps\scripts\install_ollama.ps1 -Prefix $env:TEMP\ollama-test
+```
+
+To confirm it on a real machine (downloads the release, works only in a throwaway
+directory, prints PASS/FAIL per case): `bash tests/machine/ollama_install_check.sh`,
+or on Windows `pwsh -NoProfile -File ps/tests/machine/ollama_install_check.ps1`. See
+[tests/machine](https://github.com/nikolareljin/script-helpers/tree/main/tests/machine).
+
+From a script:
+
 ```bash
 source scripts/script-helpers/helpers.sh
 shlib_import logging ollama_install
@@ -80,8 +100,8 @@ Functions
   - Purpose: Print the file's SHA-256, with `shasum` or `openssl`.
   - Returns: 3 when neither is there.
 
-- ollama_installed_version
-  - Purpose: Print the version of the `ollama` on `PATH` (`0.40.0`). It is read from `ollama --version`, which also prints it as "client version" when no server runs.
+- ollama_installed_version [binary]
+  - Purpose: Print the version of that `ollama` binary, or of the one on `PATH` (`0.40.0`). `ollama --version` reports a running server's version first; the binary's own is read instead (asked with `OLLAMA_HOST` at a port nothing listens on, and its `client version` line wins).
   - Returns: 1 when there is no `ollama`, or its version cannot be read.
 
 Used by

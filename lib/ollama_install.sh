@@ -81,16 +81,25 @@ ollama_install_sha256() {
   fi
 }
 
-# Usage: ollama_installed_version; prints the version of the `ollama` on PATH
-# (0.40.0), or nothing and returns 1 when there is none.
+# Usage: ollama_installed_version [binary]; prints the version of that ollama
+# binary, or of the one on PATH (0.40.0). Prints nothing and returns 1 when
+# there is none.
+#
+# `ollama --version` asks a running server first and prints the SERVER's
+# version ("ollama version is 0.34.4"), with the binary's own only as "client
+# version is 0.40.0" when the two differ. So it is asked with OLLAMA_HOST at a
+# port nothing listens on, and a "client version" line wins over any other.
+# shellcheck disable=SC2120  # callers in other files pass a binary
 ollama_installed_version() {
-  local out
-  command -v ollama >/dev/null 2>&1 || return 1
-  out="$(ollama --version 2>/dev/null)" || true
-  # "ollama version is 0.40.0"; also "client version is ..." when no server runs.
-  out="$(printf '%s\n' "$out" | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)" || true
-  [[ -n "$out" ]] || return 1
-  printf '%s\n' "$out"
+  local bin="${1:-ollama}" out client
+  command -v "$bin" >/dev/null 2>&1 || return 1
+  out="$(OLLAMA_HOST=127.0.0.1:9 "$bin" --version 2>&1)" || true
+  client="$(printf '%s\n' "$out" | sed -n 's/.*client version is \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n 1)" || true
+  if [[ -z "$client" ]]; then
+    client="$(printf '%s\n' "$out" | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)" || true
+  fi
+  [[ -n "$client" ]] || return 1
+  printf '%s\n' "$client"
 }
 
 # Usage: _ollama_install_at_least <have> <want>; 0 when have >= want (X.Y.Z).

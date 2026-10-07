@@ -255,6 +255,16 @@ else
   check "--force installs over the same version" "0:yes" "$rc:$([[ -x "$tmp/p9/bin/ollama" ]] && echo yes || echo no)"
 fi
 
+note "which version is read"
+mkdir -p "$tmp/two"
+# As the real one: with a server running it prints the server's version first.
+printf '#!/bin/sh\nif [ "$OLLAMA_HOST" = 127.0.0.1:9 ]; then echo "Warning: could not connect to a running Ollama instance"; echo "Warning: client version is 0.40.0"; else echo "ollama version is 0.34.4"; echo "Warning: client version is 0.40.0"; fi\n' >"$tmp/two/ollama"
+chmod +x "$tmp/two/ollama"
+check "the binary's own version, not the running server's" "0.40.0" "$(PATH="$tmp/two:$PATH" ollama_installed_version)"
+check "or that of a binary named by path" "0.40.0" "$(ollama_installed_version "$tmp/two/ollama")"
+printf '#!/bin/sh\n[ "$OLLAMA_HOST" = 127.0.0.1:9 ] && echo "ollama version is 0.40.0" || echo "ollama version is 0.34.4"\n' >"$tmp/two/ollama"
+check "a server is not asked: OLLAMA_HOST points nowhere" "0.40.0" "$(ollama_installed_version "$tmp/two/ollama")"
+
 note "versions"
 at_least() { if _ollama_install_at_least "$1" "$2"; then echo yes; else echo no; fi; }
 check "equal, newer patch, newer minor by number not text, major" "yes yes yes yes" \
