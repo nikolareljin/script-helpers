@@ -195,6 +195,12 @@ if command -v curl >/dev/null 2>&1; then
   said "timeout prints the log tail" "$out" "not ready after 2s" "boot-45" "boot-6"
   if grep -qx 'boot-5' "$out"; then error "log tail is longer than 40 lines"; else ok "log tail is 40 lines"; fi
   svc_stop >/dev/null 2>&1
+  proc_setup "crash:echo crash-now; exit 1"
+  SVC_HEALTH_URL="http://127.0.0.1:9/health"; SVC_READY_TIMEOUT=60
+  t0=$SECONDS
+  svc_start >"$out" 2>&1; check "a crash during the readiness wait exits 1" 1 $?
+  said "the crash is reported with its log" "$out" "every process exited" "crash-now"
+  if (( SECONDS - t0 < 10 )); then ok "a crash does not wait out the timeout"; else error "a crash waited $((SECONDS - t0))s"; fi
 else
   note "SKIP health timeout: no curl"
 fi

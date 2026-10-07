@@ -27,7 +27,7 @@ Configuration
 | `SVC_COMPOSE_PROJECT` | compose | Project name, passed as `-p`. Optional. |
 | `SVC_PROCS` | proc | Array of `name:command`. Names: letters, digits, `_ . -`, no leading dot, unique. The command runs under `bash -c`, so quotes, `&&` and `&` work. |
 | `SVC_PORTS` | both | TCP ports the services listen on. A taken port refuses start. |
-| `SVC_HEALTH_URL` | both | URL that answers 2xx once ready. Unset: no readiness wait. |
+| `SVC_HEALTH_URL` | both | URL that answers with a status below 400 once ready (`curl -f`). Unset: no readiness wait. |
 | `SVC_URLS` | both | Array of `"Label url"`, printed as `Label: url` after a start. |
 | `SVC_STOP_MODE` | compose | `stop` keeps containers (`compose stop`). Default: `compose down`. |
 | `SVC_STOP_TIMEOUT` | both | Seconds between TERM and KILL. Default 10. |
@@ -71,6 +71,7 @@ Functions
 
 - svc_wait_ready
   - Purpose: poll `SVC_HEALTH_URL` once a second until it answers or `SVC_READY_TIMEOUT` runs out.
+  - proc: stops early, with the same log tail, when every process has exited.
   - Returns: 0 ready, or no health URL set; 1 on timeout, after printing the last 40 log lines (`compose logs --tail 40`, or the tail of each `.run/*.log`).
 
 Pidfiles

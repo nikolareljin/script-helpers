@@ -203,7 +203,7 @@ _svc_compose() {
   (cd "$(_svc_root)" && "${_SVC_COMPOSE[@]}" "$@")
 }
 
-# Internal: health URL answers 2xx/3xx?
+# Internal: does the health URL answer with a status below 400?
 _svc_healthy() {
   curl -fsS -o /dev/null --max-time 5 "$SVC_HEALTH_URL" >/dev/null 2>&1
 }
@@ -285,6 +285,19 @@ _svc_launch() {
   return 0
 }
 
+# Internal: is at least one SVC_PROCS process group alive? Read-only: a
+# stale pidfile is left for _svc_running to report.
+_svc_any_running() {
+  local root name pid
+  root="$(_svc_root)"
+  _svc_parse_procs >/dev/null 2>&1 || return 1
+  for name in "${_SVC_NAMES[@]}"; do
+    pid="$(head -n 1 "$root/.run/$name.pid" 2>/dev/null)"
+    _svc_is_uint "$pid" && [[ "$pid" -gt 1 ]] && _svc_group_alive "$pid" && return 0
+  done
+  return 1
+}
+
 # Usage: svc_wait_ready; poll SVC_HEALTH_URL until it answers or
 # SVC_READY_TIMEOUT runs out. On timeout prints the last 40 log lines, returns 1.
 svc_wait_ready() {
@@ -305,6 +318,12 @@ svc_wait_ready() {
       return 0
     fi
     (( SECONDS - start >= limit )) && break
+    # A process that crashed will not become ready; do not wait out the timeout.
+    if [[ "$SVC_BACKEND" == "proc" ]] && ! _svc_any_running; then
+      log_error "service: every process exited before $SVC_HEALTH_URL answered"
+      _svc_log_tail
+      return 1
+    fi
     sleep 1
   done
   log_error "service: not ready after ${limit}s: $SVC_HEALTH_URL"
