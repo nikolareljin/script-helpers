@@ -77,14 +77,24 @@ class H(http.server.SimpleHTTPRequestHandler):
     def log_message(self, fmt, *args):
         with open(log, "a") as f:
             f.write(self.path + "\n")
-s = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+class Server(http.server.ThreadingHTTPServer):
+    def server_bind(self):
+        # HTTPServer looks up this machine's host name here (socket.getfqdn). On
+        # a macOS CI runner that took longer than the test waited. The name is
+        # not used, so only bind and store the address.
+        import socketserver
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[0], self.server_address[1]
+s = Server(("127.0.0.1", 0), H)
 with open(os.path.join(root, "..", "port"), "w") as f:
     f.write(str(s.server_address[1]))
 s.serve_forever()
 PY
 python3 "$tmp/server.py" "$tmp/www" "$tmp/requests" &
 server_pid=$!
-for _ in $(seq 1 50); do [[ -s "$tmp/port" ]] && break; sleep 0.1; done
+# Up to 30 seconds: python can be slow to start on a busy runner.
+for _ in $(seq 1 150); do [[ -s "$tmp/port" ]] && break; sleep 0.2; done
+[[ -s "$tmp/port" ]] || { note "[ERROR] the stand-in release server did not start"; exit 1; }
 OLLAMA_RELEASE_BASE_URL="http://127.0.0.1:$(cat "$tmp/port")"
 export OLLAMA_RELEASE_BASE_URL
 export CI_DEFAULT_OLLAMA_VERSION=0.40.0
