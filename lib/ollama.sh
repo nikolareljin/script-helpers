@@ -129,32 +129,13 @@ PY
   return 1
 }
 
-# Install Ollama CLI for supported OSes.
+# Install the Ollama CLI: the pinned release, checked against its SHA-256
+# (ollama_install in lib/ollama_install.sh; Homebrew on macOS). Returns what
+# ollama_install returns, 1 for any failure here.
 ollama_install_cli() {
-  local os; os=$(get_os)
-  case "$os" in
-    linux)
-      print_info "Installing Ollama CLI on Linux..."
-      curl -fsSL https://ollama.com/install.sh | sh
-      ;;
-    mac)
-      print_info "Installing Ollama CLI on macOS..."
-      if command -v brew >/dev/null 2>&1; then
-        brew install ollama/tap/ollama
-      else
-        print_error "Homebrew not found; install Homebrew or Ollama manually."
-        return 1
-      fi
-      ;;
-    windows)
-      print_error "Ollama installation is not supported in this shell on Windows."
-      return 1
-      ;;
-    *)
-      print_error "Unsupported OS for Ollama installation."
-      return 1
-      ;;
-  esac
+  # shellcheck source=/dev/null
+  source "$(dirname "${BASH_SOURCE[0]}")/ollama_install.sh"
+  ollama_install "$@" || return 1
 }
 
 # Ensure repo with models index exists and is up to date; generate JSON index.

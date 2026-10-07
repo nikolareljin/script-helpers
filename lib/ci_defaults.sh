@@ -66,6 +66,19 @@ CI_DEFAULT_FOXGUARD_SHA256_MACOS_X86_64="${CI_DEFAULT_FOXGUARD_SHA256_MACOS_X86_
 CI_DEFAULT_FOXGUARD_SHA256_MACOS_AARCH64="${CI_DEFAULT_FOXGUARD_SHA256_MACOS_AARCH64:-aa47b956f31bfbc87e0f43cd48e01f3bc73229192ffff0113ff094e5b3fd7d12}"
 CI_DEFAULT_FOXGUARD_SHA256_WINDOWS_X86_64="${CI_DEFAULT_FOXGUARD_SHA256_WINDOWS_X86_64:-6ff15185c968da849845afa321f23f14de142d45efd568a9513d2600eec281c2}"
 
+# -- Ollama (lib/ollama_install.sh) --
+# The release archive ollama_install downloads, and the SHA-256 of each, copied
+# from the release's sha256sum.txt when the version was pinned
+# (https://github.com/ollama/ollama/releases/tag/v0.40.0). An archive that does
+# not match is refused and nothing is unpacked. Bump the version and every
+# checksum together.
+CI_DEFAULT_OLLAMA_VERSION="${CI_DEFAULT_OLLAMA_VERSION:-0.40.0}"
+CI_DEFAULT_OLLAMA_SHA256_LINUX_AMD64="${CI_DEFAULT_OLLAMA_SHA256_LINUX_AMD64:-c94aa4156b3d13e64ebc2efe5ea53f015384c882be776e6695cfb37fb180d5ad}"
+CI_DEFAULT_OLLAMA_SHA256_LINUX_ARM64="${CI_DEFAULT_OLLAMA_SHA256_LINUX_ARM64:-4d27cb1d8f46176a3c0ce10aea2a16e4ad73dfe1599f2ed13468f29e5b8aba0d}"
+CI_DEFAULT_OLLAMA_SHA256_DARWIN="${CI_DEFAULT_OLLAMA_SHA256_DARWIN:-b490b4925a95c5f3dfcd889e566cf3dcd727848d59057fb00b03f1d6630326dc}"
+CI_DEFAULT_OLLAMA_SHA256_WINDOWS_AMD64="${CI_DEFAULT_OLLAMA_SHA256_WINDOWS_AMD64:-3623e256762ca89bd6fa99b0cc4106401919ce9df926411673e632e3ea287bb5}"
+CI_DEFAULT_OLLAMA_SHA256_WINDOWS_ARM64="${CI_DEFAULT_OLLAMA_SHA256_WINDOWS_ARM64:-18eec8eeb6a1193b998b09c9aed2668b1b360663edf31ccf061c07a09f7bcb25}"
+
 # -- Wrangler (Cloudflare deploys) --
 # Not an image: this is the version `lib/cloudflare.sh` hands to `npx` when a
 # project has no wrangler of its own. A project with a lockfile gets the version
