@@ -29,7 +29,7 @@ $script:downloads = 0
 function Invoke-WebRequest { param($Uri, $OutFile, [switch]$UseBasicParsing, $ErrorAction) $script:downloads++; $script:lastUri = $Uri; Copy-Item $fixture $OutFile }
 $script:wingetCalls = 0
 $script:wingetRc = 0
-function winget { $script:wingetCalls++; $global:LASTEXITCODE = $script:wingetRc }
+function winget { $script:wingetCalls++; $script:wingetVerb = $args[0]; $global:LASTEXITCODE = $script:wingetRc }
 function ollama_installed_version { return $script:installed }
 
 try {
@@ -66,6 +66,9 @@ try {
     check 'the pinned version installed: nothing to do' "0:$before" "$(ollama_install -Prefix (Join-Path $tmp 'p6')):$($script:downloads)"
     $script:installed = '0.30.2'
     check 'an older one is replaced' '0' "$(ollama_install -Prefix (Join-Path $tmp 'p7'))"
+    $script:wingetRc = 0
+    $rc = ollama_install
+    check 'an older one with winget there: winget upgrade' '0:upgrade' "${rc}:$($script:wingetVerb)"
     check 'versions compare as numbers' 'True False' "$(_ollama_install_at_least '0.100.0' '0.40.0') $(_ollama_install_at_least '0.9.0' '0.40.0')"
 } finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue

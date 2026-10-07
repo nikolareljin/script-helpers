@@ -109,14 +109,31 @@ _ollama_install_at_least() {
   return 0
 }
 
+# Usage: _ollama_install_report_after <pinned>; after Homebrew or winget, says
+# which version is on PATH now. Their catalogs may be behind the pin; that is
+# said, not an error.
+_ollama_install_report_after() {
+  local now
+  if now="$(ollama_installed_version)"; then
+    if _ollama_install_at_least "$now" "${1:-0.0.0}"; then
+      log_info "Ollama $now is installed."
+    else
+      log_warn "Ollama $now is installed; the pinned version is ${1:-}. The package manager has nothing newer yet."
+    fi
+  fi
+  return 0
+}
+
 # Usage: ollama_install [--prefix DIR] [--force]
 # Installs the pinned Ollama (CI_DEFAULT_OLLAMA_VERSION) unless one at that
-# version or newer is on PATH already (--force installs anyway).
+# version or newer is on PATH already (--force installs anyway). An older one
+# is upgraded: Homebrew and winget upgrade theirs, the archive replaces it.
 #   --prefix DIR  where bin/ollama goes. Default /usr/local, which needs root:
 #                 the unpack runs through sudo when this shell is not root. A
 #                 prefix under the home directory needs no root; its bin must
 #                 be on PATH.
-# On macOS with Homebrew: `brew install ollama`, and --prefix is not used.
+# On macOS with Homebrew, and no --prefix: `brew install ollama`, or `brew
+# upgrade ollama` for Homebrew's own older one. A --prefix means the archive.
 # Env: OLLAMA_RELEASE_BASE_URL (default
 #   https://github.com/ollama/ollama/releases/download), for a mirror; the
 #   archive is still checked against the pinned SHA-256.
@@ -157,20 +174,34 @@ ollama_install() {
     MINGW*|MSYS*|CYGWIN*)
       [[ "$prefix_given" -eq 1 ]] || prefix="${LOCALAPPDATA:-$HOME/AppData/Local}/Programs/Ollama"
       if command -v winget >/dev/null 2>&1 && [[ "$prefix_given" -eq 0 ]]; then
-        log_info "Installing Ollama with winget."
-        if winget install --id Ollama.Ollama -e --silent --accept-package-agreements --accept-source-agreements; then
-          log_info "Ollama installed. It starts with Windows; or run: ollama serve."
+        # An older Ollama is upgraded: `winget install` stops at one that is
+        # there. When winget has nothing newer, the pinned zip goes to the same
+        # place Ollama's own installer uses.
+        local verb=install
+        [[ -z "$have" ]] || verb=upgrade
+        log_info "Ollama with winget ($verb)."
+        if winget "$verb" --id Ollama.Ollama -e --silent --accept-package-agreements --accept-source-agreements; then
+          _ollama_install_report_after "$version"
           return 0
         fi
-        log_warn "winget install failed; using the release zip."
+        log_warn "winget $verb did not succeed; using the release zip."
       fi
       ;;
   esac
 
-  if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
-    log_info "Installing Ollama with Homebrew."
-    brew install ollama || { log_error "ollama_install: brew install ollama failed"; return 1; }
-    log_info "Start it with: brew services start ollama (or: ollama serve)."
+  if [[ "$(uname -s)" == "Darwin" && "$prefix_given" -eq 0 ]] && command -v brew >/dev/null 2>&1; then
+    # `brew install` does nothing for a formula that is there: an older one is
+    # upgraded. An Ollama from elsewhere (the app) is not Homebrew's to upgrade;
+    # the formula is installed beside it.
+    if brew list --formula ollama >/dev/null 2>&1; then
+      log_info "Upgrading Ollama with Homebrew."
+      brew upgrade ollama || { log_error "ollama_install: brew upgrade ollama failed"; return 1; }
+    else
+      log_info "Installing Ollama with Homebrew."
+      brew install ollama || { log_error "ollama_install: brew install ollama failed"; return 1; }
+    fi
+    _ollama_install_report_after "$version"
+    log_info "Start it with: brew services start ollama (or: ollama serve). A running Ollama keeps its version until it is restarted."
     return 0
   fi
 
@@ -221,6 +252,11 @@ ollama_install() {
   fi
 
   [[ "$asset" == *.zip ]] || $sudo mkdir -p "$prefix/bin" || { rm -rf "$tmpdir"; return 1; }
+  # An upgrade must not leave the old version's libraries beside the new ones:
+  # Ollama loads what is in that directory. Only that directory is removed.
+  if [[ -d "$prefix/lib/ollama" ]]; then
+    $sudo rm -rf "$prefix/lib/ollama" || { rm -rf "$tmpdir"; log_error "ollama_install: could not remove the old $prefix/lib/ollama"; return 1; }
+  fi
   case "$asset" in
     *.tar.zst)
       # bin/ollama and lib/ollama/, as the release lays them out.

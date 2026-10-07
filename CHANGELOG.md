@@ -9,7 +9,9 @@
   download page and downloads nothing. On Windows, winget, else the release zip, checked
   the same way and unpacked per user (no setup program, no elevation), from Git Bash or from
   PowerShell (`ps/lib/ollama_install.ps1`). An Ollama at the pinned version or newer is left
-  alone; replacing an older one says that a running Ollama keeps its version until restarted.
+  alone, and an older one is upgraded (`brew upgrade`, `winget upgrade`, or the archive);
+  replacing one says that a running Ollama keeps its version until restarted.
+  `install_dependencies_ai_runner` calls it whether or not Ollama is there, so it upgrades too.
   `--prefix "$HOME/.local"` installs without root.
 - **`docs/local-models.md`: which models, and installing Ollama.** The library names no model:
   the project's models file decides, and a fleet that wants one list generates each project's

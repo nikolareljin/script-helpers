@@ -64,10 +64,10 @@ unpacked; on macOS it uses Homebrew. On Windows it uses winget, else the
 official release zip, checked the same way and unpacked for the user without
 running a setup program; from PowerShell the same is
 `ps/lib/ollama_install.ps1`. Elsewhere it names the download page and
-downloads nothing. An Ollama already there at the pinned version or newer
-is left alone. Ollama's one-line installer (`curl ... install.sh | sh`) is not
-used: it runs whatever script the server returns, as root, with nothing to
-check it against. Full reference: [ollama_install](modules/ollama_install.md).
+downloads nothing. An Ollama at the pinned version or newer is left alone; an
+older one is upgraded (`brew upgrade`, `winget upgrade`, or the archive). Ollama's
+one-line installer (`curl ... install.sh | sh`) is not used: it runs whatever
+script the server returns, as root, with nothing to check it against. Full reference: [ollama_install](modules/ollama_install.md).
 
 It installs the program. Starting it (`ollama serve`), or running it as a
 service, is up to the machine: the Linux page of the Ollama documentation has

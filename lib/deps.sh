@@ -43,12 +43,11 @@ install_dependencies_ai_runner() {
 
   # Ollama: the pinned release, checked against its SHA-256 (lib/ollama_install.sh),
   # not the one-line installer, which runs whatever script the server returns.
-  if ! command -v ollama >/dev/null 2>&1; then
-    print_info "Ollama is not installed. Installing..."
-    # shellcheck source=/dev/null
-    source "$(dirname "${BASH_SOURCE[0]}")/ollama_install.sh"
-    ollama_install || return 1
-  fi
+  # Called whether or not one is there: an older Ollama is upgraded, a current
+  # one is left alone.
+  # shellcheck source=/dev/null
+  source "$(dirname "${BASH_SOURCE[0]}")/ollama_install.sh"
+  ollama_install || return 1
 
   # Git
   if ! command -v git >/dev/null 2>&1; then

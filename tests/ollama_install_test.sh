@@ -193,6 +193,36 @@ else
     check "a prefix with shell code in it is refused before anything is downloaded" "3:no" "$rc:$([[ -e pwned || -e "$tmp/pwned" ]] && echo yes || echo no)"
   done
 
+  note "an older Ollama is upgraded by the package manager that has it"
+  mkdir -p "$tmp/old" "$tmp/brew-bin"
+  printf '#!/bin/sh\necho "ollama version is 0.30.2"\n' >"$tmp/old/ollama"; chmod +x "$tmp/old/ollama"
+  printf '#!/bin/sh\necho "$*" >>"%s/brew-calls"\n[ "$1" = list ] && exit "${FAKE_BREW_HAS:-0}"\nexit 0\n' "$tmp" >"$tmp/brew-bin/brew"; chmod +x "$tmp/brew-bin/brew"
+  : >"$tmp/brew-calls"
+  rc=0; FAKE_OS=Darwin PATH="$tmp/fake-bin:$tmp/brew-bin:$tmp/old:$tmp/tools:/usr/bin:/bin" ollama_install >"$tmp/out" 2>&1 || rc=$?
+  check "Homebrew's own older Ollama: brew upgrade" "0:1:0" "$rc:$(grep -c '^upgrade ollama$' "$tmp/brew-calls"):$(grep -c '^install ollama$' "$tmp/brew-calls")"
+  check "and it says the package manager has nothing newer than the pin, when that is so" "1" "$(grep -c 'pinned version is 0.40.0' "$tmp/out")"
+  : >"$tmp/brew-calls"
+  rc=0; FAKE_BREW_HAS=1 FAKE_OS=Darwin PATH="$tmp/fake-bin:$tmp/brew-bin:$tmp/old:$tmp/tools:/usr/bin:/bin" ollama_install >"$tmp/out" 2>&1 || rc=$?
+  check "an older Ollama that is not Homebrew's: the formula is installed" "0:1:0" "$rc:$(grep -c '^install ollama$' "$tmp/brew-calls"):$(grep -c '^upgrade ollama$' "$tmp/brew-calls")"
+  : >"$tmp/winget-calls"
+  rc=0; FAKE_OS=MINGW64_NT-10.0 LOCALAPPDATA="$tmp/appdata2" PATH="$tmp/fake-bin:$tmp/winget-bin:$tmp/old:$tmp/tools:/usr/bin:/bin" ollama_install >"$tmp/out" 2>&1 || rc=$?
+  check "an older Ollama on Windows: winget upgrade" "0:1:0" "$rc:$(grep -c '^upgrade --id Ollama.Ollama' "$tmp/winget-calls"):$(grep -c '^install ' "$tmp/winget-calls")"
+  : >"$tmp/winget-calls"
+  rc=0; FAKE_WINGET_RC=1 FAKE_OS=MINGW64_NT-10.0 LOCALAPPDATA="$tmp/appdata3" PATH="$tmp/fake-bin:$tmp/winget-bin:$tmp/old:$tmp/tools:/usr/bin:/bin" ollama_install >"$tmp/out" 2>&1 || rc=$?
+  check "nothing newer in winget: the pinned zip replaces it where Ollama installs itself" "0:yes" "$rc:$([[ -f "$tmp/appdata3/Programs/Ollama/ollama.exe" ]] && echo yes || echo no)"
+  check "install_dependencies_ai_runner calls the installer whether or not Ollama is there" "0" "$(grep -c 'if ! command -v ollama' "$ROOT/lib/deps.sh")"
+
+  note "an upgrade leaves nothing of the old version's libraries"
+  mkdir -p "$tmp/up/lib/ollama"; : >"$tmp/up/lib/ollama/libggml-old.so"
+  rc=0; PATH="$tmp/fake-bin:$tmp/tools:/usr/bin:/bin" ollama_install --prefix "$tmp/up" >"$tmp/out" 2>&1 || rc=$?
+  check "Linux archive: the old lib/ollama is gone, the new one is there" "0:no:yes" "$rc:$([[ -e "$tmp/up/lib/ollama/libggml-old.so" ]] && echo yes || echo no):$([[ -f "$tmp/up/lib/ollama/libggml.so" ]] && echo yes || echo no)"
+  mkdir -p "$tmp/upw/lib/ollama"; : >"$tmp/upw/lib/ollama/ggml-old.dll"; : >"$tmp/upw/app.exe"
+  rc=0; FAKE_OS=MINGW64_NT-10.0 PATH="$tmp/fake-bin:$tmp/tools:/usr/bin:/bin" ollama_install --prefix "$tmp/upw" >"$tmp/out" 2>&1 || rc=$?
+  check "Windows zip: the same, and nothing else in the directory is touched" "0:no:yes" "$rc:$([[ -e "$tmp/upw/lib/ollama/ggml-old.dll" ]] && echo yes || echo no):$([[ -e "$tmp/upw/app.exe" ]] && echo yes || echo no)"
+  : >"$tmp/brew-calls"
+  rc=0; FAKE_OS=Darwin PATH="$tmp/fake-bin:$tmp/brew-bin:$tmp/tools:/usr/bin:/bin" ollama_install --prefix "$tmp/mac2" >"$tmp/out" 2>&1 || rc=$?
+  check "macOS: a --prefix means the archive, not Homebrew" "0:0:yes" "$rc:$(grep -c . "$tmp/brew-calls"):$([[ -x "$tmp/mac2/bin/ollama" ]] && echo yes || echo no)"
+
   note "what is installed already"
   mkdir -p "$tmp/have"
   printf '#!/bin/sh\necho "ollama version is %s"\n' 0.40.0 >"$tmp/have/ollama"; chmod +x "$tmp/have/ollama"

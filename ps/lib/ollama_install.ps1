@@ -67,13 +67,22 @@ function ollama_install {
     }
 
     if (-not $Prefix -and (Get-Command winget -ErrorAction SilentlyContinue)) {
-        log_info 'Installing Ollama with winget.'
-        & winget install --id Ollama.Ollama -e --silent --accept-package-agreements --accept-source-agreements
+        # An older Ollama is upgraded: `winget install` stops at one that is there.
+        # When winget has nothing newer, the pinned zip goes to the same place
+        # Ollama's own installer uses.
+        $verb = if ($have) { 'upgrade' } else { 'install' }
+        log_info "Ollama with winget ($verb)."
+        & winget $verb --id Ollama.Ollama -e --silent --accept-package-agreements --accept-source-agreements
         if ($LASTEXITCODE -eq 0) {
-            log_info 'Ollama installed. It starts with Windows; or run: ollama serve.'
+            $now = ollama_installed_version
+            if ($now -and -not (_ollama_install_at_least $now $version)) {
+                log_warn "Ollama $now is installed; the pinned version is $version. winget has nothing newer yet."
+            } else {
+                log_info 'Ollama installed. It starts with Windows; or run: ollama serve.'
+            }
             return 0
         }
-        log_warn "winget install failed (exit $LASTEXITCODE); using the release zip."
+        log_warn "winget $verb did not succeed (exit $LASTEXITCODE); using the release zip."
     }
 
     $asset = ollama_install_asset
@@ -111,6 +120,10 @@ function ollama_install {
         }
         try {
             New-Item -ItemType Directory -Path $Prefix -Force | Out-Null
+            # An upgrade must not leave the old version's libraries beside the
+            # new ones. Only that directory is removed.
+            $oldLib = Join-Path (Join-Path $Prefix 'lib') 'ollama'
+            if (Test-Path $oldLib) { Remove-Item -Recurse -Force $oldLib -ErrorAction Stop }
             Expand-Archive -Path $zip -DestinationPath $Prefix -Force -ErrorAction Stop
         } catch {
             # A running ollama.exe is locked: stop Ollama, then install again.
