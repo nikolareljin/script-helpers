@@ -1,5 +1,7 @@
 ## Unreleased
 
+## 2026-10-07 — v0.45.0
+
 ### Added
 
 - **`ollama_install`: Ollama itself, from a source that can be checked.** A new module,
