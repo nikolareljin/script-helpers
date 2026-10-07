@@ -214,7 +214,7 @@ a value that is none of the three is refused (exit 9).
 | `local` | an Ollama installed on this machine | lists, sizes, checks this machine's disk and memory, pulls what is missing |
 | `docker` | an Ollama in a container on this machine | the same, reached at the published port and measured against Docker's disk |
 | `remote` | an API on another machine: an Ollama server, or a hosted API | measures nothing here, pulls nothing unless asked, names what a remote Ollama lacks, and passes over what is not an Ollama |
-| not set | the address decides | `local` when the address is this machine, otherwise as `remote` |
+| not set | the address decides | `local` when the address is this machine, otherwise as `remote`, except that an address that does not answer is 4 (`remote` passes it over with 0) |
 
 By environment, typically:
 

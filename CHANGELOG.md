@@ -6,7 +6,8 @@
   no `OLLAMA_MODE` and an address that is not this machine, a listing that failed (an Ollama
   still starting) was not a stop: the check listed again and, when that answered, pulled the
   missing models into that machine, measured against this machine's disk. It now stops at
-  "No Ollama answers" (4), as for an Ollama on this machine. Found adopting 0.45.0 in a
+  "No Ollama answers" (4), as for an Ollama on this machine; `OLLAMA_MODE=remote` still passes
+  an address that does not answer over with 0. Found adopting 0.45.0 in a
   consumer whose own copy of the rules already had the fix.
 
 ## 2026-10-07 — v0.45.0
