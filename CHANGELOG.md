@@ -9,7 +9,8 @@
   download page and downloads nothing. On Windows, winget, else the release zip, checked
   the same way and unpacked per user (no setup program, no elevation), from Git Bash or from
   PowerShell (`ps/lib/ollama_install.ps1`). An Ollama at the pinned version or newer is left
-  alone. `--prefix "$HOME/.local"` installs without root.
+  alone; replacing an older one says that a running Ollama keeps its version until restarted.
+  `--prefix "$HOME/.local"` installs without root.
 - **`docs/local-models.md`: which models, and installing Ollama.** The library names no model:
   the project's models file decides, and a fleet that wants one list generates each project's
   file from it. The example file uses placeholder names instead of models that had since been

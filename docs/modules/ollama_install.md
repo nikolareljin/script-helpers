@@ -64,7 +64,8 @@ Functions
   - Purpose: Install the pinned Ollama unless one at that version or newer is on `PATH` already.
   - Args: `--prefix DIR`: where `bin/ollama` (and on Linux `lib/ollama/`) goes, or on Windows `ollama.exe` (default `%LOCALAPPDATA%\Programs\Ollama`; a prefix skips winget); default `/usr/local`, unpacked through `sudo` when the shell is not root and the directory is not writable. `--force`: install even when the pinned version or a newer one is there.
   - Env: `OLLAMA_RELEASE_BASE_URL` (default `https://github.com/ollama/ollama/releases/download`), for a mirror; the archive is still checked against the pinned SHA-256. `CI_DEFAULT_OLLAMA_*` override the pins.
-  - Behavior: On macOS with Homebrew, `brew install ollama`. Otherwise downloads `v<version>/<asset>`, checks its SHA-256, and unpacks it. A mismatch deletes the download and unpacks nothing.
+  - Behavior: On macOS with Homebrew, `brew install ollama`. Otherwise downloads `v<version>/<asset>`, checks its SHA-256, and unpacks it. A mismatch deletes the download and unpacks nothing. The Linux archive is `bin/ollama` and `lib/ollama/`. The macOS archive is flat (the binary, `llama-server` and the libraries it loads from beside itself): all of it goes to `lib/ollama/`, and `bin/ollama` is a two-line launcher that runs it from there. Root is needed when the nearest existing directory of the prefix is not writable.
+  - Note: replacing an Ollama that is running does not restart it; the message says so (`sudo systemctl restart ollama` for the Linux service).
   - Returns: 0, 1 or 3 as above.
 
 - ollama_install_asset

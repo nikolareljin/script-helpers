@@ -109,8 +109,14 @@ function ollama_install {
             log_error "ollama_install: $asset $version does not match the pinned SHA-256 (got $got, want $want); nothing was installed."
             return 1
         }
-        New-Item -ItemType Directory -Path $Prefix -Force | Out-Null
-        Expand-Archive -Path $zip -DestinationPath $Prefix -Force
+        try {
+            New-Item -ItemType Directory -Path $Prefix -Force | Out-Null
+            Expand-Archive -Path $zip -DestinationPath $Prefix -Force -ErrorAction Stop
+        } catch {
+            # A running ollama.exe is locked: stop Ollama, then install again.
+            log_error "ollama_install: unpacking into $Prefix failed: $($_.Exception.Message)"
+            return 1
+        }
         log_info "Ollama $version installed in $Prefix. Add it to PATH, then run: ollama serve."
         return 0
     } finally {

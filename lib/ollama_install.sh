@@ -172,7 +172,17 @@ ollama_install() {
   esac
   command -v curl >/dev/null 2>&1 || { log_error "ollama_install: curl is needed to download it"; return 3; }
 
-  if [[ "$asset" != *.zip && ! -w "$prefix" && ! -w "$(dirname "$prefix")" ]] && [[ "$(id -u)" -ne 0 ]]; then
+  # Whether the unpack needs root: the nearest directory of the prefix that
+  # exists decides, since everything below it is created.
+  local existing="$prefix" up
+  while [[ ! -d "$existing" ]]; do
+    up="${existing%/*}"
+    # No slash left, or none but the leading one: the current directory or /.
+    [[ "$up" != "$existing" ]] || up="."
+    [[ -n "$up" ]] || up="/"
+    existing="$up"
+  done
+  if [[ "$asset" != *.zip && ! -w "$existing" ]] && [[ "$(id -u)" -ne 0 ]]; then
     command -v sudo >/dev/null 2>&1 || { log_error "ollama_install: $prefix is not writable and sudo is not there; use --prefix \"\$HOME/.local\""; return 3; }
     sudo="sudo"
   fi
@@ -216,14 +226,24 @@ ollama_install() {
       return 0
       ;;
     *.tgz)
-      # One binary, `ollama`, at the top of the archive.
-      if ! tar -x -z -C "$tmpdir" -f "$tmpdir/$asset" ollama || ! $sudo install -m 0755 "$tmpdir/ollama" "$prefix/bin/ollama"; then
+      # The macOS archive is flat: ollama, llama-server and the libraries it
+      # loads from beside itself. All of it goes to lib/ollama; bin/ollama
+      # starts it from there, so it finds them.
+      mkdir -p "$tmpdir/unpacked" && tar -x -z -C "$tmpdir/unpacked" -f "$tmpdir/$asset" || {
+        rm -rf "$tmpdir"; log_error "ollama_install: unpacking $asset failed"; return 1; }
+      [[ -x "$tmpdir/unpacked/ollama" ]] || { rm -rf "$tmpdir"; log_error "ollama_install: $asset has no ollama at its top"; return 1; }
+      printf '#!/bin/sh\nexec "%s/lib/ollama/ollama" "$@"\n' "$prefix" >"$tmpdir/launcher"
+      if ! $sudo mkdir -p "$prefix/lib/ollama" || ! $sudo cp -R "$tmpdir/unpacked/." "$prefix/lib/ollama/" \
+        || ! $sudo install -m 0755 "$tmpdir/launcher" "$prefix/bin/ollama"; then
         rm -rf "$tmpdir"; log_error "ollama_install: unpacking into $prefix failed"; return 1
       fi
       ;;
   esac
   rm -rf "$tmpdir"
   log_info "Ollama $version installed at $prefix/bin/ollama."
+  if [[ -n "$have" ]]; then
+    log_info "Ollama $have was installed before: a running Ollama keeps that version until it is restarted (sudo systemctl restart ollama, where it is a service)."
+  fi
   log_info "Start it with: ollama serve. To run it as a service, see https://github.com/ollama/ollama/blob/main/docs/linux.md."
   return 0
 }

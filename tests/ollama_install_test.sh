@@ -66,6 +66,12 @@ with zipfile.ZipFile(out, "w") as z:
     z.write(src + "/lib/ollama/libggml.so", "lib/ollama/ggml-base.dll")
 PY
 win_sha="$(ollama_install_sha256 "$tmp/www/v0.40.0/ollama-windows-amd64.zip")"
+# The macOS archive, flat as the real one: the binary and what it loads beside it.
+mkdir -p "$tmp/mac"
+printf '#!/bin/sh\n[ -f "$(dirname "$0")/libggml-base.dylib" ] && echo "ollama version is 0.40.0" || echo "missing its libraries"\n' >"$tmp/mac/ollama"
+chmod +x "$tmp/mac/ollama"; : >"$tmp/mac/libggml-base.dylib"; : >"$tmp/mac/llama-server"
+tar -c -z -C "$tmp/mac" -f "$tmp/www/v0.40.0/ollama-darwin.tgz" ollama libggml-base.dylib llama-server
+mac_sha="$(ollama_install_sha256 "$tmp/www/v0.40.0/ollama-darwin.tgz")"
 
 # The stand-in release server; each request is logged.
 cat >"$tmp/server.py" <<'PY'
@@ -100,6 +106,7 @@ export OLLAMA_RELEASE_BASE_URL
 export CI_DEFAULT_OLLAMA_VERSION=0.40.0
 export CI_DEFAULT_OLLAMA_SHA256_LINUX_AMD64="$good_sha"
 export CI_DEFAULT_OLLAMA_SHA256_WINDOWS_AMD64="$win_sha"
+export CI_DEFAULT_OLLAMA_SHA256_DARWIN="$mac_sha"
 
 # The tools the installer needs, wherever this machine keeps them (Homebrew's
 # zstd on macOS is not in /usr/bin), without the directory they came from: an
@@ -132,6 +139,22 @@ else
     "$(FAKE_OS=FreeBSD run --prefix "$tmp/p4"):$(grep -c 'ollama.com/download' "$tmp/out"):$(requests)"
   check "an architecture with no archive too" "3" "$(FAKE_ARCH=riscv64 run --prefix "$tmp/p5")"
   check "an unknown option is refused" "3" "$(run --nope)"
+  # A prefix whose parent does not exist yet, under a directory this user cannot
+  # write: root is needed. With no sudo on PATH it says so and installs nothing.
+  mkdir -p "$tmp/ro"; chmod 0555 "$tmp/ro"
+  if [[ "$(id -u)" -ne 0 ]]; then
+    # Everything from /usr/bin and /bin but sudo.
+    mkdir -p "$tmp/no-sudo"
+    for f in /usr/bin/* /bin/*; do
+      name="${f##*/}"
+      [[ "$name" == sudo || -e "$tmp/no-sudo/$name" ]] || ln -s "$f" "$tmp/no-sudo/$name" 2>/dev/null || true
+    done
+    rc=0; PATH="$tmp/fake-bin:$tmp/tools:$tmp/no-sudo" "$BASH" -c 'source "$1/helpers.sh"; shlib_import logging ollama_install; ollama_install --prefix "$2"' _ "$ROOT" "$tmp/ro/a/b" >"$tmp/out" 2>&1 || rc=$?
+    check "an unwritable directory above a prefix still to be made needs root" "3:1" "$rc:$(grep -c 'not writable and sudo is not there' "$tmp/out")"
+    rc=0; PATH="$tmp/fake-bin:$tmp/tools:$tmp/no-sudo" "$BASH" -c 'source "$1/helpers.sh"; shlib_import logging ollama_install; ollama_install --prefix "$2"' _ "$ROOT" "$tmp/mine/new/deep" >"$tmp/out" 2>&1 || rc=$?
+    check "a writable directory above it needs no root, however deep the prefix" "0:yes" "$rc:$([[ -x "$tmp/mine/new/deep/bin/ollama" ]] && echo yes || echo no)"
+  fi
+  chmod 0755 "$tmp/ro"
   check "a failed download is 1, nothing unpacked" "1:no" \
     "$(OLLAMA_RELEASE_BASE_URL="http://127.0.0.1:1" run --prefix "$tmp/p6"):$([[ -e "$tmp/p6/bin/ollama" ]] && echo yes || echo no)"
 
@@ -155,6 +178,11 @@ else
   check "a Windows zip that does not match is not unpacked" "1:no" "$rc:$([[ -e "$tmp/win3/ollama.exe" ]] && echo yes || echo no)"
   check "an ARM Windows machine has its own pinned zip" "ollama-windows-arm64.zip:yes" \
     "$(FAKE_OS=MINGW64_NT-10.0 FAKE_ARCH=aarch64 PATH="$tmp/fake-bin:$PATH" ollama_install_asset):$([[ "$CI_DEFAULT_OLLAMA_SHA256_WINDOWS_ARM64" =~ ^[0-9a-f]{64}$ ]] && echo yes || echo no)"
+
+  note "macOS without Homebrew"
+  rc=0; FAKE_OS=Darwin FAKE_ARCH=arm64 PATH="$tmp/fake-bin:$tmp/tools:/usr/bin:/bin" ollama_install --prefix "$tmp/mac1" >"$tmp/out" 2>&1 || rc=$?
+  check "the whole archive is installed, and bin/ollama runs it beside its libraries" "0:yes:ollama version is 0.40.0" \
+    "$rc:$([[ -f "$tmp/mac1/lib/ollama/llama-server" ]] && echo yes || echo no):$("$tmp/mac1/bin/ollama" --version 2>&1)"
 
   note "what is installed already"
   mkdir -p "$tmp/have"
