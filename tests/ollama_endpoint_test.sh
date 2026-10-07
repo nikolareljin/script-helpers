@@ -572,6 +572,33 @@ done
 reset
 check "a value that is neither is read as off" "5:" "$(OLLAMA_PULL_MISSING=flase ensure small:3b):$(pulled)"
 said "and it is reported" "$tmp/err" "OLLAMA_PULL_MISSING is neither on" "flase"
+# ask: pull only after a yes on a terminal. The terminal is stood in for:
+# _ollama_ep_can_ask is redefined, and the answer comes on stdin.
+real_can_ask="$(declare -f _ollama_ep_can_ask)"
+_ollama_ep_can_ask() { return 1; }
+reset
+check "ask with no terminal is a refusal, and nothing is pulled" "5:" "$(OLLAMA_PULL_MISSING=ask ensure small:3b):$(pulled)"
+said "it says why, and what would be downloaded" "$tmp/err" "no terminal to ask on" "small:3b" "GB to download"
+_ollama_ep_can_ask() { return 0; }
+for answer in y YES " yes"; do
+  reset
+  check "ask, answered '$answer': pulled" "0:small:3b" "$(OLLAMA_PULL_MISSING=ask ensure small:3b <<<"$answer"):$(pulled)"
+done
+said "the question lists each missing model with its size" "$tmp/err" "lacks:" "small:3b  " "GB" "Pull now? [y/N]"
+for answer in n no "" maybe; do
+  reset
+  check "ask, answered '$answer': nothing pulled" "5:" "$(OLLAMA_PULL_MISSING=ask ensure small:3b <<<"$answer"):$(pulled)"
+done
+reset
+check "ask with stdin closed: no" "5:" "$(OLLAMA_PULL_MISSING=ask ensure small:3b </dev/null):$(pulled)"
+reset main:7b small:3b embed:latest
+check "ask with nothing missing asks nothing" "0:0" "$(OLLAMA_PULL_MISSING=ask ensure main:7b small:3b </dev/null):$(grep -c 'Pull now' "$tmp/err")"
+roomy; reset
+export OLLAMA_BUDGET_DISK_FREE_BYTES=$((11 * GB))
+check "ask does not ask about a download that does not fit" "1:0" "$(OLLAMA_PULL_MISSING=ask ensure main:7b small:3b embed <<<y):$(grep -c 'Pull now' "$tmp/err")"
+roomy; reset
+check "ASK in capitals is ask" "0:small:3b" "$(OLLAMA_PULL_MISSING=ASK ensure small:3b <<<y):$(pulled)"
+eval "$real_can_ask"
 # Back to an Ollama with nothing installed, for the cases that follow.
 roomy; reset
 check "a model the registry does not have stops the pull" "7" "$(ensure small:3b nosuch:1b)"
