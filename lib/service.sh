@@ -7,7 +7,9 @@
 #   SVC_COMPOSE_FILES    array of compose files (-f each)
 #   SVC_COMPOSE_PROJECT  compose project name (-p), optional
 #   SVC_PROCS            array of "name:command" (proc backend)
-#   SVC_PORTS            array of TCP ports the services listen on
+#   SVC_PORTS            array of TCP ports the services listen on, each "port"
+#                        or "NAME:port" where NAME is the setting that holds it
+#                        (a taken port then names the setting to change)
 #   SVC_HEALTH_URL       URL that answers 2xx once the stack is ready
 #   SVC_URLS             array of "Label url", printed after a start
 #   SVC_STOP_MODE        compose only: "stop" keeps containers (default: down)
@@ -94,12 +96,22 @@ _svc_parse_procs() {
   done
 }
 
+# Internal: the port of an SVC_PORTS entry ("8000" or "NAME:8000").
+_svc_port_of() { printf '%s\n' "${1##*:}"; }
+# Internal: the setting named by an entry, or nothing.
+_svc_port_var() { [[ "$1" == *:* ]] && printf '%s\n' "${1%%:*}"; return 0; }
+
 # Internal: validate SVC_PORTS. A bad entry is a usage error, not a free port.
 _svc_check_ports_config() {
-  local p
-  for p in ${SVC_PORTS[@]+"${SVC_PORTS[@]}"}; do
+  local e p v
+  for e in ${SVC_PORTS[@]+"${SVC_PORTS[@]}"}; do
+    p="$(_svc_port_of "$e")"; v="$(_svc_port_var "$e")"
     if ! _svc_is_uint "$p" || (( 10#$p < 1 || 10#$p > 65535 )); then
-      log_error "service: SVC_PORTS entry '$p' is not a port 1-65535"
+      log_error "service: SVC_PORTS entry '$e' is not a port 1-65535 (or NAME:port)"
+      return 2
+    fi
+    if [[ -n "$v" && ! "$v" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+      log_error "service: SVC_PORTS entry '$e': '$v' is not a variable name"
       return 2
     fi
   done
@@ -172,12 +184,19 @@ _svc_port_owner() {
   return 1
 }
 
-# Internal: refuse to start when a configured port is taken. Returns 1.
+# Internal: refuse to start when a configured port is taken, saying what to do
+# about it. Returns 1.
 _svc_ports_free() {
-  local p owner taken=0
-  for p in ${SVC_PORTS[@]+"${SVC_PORTS[@]}"}; do
-    if owner="$(_svc_port_owner "$((10#$p))")"; then
-      log_error "service: port $((10#$p)) is already in use by $owner"
+  local e p v owner taken=0
+  for e in ${SVC_PORTS[@]+"${SVC_PORTS[@]}"}; do
+    p="$((10#$(_svc_port_of "$e")))"; v="$(_svc_port_var "$e")"
+    if owner="$(_svc_port_owner "$p")"; then
+      log_error "service: port $p${v:+ ($v)} is already in use by $owner"
+      if [[ -n "$v" ]]; then
+        log_error "service: stop that process, or set $v to a free port in .env or the environment, then start again"
+      else
+        log_error "service: stop that process, or move the service to a free port (its configuration and SVC_PORTS), then start again"
+      fi
       taken=1
     fi
   done
@@ -343,6 +362,12 @@ svc_start() {
   done
   _svc_check_ports_config || return
   _svc_timeout SVC_READY_TIMEOUT 180 >/dev/null || return 2
+  # Checked before anything starts: found after the launch, it would leave
+  # every process running behind a failed start.
+  if [[ -n "${SVC_HEALTH_URL:-}" ]] && ! command -v curl >/dev/null 2>&1; then
+    log_error "service: curl is needed to check SVC_HEALTH_URL; install it, or unset SVC_HEALTH_URL"
+    return 1
+  fi
   if [[ "$SVC_BACKEND" == "compose" ]]; then
     _svc_compose_start "$build"
   else
@@ -492,11 +517,13 @@ svc_status() {
       fi
     done
   fi
-  for p in ${SVC_PORTS[@]+"${SVC_PORTS[@]}"}; do
-    if owner="$(_svc_port_owner "$((10#$p))")"; then
-      printf 'port %s: listening (%s)\n' "$((10#$p))" "$owner"
+  local e
+  for e in ${SVC_PORTS[@]+"${SVC_PORTS[@]}"}; do
+    p="$((10#$(_svc_port_of "$e")))"
+    if owner="$(_svc_port_owner "$p")"; then
+      printf 'port %s: listening (%s)\n' "$p" "$owner"
     else
-      printf 'port %s: not listening\n' "$((10#$p))"
+      printf 'port %s: not listening\n' "$p"
       ok=1
     fi
   done

@@ -224,10 +224,26 @@ time.sleep(300)' "$tmp/port" &
     note "SKIP owner name: no lsof/ss/netstat that sees it"
   fi
   check "nothing was started" no "$([[ -e "$SVC_ROOT/.run/web.pid" ]] && echo yes || echo no)"
+  said "and says what to do about it" "$out" "stop that process, or move the service to a free port"
+  SVC_PORTS=("WEB_PORT:$port")
+  svc_start >"$out" 2>&1; check "a taken NAME:port refuses start" 1 $?
+  said "naming the setting to change" "$out" "port $port (WEB_PORT) is already in use" "set WEB_PORT to a free port in .env or the environment"
+  SVC_PORTS=("WEB-PORT:$port")
+  svc_start >"$out" 2>&1; check "a NAME that is not a variable name is usage (2)" 2 $?
+  SVC_PORTS=("$port")
   kill "$listener_pid" 2>/dev/null; listener_pid=""
 else
   note "SKIP taken port: no python3"
 fi
+
+# --- no curl, with a health URL: refused before anything starts --------------
+proc_setup "web:sleep 300"; SVC_HEALTH_URL="http://127.0.0.1:1/health"
+mkdir -p "$tmp/nocurl"; for t in bash sh cat head mkdir rm sleep awk sed ps tr date mv perl setsid git dirname basename; do
+  w="$(command -v "$t" 2>/dev/null)" && ln -sf "$w" "$tmp/nocurl/$t"; done
+( PATH="$tmp/nocurl"; svc_start ) >"$out" 2>&1; check "no curl with SVC_HEALTH_URL refuses start" 1 $?
+said "saying what is needed" "$out" "curl is needed to check SVC_HEALTH_URL"
+check "and nothing was started" no "$([[ -e "$SVC_ROOT/.run/web.pid" ]] && echo yes || echo no)"
+SVC_HEALTH_URL=""
 
 # --- compose, with a stub docker --------------------------------------------
 mkdir -p "$tmp/bin"

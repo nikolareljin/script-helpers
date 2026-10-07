@@ -26,7 +26,7 @@ Configuration
 | `SVC_COMPOSE_FILES` | compose | Array of compose files, passed as `-f` each. |
 | `SVC_COMPOSE_PROJECT` | compose | Project name, passed as `-p`. Optional. |
 | `SVC_PROCS` | proc | Array of `name:command`. Names: letters, digits, `_ . -`, no leading dot, unique. The command runs under `bash -c`, so quotes, `&&` and `&` work. |
-| `SVC_PORTS` | both | TCP ports the services listen on. A taken port refuses start. |
+| `SVC_PORTS` | both | TCP ports the services listen on, each `8000` or `NAME:8000` (`NAME` is the setting that holds it, such as `BACKEND_PORT:8000`). A taken port refuses start, naming the owner and what to change: `NAME` in `.env` or the environment when it is given. |
 | `SVC_HEALTH_URL` | both | URL that answers with a status below 400 once ready (`curl -f`). Unset: no readiness wait. |
 | `SVC_URLS` | both | Array of `"Label url"`, printed as `Label: url` after a start. |
 | `SVC_STOP_MODE` | compose | `stop` keeps containers (`compose stop`). Default: `compose down`. |
@@ -48,7 +48,7 @@ Functions
   - Purpose: start the services, wait for `SVC_HEALTH_URL`, print `SVC_URLS`.
   - compose: `check_docker`, then `compose up -d [--build]` from `SVC_ROOT`. Ports are checked only when the stack is down (`compose ps -q` is empty).
   - proc: each process not already running is detached into its own session and process group, stdout and stderr appended to `.run/<name>.log`. One already running is reported and left alone; all running exits 0. Ports are checked only when none of the processes is running. Without a health URL, a process that exits within a second fails the start with its log tail.
-  - Returns: 0 started or already running; 1 port taken (the message names the owner), docker unavailable, not ready; 2 usage.
+  - Returns: 0 started or already running; 1 port taken (the message names the owner and the setting to change), docker unavailable, `curl` missing with `SVC_HEALTH_URL` set (checked before anything starts), not ready; 2 usage.
 
 - svc_stop
   - Purpose: stop the services.
