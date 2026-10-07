@@ -1,5 +1,7 @@
 ## Unreleased
 
+## 2026-10-06 — v0.45.0
+
 ### Added
 
 - **`docs/local-models.md`: messages, adoption and CI.** A table of every message the start

@@ -32,7 +32,7 @@ What goes into a repository
 ---------------------------
 
 1. **`script-helpers` as a submodule**, at a released tag. The functions below
-   exist from the release after 0.44.1.
+   exist from 0.45.0.
 
 2. **One models file**, by convention `ai-models.env` at the repository root,
    one `NAME=model` per line:
