@@ -1083,6 +1083,10 @@ ollama_project_ensure_models() (
         print_info "OLLAMA_MODE is remote and $(_ollama_ep_shown_url "$_oep_url") does not answer as an Ollama: its models are not checked from here." >&2
         exit 0
       fi
+      # Stop here (4). Asked again it might answer, and the pull that followed
+      # would go into another machine, measured against this one's disk.
+      print_error "No Ollama answers at $(_ollama_ep_shown_url "$_oep_url")." >&2
+      _oep_status=4
     else
       _oep_missing="$(ollama_models_missing "$_oep_models" "$_oep_present")"
       _oep_value="$(printf '%s' "${OLLAMA_PULL_MISSING:-}" | tr -d ' \t\r\n')" || true
@@ -1109,7 +1113,9 @@ ollama_project_ensure_models() (
     fi
   fi
 
-  ollama_endpoint_ensure_models "$_oep_url" "$_oep_dir" "${_oep_list[@]}" || _oep_status=$?
+  if [[ "$_oep_status" -eq 0 ]]; then
+    ollama_endpoint_ensure_models "$_oep_url" "$_oep_dir" "${_oep_list[@]}" || _oep_status=$?
+  fi
   if [[ "$_oep_status" -eq 4 && "$_oep_mode" == "auto" ]]; then
     # A name of one word that is not this machine is most often a compose
     # service: it resolves inside that network and nowhere else.
