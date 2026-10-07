@@ -70,6 +70,7 @@ Modules overview
 - traps — simple EXIT/INT/TERM traps with error reporting.
 - ollama — install CLI, prepare models index, select/pull/run models.
 - ollama_endpoint: which models a project needs, what an Ollama has, and a disk and memory check before anything is pulled.
+- ollama_install: Ollama itself, from the pinned release checked against its SHA-256 (Homebrew on macOS).
 - package_publish — Debian package builds and PPA upload helpers.
 - packaging — packaging metadata helpers and template formatting.
 - ci_defaults — centralized Docker image version defaults for CI helper scripts.

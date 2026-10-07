@@ -12,9 +12,8 @@ Functions
 ---------
 
 - ollama_install_cli
-  - Purpose: Install the Ollama CLI (Linux/macOS). Prints an error on unsupported platforms.
-  - Linux: `curl -fsSL https://ollama.com/install.sh | sh`
-  - macOS: `brew install ollama/tap/ollama`
+  - Purpose: Install the Ollama CLI. Calls `ollama_install` ([ollama_install](ollama_install.md)): the pinned release checked against its SHA-256 on Linux, Homebrew on macOS. Arguments are passed on (`--prefix`, `--force`).
+  - Returns: 0 when installed or already there; 1 otherwise, with the reason printed.
 
 - ollama_prepare_models_index [repo_dir=ollama-get-models] [repo_url=https://github.com/webfarmer/ollama-get-models.git]
   - Purpose: Ensure a repo containing the models index exists; update/clone; generate `code/ollama_models.json`.

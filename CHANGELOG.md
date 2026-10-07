@@ -2,6 +2,19 @@
 
 ### Added
 
+- **`ollama_install`: Ollama itself, from a source that can be checked.** A new module,
+  `lib/ollama_install.sh`. On Linux it downloads the official release archive of the version
+  pinned in `ci_defaults` (`CI_DEFAULT_OLLAMA_VERSION`, 0.40.0) and compares it with the pinned
+  SHA-256 before anything is unpacked; on macOS it uses Homebrew; elsewhere it names the
+  download page and downloads nothing. On Windows, winget, else the release zip, checked
+  the same way and unpacked per user (no setup program, no elevation), from Git Bash or from
+  PowerShell (`ps/lib/ollama_install.ps1`). An Ollama at the pinned version or newer is left
+  alone. `--prefix "$HOME/.local"` installs without root.
+- **`docs/local-models.md`: which models, and installing Ollama.** The library names no model:
+  the project's models file decides, and a fleet that wants one list generates each project's
+  file from it. The example file uses placeholder names instead of models that had since been
+  replaced. A section on installing Ollama, and a pointer to the dialog menu for choosing a
+  model by hand.
 - **`docs/local-models.md`: messages, adoption and CI.** A table of every message the start
   check prints with its exit code and what to do; the steps for a project that already has an
   Ollama address and model names in its code; how to run it in CI; that the models file holds
@@ -81,6 +94,12 @@
 
 ### Fixed
 
+- **Installing Ollama ran its installer straight from the network as root.**
+  `install_dependencies_ai_runner` (`lib/deps.sh`) and `ollama_install_cli` (`lib/ollama.sh`)
+  ran `curl -fsSL https://ollama.com/install.sh | sh`: whatever script the server returned,
+  unchecked. Both now call `ollama_install`. On macOS they used `brew install ollama/tap/ollama`,
+  a tap; it is now Homebrew's own `ollama` formula. A test fails when any library code pipes a
+  download into a shell.
 - **`ollama_project_ensure_models "" .env` checked nothing and returned 0.** With no models
   file and no `NAME` there is nothing to check, and a start that went on from 0 believed its
   models were there. It is now 9 with what to give. The guide said the names came from `.env`

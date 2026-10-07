@@ -13,7 +13,7 @@ Functions
 - install_dependencies_ai_runner
   - Purpose: Install a profile of tools typically used by the AI tooling consumers (R-643 and its runner).
   - Behavior:
-    - Ensures: `dialog`, `curl`, `jq`, `python3`, `pip3`, `nodejs` (>=20), `npm`/`npx`, `git`, and `ollama`.
+    - Ensures: `dialog`, `curl`, `jq`, `python3`, `pip3`, `nodejs` (>=20), `npm`/`npx`, `git`, and `ollama` (through `ollama_install`: the pinned release, checked against its SHA-256).
     - Installs clipboard utilities (`xclip` on Linux) as needed.
     - Uses platform-specific package managers and installers; may require `sudo`.
   - Notes: Prints messages for unsupported platforms or manual steps when necessary.

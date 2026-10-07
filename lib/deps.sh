@@ -41,14 +41,13 @@ install_dependencies_ai_runner() {
     fi
   done
 
-  # Ollama
+  # Ollama: the pinned release, checked against its SHA-256 (lib/ollama_install.sh),
+  # not the one-line installer, which runs whatever script the server returns.
   if ! command -v ollama >/dev/null 2>&1; then
     print_info "Ollama is not installed. Installing..."
-    case "$os" in
-      linux) curl -fsSL https://ollama.com/install.sh | sh ;;
-      mac) brew install ollama/tap/ollama ;;
-      windows) print_error "Ollama is not supported on Windows. Install manually."; return 1 ;;
-    esac
+    # shellcheck source=/dev/null
+    source "$(dirname "${BASH_SOURCE[0]}")/ollama_install.sh"
+    ollama_install || return 1
   fi
 
   # Git

@@ -1,0 +1,229 @@
+#!/usr/bin/env bash
+# ollama_install: put Ollama itself on a machine, from a source that can be checked.
+#
+# Ollama's own one-line installer (`curl https://ollama.com/install.sh | sh`)
+# runs whatever script the server returns at that moment, as root. This module
+# installs the same thing a checkable way instead:
+#   Linux   the official release archive of the version pinned in ci_defaults,
+#           compared with the pinned SHA-256 before anything is unpacked
+#   macOS   Homebrew (its bottles are checked by Homebrew), else the release
+#           archive, checked the same way
+#   Windows (Git Bash, MSYS, Cygwin) winget, which checks the installer against
+#           its manifest, else the release zip, checked the same way and
+#           unpacked; no setup program is run. ps/lib/ollama_install.ps1 does
+#           the same from PowerShell.
+#   other   nothing is downloaded; the message names the official installer
+#
+# It installs the program only. Running it as a service (the systemd unit the
+# one-line installer writes, or `brew services start ollama`) is left to the
+# machine's owner, and said in the message.
+#
+# Expected imports by caller (via shlib_import): logging. ci_defaults is sourced
+# here when the caller has not imported it.
+#
+# Return codes, used by every function in this module:
+#   0  installed, or already there at the pinned version or newer
+#   1  the download failed, or it does not match the pinned SHA-256
+#   3  a required tool is missing, or the platform has no checkable source
+
+if [[ -z "${CI_DEFAULT_OLLAMA_VERSION:-}" ]]; then
+  # shellcheck source=/dev/null
+  source "$(dirname "${BASH_SOURCE[0]}")/ci_defaults.sh"
+fi
+
+# Usage: ollama_install_asset; prints the release asset name for this machine
+# (ollama-linux-amd64.tar.zst, ollama-linux-arm64.tar.zst, ollama-darwin.tgz).
+# Returns 3 on a platform with no archive this module installs.
+ollama_install_asset() {
+  case "$(uname -s)" in
+    Linux)
+      case "$(uname -m)" in
+        x86_64|amd64) printf '%s\n' "ollama-linux-amd64.tar.zst" ;;
+        aarch64|arm64) printf '%s\n' "ollama-linux-arm64.tar.zst" ;;
+        *) return 3 ;;
+      esac
+      ;;
+    Darwin) printf '%s\n' "ollama-darwin.tgz" ;;
+    MINGW*|MSYS*|CYGWIN*)
+      case "$(uname -m)" in
+        x86_64|amd64) printf '%s\n' "ollama-windows-amd64.zip" ;;
+        aarch64|arm64) printf '%s\n' "ollama-windows-arm64.zip" ;;
+        *) return 3 ;;
+      esac
+      ;;
+    *) return 3 ;;
+  esac
+}
+
+# Usage: ollama_install_expected_sha256 <asset>; prints the pinned SHA-256 of
+# that release asset. Returns 3 for an asset with no pin.
+ollama_install_expected_sha256() {
+  case "${1:-}" in
+    ollama-linux-amd64.tar.zst) printf '%s\n' "$CI_DEFAULT_OLLAMA_SHA256_LINUX_AMD64" ;;
+    ollama-linux-arm64.tar.zst) printf '%s\n' "$CI_DEFAULT_OLLAMA_SHA256_LINUX_ARM64" ;;
+    ollama-darwin.tgz) printf '%s\n' "$CI_DEFAULT_OLLAMA_SHA256_DARWIN" ;;
+    ollama-windows-amd64.zip) printf '%s\n' "$CI_DEFAULT_OLLAMA_SHA256_WINDOWS_AMD64" ;;
+    ollama-windows-arm64.zip) printf '%s\n' "$CI_DEFAULT_OLLAMA_SHA256_WINDOWS_ARM64" ;;
+    *) return 3 ;;
+  esac
+}
+
+# Usage: ollama_install_sha256 <file>; prints its SHA-256, with shasum or
+# openssl (both on macOS; one or the other on nearly every Linux). Returns 3
+# when neither is there.
+ollama_install_sha256() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  elif command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 "$1" | awk '{print $NF}'
+  else
+    return 3
+  fi
+}
+
+# Usage: ollama_installed_version; prints the version of the `ollama` on PATH
+# (0.40.0), or nothing and returns 1 when there is none.
+ollama_installed_version() {
+  local out
+  command -v ollama >/dev/null 2>&1 || return 1
+  out="$(ollama --version 2>/dev/null)" || true
+  # "ollama version is 0.40.0"; also "client version is ..." when no server runs.
+  out="$(printf '%s\n' "$out" | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)" || true
+  [[ -n "$out" ]] || return 1
+  printf '%s\n' "$out"
+}
+
+# Usage: _ollama_install_at_least <have> <want>; 0 when have >= want (X.Y.Z).
+_ollama_install_at_least() {
+  local IFS=.
+  local -a h w
+  read -r -a h <<<"${1:-0.0.0}"
+  read -r -a w <<<"${2:-0.0.0}"
+  local i
+  for i in 0 1 2; do
+    [[ "${h[$i]:-0}" =~ ^[0-9]+$ ]] || return 1
+    [[ "${w[$i]:-0}" =~ ^[0-9]+$ ]] || return 1
+    if (( 10#${h[$i]:-0} > 10#${w[$i]:-0} )); then return 0; fi
+    if (( 10#${h[$i]:-0} < 10#${w[$i]:-0} )); then return 1; fi
+  done
+  return 0
+}
+
+# Usage: ollama_install [--prefix DIR] [--force]
+# Installs the pinned Ollama (CI_DEFAULT_OLLAMA_VERSION) unless one at that
+# version or newer is on PATH already (--force installs anyway).
+#   --prefix DIR  where bin/ollama goes. Default /usr/local, which needs root:
+#                 the unpack runs through sudo when this shell is not root. A
+#                 prefix under the home directory needs no root; its bin must
+#                 be on PATH.
+# On macOS with Homebrew: `brew install ollama`, and --prefix is not used.
+# Env: OLLAMA_RELEASE_BASE_URL (default
+#   https://github.com/ollama/ollama/releases/download), for a mirror; the
+#   archive is still checked against the pinned SHA-256.
+# Returns as the module says. A mismatch deletes the download and unpacks
+# nothing.
+ollama_install() {
+  local prefix="/usr/local" prefix_given=0 force=0 asset want got have tmpdir url sudo=""
+  local base="${OLLAMA_RELEASE_BASE_URL:-https://github.com/ollama/ollama/releases/download}"
+  local version="$CI_DEFAULT_OLLAMA_VERSION"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --prefix) prefix="${2:-}"; prefix_given=1; [[ -n "$prefix" ]] || { log_error "ollama_install: --prefix needs a directory"; return 3; }; shift 2 ;;
+      --force) force=1; shift ;;
+      *) log_error "ollama_install: unknown option: $1"; return 3 ;;
+    esac
+  done
+
+  if have="$(ollama_installed_version)" && [[ "$force" -eq 0 ]] && _ollama_install_at_least "$have" "$version"; then
+    log_info "Ollama $have is installed (pinned: $version); nothing to do."
+    return 0
+  fi
+
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+      [[ "$prefix_given" -eq 1 ]] || prefix="${LOCALAPPDATA:-$HOME/AppData/Local}/Programs/Ollama"
+      if command -v winget >/dev/null 2>&1 && [[ "$prefix_given" -eq 0 ]]; then
+        log_info "Installing Ollama with winget."
+        if winget install --id Ollama.Ollama -e --silent --accept-package-agreements --accept-source-agreements; then
+          log_info "Ollama installed. It starts with Windows; or run: ollama serve."
+          return 0
+        fi
+        log_warn "winget install failed; using the release zip."
+      fi
+      ;;
+  esac
+
+  if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
+    log_info "Installing Ollama with Homebrew."
+    brew install ollama || { log_error "ollama_install: brew install ollama failed"; return 1; }
+    log_info "Start it with: brew services start ollama (or: ollama serve)."
+    return 0
+  fi
+
+  if ! asset="$(ollama_install_asset)"; then
+    log_error "ollama_install: no checkable Ollama archive for $(uname -s) $(uname -m). See https://ollama.com/download."
+    return 3
+  fi
+  want="$(ollama_install_expected_sha256 "$asset")" || return 3
+  [[ "$want" =~ ^[0-9a-f]{64}$ ]] || { log_error "ollama_install: no pinned SHA-256 for $asset (CI_DEFAULT_OLLAMA_SHA256_*)"; return 3; }
+  case "$asset" in
+    *.zip) command -v unzip >/dev/null 2>&1 || { log_error "ollama_install: unzip is needed to unpack $asset"; return 3; } ;;
+    *.tar.zst) command -v zstd >/dev/null 2>&1 || { log_error "ollama_install: zstd is needed to unpack $asset (apt install zstd, dnf install zstd)"; return 3; } ;;
+  esac
+  command -v curl >/dev/null 2>&1 || { log_error "ollama_install: curl is needed to download it"; return 3; }
+
+  if [[ "$asset" != *.zip && ! -w "$prefix" && ! -w "$(dirname "$prefix")" ]] && [[ "$(id -u)" -ne 0 ]]; then
+    command -v sudo >/dev/null 2>&1 || { log_error "ollama_install: $prefix is not writable and sudo is not there; use --prefix \"\$HOME/.local\""; return 3; }
+    sudo="sudo"
+  fi
+
+  tmpdir="$(mktemp -d)" || return 1
+  url="${base%/}/v${version}/${asset}"
+  log_info "Downloading Ollama $version ($asset)."
+  if ! curl -fSL --progress-bar -o "$tmpdir/$asset" "$url"; then
+    rm -rf "$tmpdir"
+    log_error "ollama_install: download failed: $url"
+    return 1
+  fi
+  if ! got="$(ollama_install_sha256 "$tmpdir/$asset")"; then
+    rm -rf "$tmpdir"
+    log_error "ollama_install: shasum or openssl is needed to check it"
+    return 3
+  fi
+  if [[ "$got" != "$want" ]]; then
+    rm -rf "$tmpdir"
+    log_error "ollama_install: $asset $version does not match the pinned SHA-256 (got $got, want $want); nothing was installed. A changed CI_DEFAULT_OLLAMA_VERSION needs its CI_DEFAULT_OLLAMA_SHA256_* values too."
+    return 1
+  fi
+
+  [[ "$asset" == *.zip ]] || $sudo mkdir -p "$prefix/bin" || { rm -rf "$tmpdir"; return 1; }
+  case "$asset" in
+    *.tar.zst)
+      # bin/ollama and lib/ollama/, as the release lays them out.
+      if ! zstd -dc "$tmpdir/$asset" | $sudo tar -x -C "$prefix" -f -; then
+        rm -rf "$tmpdir"; log_error "ollama_install: unpacking into $prefix failed"; return 1
+      fi
+      ;;
+    *.zip)
+      # ollama.exe and lib\ollama\, as the release lays them out. Per user: no
+      # elevation, and the prefix's bin is not added to PATH.
+      mkdir -p "$prefix" || { rm -rf "$tmpdir"; return 1; }
+      if ! unzip -q -o "$tmpdir/$asset" -d "$prefix"; then
+        rm -rf "$tmpdir"; log_error "ollama_install: unpacking into $prefix failed"; return 1
+      fi
+      rm -rf "$tmpdir"
+      log_info "Ollama $version installed in $prefix. Add it to PATH, then run: ollama serve."
+      return 0
+      ;;
+    *.tgz)
+      # One binary, `ollama`, at the top of the archive.
+      if ! tar -x -z -C "$tmpdir" -f "$tmpdir/$asset" ollama || ! $sudo install -m 0755 "$tmpdir/ollama" "$prefix/bin/ollama"; then
+        rm -rf "$tmpdir"; log_error "ollama_install: unpacking into $prefix failed"; return 1
+      fi
+      ;;
+  esac
+  rm -rf "$tmpdir"
+  log_info "Ollama $version installed at $prefix/bin/ollama."
+  log_info "Start it with: ollama serve. To run it as a service, see https://github.com/ollama/ollama/blob/main/docs/linux.md."
+  return 0
+}

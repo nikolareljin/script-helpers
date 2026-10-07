@@ -14,6 +14,8 @@ works for an Ollama on this machine, one in a container, and one elsewhere.
 
 Contents
 
+- [Which models: the project decides](#which-models-the-project-decides)
+- [Installing Ollama](#installing-ollama)
 - [What goes into a repository](#what-goes-into-a-repository)
 - [The start script](#the-start-script)
 - [Where the models are served](#where-the-models-are-served)
@@ -28,6 +30,52 @@ Contents
 - [Developing the module](#developing-the-module)
 - [Limits, and what comes next](#limits-and-what-comes-next)
 
+Which models: the project decides
+---------------------------------
+
+This library names no model and recommends none. It checks and pulls whatever
+the project's models file says, so a project can use any model Ollama can
+pull, from the Ollama library or another registry (`hf.co/org/model`).
+
+Several projects that should agree on their models keep the list in one
+place of their own and generate each project's models file from it, with a
+`# purpose` comment per line and a header that says the file is generated.
+The project still carries its own file, so it runs without that list. Nothing
+here reads such a list; the file is the interface.
+
+To choose a model by hand, the dialog menu in [ollama](modules/ollama.md)
+(`ollama_install_model_flow`) browses an index of the Ollama library, asks
+for a size, and writes the choice into an env file.
+
+Installing Ollama
+-----------------
+
+The start check talks to an Ollama; it does not install one. To install it:
+
+```bash
+shlib_import logging ollama_install
+ollama_install                          # the pinned release into /usr/local (sudo when needed)
+ollama_install --prefix "$HOME/.local"  # without root
+```
+
+On Linux this downloads the official release archive of the version pinned in
+`lib/ci_defaults.sh` and compares it with the pinned SHA-256 before anything is
+unpacked; on macOS it uses Homebrew. On Windows it uses winget, else the
+official release zip, checked the same way and unpacked for the user without
+running a setup program; from PowerShell the same is
+`ps/lib/ollama_install.ps1`. Elsewhere it names the download page and
+downloads nothing. An Ollama already there at the pinned version or newer
+is left alone. Ollama's one-line installer (`curl ... install.sh | sh`) is not
+used: it runs whatever script the server returns, as root, with nothing to
+check it against. Full reference: [ollama_install](modules/ollama_install.md).
+
+It installs the program. Starting it (`ollama serve`), or running it as a
+service, is up to the machine: the Linux page of the Ollama documentation has
+the systemd unit, and on macOS `brew services start ollama`.
+
+In a container, use the official image at a pinned tag (`ollama/ollama:<version>`)
+instead; `OLLAMA_MODE=docker` covers that case.
+
 What goes into a repository
 ---------------------------
 
@@ -38,15 +86,21 @@ What goes into a repository
    one `NAME=model` per line:
 
    ```
-   # the models this project uses, by purpose
-   OLLAMA_MODEL=qwen2.5:7b
-   CLASSIFY_MODEL=qwen2.5:3b
-   VLM_MODEL=qwen2.5vl:3b
-   OLLAMA_EMBED_MODEL=nomic-embed-text
-   OLLAMA_MODEL_LARGE=qwen3.5:9b
+   # The models this project uses, by purpose. An example: use your own.
+   # chat and summaries
+   OLLAMA_MODEL=general-model:4b
+   # sorting messages into categories
+   CLASSIFY_MODEL=small-model:1.7b
+   # embeddings for search
+   OLLAMA_EMBED_MODEL=embedding-model
+   # the same purpose on a machine with a 12 GB GPU or 32 GB of memory
+   OLLAMA_MODEL_LARGE=general-model:9b
    OLLAMA_MODEL_LARGE_VRAM_GB=11
    AI_TIER_LARGE_RAM_GB=30
    ```
+
+   The names are placeholders; a real file has real model names, such as
+   `qwen3:8b` or `nomic-embed-text`.
 
    The file is read like an env file: `export ` before a name, spaces around
    `=`, one pair of quotes, a trailing ` # comment`, Windows line ends and a
@@ -209,11 +263,11 @@ What the person sees
 Nothing, when every model is there: the start goes on. Otherwise, on stderr:
 
 ```
-[Info]: Pulling qwen2.5:7b into the Ollama at http://127.0.0.1:11434
-  qwen2.5:7b: 10% of 4.7 GB
-  qwen2.5:7b: 20% of 4.7 GB
+[Info]: Pulling qwen3:8b into the Ollama at http://127.0.0.1:11434
+  qwen3:8b: 10% of 5.2 GB
+  qwen3:8b: 20% of 5.2 GB
   ...
-  qwen2.5:7b: 100% of 4.7 GB
+  qwen3:8b: 100% of 5.2 GB
 ```
 
 One line per tenth of every layer of 100 MB or more, and 100% when the pull
@@ -224,8 +278,8 @@ for the whole download; a pull is given up only when nothing arrives for
 A refusal says what did not fit and which setting governs it:
 
 ```
-[Error!]: Not enough disk for the models: the download is 4.7 GB, 8.1 GB is free at /home/me/.ollama/models, and 10 GB must stay free (OLLAMA_DISK_RESERVE_GB).
-[Error!]: Nothing was pulled. Missing: qwen2.5:7b
+[Error!]: Not enough disk for the models: the download is 5.2 GB, 8.1 GB is free at /home/me/.ollama/models, and 10 GB must stay free (OLLAMA_DISK_RESERVE_GB).
+[Error!]: Nothing was pulled. Missing: qwen3:8b
 ```
 
 ```
