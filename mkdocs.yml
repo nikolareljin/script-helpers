@@ -194,6 +194,7 @@ nav:
           - webshot: modules/webshot.md
           - ollama: modules/ollama.md
           - ollama_endpoint: modules/ollama_endpoint.md
+          - ollama_install: modules/ollama_install.md
           - hub: modules/hub.md
           - cloudflare: modules/cloudflare.md
   - About: about.md
