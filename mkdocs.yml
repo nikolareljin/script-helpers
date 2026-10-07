@@ -165,6 +165,7 @@ nav:
           - clipboard: modules/clipboard.md
           - browser: modules/browser.md
           - serve: modules/serve.md
+          - docs_site: modules/docs_site.md
       - Containers:
           - docker: modules/docker.md
           - ci_stack: modules/ci_stack.md

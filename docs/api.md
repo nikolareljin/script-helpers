@@ -35,6 +35,7 @@ This index lists all modules and their functions. See the linked module pages fo
 - [adb](./modules/adb.md)
 - [ios](./modules/ios.md)
 - [serve](./modules/serve.md)
+- [docs_site](./modules/docs_site.md)
 - [gradle](./modules/gradle.md)
 - [android](./modules/android.md)
 - [flutter](./modules/flutter.md)

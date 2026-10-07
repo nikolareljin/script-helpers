@@ -7,6 +7,31 @@
   each missing model with its size and asks `Pull now? [y/N]` on the terminal.
   No, or no terminal to ask on (a launcher, a service, CI), is exit 5 and nothing
   is pulled. For start scripts that must not download gigabytes unasked.
+- **`lib/docs_site.sh` and `scripts/docs_site.sh` for any repository.** `check`,
+  `build`, `serve`, `preview` and `verify` for a MkDocs site, or for a
+  repository's own builder (`DOCS_SITE_BUILD_CMD`, `DOCS_SITE_OUT`). `check`
+  adds what `mkdocs build --strict` cannot see: an unclosed code fence, and a
+  crawl over HTTP (`scripts/site_verify.py`) of every page, internal link,
+  asset and `#fragment`, each failure named with the page that links to it.
+  The MkDocs pins are the repository's `requirements-docs.txt`, else this
+  library's. `--dir` names the repository; the default is the current one.
+- **`port_choose`, `port_is_free`, `port_next_free` in `lib/ports.sh`.** A taken
+  port is never swapped silently: on a terminal the owner and a free port are
+  shown and a port is asked for; without one it is an error naming the owner
+  and the setting to change. `docs_site.sh serve` and `preview` use it.
+
+### Fixed
+
+- **BusyBox `lsof` was read as a port's listener.** It ignores `-iTCP`,
+  `-sTCP` and `-t` and lists every open file, so `port_in_use_by` named an
+  unrelated process (PID 1) and `list_port_listener_pids` returned
+  `PID<tab>path` lines for every process. Output without lsof's `COMMAND`
+  header is not read, and a PID is kept only when it is a bare number.
+
+### Changed
+
+- `scripts/docs_site.sh` works on the repository it is run in (or `--dir`),
+  not only on this one; `serve` prints the address under `site_url`'s path.
 
 ## 2026-10-07 — v0.45.1
 
