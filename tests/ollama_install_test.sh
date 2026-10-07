@@ -184,6 +184,15 @@ else
   check "the whole archive is installed, and bin/ollama runs it beside its libraries" "0:yes:ollama version is 0.40.0" \
     "$rc:$([[ -f "$tmp/mac1/lib/ollama/llama-server" ]] && echo yes || echo no):$("$tmp/mac1/bin/ollama" --version 2>&1)"
 
+  # The launcher names the prefix: it must be absolute, and hold no shell code.
+  rc=0; (cd "$tmp" && FAKE_OS=Darwin FAKE_ARCH=arm64 PATH="$tmp/fake-bin:$tmp/tools:/usr/bin:/bin" ollama_install --prefix ./rel >"$tmp/out" 2>&1) || rc=$?
+  check "a relative prefix is made absolute in the launcher" "0:yes:no" \
+    "$rc:$(grep -c -F "exec \"$(cd "$tmp" && pwd -P)/rel/lib/ollama/ollama\"" "$tmp/rel/bin/ollama" | sed 's/^1$/yes/;s/^0$/no/'):$(grep -c -F '"./rel' "$tmp/rel/bin/ollama" | sed 's/^1$/yes/;s/^0$/no/')"
+  for bad in "$tmp"'/x$(touch pwned)' "$tmp"'/q"uote' "$tmp"'/b`tick`' "$tmp"'/back\slash'; do
+    rc=0; FAKE_OS=Darwin PATH="$tmp/fake-bin:$tmp/tools:/usr/bin:/bin" ollama_install --prefix "$bad" >"$tmp/out" 2>&1 || rc=$?
+    check "a prefix with shell code in it is refused before anything is downloaded" "3:no" "$rc:$([[ -e pwned || -e "$tmp/pwned" ]] && echo yes || echo no)"
+  done
+
   note "what is installed already"
   mkdir -p "$tmp/have"
   printf '#!/bin/sh\necho "ollama version is %s"\n' 0.40.0 >"$tmp/have/ollama"; chmod +x "$tmp/have/ollama"

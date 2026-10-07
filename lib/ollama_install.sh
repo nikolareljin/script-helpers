@@ -134,6 +134,20 @@ ollama_install() {
     esac
   done
 
+  # The prefix is written into a launcher script (macOS), so it must be
+  # absolute (a relative one would be read from wherever the launcher is
+  # started) and hold nothing a shell reads as code.
+  case "$prefix" in
+    /*) ;;
+    *) prefix="$(pwd -P)/${prefix#./}" ;;
+  esac
+  case "$prefix" in
+    *[\"\$\`\\]*|*$'\n'*|*$'\r'*)
+      log_error "ollama_install: --prefix may not contain a quote, \$, a backquote, a backslash or a line break"
+      return 3
+      ;;
+  esac
+
   if have="$(ollama_installed_version)" && [[ "$force" -eq 0 ]] && _ollama_install_at_least "$have" "$version"; then
     log_info "Ollama $have is installed (pinned: $version); nothing to do."
     return 0
