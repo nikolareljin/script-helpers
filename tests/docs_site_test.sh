@@ -34,6 +34,8 @@ shlib_import logging python ports serve docs_site
 tmp="$(mktemp -d)"
 holder=""
 cleanup() {
+  # Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+  [[ ${BASHPID-$$} == "$$" ]] || return 0
   [[ -z "$holder" ]] || kill "$holder" 2>/dev/null || true
   rm -rf "$tmp"
 }
