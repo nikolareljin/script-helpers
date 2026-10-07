@@ -117,6 +117,11 @@ class H(BaseHTTPRequestHandler):
             # not, so the path is checked exactly as it was sent.
             return self.send(404, "{}")
         if self.path == "/api/tags":
+            if mode == "fail-once":
+                # An Ollama that is still starting: the first listing fails.
+                with open(os.path.join(STATE, "mode"), "w") as f:
+                    f.write("")
+                return self.send(503, "{}")
             if mode == "web":
                 return self.send(200, "<html>hello</html>", "text/html")
             names = [n for n in read("installed").splitlines() if n]
@@ -1106,6 +1111,13 @@ printf 'OLLAMA_URL=%s\n' "$URL" >"$tmp/proj/.env"
 remote() { ( ollama_endpoint_is_local() { return 1; }; ollama_project_ensure_models "$@" >"$tmp/out" 2>"$tmp/err"; echo $? ); }
 roomy; reset main:7b small:3b embed:latest
 check "another machine that has every model is fine" "0:" "$(remote "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+# Not answering the first time is a stop (4): listed again it might answer,
+# and the pull that followed would be measured against this machine's disk.
+reset main:7b
+echo fail-once >"$tmp/state/mode"
+check "another machine that does not list its models: 4, nothing pulled, even if it would answer the next time" "4::0" \
+  "$(remote "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled):$(cat "$tmp/state/asked" 2>/dev/null | wc -l | tr -d ' ')"
+said "and it says nothing answers" "$tmp/err" "No Ollama answers at"
 reset main:7b
 check "one that lacks a model is a refusal, and nothing is pulled into it" "5::" "$(remote "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled):$(cat "$tmp/state/asked" 2>/dev/null)"
 said "it says why, and the way through" "$tmp/err" "small:3b" "another machine" "OLLAMA_PULL_MISSING=1"
