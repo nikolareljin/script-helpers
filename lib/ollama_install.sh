@@ -251,44 +251,51 @@ ollama_install() {
     return 1
   fi
 
-  [[ "$asset" == *.zip ]] || $sudo mkdir -p "$prefix/bin" || { rm -rf "$tmpdir"; return 1; }
-  # An upgrade must not leave the old version's libraries beside the new ones:
-  # Ollama loads what is in that directory. Only that directory is removed.
-  if [[ -d "$prefix/lib/ollama" ]]; then
-    $sudo rm -rf "$prefix/lib/ollama" || { rm -rf "$tmpdir"; log_error "ollama_install: could not remove the old $prefix/lib/ollama"; return 1; }
-  fi
+  # Unpack into a staging directory first: a damaged archive or a full disk
+  # must fail before anything installed is touched.
+  mkdir -p "$tmpdir/stage" || { rm -rf "$tmpdir"; return 1; }
   case "$asset" in
     *.tar.zst)
       # bin/ollama and lib/ollama/, as the release lays them out.
-      if ! zstd -dc "$tmpdir/$asset" | $sudo tar -x -C "$prefix" -f -; then
-        rm -rf "$tmpdir"; log_error "ollama_install: unpacking into $prefix failed"; return 1
-      fi
+      zstd -dc "$tmpdir/$asset" | tar -x -C "$tmpdir/stage" -f - || { rm -rf "$tmpdir"; log_error "ollama_install: unpacking $asset failed"; return 1; }
+      [[ -x "$tmpdir/stage/bin/ollama" ]] || { rm -rf "$tmpdir"; log_error "ollama_install: $asset has no bin/ollama"; return 1; }
       ;;
     *.zip)
-      # ollama.exe and lib\ollama\, as the release lays them out. Per user: no
-      # elevation, and the prefix's bin is not added to PATH.
-      mkdir -p "$prefix" || { rm -rf "$tmpdir"; return 1; }
-      if ! unzip -q -o "$tmpdir/$asset" -d "$prefix"; then
-        rm -rf "$tmpdir"; log_error "ollama_install: unpacking into $prefix failed"; return 1
-      fi
-      rm -rf "$tmpdir"
-      log_info "Ollama $version installed in $prefix. Add it to PATH, then run: ollama serve."
-      return 0
+      # ollama.exe and lib\ollama\, as the release lays them out.
+      unzip -q -o "$tmpdir/$asset" -d "$tmpdir/stage" || { rm -rf "$tmpdir"; log_error "ollama_install: unpacking $asset failed"; return 1; }
+      [[ -f "$tmpdir/stage/ollama.exe" ]] || { rm -rf "$tmpdir"; log_error "ollama_install: $asset has no ollama.exe"; return 1; }
       ;;
     *.tgz)
       # The macOS archive is flat: ollama, llama-server and the libraries it
       # loads from beside itself. All of it goes to lib/ollama; bin/ollama
       # starts it from there, so it finds them.
-      mkdir -p "$tmpdir/unpacked" && tar -x -z -C "$tmpdir/unpacked" -f "$tmpdir/$asset" || {
-        rm -rf "$tmpdir"; log_error "ollama_install: unpacking $asset failed"; return 1; }
-      [[ -x "$tmpdir/unpacked/ollama" ]] || { rm -rf "$tmpdir"; log_error "ollama_install: $asset has no ollama at its top"; return 1; }
-      printf '#!/bin/sh\nexec "%s/lib/ollama/ollama" "$@"\n' "$prefix" >"$tmpdir/launcher"
-      if ! $sudo mkdir -p "$prefix/lib/ollama" || ! $sudo cp -R "$tmpdir/unpacked/." "$prefix/lib/ollama/" \
-        || ! $sudo install -m 0755 "$tmpdir/launcher" "$prefix/bin/ollama"; then
-        rm -rf "$tmpdir"; log_error "ollama_install: unpacking into $prefix failed"; return 1
-      fi
+      mkdir -p "$tmpdir/flat" && tar -x -z -C "$tmpdir/flat" -f "$tmpdir/$asset" || { rm -rf "$tmpdir"; log_error "ollama_install: unpacking $asset failed"; return 1; }
+      [[ -x "$tmpdir/flat/ollama" ]] || { rm -rf "$tmpdir"; log_error "ollama_install: $asset has no ollama at its top"; return 1; }
+      mkdir -p "$tmpdir/stage/bin" "$tmpdir/stage/lib/ollama" && cp -R "$tmpdir/flat/." "$tmpdir/stage/lib/ollama/" || { rm -rf "$tmpdir"; return 1; }
+      printf '#!/bin/sh\nexec "%s/lib/ollama/ollama" "$@"\n' "$prefix" >"$tmpdir/stage/bin/ollama" && chmod 0755 "$tmpdir/stage/bin/ollama"
       ;;
   esac
+
+  # Then replace. The old lib/ollama goes first: Ollama loads every library in
+  # it, and the previous version's must not stay beside the new ones. Nothing
+  # else in the prefix is touched.
+  # A program that is running (the service's bin/ollama) cannot be written
+  # over ("Text file busy"); it can be removed and replaced, and the running
+  # one keeps its copy until restarted.
+  local f
+  for f in "$tmpdir"/stage/bin/*; do
+    [[ -e "$f" ]] || continue
+    [[ ! -e "$prefix/bin/${f##*/}" ]] || $sudo rm -f "$prefix/bin/${f##*/}" || { rm -rf "$tmpdir"; log_error "ollama_install: could not replace $prefix/bin/${f##*/}"; return 1; }
+  done
+  if ! $sudo mkdir -p "$prefix" || { [[ -d "$prefix/lib/ollama" ]] && ! $sudo rm -rf "$prefix/lib/ollama"; } \
+    || ! $sudo cp -R "$tmpdir/stage/." "$prefix/"; then
+    rm -rf "$tmpdir"; log_error "ollama_install: installing into $prefix failed"; return 1
+  fi
+  if [[ "$asset" == *.zip ]]; then
+    rm -rf "$tmpdir"
+    log_info "Ollama $version installed in $prefix. Add it to PATH, then run: ollama serve."
+    return 0
+  fi
   rm -rf "$tmpdir"
   log_info "Ollama $version installed at $prefix/bin/ollama."
   if [[ -n "$have" ]]; then

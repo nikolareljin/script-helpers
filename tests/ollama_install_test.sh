@@ -223,6 +223,24 @@ else
   rc=0; FAKE_OS=Darwin PATH="$tmp/fake-bin:$tmp/brew-bin:$tmp/tools:/usr/bin:/bin" ollama_install --prefix "$tmp/mac2" >"$tmp/out" 2>&1 || rc=$?
   check "macOS: a --prefix means the archive, not Homebrew" "0:0:yes" "$rc:$(grep -c . "$tmp/brew-calls"):$([[ -x "$tmp/mac2/bin/ollama" ]] && echo yes || echo no)"
 
+  # A running program cannot be written over. A process holds the installed
+  # bin/ollama open for execution while the upgrade runs.
+  mkdir -p "$tmp/busy/bin"; cp /bin/sleep "$tmp/busy/bin/ollama"
+  "$tmp/busy/bin/ollama" 30 &
+  busy_pid=$!
+  rc=0; PATH="$tmp/fake-bin:$tmp/tools:/usr/bin:/bin" ollama_install --prefix "$tmp/busy" >"$tmp/out" 2>&1 || rc=$?
+  kill "$busy_pid" 2>/dev/null || true; wait "$busy_pid" 2>/dev/null || true
+  check "a running bin/ollama is replaced, not written over" "0:ollama version is 0.40.0" "$rc:$("$tmp/busy/bin/ollama" --version 2>&1)"
+  # A damaged archive fails before anything installed is touched.
+  mkdir -p "$tmp/keep/lib/ollama"; : >"$tmp/keep/lib/ollama/libggml-old.so"
+  printf 'not an archive' >"$tmp/www/v0.40.0/bad.tar.zst"
+  bad_sha="$(ollama_install_sha256 "$tmp/www/v0.40.0/bad.tar.zst")"
+  cp "$tmp/www/v0.40.0/ollama-linux-amd64.tar.zst" "$tmp/good.tar.zst"
+  cp "$tmp/www/v0.40.0/bad.tar.zst" "$tmp/www/v0.40.0/ollama-linux-amd64.tar.zst"
+  rc=0; CI_DEFAULT_OLLAMA_SHA256_LINUX_AMD64="$bad_sha" PATH="$tmp/fake-bin:$tmp/tools:/usr/bin:/bin" ollama_install --prefix "$tmp/keep" >"$tmp/out" 2>&1 || rc=$?
+  cp "$tmp/good.tar.zst" "$tmp/www/v0.40.0/ollama-linux-amd64.tar.zst"
+  check "an archive that does not unpack leaves the installed one as it was" "1:yes" "$rc:$([[ -e "$tmp/keep/lib/ollama/libggml-old.so" ]] && echo yes || echo no)"
+
   note "what is installed already"
   mkdir -p "$tmp/have"
   printf '#!/bin/sh\necho "ollama version is %s"\n' 0.40.0 >"$tmp/have/ollama"; chmod +x "$tmp/have/ollama"

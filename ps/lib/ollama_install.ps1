@@ -118,16 +118,29 @@ function ollama_install {
             log_error "ollama_install: $asset $version does not match the pinned SHA-256 (got $got, want $want); nothing was installed."
             return 1
         }
+        # Unpack into a staging directory first: a damaged zip fails before
+        # anything installed is touched.
+        $stage = Join-Path $tmp 'stage'
+        try {
+            Expand-Archive -Path $zip -DestinationPath $stage -Force -ErrorAction Stop
+        } catch {
+            log_error "ollama_install: unpacking $asset failed: $($_.Exception.Message)"
+            return 1
+        }
+        if (-not (Test-Path (Join-Path $stage 'ollama.exe'))) {
+            log_error "ollama_install: $asset has no ollama.exe"
+            return 1
+        }
         try {
             New-Item -ItemType Directory -Path $Prefix -Force | Out-Null
             # An upgrade must not leave the old version's libraries beside the
             # new ones. Only that directory is removed.
             $oldLib = Join-Path (Join-Path $Prefix 'lib') 'ollama'
             if (Test-Path $oldLib) { Remove-Item -Recurse -Force $oldLib -ErrorAction Stop }
-            Expand-Archive -Path $zip -DestinationPath $Prefix -Force -ErrorAction Stop
+            Copy-Item -Path (Join-Path $stage '*') -Destination $Prefix -Recurse -Force -ErrorAction Stop
         } catch {
             # A running ollama.exe is locked: stop Ollama, then install again.
-            log_error "ollama_install: unpacking into $Prefix failed: $($_.Exception.Message)"
+            log_error "ollama_install: installing into $Prefix failed: $($_.Exception.Message)"
             return 1
         }
         log_info "Ollama $version installed in $Prefix. Add it to PATH, then run: ollama serve."

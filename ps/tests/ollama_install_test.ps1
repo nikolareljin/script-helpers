@@ -50,6 +50,13 @@ try {
     $p2 = Join-Path $tmp 'p2'
     check 'with -Prefix, winget is not used: the zip into that prefix' '0:True' "$(ollama_install -Prefix $p2):$(Test-Path (Join-Path $p2 'ollama.exe'))"
 
+    # An upgrade: the old lib\ollama goes, nothing else in the directory does.
+    $p8 = Join-Path $tmp 'p8'
+    New-Item -ItemType Directory -Path (Join-Path $p8 'lib/ollama') -Force | Out-Null
+    Set-Content -Path (Join-Path $p8 'lib/ollama/ggml-old.dll') -Value 'old'
+    Set-Content -Path (Join-Path $p8 'app.exe') -Value 'other'
+    check 'an upgrade removes the old libraries and keeps the rest' '0:False:True' "$(ollama_install -Prefix $p8):$(Test-Path (Join-Path $p8 'lib/ollama/ggml-old.dll')):$(Test-Path (Join-Path $p8 'app.exe'))"
+
     $env:CI_DEFAULT_OLLAMA_SHA256_WINDOWS_AMD64 = ('0' * 64)
     $p3 = Join-Path $tmp 'p3'
     check 'a zip that does not match is not unpacked' '1:False' "$(ollama_install -Prefix $p3):$(Test-Path (Join-Path $p3 'ollama.exe'))"
