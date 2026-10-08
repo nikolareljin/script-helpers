@@ -58,7 +58,7 @@ SVC_PROCS=("web:python3 -m http.server \${WEB_PORT:-$port} --bind 127.0.0.1")
 SVC_PORTS=("WEB_PORT:\${WEB_PORT:-$port}")
 SVC_HEALTH_URL="http://127.0.0.1:\${WEB_PORT:-$port}/"
 SVC_URLS=("Web http://127.0.0.1:\${WEB_PORT:-$port}/")
-SVC_READY_TIMEOUT=20
+SVC_READY_TIMEOUT=120
 SVC_LOGS_FOLLOW=0
 project_hello() { echo "hello: \$*"; }
 project_user_add() { echo "user-add: \$*"; }
@@ -156,7 +156,8 @@ check "./dev stop with no services and no compose file: 3" 3 "$rc"
 printf '{"ok":true}\n' >"$tmp/status.json"
 python3 -u -m http.server 0 --bind 127.0.0.1 --directory "$tmp" >"$tmp/sp.log" 2>&1 &
 sp=$!
-for _ in 1 2 3 4 5 6 7 8 9 10; do sport="$(sed -n 's/.*port \([0-9]*\).*/\1/p' "$tmp/sp.log" | head -1)"; [[ -n "$sport" ]] && break; sleep 0.3; done
+# Up to 60 s: python3 starts slowly on a macOS runner (measured >20 s there).
+for _ in $(seq 1 120); do sport="$(sed -n 's/.*port \([0-9]*\).*/\1/p' "$tmp/sp.log" | head -1)"; [[ -n "$sport" ]] && break; sleep 0.5; done
 printf 'SVC_STATUS_URL="http://127.0.0.1:%s/status.json"\n' "$sport" >"$nrepo/scripts/project.sh"
 out="$(run "$nrepo" ./dev status)"; rc=$?
 check "status with only SVC_STATUS_URL prints the payload" "0:{\"ok\":true}" "$rc:$(printf '%s' "$out" | grep -o '{"ok":true}')"
