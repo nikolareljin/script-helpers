@@ -76,6 +76,7 @@ Modules overview
 - ci_defaults — centralized Docker image version defaults for CI helper scripts.
 - adb — Android Debug Bridge toolkit: list/inspect devices (model, Android OS, API level, IP), install apps, copy files to/from, and debug (shell/logcat/status); multi-device safe; Bash + PowerShell + `scripts/adb_tool.sh` CLI.
 - ios — iOS device and simulator toolkit: discover, boot, install, launch, and build Flutter release apps or signed IPAs; macOS/Xcode only.
+- service: start, stop, restart, status, logs and a readiness wait for a repository's services, through docker compose or as native processes in their own process groups (`.run/` pidfiles and logs).
 - serve — serve a static site directory locally for preview (auto-picks a free port; prefers `python3 -m http.server`); CLI wrapper `bin/serve-pages`.
 - gradle — wrapper resolution and task invocation; prefers the project's `./gradlew` over a system `gradle`; Bash + PowerShell.
 - android — Android build side: SDK resolution and bootstrap, one debug/release build toggle, artifact lookup, APK/AAB signing with a base64-keystore path and a debug-signed fallback, AVDs, emulator start/stop; Bash + PowerShell.

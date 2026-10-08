@@ -26,8 +26,8 @@ Functions
   - Returns: 0 and prints details if any found; non-zero with no output if unused.
 
 - port_is_free port
-  - Purpose: True when nothing accepts a connection on `127.0.0.1:port`.
-  - Behavior: A connect test through bash's `/dev/tcp`: no privileges, no tools.
+  - Purpose: True when nothing listens on `port`.
+  - Behavior: Asks the listener list first (`list_port_usage_details`: lsof, ss or netstat). A connect test alone calls a port free when its server is hung or its accept queue is full, because the connection is refused. Without those tools, a connect to `127.0.0.1` through bash's `/dev/tcp` decides.
   - Returns: 0 free; 1 taken; 2 not a port 1-65535.
 
 - port_next_free port [tries=20]
@@ -54,5 +54,5 @@ Functions
 Dependencies
 ------------
 
-- `lsof`/`ss`/`netstat`/`fuser` (any subset available), optional `sudo` when allowed.
+- `lsof`/`ss`/`netstat`/`fuser` (any subset available), optional `sudo` when allowed. BusyBox `lsof` (Alpine) ignores its options and lists every open file, so it is skipped and `ss`/`netstat`/`fuser` answer instead.
 - Any POSIX awk: gawk, mawk (Debian/Ubuntu default) and BSD awk (macOS) all parse the `ss`/`netstat` output.

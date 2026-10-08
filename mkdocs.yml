@@ -166,6 +166,7 @@ nav:
           - browser: modules/browser.md
           - serve: modules/serve.md
           - docs_site: modules/docs_site.md
+          - service: modules/service.md
       - Containers:
           - docker: modules/docker.md
           - ci_stack: modules/ci_stack.md

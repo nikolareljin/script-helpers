@@ -2,6 +2,9 @@
 
 ### Added
 
+- **`env_set_value` in `lib/env.sh`:** set one key in an env file, quoted so the shell and
+  python-dotenv read it the same, written in place so a symlinked `.env` stays one.
+
 - **`OLLAMA_PULL_MISSING=ask`.** `ollama_endpoint_ensure_models` (and so
   `ollama_project_ensure_models`) checks the disk and memory first, then lists
   each missing model with its size and asks `Pull now? [y/N]` on the terminal.
@@ -20,13 +23,31 @@
   shown and a port is asked for; without one it is an error naming the owner
   and the setting to change. `docs_site.sh serve` and `preview` use it.
 
+- **`service`: start, stop, restart, status, logs and readiness for a repository's own
+  services.** A new module, `lib/service.sh`. A repository sets `SVC_BACKEND` (`compose` or
+  `proc`) and plain `SVC_*` variables; `svc_start`, `svc_stop`, `svc_restart`, `svc_status`,
+  `svc_logs` and `svc_wait_ready` do the rest. Native processes run in their own process
+  group, so a stop also ends their children; pids and logs live in `.run/`. A taken port
+  is asked about on a terminal (a `NAME:port` entry moves to the port given, and can be saved
+  in `.env` so later commands agree)
+  and refused without one, naming its owner, a free port and the setting to change; a stale
+  pidfile is removed and reported, a pid
+  reused by another process is never signalled, and a readiness timeout prints the last 40
+  log lines. Exit codes: 0 ok, 1 failure, 2 usage.
+
 ### Fixed
+
+- **`port_is_free` called a hung server's port free.** It only tried to connect, and a
+  listener that does not accept (hung, or its queue full) refuses the connection. It asks
+  lsof, ss or netstat first now, and `serve_static_site` uses it.
 
 - **BusyBox `lsof` was read as a port's listener.** It ignores `-iTCP`,
   `-sTCP` and `-t` and lists every open file, so `port_in_use_by` named an
   unrelated process (PID 1) and `list_port_listener_pids` returned
   `PID<tab>path` lines for every process. Output without lsof's `COMMAND`
-  header is not read, and a PID is kept only when it is a bare number.
+  header is not read, a PID is kept only when it is a bare number, and BusyBox
+  `lsof` is not asked at all (`lsof --help` says BusyBox): `ss`, `netstat` or
+  `fuser` answer.
 
 ### Changed
 

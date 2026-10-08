@@ -134,6 +134,40 @@ out="$(list_port_listener_pids 018765)"
 PATH="$saved_path"
 if [[ "$out" == "4242" ]]; then ok "a leading zero is the same port"; else error "leading zero port gave [$out]"; fi
 
+# BusyBox lsof ignores its options and lists every open file. Its output must
+# not be read as listeners, or kill-port would get every PID on the machine.
+cat >"$tmp/lsof" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "--help" ]]; then echo "BusyBox v1.37.0 multi-call binary." >&2; exit 1; fi
+printf '1\t/bin/busybox\t0\t/dev/null\n77\t/usr/bin/bash\t1\tpipe:[1]\n'
+EOF
+chmod +x "$tmp/lsof"
+bin="$tmp/bin-busybox-lsof"; make_bin "$bin" "$sys_awk"; ln -sf "$tmp/lsof" "$bin/lsof"; ln -sf "$tmp/ss" "$bin/ss"
+PATH="$bin"
+d="$(list_port_usage_details "$port")"
+p="$(list_port_listener_pids "$port")"
+PATH="$saved_path"
+if [[ "$d" == "python3 (PID 4242)" ]]; then ok "busybox lsof: skipped, ss names the owner"; else error "busybox lsof: details [$d]"; fi
+if [[ "$p" == "4242" ]]; then ok "busybox lsof: skipped, ss gives the pid"; else error "busybox lsof: pids [$p]"; fi
+
+# A listener that never accepts, its queue filled: connections are refused, so
+# a connect test alone calls the port free. port_is_free must not.
+if command -v python3 >/dev/null 2>&1; then
+  bport="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')"
+  python3 -c 'import socket,sys,time; s=socket.socket(); s.bind(("127.0.0.1",int(sys.argv[1]))); s.listen(1); time.sleep(30)' "$bport" &
+  blistener=$!
+  sleep 0.5
+  for _ in 1 2 3 4; do ( exec 3<>"/dev/tcp/127.0.0.1/$bport" ) 2>/dev/null & done
+  sleep 1
+  if list_port_usage_details "$bport" >/dev/null 2>&1; then
+    if port_is_free "$bport"; then error "a listener with a full queue was called free"; else ok "a listener with a full queue is taken, not free"; fi
+  else
+    note "SKIP full-queue listener: no lsof, ss or netstat that sees it"
+  fi
+  kill "$blistener" 2>/dev/null || true
+  wait 2>/dev/null || true
+fi
+
 if [[ $failures -eq 0 ]]; then
   note "all ports tests passed"
   exit 0

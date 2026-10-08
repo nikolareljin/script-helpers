@@ -52,6 +52,17 @@ _ports__valid_port() {
   (( 10#$1 >= 1 && 10#$1 <= 65535 ))
 }
 
+# Internal: is there an lsof that understands -i? BusyBox lsof (Alpine)
+# ignores every option and lists all open files, which read as one listener
+# per process on the machine, and as PIDs for a kill-port caller.
+_ports__lsof_ok() {
+  local help
+  command -v lsof >/dev/null 2>&1 || return 1
+  # Captured, not piped: under pipefail lsof's own non-zero exit would win.
+  help="$(lsof --help 2>&1)"
+  [[ "$help" != *BusyBox* ]]
+}
+
 # Usage: list_port_usage_details <port>; prints process/user details for listeners.
 list_port_usage_details() {
   local port="${1:-}" line
@@ -60,7 +71,7 @@ list_port_usage_details() {
   local -a details=()
   local allow_sudo="$PORT_DETECTION_ALLOW_SUDO"
 
-  if command -v lsof >/dev/null 2>&1; then
+  if _ports__lsof_ok; then
     while IFS= read -r line; do details+=("$line"); done < <(
       lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk "$_PORTS_LSOF_DETAILS_AWK"
     )
@@ -110,7 +121,7 @@ list_port_listener_pids() {
   port=$((10#$port))
   local allow_sudo="$PORT_DETECTION_ALLOW_SUDO"
 
-  if command -v lsof >/dev/null 2>&1; then
+  if _ports__lsof_ok; then
     while IFS= read -r pid; do [[ "$pid" =~ ^[0-9]+$ ]] && pids+=("$pid"); done < <(
       lsof -t -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null
     )
@@ -262,11 +273,14 @@ check_required_ports_available() {
   [[ $conflict_found -eq 0 ]]
 }
 
-# Usage: port_is_free <port>; true when nothing accepts a connection on
-# 127.0.0.1:<port>. A connect test, not a bind test: it needs no privileges
-# and no tool beyond bash, on Linux and macOS alike.
+# Usage: port_is_free <port>; true when nothing listens on <port>.
+# The listener list (lsof, ss or netstat) is asked first: a connect test
+# alone calls a port free when its server is hung or its accept queue is full,
+# because the connection is then refused. Without any of those tools, a
+# connect to 127.0.0.1 decides.
 port_is_free() {
   _ports__valid_port "${1:-}" || return 2
+  if list_port_usage_details "$((10#$1))" >/dev/null 2>&1; then return 1; fi
   ! { : <>"/dev/tcp/127.0.0.1/$((10#$1))"; } 2>/dev/null
 }
 

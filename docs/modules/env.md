@@ -34,3 +34,8 @@ Functions
 - init_include
   - Purpose: Convenience initializer: sets traps (if available), `cd` to project root, and loads `.env`.
   - Behavior: Calls `setup_traps` when imported; prints debug logs when `DEBUG=true`.
+
+- env_set_value file KEY value
+  - Purpose: Set `KEY` in an env file: the line is replaced where it is (an `export ` prefix included), or appended; a key written twice ends as one line. The file is created, mode 600, when missing.
+  - Behavior: The value is written bare when it can be, else quoted so the shell and python-dotenv read it the same; one that cannot be is refused. Written in place, not moved, so a symlinked `.env` keeps pointing at its target.
+  - Returns: 0 written; 1 a bad key, a newline in the value, a value that cannot be quoted, or a failed write.
