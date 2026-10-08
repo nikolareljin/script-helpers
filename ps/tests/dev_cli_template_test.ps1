@@ -50,6 +50,8 @@ try {
     $r = dev @('hello', 'a', '--b')
     check './dev.ps1 hello runs Project-Hello and exits 0' 0 $r.rc
     if ($r.out -notmatch 'hello: a --b') { fail "Project-Hello did not get its arguments as typed: $($r.out)" } else { note 'with its arguments as typed' }
+    $r = dev @('hello', '--help')
+    if ($r.out -notmatch 'hello: --help') { fail "--help after a repository verb went to the template, not the verb: $($r.out)" } else { note "--help after a repository verb is that verb's" }
     $r = dev @('--help')
     if ($r.out -notmatch '(?m)^  hello') { fail "--help does not list the repository's verb: $($r.out)" } else { note "--help lists the repository's own verbs" }
 
@@ -57,7 +59,7 @@ try {
     if (Get-Command bash -ErrorAction SilentlyContinue) {
         New-Item -ItemType SymbolicLink -Path (Join-Path $repo 'scripts/script-helpers') -Target $root | Out-Null
         Set-Content -Path (Join-Path $repo 'scripts/project.sh') -Value @(
-            'SVC_BACKEND=proc',
+            'export SVC_BACKEND=proc',
             'SVC_PROCS=("web:sleep 300")'
         )
         $r = dev @('status')

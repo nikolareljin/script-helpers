@@ -78,7 +78,7 @@ function Not-Applicable {
 function Test-DevHasServices {
     $projectSh = Join-Path $PSScriptRoot 'project.sh'
     if (-not (Test-Path $projectSh)) { return $false }
-    return [bool](Select-String -Path $projectSh -Pattern '^\s*SVC_BACKEND=' -Quiet)
+    return [bool](Select-String -Path $projectSh -Pattern '^\s*(export\s+)?SVC_BACKEND=' -Quiet)
 }
 function Invoke-ServiceVerb {
     param([string]$VerbName)
@@ -568,7 +568,10 @@ function Show-RepoVerbs {
     }
 }
 
-if ($DEV_WANTS_HELP) { Show-Usage; Show-RepoVerbs; exit 0 }
+# --help for a verb of the repository's own is that verb's to answer, as in cli.sh.
+$repoVerb = ($Verb -match '^[a-z][a-z0-9-]*$') -and (Get-Command "Project-$Verb" -ErrorAction SilentlyContinue) -and
+    (@('install','build','run','start','stop','restart','status','test','preflight','scan','e2e','deploy','devices','screenshot','record','logs','clean','update','release') -notcontains $Verb)
+if ($DEV_WANTS_HELP -and -not $repoVerb) { Show-Usage; Show-RepoVerbs; exit 0 }
 
 switch ($Verb) {
     ''           { Show-Usage; Show-RepoVerbs; exit 0 }
