@@ -157,6 +157,28 @@ printf 'LOADED_A=one\n' >"$tmp/l.env"
   if [[ -o allexport ]]; then ok "a caller's allexport is left on"; else error "load_env turned off the caller's allexport"; fi
 )
 
+# --- env_set_value -------------------------------------------------------------
+ev() { local want="$1" got="$2" what="$3"; if [[ "$got" == "$want" ]]; then ok "$what"; else error "$what: expected [$want], got [$got]"; fi; }
+f="$tmp/set.env"
+printf '# c\nA=1\nexport WEB_PORT=8000\nB=2\n' >"$f"
+env_set_value "$f" WEB_PORT 8001
+ev $'# c\nA=1\nWEB_PORT=8001\nB=2' "$(cat "$f")" "env_set_value replaces the line where it is, export prefix included"
+env_set_value "$f" NEW 'two words'
+ev "NEW='two words'" "$(tail -1 "$f")" "a missing key is appended, quoted when it needs it"
+printf 'X=1\nX=2\n' >"$f"; env_set_value "$f" X 3
+ev "X=3" "$(cat "$f")" "a key written twice ends as one line"
+rc=0; env_set_value "$f" 'BAD-KEY' 1 2>/dev/null || rc=$?
+ev 1 "$rc" "a key that is not a variable name is refused"
+rc=0; env_set_value "$f" K $'a\nb' 2>/dev/null || rc=$?
+ev 1 "$rc" "a value with a newline is refused"
+rc=0; env_set_value "$f" K $'it\'s $HOME' 2>/dev/null || rc=$?
+ev 1 "$rc" "a value that cannot be quoted the same for the shell and dotenv is refused"
+rm -f "$tmp/new.env"; env_set_value "$tmp/new.env" P 1
+ev "P=1:600" "$(cat "$tmp/new.env"):$(stat -c %a "$tmp/new.env" 2>/dev/null || stat -f %Lp "$tmp/new.env")" "a missing file is created, mode 600"
+printf 'P=1\n' >"$tmp/target.env"; ln -sf "$tmp/target.env" "$tmp/link.env"
+env_set_value "$tmp/link.env" P 2
+ev "link:P=2" "$([[ -L "$tmp/link.env" ]] && echo link):$(cat "$tmp/target.env")" "a symlinked .env stays a link and its target is written"
+
 if [[ $failures -eq 0 ]]; then
   note "all env tests passed"
   exit 0

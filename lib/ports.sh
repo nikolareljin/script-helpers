@@ -273,11 +273,14 @@ check_required_ports_available() {
   [[ $conflict_found -eq 0 ]]
 }
 
-# Usage: port_is_free <port>; true when nothing accepts a connection on
-# 127.0.0.1:<port>. A connect test, not a bind test: it needs no privileges
-# and no tool beyond bash, on Linux and macOS alike.
+# Usage: port_is_free <port>; true when nothing listens on <port>.
+# The listener list (lsof, ss or netstat) is asked first: a connect test
+# alone calls a port free when its server is hung or its accept queue is full,
+# because the connection is then refused. Without any of those tools, a
+# connect to 127.0.0.1 decides.
 port_is_free() {
   _ports__valid_port "${1:-}" || return 2
+  if list_port_usage_details "$((10#$1))" >/dev/null 2>&1; then return 1; fi
   ! { : <>"/dev/tcp/127.0.0.1/$((10#$1))"; } 2>/dev/null
 }
 

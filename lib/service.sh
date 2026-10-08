@@ -20,9 +20,10 @@
 # Exit codes: 0 ok or nothing to do, 1 failure, 2 usage (bad configuration).
 # Needs: logging, docker, ports (imported below when missing).
 
-if ! declare -F port_choose >/dev/null 2>&1 || ! declare -F get_docker_compose_cmd >/dev/null 2>&1; then
+if ! declare -F port_choose >/dev/null 2>&1 || ! declare -F get_docker_compose_cmd >/dev/null 2>&1 \
+   || ! declare -F env_set_value >/dev/null 2>&1; then
   if declare -F shlib_import >/dev/null 2>&1; then
-    shlib_import docker ports
+    shlib_import docker ports env
   fi
 fi
 
@@ -191,6 +192,25 @@ _svc_port_owner() {
   return 1
 }
 
+# Internal: after a port was moved on a terminal, offer to keep it in the
+# repository's .env. Without it, the next status, stop or start reads the old
+# port again and reports a running service as down.
+_svc_offer_save() {
+  local v="$1" new="$2" env_file answer=""
+  env_file="$(_svc_root)/.env"
+  printf 'Save %s=%s in %s so status, stop and the next start use it? [Y/n] ' "$v" "$new" "$env_file" >&2
+  IFS= read -r answer || answer="n"
+  case "$(printf '%s' "$answer" | tr 'A-Z' 'a-z' | tr -d ' \t\r')" in
+    ""|y|yes)
+      if env_set_value "$env_file" "$v" "$new"; then
+        log_info "service: saved $v=$new in $env_file"
+        return 0
+      fi
+      ;;
+  esac
+  log_info "service: using $v=$new for this start only; set $v=$new in .env to keep it"
+}
+
 # Internal: a configured port that is taken. A NAME:port entry, with a terminal,
 # is asked about (port_choose): the answer is exported as NAME for this start,
 # and SVC_PORTS, SVC_HEALTH_URL and SVC_URLS follow it, or the health check
@@ -215,7 +235,7 @@ _svc_ports_free() {
           urls+=("$u")
         done
         SVC_URLS=(${urls[@]+"${urls[@]}"})
-        log_info "service: using $v=$new for this start; set $v=$new in .env to keep it"
+        _svc_offer_save "$v" "$new"
         i=$((i + 1)); continue
       fi
       taken=1; i=$((i + 1)); continue

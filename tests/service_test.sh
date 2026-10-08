@@ -119,11 +119,12 @@ for how in setsid perl; do
     SVC_BACKEND=proc; _SVC_DETACH="$1"; SVC_PROCS=("jc:sleep 300")
     svc_start >/dev/null 2>&1 || exit 1
     p="$(cat "$SVC_ROOT/.run/jc.pid")"
-    # /proc first: BusyBox ps has no -p.
+    # /proc first: BusyBox ps has no -p. macOS ps has no sid keyword (its sess
+    # is a kernel address), so there getsid(2) is asked through python3.
     if [[ -r "/proc/$p/stat" ]]; then
       s="$(cat "/proc/$p/stat")"; s="${s##*) }"; s="$(echo "$s" | awk "{ print \$4 }")"
     else
-      s="$(ps -o sid= -p "$p" | tr -d " ")"
+      s="$(python3 -c "import os,sys; print(os.getsid(int(sys.argv[1])))" "$p" 2>/dev/null)"
     fi
     svc_stop >/dev/null 2>&1
     [[ "$s" == "$p" ]] && echo own || echo "pid $p sid $s"' x "$how" 2>/dev/null)"
@@ -219,7 +220,8 @@ time.sleep(300)' "$tmp/port" &
   svc_start >"$out" 2>&1; check "a taken port refuses start" 1 $?
   said "the refusal names the port" "$out" "port $port is already in use by"
   if port_in_use_by "$port" >/dev/null 2>&1; then
-    said "the refusal names the owner" "$out" "python"
+    # By PID: the command name differs by OS ("python3", "Python" from macOS lsof).
+    said "the refusal names the owner" "$out" "PID $listener_pid"
   else
     note "SKIP owner name: no lsof/ss/netstat that sees it"
   fi
@@ -248,9 +250,15 @@ time.sleep(300)' "$tmp/port" &
   newp="$(cat "$SVC_ROOT/.run/got" 2>/dev/null)"
   check "the process got the new port through WEB_PORT" "yes" "$([[ "$newp" =~ ^[0-9]+$ && "$newp" != "$port" ]] && echo yes || echo no)"
   said "the URLs follow it" "$out" "http://127.0.0.1:$newp/"
-  said "and it says how to keep it" "$out" "set WEB_PORT=$newp in .env to keep it"
+  said "not saved when the answer is no (here: none), and it says how to keep it" "$out" "for this start only; set WEB_PORT=$newp in .env to keep it"
+  check "and .env is untouched" no "$([[ -e "$SVC_ROOT/.env" ]] && echo yes || echo no)"
   check "SVC_PORTS follows it too" "WEB_PORT:$newp" "${SVC_PORTS[0]}"
   svc_stop >/dev/null 2>&1
+  proc_setup 'web:sleep 300'; SVC_PORTS=("WEB_PORT:$port")
+  printf '\n\n' | svc_start >"$out" 2>&1; check "Enter twice: the suggested port, and saved" 0 $?
+  check "saved in the repository's .env" "WEB_PORT=" "$(grep -o '^WEB_PORT=' "$SVC_ROOT/.env" 2>/dev/null)"
+  said "and it says so" "$out" "saved WEB_PORT="
+  svc_stop >/dev/null 2>&1; rm -f "$SVC_ROOT/.env"
   proc_setup "web:sleep 300"; SVC_PORTS=("$port")
   svc_start <<<"" >"$out" 2>&1; check "a bare port on a terminal cannot be moved: refused" 1 $?
   proc_setup "web:sleep 300"; SVC_PORTS=("WEB_PORT:$port")
