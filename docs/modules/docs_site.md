@@ -52,6 +52,7 @@ Functions
 - docs_site_serve repo [port] -- live reload (MkDocs); `preview` for a command generator.
 - docs_site_preview repo [port] -- build, then serve the output through `serve_static_site`.
 - docs_site_verify dir -- crawl an already built site over HTTP (`scripts/site_verify.py`).
+- docs_site_stray_files dir -- list, and fail on, files a built site should not publish (see check step 3). Returns 0 none, 1 some, 2 no such directory.
 - docs_site_generator repo -- prints `mkdocs` or `command`; 2 when the repository has no site.
 - docs_site_out repo -- prints the output directory.
 - docs_site_toolchain repo -- creates or refreshes the MkDocs virtualenv and prints its `mkdocs`.

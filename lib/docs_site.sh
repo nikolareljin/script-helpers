@@ -143,6 +143,26 @@ _docs_site__docs_dir() {
   printf '%s\n' "$repo/${dir:-docs}"
 }
 
+# Usage: docs_site_stray_files <site dir>; lists, and fails on, files a site
+# should not publish. MkDocs copies every file under docs_dir verbatim, so a
+# .bak, a script or a swapfile dropped in docs/ is published. Web assets,
+# fonts, documents and media a site links on purpose are kept, plus the
+# extensions in DOCS_SITE_ALLOW_EXT. Returns 0 none, 1 some (listed).
+docs_site_stray_files() {
+  local out="${1:-}" ext stray
+  [[ -d "$out" ]] || { log_error "docs_site: no built site at '${out}'"; return 2; }
+  local -a keep=(html css js mjs map json xml xml.gz txt svg png jpg jpeg gif ico webp avif
+    woff woff2 ttf otf eot pdf webmanifest mp4 webm mp3 ogg)
+  for ext in ${DOCS_SITE_ALLOW_EXT:-}; do keep+=("${ext#.}"); done
+  local -a not_kept=()
+  for ext in "${keep[@]}"; do not_kept+=(! -name "*.${ext}"); done
+  stray="$(cd "$out" && find . -type f "${not_kept[@]}" ! -name 'CNAME' ! -name '.nojekyll')"
+  [[ -z "$stray" ]] && return 0
+  log_error "docs_site: unexpected files in the built site; anything under docs/ is published verbatim:"
+  printf '%s\n' "$stray" >&2
+  return 1
+}
+
 # Internal: does the MkDocs site have search? MkDocs adds it unless a
 # plugins: list is given without it.
 _docs_site__wants_search() {
@@ -158,7 +178,7 @@ _docs_site__wants_search() {
 # Writes nothing in the repository (the command generator writes its own
 # output, which is then verified where it is).
 docs_site_check() {
-  local repo gen out docs stray rc=0
+  local repo gen out docs rc=0
   repo="$(_docs_site__repo "${1:-.}")" || return 2
   gen="$(docs_site_generator "$repo")" || return 2
   if [[ "$gen" == "mkdocs" ]]; then
@@ -177,22 +197,7 @@ docs_site_check() {
       log_error "docs_site: no search index was produced; search would silently find nothing"
       rc=1
     fi
-    # MkDocs copies every file under docs_dir verbatim, so a stray .bak or a
-    # script dropped in docs/ is published. This checks what came out.
-    # Web assets and documents a site links on purpose; anything else is a
-    # file that was under docs/ by accident (a .bak, a script, a swapfile).
-    local ext
-    local -a keep=(html css js mjs map json xml xml.gz txt svg png jpg jpeg gif ico webp avif
-      woff woff2 ttf otf eot pdf webmanifest mp4 webm mp3 ogg)
-    for ext in ${DOCS_SITE_ALLOW_EXT:-}; do keep+=("${ext#.}"); done
-    local -a not_kept=()
-    for ext in "${keep[@]}"; do not_kept+=(! -name "*.${ext}"); done
-    stray="$(cd "$out" && find . -type f "${not_kept[@]}" ! -name 'CNAME' ! -name '.nojekyll')"
-    if [[ -n "$stray" ]]; then
-      log_error "docs_site: unexpected files in the built site; anything under docs/ is published verbatim:"
-      printf '%s\n' "$stray" >&2
-      rc=1
-    fi
+    docs_site_stray_files "$out" || rc=1
   fi
   if [[ "$rc" -eq 0 ]]; then
     docs_site_verify "$out" || rc=1

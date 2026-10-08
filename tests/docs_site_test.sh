@@ -106,6 +106,65 @@ rm "$repo/mkdocs.yml"
 rc=0; (DOCS_SITE_GENERATOR=hugo docs_site_generator "$repo") >/dev/null 2>&1 || rc=$?
 check "an unknown generator is refused (2)" "2" "$rc"
 
+# --- docs_site_stray_files: what a site may publish ----------------------------
+built="$tmp/built"; mkdir -p "$built/fonts" "$built/search"
+for f in index.html fonts/a.ttf fonts/b.woff2 guide.pdf search/search_index.json CNAME .nojekyll img.avif; do : >"$built/$f"; done
+rc=0; docs_site_stray_files "$built" 2>"$tmp/err" || rc=$?
+check "web assets, fonts (the default mkdocs theme ships .ttf), PDF, CNAME and .nojekyll are not stray" "0" "$rc"
+: >"$built/notes.bak"; : >"$built/build.sh"
+rc=0; docs_site_stray_files "$built" 2>"$tmp/err" || rc=$?
+check "a .bak and a script are stray" "1" "$rc"
+said "and each is named" "$tmp/err" "./notes.bak" "./build.sh"
+rm "$built/notes.bak" "$built/build.sh"; : >"$built/data.zip"
+rc=0; DOCS_SITE_ALLOW_EXT="zip .csv" docs_site_stray_files "$built" 2>/dev/null || rc=$?
+check "DOCS_SITE_ALLOW_EXT allows an extension, with or without its dot" "0" "$rc"
+rc=0; docs_site_stray_files "$built" 2>/dev/null || rc=$?
+check "and without it the same file is stray" "1" "$rc"
+
+# --- check with the MkDocs generator, offline ---------------------------------
+# The toolchain is stood in for: a fake mkdocs that "builds" the way MkDocs
+# does, copying docs/ verbatim and writing a page and a search index. So the
+# whole MkDocs path of check runs (fences, build, search index, stray files,
+# the HTTP crawl) without pip or the network.
+mk="$tmp/mk"; mkdir -p "$mk/docs"
+printf 'site_name: t\n' >"$mk/mkdocs.yml"
+printf '# Home\n\n[guide](guide.pdf)\n' >"$mk/docs/index.md"
+: >"$mk/docs/guide.pdf"
+cat >"$tmp/fake-mkdocs" <<'EOF2'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$1" == build ]] || exit 2
+out=""; while [[ $# -gt 0 ]]; do [[ "$1" == --site-dir ]] && out="$2"; shift; done
+mkdir -p "$out/search" "$out/fonts"
+cp -R docs/. "$out/"
+rm -f "$out"/*.md
+printf '<html><body><a href="guide.pdf">guide</a></body></html>\n' >"$out/index.html"
+[[ -n "${FAKE_NO_SEARCH:-}" ]] || printf '{"docs":[]}\n' >"$out/search/search_index.json"
+: >"$out/fonts/fontawesome.ttf"
+EOF2
+chmod +x "$tmp/fake-mkdocs"
+real_toolchain="$(declare -f docs_site_toolchain)"
+docs_site_toolchain() { printf '%s\n' "$tmp/fake-mkdocs"; }
+rc=0; (unset DOCS_SITE_BUILD_CMD DOCS_SITE_OUT; docs_site_check "$mk") >"$tmp/out" 2>&1 || rc=$?
+check "an MkDocs site with a PDF and theme fonts passes check" "0" "$rc"
+: >"$mk/docs/notes.bak"
+rc=0; (unset DOCS_SITE_BUILD_CMD DOCS_SITE_OUT; docs_site_check "$mk") >"$tmp/out" 2>&1 || rc=$?
+check "a .bak left in docs/ fails check" "1" "$rc"
+said "naming it" "$tmp/out" "./notes.bak"
+rm "$mk/docs/notes.bak"
+rc=0; (unset DOCS_SITE_BUILD_CMD DOCS_SITE_OUT; FAKE_NO_SEARCH=1 docs_site_check "$mk") >"$tmp/out" 2>&1 || rc=$?
+check "a missing search index fails check" "1" "$rc"
+printf '```bash\necho\n' >"$mk/docs/open.md"
+rc=0; (unset DOCS_SITE_BUILD_CMD DOCS_SITE_OUT; docs_site_check "$mk") >"$tmp/out" 2>&1 || rc=$?
+check "an unclosed fence in docs/ fails check before the build" "1" "$rc"
+rm "$mk/docs/open.md"
+rm "$mk/docs/guide.pdf"
+rc=0; (unset DOCS_SITE_BUILD_CMD DOCS_SITE_OUT; docs_site_check "$mk") >"$tmp/out" 2>&1 || rc=$?
+check "a link to a file that is gone fails check" "1" "$rc"
+said "naming it" "$tmp/out" "links to /guide.pdf, which answers 404"
+check "check wrote nothing into the repository" "docs mkdocs.yml" "$(ls "$mk" | tr '\n' ' ' | sed 's/ $//')"
+eval "$real_toolchain"
+
 # --- check with a command generator -----------------------------------------
 mkdir -p "$repo/tools"
 cat >"$repo/tools/build.sh" <<'EOF'
