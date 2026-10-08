@@ -66,6 +66,15 @@
   runner.** It asks `preflight.ps1 -List`, which refuses to run where `CI=true`,
   and the refusal ended `./dev.ps1`. `CI` is cleared for the listing alone, as
   `cli.sh` already did.
+- **`install_dev_cli.sh` filed its own shim as the caller's original.** Run
+  again where it had written a shim and there was no backup, it moved that
+  shim to `<name>.pre-dev-cli`. Its own shims are now rewritten in place. The
+  service shims say they are kept, since systemd units and scripts call them;
+  only the others say they are transitional.
+- **`./dev.ps1` could hand a script to WSL's bash.** It took the first `bash`
+  on `PATH`, often WSL's (`System32`, `WindowsApps`), which cannot read a
+  Windows path. It now passes those over for Git Bash, for the service verbs
+  and for the hook setup in `install`.
 - **CI never parsed `templates/dev-cli/*.ps1`**, and nothing ran the PowerShell
   template. The parse step covers `templates/`, and
   `ps/tests/dev_cli_template_test.ps1` drives it.

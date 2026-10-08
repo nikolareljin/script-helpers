@@ -74,6 +74,17 @@ try {
         $r = dev @('status')
         check 'status of a stopped proc service, through bash: 1' 1 $r.rc $r
         if ($r.out -notmatch 'web: stopped') { fail "status was not lib/service.sh's: $($r.out)" } else { note "status is lib/service.sh's" }
+        # A WSL-like bash first on PATH (a System32 directory) must be passed over.
+        $wsl = Join-Path $tmp 'System32'
+        New-Item -ItemType Directory -Path $wsl -Force | Out-Null
+        Set-Content -Path (Join-Path $wsl 'bash') -Value "#!/bin/sh`necho WSL-BASH; exit 42"
+        & chmod +x (Join-Path $wsl 'bash')
+        $savedPath = $env:PATH
+        $env:PATH = "$wsl$([System.IO.Path]::PathSeparator)$env:PATH"
+        $r = dev @('status')
+        $env:PATH = $savedPath
+        check 'a System32 bash first on PATH is passed over' 1 $r.rc $r
+        if ($r.out -match 'WSL-BASH') { fail "the System32 bash ran: $($r.out)" } else { note 'and it did not run' }
         $r = dev @('start')
         check 'start through bash: 0 (no phantom empty argument)' 0 $r.rc $r
         $r = dev @('stop')

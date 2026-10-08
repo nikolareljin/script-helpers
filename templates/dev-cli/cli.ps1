@@ -82,12 +82,12 @@ function Test-DevHasServices {
 }
 function Invoke-ServiceVerb {
     param([string]$VerbName)
-    $bash = Get-Command bash -ErrorAction SilentlyContinue
+    $bash = Find-DevBash
     if (-not $bash) {
-        log_error "${VerbName}: this repository's services run through bash; install Git for Windows (Git Bash)"
+        log_error "${VerbName}: this repository's services run through bash (not WSL's); install Git for Windows (Git Bash)"
         exit 1
     }
-    & $bash.Source (Join-Path $PSScriptRoot 'cli.sh') $VerbName @Rest
+    & $bash (Join-Path $PSScriptRoot 'cli.sh') $VerbName @Rest
     exit $LASTEXITCODE
 }
 
@@ -144,18 +144,32 @@ function Test-IsAndroid { return ((Get-StackDir 'gradle') -or (Test-Path 'androi
 # the pre-push hook is the only remaining gate, and core.hooksPath lives in
 # .git/config — untracked, so a fresh clone has no gate until install sets it.
 # setup-hooks.sh is bash; on Windows it ships with Git for Windows.
+# A bash that can run this repository's scripts. On Windows the first `bash`
+# on PATH is often WSL's (System32, WindowsApps), which cannot read a Windows
+# path; Git Bash can. Returns its path, or $null.
+function Find-DevBash {
+    foreach ($c in @(Get-Command bash -All -CommandType Application -ErrorAction SilentlyContinue)) {
+        if ($c.Source -notmatch '[\\/](System32|WindowsApps)[\\/]') { return $c.Source }
+    }
+    foreach ($p in @("$env:ProgramFiles\Git\bin\bash.exe", "${env:ProgramFiles(x86)}\Git\bin\bash.exe",
+                     "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe")) {
+        if ($p -and (Test-Path $p)) { return $p }
+    }
+    return $null
+}
+
 function Install-DevHooks {
     $setup = Join-Path $env:SCRIPT_HELPERS_DIR 'scripts/setup-hooks.sh'
     if (-not (Test-Path $setup)) {
         log_warn 'install: setup-hooks.sh not found — git hooks not configured'
         return
     }
-    $bash = Get-Command bash -ErrorAction SilentlyContinue
+    $bash = Find-DevBash
     if (-not $bash) {
         log_warn 'install: bash not found — run "git config core.hooksPath scripts/script-helpers/scripts/git-hooks" by hand'
         return
     }
-    & $bash.Source $setup
+    & $bash $setup
     if ($LASTEXITCODE -ne 0) { log_warn 'install: could not configure git hooks — pushes will not be gated' }
 }
 
