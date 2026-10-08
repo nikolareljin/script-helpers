@@ -34,12 +34,14 @@ on:
       - 'mkdocs.yml'
       - 'requirements-docs.txt'
       - '.github/workflows/docs-site.yml'
+      - 'scripts/site_verify.py'
   pull_request:
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
       - 'requirements-docs.txt'
       - '.github/workflows/docs-site.yml'
+      - 'scripts/site_verify.py'
   workflow_dispatch:
 
 permissions:
@@ -57,7 +59,9 @@ jobs:
     with:
       python_version: "3.12"
       requirements_file: requirements-docs.txt
-      build_command: "mkdocs build --strict"
+      # The checks docs_site.sh check runs, around the build that is deployed:
+      # unclosed fences first, then every page and link over HTTP.
+      build_command: "python3 scripts/site_verify.py --fences docs && mkdocs build --strict && python3 scripts/site_verify.py site"
       pages_path: site
       # 1, not the default 0: nothing here reads git history. No
       # git-revision-date plugin, no Hugo .Lastmod. Cloning the full history of

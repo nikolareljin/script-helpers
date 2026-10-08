@@ -12,7 +12,7 @@ Functions
 
 - list_port_usage_details port
   - Purpose: Print human-friendly details like `process (PID 1234, user bob)` for listeners on a TCP port.
-  - Behavior: Tries `lsof`, then `ss`, then `netstat`. With sudo (if allowed) as a fallback.
+  - Behavior: Tries `lsof`, then `ss`, then `netstat`. With sudo (if allowed) as a fallback. BusyBox `lsof` ignores its options and lists every open file; its output (no `COMMAND` header) is not read, and a PID is only ever a bare number.
   - Returns: 0 and prints lines if any found; 1 if nothing could be determined, or when `port` is not a single port 1-65535 (an empty string or a range such as `1-65535` would otherwise match every listener).
 
 - list_port_listener_pids port
@@ -24,6 +24,20 @@ Functions
   - Purpose: Print process details for listeners on a TCP port, or nothing if unused.
   - Behavior: Wraps `list_port_usage_details` and prints detail lines when found.
   - Returns: 0 and prints details if any found; non-zero with no output if unused.
+
+- port_is_free port
+  - Purpose: True when nothing accepts a connection on `127.0.0.1:port`.
+  - Behavior: A connect test through bash's `/dev/tcp`: no privileges, no tools.
+  - Returns: 0 free; 1 taken; 2 not a port 1-65535.
+
+- port_next_free port [tries=20]
+  - Purpose: Print the first free port after `port`.
+  - Returns: 0 with the port; 1 when none of the next `tries` is free; 2 not a port.
+
+- port_choose port [how to set it]
+  - Purpose: Print the port to use, never swapping a taken one silently.
+  - Behavior: A free `port` is printed as it is. A taken one: on a terminal (stdin and stderr), the owner and a free port are shown and the person types a port, Enter taking the suggestion, asked again until it is free. Without a terminal it fails, naming the owner and `how to set it` (for example `--port N, or DOCS_SITE_PORT=N`). Messages go to stderr, so `p="$(port_choose 8000 "--port N")"` works.
+  - Returns: 0 with the port on stdout; 1 taken with nobody to ask, or no answer; 2 not a port.
 
 - check_required_ports_available [env_file=.env]
   - Purpose: Check a common set of env vars → ports for conflicts on the local machine.
