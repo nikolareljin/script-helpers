@@ -62,6 +62,10 @@
 - **`./dev.ps1` passed an empty argument to every verb run without arguments.**
   `@($null)` is an array holding one `$null`; `./dev.ps1 start` handed `''` to
   `svc_start`, which refused it.
+- **`./dev.ps1 build` (and every verb that detects a stack) failed on any CI
+  runner.** It asks `preflight.ps1 -List`, which refuses to run where `CI=true`,
+  and the refusal ended `./dev.ps1`. `CI` is cleared for the listing alone, as
+  `cli.sh` already did.
 - **CI never parsed `templates/dev-cli/*.ps1`**, and nothing ran the PowerShell
   template. The parse step covers `templates/`, and
   `ps/tests/dev_cli_template_test.ps1` drives it.

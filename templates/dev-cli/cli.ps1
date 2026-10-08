@@ -114,7 +114,13 @@ function Invoke-Preflight {
 }
 
 function Get-DevProjects {
-    $out = & $script:PreflightPs1 -List 2>$null
+    # preflight refuses to run where CI=true, and under ErrorActionPreference
+    # Stop that refusal ended ./dev.ps1: build, deploy and every verb that
+    # detects a stack failed on any CI runner. -List only reads the tree, so CI
+    # is cleared for it alone, as cli.sh does (CI="" preflight.sh --list).
+    $savedCI = $env:CI
+    $env:CI = ''
+    try { $out = & $script:PreflightPs1 -List 2>$null } finally { $env:CI = $savedCI }
     if (-not $out) { return @() }
     $out | ForEach-Object {
         $parts = $_ -split "`t"

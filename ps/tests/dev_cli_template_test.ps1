@@ -43,6 +43,11 @@ try {
     check './dev.ps1 bogus exits 2' 2 $r.rc $r
     $r = dev @('build')
     check 'build with nothing to build is not applicable (3)' 3 $r.rc $r
+    # CI=true is where preflight refuses to run; stack detection must still work.
+    $env:CI = 'true'
+    $r = dev @('build')
+    $env:CI = $null
+    check 'build with CI=true: still detected and not applicable (3), not an error' 3 $r.rc $r
     foreach ($v in 'start', 'restart', 'status', 'stop') {
         $r = dev @($v)
         check "$v with no services is not applicable (3)" 3 $r.rc $r
