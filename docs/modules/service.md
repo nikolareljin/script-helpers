@@ -26,7 +26,7 @@ Configuration
 | `SVC_COMPOSE_FILES` | compose | Array of compose files, passed as `-f` each. |
 | `SVC_COMPOSE_PROJECT` | compose | Project name, passed as `-p`. Optional. |
 | `SVC_PROCS` | proc | Array of `name:command`. Names: letters, digits, `_ . -`, no leading dot, unique. The command runs under `bash -c`, so quotes, `&&` and `&` work. |
-| `SVC_PORTS` | both | TCP ports the services listen on, each `8000` or `NAME:8000` (`NAME` is the setting that holds it, such as `BACKEND_PORT:8000`). A taken port refuses start, naming the owner and what to change: `NAME` in `.env` or the environment when it is given. |
+| `SVC_PORTS` | both | TCP ports the services listen on, each `8000` or `NAME:8000`, where `NAME` is the setting that holds it (`BACKEND_PORT:8000`) and the commands read it (`--port "$BACKEND_PORT"`). A taken port: on a terminal, a `NAME:port` entry is asked about (`port_choose`, Enter takes a free port); the answer is exported as `NAME` for this start, `SVC_HEALTH_URL` and `SVC_URLS` follow it, and the message says to set `NAME` in `.env` to keep it. Without a terminal, or for a bare port, the start is refused with the owner, a free port and what to change. `NAME` may not be a variable the shell or loader reads (`PATH`, `HOME`, `LD_*`, `SVC_*` ...). |
 | `SVC_HEALTH_URL` | both | URL that answers with a status below 400 once ready (`curl -f`). Unset: no readiness wait. |
 | `SVC_URLS` | both | Array of `"Label url"`, printed as `Label: url` after a start. |
 | `SVC_STOP_MODE` | compose | `stop` keeps containers (`compose stop`). Default: `compose down`. |

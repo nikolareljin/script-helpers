@@ -25,8 +25,9 @@
   `proc`) and plain `SVC_*` variables; `svc_start`, `svc_stop`, `svc_restart`, `svc_status`,
   `svc_logs` and `svc_wait_ready` do the rest. Native processes run in their own process
   group, so a stop also ends their children; pids and logs live in `.run/`. A taken port
-  refuses the start, naming its owner and the setting to change (`SVC_PORTS` entries may be
-  `NAME:port`), a stale pidfile is removed and reported, a pid
+  is asked about on a terminal (a `NAME:port` entry moves to the port given, for this start)
+  and refused without one, naming its owner, a free port and the setting to change; a stale
+  pidfile is removed and reported, a pid
   reused by another process is never signalled, and a readiness timeout prints the last 40
   log lines. Exit codes: 0 ok, 1 failure, 2 usage.
 

@@ -20,7 +20,7 @@
 # Exit codes: 0 ok or nothing to do, 1 failure, 2 usage (bad configuration).
 # Needs: logging, docker, ports (imported below when missing).
 
-if ! declare -F port_in_use_by >/dev/null 2>&1 || ! declare -F get_docker_compose_cmd >/dev/null 2>&1; then
+if ! declare -F port_choose >/dev/null 2>&1 || ! declare -F get_docker_compose_cmd >/dev/null 2>&1; then
   if declare -F shlib_import >/dev/null 2>&1; then
     shlib_import docker ports
   fi
@@ -114,6 +114,13 @@ _svc_check_ports_config() {
       log_error "service: SVC_PORTS entry '$e': '$v' is not a variable name"
       return 2
     fi
+    # NAME is exported when a taken port is moved; one the shell or the
+    # loader reads would break every command after it.
+    case "$v" in
+      PATH|HOME|IFS|SHELL|PWD|OLDPWD|USER|TMPDIR|LD_*|DYLD_*|BASH*|SVC_*)
+        log_error "service: SVC_PORTS entry '$e': '$v' is not a port setting the shell can lend out"
+        return 2 ;;
+    esac
   done
 }
 
@@ -184,22 +191,45 @@ _svc_port_owner() {
   return 1
 }
 
-# Internal: refuse to start when a configured port is taken, saying what to do
-# about it. Returns 1.
+# Internal: a configured port that is taken. A NAME:port entry, with a terminal,
+# is asked about (port_choose): the answer is exported as NAME for this start,
+# and SVC_PORTS, SVC_HEALTH_URL and SVC_URLS follow it, or the health check
+# would ask whatever took the old port. Otherwise the start is refused with
+# what to do. Returns 1 when any port stays taken.
 _svc_ports_free() {
-  local e p v owner taken=0
+  local e p v owner new free taken=0 i=0
+  local -a ports=()
   for e in ${SVC_PORTS[@]+"${SVC_PORTS[@]}"}; do
     p="$((10#$(_svc_port_of "$e")))"; v="$(_svc_port_var "$e")"
-    if owner="$(_svc_port_owner "$p")"; then
-      log_error "service: port $p${v:+ ($v)} is already in use by $owner"
-      if [[ -n "$v" ]]; then
-        log_error "service: stop that process, or set $v to a free port in .env or the environment, then start again"
-      else
-        log_error "service: stop that process, or move the service to a free port (its configuration and SVC_PORTS), then start again"
+    ports+=("$e")
+    if ! owner="$(_svc_port_owner "$p")"; then i=$((i + 1)); continue; fi
+    if [[ -n "$v" ]] && _ports__can_ask; then
+      if new="$(port_choose "$p" "$v=N in .env or the environment")"; then
+        export "$v=$new"
+        ports[i]="$v:$new"
+        SVC_HEALTH_URL="${SVC_HEALTH_URL:+${SVC_HEALTH_URL//:$p\//:$new/}}"
+        [[ "${SVC_HEALTH_URL:-}" != *":$p" ]] || SVC_HEALTH_URL="${SVC_HEALTH_URL%:"$p"}:$new"
+        local -a urls=() u
+        for u in ${SVC_URLS[@]+"${SVC_URLS[@]}"}; do
+          u="${u//:$p\//:$new/}"; [[ "$u" != *":$p" ]] || u="${u%:"$p"}:$new"
+          urls+=("$u")
+        done
+        SVC_URLS=(${urls[@]+"${urls[@]}"})
+        log_info "service: using $v=$new for this start; set $v=$new in .env to keep it"
+        i=$((i + 1)); continue
       fi
-      taken=1
+      taken=1; i=$((i + 1)); continue
     fi
+    free="$(port_next_free "$p" 2>/dev/null)" || free=""
+    log_error "service: port $p${v:+ ($v)} is already in use by $owner"
+    if [[ -n "$v" ]]; then
+      log_error "service: stop that process, or set $v to a free port${free:+ ($free is free)} in .env or the environment, then start again"
+    else
+      log_error "service: stop that process, or move the service to a free port${free:+ ($free is free)} (its configuration and SVC_PORTS), then start again"
+    fi
+    taken=1; i=$((i + 1))
   done
+  SVC_PORTS=(${ports[@]+"${ports[@]}"})
   [[ $taken -eq 0 ]]
 }
 

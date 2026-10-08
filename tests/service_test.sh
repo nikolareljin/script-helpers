@@ -227,10 +227,36 @@ time.sleep(300)' "$tmp/port" &
   said "and says what to do about it" "$out" "stop that process, or move the service to a free port"
   SVC_PORTS=("WEB_PORT:$port")
   svc_start >"$out" 2>&1; check "a taken NAME:port refuses start" 1 $?
-  said "naming the setting to change" "$out" "port $port (WEB_PORT) is already in use" "set WEB_PORT to a free port in .env or the environment"
+  said "naming the setting to change" "$out" "port $port (WEB_PORT) is already in use" "set WEB_PORT to a free port" "is free) in .env or the environment"
   SVC_PORTS=("WEB-PORT:$port")
   svc_start >"$out" 2>&1; check "a NAME that is not a variable name is usage (2)" 2 $?
+  for bad in PATH LD_PRELOAD SVC_ROOT; do
+    SVC_PORTS=("$bad:$port")
+    svc_start >"$out" 2>&1; check "NAME $bad, which a taken port would overwrite, is usage (2)" 2 $?
+  done
   SVC_PORTS=("$port")
+
+  # On a terminal (stood in for), a taken NAME:port is asked about; the answer
+  # is what the process gets, and the URLs follow it.
+  real_can_ask="$(declare -f _ports__can_ask)"
+  _ports__can_ask() { return 0; }
+  proc_setup 'web:echo "$WEB_PORT" >"$SVC_ROOT/.run/got"; sleep 300'
+  SVC_PORTS=("WEB_PORT:$port"); SVC_URLS=("Web http://127.0.0.1:$port/")
+  SVC_HEALTH_URL=""
+  export SVC_ROOT
+  svc_start <<<"" >"$out" 2>&1; check "a taken NAME:port on a terminal: Enter takes the suggested port, and start goes on" 0 $?
+  newp="$(cat "$SVC_ROOT/.run/got" 2>/dev/null)"
+  check "the process got the new port through WEB_PORT" "yes" "$([[ "$newp" =~ ^[0-9]+$ && "$newp" != "$port" ]] && echo yes || echo no)"
+  said "the URLs follow it" "$out" "http://127.0.0.1:$newp/"
+  said "and it says how to keep it" "$out" "set WEB_PORT=$newp in .env to keep it"
+  check "SVC_PORTS follows it too" "WEB_PORT:$newp" "${SVC_PORTS[0]}"
+  svc_stop >/dev/null 2>&1
+  proc_setup "web:sleep 300"; SVC_PORTS=("$port")
+  svc_start <<<"" >"$out" 2>&1; check "a bare port on a terminal cannot be moved: refused" 1 $?
+  proc_setup "web:sleep 300"; SVC_PORTS=("WEB_PORT:$port")
+  svc_start </dev/null >"$out" 2>&1; check "no answer to the question: refused" 1 $?
+  check "and nothing was started" no "$([[ -e "$SVC_ROOT/.run/web.pid" ]] && echo yes || echo no)"
+  eval "$real_can_ask"
   kill "$listener_pid" 2>/dev/null; listener_pid=""
 else
   note "SKIP taken port: no python3"
