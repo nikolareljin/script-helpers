@@ -217,9 +217,11 @@ _ports__can_ask() { return 1; }
 rc=0; port_choose "$port" "--port N" >"$tmp/out" 2>"$tmp/err" || rc=$?
 check "a taken port with nobody to ask fails (1) and prints no port" "1:" "$rc:$(cat "$tmp/out")"
 said "it names the port, the owner and the way to choose another" "$tmp/err" "Port ${port} is taken by:" "--port N"
-# The owner is python3 where lsof, ss or netstat can see it, and said as unseen
-# where none can (the bash 3.2 image has only BusyBox lsof): never a stranger.
-if grep -qF "python3" "$tmp/err" || grep -qF "a process this user cannot see" "$tmp/err"; then
+# The owner is our listener where lsof, ss or netstat can see it, and said as
+# unseen where none can (the bash 3.2 image has only BusyBox lsof): never a
+# stranger. Matched by PID: the command name differs by OS ("python3" on
+# Linux, "Python" from lsof on macOS).
+if grep -qF "PID ${holder}" "$tmp/err" || grep -qF "a process this user cannot see" "$tmp/err"; then
   note "the owner is the listener, or said to be unseen"
 else
   error "the owner is someone else: $(cat "$tmp/err")"
