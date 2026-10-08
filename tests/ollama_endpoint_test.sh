@@ -579,6 +579,9 @@ _ollama_ep_can_ask() { return 1; }
 reset
 check "ask with no terminal is a refusal, and nothing is pulled" "5:" "$(OLLAMA_PULL_MISSING=ask ensure small:3b):$(pulled)"
 said "it says why, and what would be downloaded" "$tmp/err" "no terminal to ask on" "small:3b" "GB to download"
+said "it names the exact pull and the setting that pulls unasked" "$tmp/err" "ollama pull small:3b" "OLLAMA_PULL_MISSING=1 to pull without asking"
+check "the stand-in is not Ollama's default address, so OLLAMA_HOST is named" "1" "$(grep -c "OLLAMA_HOST=${URL%/} ollama pull small:3b" "$tmp/err")"
+check "the default address needs no OLLAMA_HOST" "Pull it with: ollama pull a:1b; ollama pull b:2b." "$(_ollama_ep_pull_hint http://127.0.0.1:11434 $'a:1b\nb:2b' | cut -d. -f1-3 | sed 's/ Or.*//')"
 reset
 check "with a size unknown and the budget waived, no total is claimed" "5:0" "$(OLLAMA_PULL_MISSING=ask OLLAMA_IGNORE_BUDGET=1 ensure small:3b down:1b):$(grep -c 'to download' "$tmp/err")"
 _ollama_ep_can_ask() { return 0; }
@@ -591,6 +594,7 @@ for answer in n no "" maybe; do
   reset
   check "ask, answered '$answer': nothing pulled" "5:" "$(OLLAMA_PULL_MISSING=ask ensure small:3b <<<"$answer"):$(pulled)"
 done
+said "after a no, it says how to pull later" "$tmp/err" "Nothing was pulled. Missing: small:3b." "ollama pull small:3b"
 reset
 check "ask with stdin closed: no" "5:" "$(OLLAMA_PULL_MISSING=ask ensure small:3b </dev/null):$(pulled)"
 reset main:7b small:3b embed:latest

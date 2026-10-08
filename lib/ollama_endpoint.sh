@@ -92,6 +92,22 @@ _ollama_ep_ask_pull() {
   return 1
 }
 
+# Usage: _ollama_ep_pull_hint <url> <missing, one per line>; prints the ways
+# past a refusal under ask: the exact pull commands, and the setting that pulls
+# without asking. OLLAMA_HOST is named unless the address is Ollama's own
+# default here, or `ollama pull` would fill another Ollama than this one.
+_ollama_ep_pull_hint() {
+  local url="${1:-}" missing="${2:-}" host="" cmds="" m
+  case "${url#*://}" in
+    127.0.0.1:11434|localhost:11434) ;;
+    *) host="OLLAMA_HOST=$(_ollama_ep_shown_url "$url") " ;;
+  esac
+  while IFS= read -r m; do
+    [[ -n "$m" ]] && cmds="${cmds}${cmds:+; }${host}ollama pull ${m}"
+  done <<<"$missing"
+  printf 'Pull it with: %s. Or set OLLAMA_PULL_MISSING=1 to pull without asking.' "$cmds"
+}
+
 # Usage: _ollama_ep_uint <value>; prints value as a whole number, or fails.
 # At most 15 digits, because more overflows bash arithmetic. Leading zeros are
 # removed, because bash reads "08" as an invalid octal number and "010" as 8.
@@ -731,11 +747,11 @@ ollama_endpoint_ensure_models() {
       # lets an unknown one through), or it would understate the download.
       local total=""
       [[ -n "$unknown" ]] || total=" ($(_ollama_ep_gb "$pull_bytes") to download)"
-      print_error "The Ollama at ${shown} lacks: ${missing//$'\n'/ }${total}. OLLAMA_PULL_MISSING=ask and there is no terminal to ask on: run this again from a terminal, or pull it (ollama pull <model>). Nothing was pulled." >&2
+      print_error "The Ollama at ${shown} lacks: ${missing//$'\n'/ }${total}. OLLAMA_PULL_MISSING=ask and there is no terminal to ask on, so nothing was pulled. Run this again from a terminal. $(_ollama_ep_pull_hint "$url" "$missing")" >&2
       return 5
     fi
     if ! _ollama_ep_ask_pull "$shown" "${listing%$'\n'}"; then
-      print_error "Nothing was pulled. Missing: ${missing//$'\n'/ }" >&2
+      print_error "Nothing was pulled. Missing: ${missing//$'\n'/ }. $(_ollama_ep_pull_hint "$url" "$missing")" >&2
       return 5
     fi
   fi

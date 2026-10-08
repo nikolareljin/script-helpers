@@ -377,8 +377,8 @@ in by the message.
 | `Not a model reference: <name>` | 8 | a space, a quote, `@`, `..` or an empty part (`qwen3:`) in a model name |
 | `The Ollama at <address> lacks: <models>. Pulling is off (OLLAMA_PULL_MISSING).` | 5 | `ollama pull <model>`, or set `OLLAMA_PULL_MISSING=1` |
 | `Nothing was pulled. Missing: <models>` | 1 to 3 | follows a disk or memory refusal, the line above it says which |
-| `Nothing was pulled. Missing: <models>` | 5 | `OLLAMA_PULL_MISSING=ask` and the answer was not yes |
-| `... OLLAMA_PULL_MISSING=ask and there is no terminal to ask on ...` | 5 | run the start from a terminal, or `ollama pull <model>` |
+| `Nothing was pulled. Missing: <models>. Pull it with: ...` | 5 | `OLLAMA_PULL_MISSING=ask` and the answer was not yes; the line gives the exact `ollama pull` (with `OLLAMA_HOST=` when the Ollama is not at `127.0.0.1:11434`) |
+| `... OLLAMA_PULL_MISSING=ask and there is no terminal to ask on ...` | 5 | run the start from a terminal, run the `ollama pull` the line gives, or set `OLLAMA_PULL_MISSING=1` to pull without asking |
 | `That Ollama is another machine, so nothing is pulled from here ...` | 5 | pull on that machine, or ask for it (`OLLAMA_PULL_MISSING=1`) with its figures stated |
 | `That Ollama is another machine and lacks: <models>. Its free disk and its memory are not known here ...` | 7 | state `OLLAMA_BUDGET_DISK_FREE_BYTES` and `OLLAMA_BUDGET_MEM_TOTAL_BYTES` for that machine, or `OLLAMA_IGNORE_BUDGET=1` |
 | `The registry has no model named <model> ...` | 7 | a typo, or a setting written in the models file (see the models file above) |
