@@ -62,7 +62,7 @@ mark at the start of the file is ignored.
 Environment
 -----------
 
-- `OLLAMA_PULL_MISSING` -- off never pulls; a missing model is then a refusal. Default on.
+- `OLLAMA_PULL_MISSING` -- off never pulls; a missing model is then a refusal. ask pulls only after a yes on a terminal, once the budget check has passed; no answer, or no terminal (stdin and stderr), is a refusal. Default on.
 - `OLLAMA_DISK_RESERVE_GB` -- free space that must remain after the download. Default `10`. A GB is 10^9 bytes throughout, as Ollama shows a model's size.
 - `OLLAMA_MEM_HEADROOM_PERCENT` -- added to the largest model's size for the memory check (context, runtime). Default `20`.
 - `OLLAMA_IGNORE_BUDGET` -- on turns each refusal of the budget into a warning. Default off.
@@ -150,7 +150,7 @@ Functions
     - 0 every model is there, or none was asked for
     - 1, 2, 3 the budget refused (as `ollama_budget_check`); nothing was pulled
     - 4 nothing answers at `base_url` as an Ollama
-    - 5 models are missing and `OLLAMA_PULL_MISSING=0`
+    - 5 models are missing and `OLLAMA_PULL_MISSING=0`, or `ask` was not answered yes, or there was no terminal to ask on
     - 6 a pull failed
     - 7 the budget could not be checked: a missing model's size, or the free disk space, could not be learned (`OLLAMA_IGNORE_BUDGET=1` pulls anyway). A missing model the registry says it does not have is 7 too, with a message of its own: the name is wrong (or the model is private and the registry does not show it), and waiting does not help.
     - 8 an argument is not a model reference

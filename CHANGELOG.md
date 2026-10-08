@@ -1,5 +1,13 @@
 ## Unreleased
 
+### Added
+
+- **`OLLAMA_PULL_MISSING=ask`.** `ollama_endpoint_ensure_models` (and so
+  `ollama_project_ensure_models`) checks the disk and memory first, then lists
+  each missing model with its size and asks `Pull now? [y/N]` on the terminal.
+  No, or no terminal to ask on (a launcher, a service, CI), is exit 5 and nothing
+  is pulled. For start scripts that must not download gigabytes unasked.
+
 ## 2026-10-07 — v0.45.1
 
 ### Fixed

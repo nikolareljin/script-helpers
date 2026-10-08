@@ -55,6 +55,59 @@ _ollama_ep_on() {
   return 1
 }
 
+# Usage: _ollama_ep_pull_mode; prints on, off or ask for OLLAMA_PULL_MISSING
+# (default on). ask: pull only after a yes on a terminal (_ollama_ep_ask_pull).
+# Anything else is said once and read as off, as _ollama_ep_on does.
+_ollama_ep_pull_mode() {
+  local value
+  value="$(printf '%s' "${OLLAMA_PULL_MISSING:-}" | tr 'A-Z' 'a-z' | tr -d ' \t\r')" || true
+  case "${value:-on}" in
+    ask) printf 'ask\n' ;;
+    1|true|yes|on) printf 'on\n' ;;
+    0|false|no|off|never) printf 'off\n' ;;
+    *)
+      print_warning "OLLAMA_PULL_MISSING is neither on (1, true, yes), off (0, false, no) nor ask: '$(_ollama_ep_said "${OLLAMA_PULL_MISSING:-}")'. Read as off." >&2
+      printf 'off\n'
+      ;;
+  esac
+}
+
+# Usage: _ollama_ep_can_ask; true when there is a person to ask: stdin and
+# stderr are a terminal. A desktop launcher, a service or CI has neither.
+# A function so a test can stand in for the terminal.
+_ollama_ep_can_ask() {
+  [[ -t 0 && -t 2 ]]
+}
+
+# Usage: _ollama_ep_ask_pull <shown url> <listing>; true on a yes. The listing
+# is one "model  size" line per missing model. Asked on stderr, read from stdin,
+# so a caller that captures stdout still gets the question.
+_ollama_ep_ask_pull() {
+  local shown="${1:-}" listing="${2:-}" answer=""
+  printf 'The Ollama at %s lacks:\n%s\nPull now? [y/N] ' "$shown" "$listing" >&2
+  IFS= read -r answer || answer=""
+  case "$(printf '%s' "$answer" | tr 'A-Z' 'a-z' | tr -d ' \t\r')" in
+    y|yes) return 0 ;;
+  esac
+  return 1
+}
+
+# Usage: _ollama_ep_pull_hint <url> <missing, one per line>; prints the ways
+# past a refusal under ask: the exact pull commands, and the setting that pulls
+# without asking. OLLAMA_HOST is named unless the address is Ollama's own
+# default here, or `ollama pull` would fill another Ollama than this one.
+_ollama_ep_pull_hint() {
+  local url="${1:-}" missing="${2:-}" host="" cmds="" m
+  case "${url#*://}" in
+    127.0.0.1:11434|localhost:11434) ;;
+    *) host="OLLAMA_HOST=$(_ollama_ep_shown_url "$url") " ;;
+  esac
+  while IFS= read -r m; do
+    [[ -n "$m" ]] && cmds="${cmds}${cmds:+; }${host}ollama pull ${m}"
+  done <<<"$missing"
+  printf 'Pull it with: %s. Or set OLLAMA_PULL_MISSING=1 to pull without asking.' "$cmds"
+}
+
 # Usage: _ollama_ep_uint <value>; prints value as a whole number, or fails.
 # At most 15 digits, because more overflows bash arithmetic. Leading zeros are
 # removed, because bash reads "08" as an invalid octal number and "010" as 8.
@@ -584,17 +637,20 @@ ollama_endpoint_pull() {
 #   2  memory cannot take the largest model
 #   3  neither can
 #   4  nothing answers at base_url as an Ollama
-#   5  models are missing and OLLAMA_PULL_MISSING=0 says not to pull
+#   5  models are missing and OLLAMA_PULL_MISSING=0 says not to pull, or
+#      OLLAMA_PULL_MISSING=ask and the answer was not yes, or there was no
+#      terminal to ask on
 #   6  a pull failed
 #   7  the budget could not be checked: a missing model's size, or the free
 #      disk space, could not be learned
 #   8  an argument is not a model reference
 #
-# Env: OLLAMA_PULL_MISSING (default 1), OLLAMA_IGNORE_BUDGET, and everything
+# Env: OLLAMA_PULL_MISSING (on, off or ask; default on), OLLAMA_IGNORE_BUDGET, and everything
 # ollama_budget_check, ollama_registry_size_bytes and ollama_endpoint_pull read.
 ollama_endpoint_ensure_models() {
   local url="${1:-}" dir="${2:-.}" present needed missing model size shown
   local pull_bytes=0 largest=0 unknown="" unsized="" nowhere="" status=0 ignore=0 asked
+  local pull_mode listing=""
   url="${url%/}"
   # If the directory is left out, there are no models either: the only
   # argument left is the URL, and it must not be read as a model.
@@ -619,7 +675,8 @@ ollama_endpoint_ensure_models() {
   missing="$(ollama_models_missing "$needed" "$present")"
   [[ -n "$missing" ]] || return 0
 
-  if ! _ollama_ep_on OLLAMA_PULL_MISSING on; then
+  pull_mode="$(_ollama_ep_pull_mode)"
+  if [[ "$pull_mode" == "off" ]]; then
     print_error "The Ollama at ${shown} lacks: ${missing//$'\n'/ }. Pulling is off (OLLAMA_PULL_MISSING)." >&2
     return 5
   fi
@@ -637,9 +694,11 @@ ollama_endpoint_ensure_models() {
       [[ "$size" -le "$largest" ]] || largest="$size"
       if grep -qxF -- "$model" <<<"$missing"; then
         pull_bytes=$((pull_bytes + size))
+        listing="${listing}  ${model}  $(_ollama_ep_gb "$size")"$'\n'
       fi
     elif grep -qxF -- "$model" <<<"$missing"; then
       unknown="${unknown}${model} "
+      listing="${listing}  ${model}  size unknown"$'\n'
       [[ "$asked" -ne 3 ]] || nowhere="${nowhere}${model} "
     else
       unsized="${unsized}${model} "
@@ -678,6 +737,23 @@ ollama_endpoint_ensure_models() {
   if [[ "$status" -ne 0 ]]; then
     print_error "Nothing was pulled. Missing: ${missing//$'\n'/ }" >&2
     return "$status"
+  fi
+
+  # Asked only now: a question about a download that would not fit is no
+  # question, and the sizes are known for the listing.
+  if [[ "$pull_mode" == "ask" ]]; then
+    if ! _ollama_ep_can_ask; then
+      # A total is only said when every size is known (OLLAMA_IGNORE_BUDGET
+      # lets an unknown one through), or it would understate the download.
+      local total=""
+      [[ -n "$unknown" ]] || total=" ($(_ollama_ep_gb "$pull_bytes") to download)"
+      print_error "The Ollama at ${shown} lacks: ${missing//$'\n'/ }${total}. OLLAMA_PULL_MISSING=ask and there is no terminal to ask on, so nothing was pulled. Run this again from a terminal. $(_ollama_ep_pull_hint "$url" "$missing")" >&2
+      return 5
+    fi
+    if ! _ollama_ep_ask_pull "$shown" "${listing%$'\n'}"; then
+      print_error "Nothing was pulled. Missing: ${missing//$'\n'/ }. $(_ollama_ep_pull_hint "$url" "$missing")" >&2
+      return 5
+    fi
   fi
 
   while IFS= read -r model; do
@@ -1093,7 +1169,7 @@ ollama_project_ensure_models() (
       if [[ -z "$_oep_value" ]]; then
         _oep_unasked=1
         export OLLAMA_PULL_MISSING=0
-      elif [[ -n "$_oep_missing" ]] && _ollama_ep_on OLLAMA_PULL_MISSING on 2>/dev/null; then
+      elif [[ -n "$_oep_missing" && "$(_ollama_ep_pull_mode 2>/dev/null)" != "off" ]]; then
         # A pull into another machine was asked for. Said once here, so a typo
         # in the setting that would waive the check is not swallowed.
         if _ollama_ep_on OLLAMA_IGNORE_BUDGET off; then _oep_ignore=1; fi

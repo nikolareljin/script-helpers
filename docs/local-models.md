@@ -178,7 +178,11 @@ Then, inside (`ollama_endpoint_ensure_models`):
 2. If nothing is missing: exit 0, and the registry is never asked. A machine
    that has its models starts offline.
 3. If pulling is off (`OLLAMA_PULL_MISSING=0`): exit 5, naming the missing
-   models.
+   models. With `OLLAMA_PULL_MISSING=ask`, steps 4 and 5 run first, then each
+   missing model is listed with its size and the person is asked `Pull now?
+   [y/N]`. Anything but yes is exit 5. With no terminal to ask on (a desktop
+   launcher, a service, CI) it is exit 5 too, saying so: nothing downloads
+   gigabytes without a yes.
 4. Ask the registry for the size of every needed model. The missing ones add
    up to the download; the largest of all of them must fit in memory. A size
    that cannot be learned stops here (exit 7), unless the budget is ignored.
@@ -310,7 +314,7 @@ All optional, read from the environment or, through
 | `OLLAMA_URL`, `OLLAMA_BASE_URL`, `OLLAMA_HOST` | `http://127.0.0.1:11434` | The address; the first with a value. `OLLAMA_URL_VARS` names other variables to read it from. |
 | `OLLAMA_PORT`, `OLLAMA_HOST_PORT` | the address's own port | `docker`: the port the container is published on; 1 to 65535, or exit 9. |
 | `OLLAMA_MODELS` | see `ollama_models_dir` | Where that Ollama keeps its models, for the disk check. |
-| `OLLAMA_PULL_MISSING` | on (`remote`: off) | off: never pull; a missing model is exit 5. |
+| `OLLAMA_PULL_MISSING` | on (`remote`: off) | off: never pull; a missing model is exit 5. ask: pull after a yes on a terminal; no, or no terminal, is exit 5. |
 | `OLLAMA_IGNORE_BUDGET` | off | on: a refusal of the disk or memory check becomes a warning, and an unknown size does not stop the pull. For a machine you know better than the numbers. |
 | `OLLAMA_DISK_RESERVE_GB` | 10 | Free space that must remain after the download. Not a number, or above 100000, is read as a typo: 10. |
 | `OLLAMA_MEM_HEADROOM_PERCENT` | 20 | Added to the largest model's file size for the memory check (context, runtime). Not a number, or above 1000: 20. |
@@ -373,6 +377,8 @@ in by the message.
 | `Not a model reference: <name>` | 8 | a space, a quote, `@`, `..` or an empty part (`qwen3:`) in a model name |
 | `The Ollama at <address> lacks: <models>. Pulling is off (OLLAMA_PULL_MISSING).` | 5 | `ollama pull <model>`, or set `OLLAMA_PULL_MISSING=1` |
 | `Nothing was pulled. Missing: <models>` | 1 to 3 | follows a disk or memory refusal, the line above it says which |
+| `Nothing was pulled. Missing: <models>. Pull it with: ...` | 5 | `OLLAMA_PULL_MISSING=ask` and the answer was not yes; the line gives the exact `ollama pull` (with `OLLAMA_HOST=` when the Ollama is not at `127.0.0.1:11434`) |
+| `... OLLAMA_PULL_MISSING=ask and there is no terminal to ask on ...` | 5 | run the start from a terminal, run the `ollama pull` the line gives, or set `OLLAMA_PULL_MISSING=1` to pull without asking |
 | `That Ollama is another machine, so nothing is pulled from here ...` | 5 | pull on that machine, or ask for it (`OLLAMA_PULL_MISSING=1`) with its figures stated |
 | `That Ollama is another machine and lacks: <models>. Its free disk and its memory are not known here ...` | 7 | state `OLLAMA_BUDGET_DISK_FREE_BYTES` and `OLLAMA_BUDGET_MEM_TOTAL_BYTES` for that machine, or `OLLAMA_IGNORE_BUDGET=1` |
 | `The registry has no model named <model> ...` | 7 | a typo, or a setting written in the models file (see the models file above) |
