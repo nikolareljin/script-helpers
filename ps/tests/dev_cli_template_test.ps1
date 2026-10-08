@@ -11,8 +11,12 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '..' '..')).Path
 $script:failures = 0
 function note([string]$m) { Write-Host "[dev_cli_template_test.ps1]   ok  $m" }
 function fail([string]$m) { Write-Host "[dev_cli_template_test.ps1][ERROR] $m"; $script:failures++ }
-function check([string]$what, $want, $got) {
-    if ("$want" -eq "$got") { note $what } else { fail "${what}: expected [$want], got [$got]" }
+# $r, when given, is a dev run: its output is printed on a failure, which is
+# where the reason is.
+function check([string]$what, $want, $got, $r = $null) {
+    if ("$want" -eq "$got") { note $what; return }
+    fail "${what}: expected [$want], got [$got]"
+    if ($r) { Write-Host "    output: $($r.out)" }
 }
 
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("devcli-ps-" + [guid]::NewGuid())
@@ -33,22 +37,22 @@ try {
     }
 
     $r = dev @()
-    check './dev.ps1 alone shows the verbs and exits 0' 0 $r.rc
+    check './dev.ps1 alone shows the verbs and exits 0' 0 $r.rc $r
     if ($r.out -notmatch 'Services') { fail "the verb list has no Services section: $($r.out)" } else { note 'the verb list has the service verbs' }
     $r = dev @('bogus')
-    check './dev.ps1 bogus exits 2' 2 $r.rc
+    check './dev.ps1 bogus exits 2' 2 $r.rc $r
     $r = dev @('build')
-    check 'build with nothing to build is not applicable (3)' 3 $r.rc
+    check 'build with nothing to build is not applicable (3)' 3 $r.rc $r
     foreach ($v in 'start', 'restart', 'status', 'stop') {
         $r = dev @($v)
-        check "$v with no services is not applicable (3)" 3 $r.rc
+        check "$v with no services is not applicable (3)" 3 $r.rc $r
     }
 
     Set-Content -Path (Join-Path $repo 'scripts/project.ps1') -Value @(
         'function Project-Hello { Write-Host "hello: $($args -join '' '')" }'
     )
     $r = dev @('hello', 'a', '--b')
-    check './dev.ps1 hello runs Project-Hello and exits 0' 0 $r.rc
+    check './dev.ps1 hello runs Project-Hello and exits 0' 0 $r.rc $r
     if ($r.out -notmatch 'hello: a --b') { fail "Project-Hello did not get its arguments as typed: $($r.out)" } else { note 'with its arguments as typed' }
     $r = dev @('hello', '--help')
     if ($r.out -notmatch 'hello: --help') { fail "--help after a repository verb went to the template, not the verb: $($r.out)" } else { note "--help after a repository verb is that verb's" }
@@ -63,12 +67,12 @@ try {
             'SVC_PROCS=("web:sleep 300")'
         )
         $r = dev @('status')
-        check 'status of a stopped proc service, through bash: 1' 1 $r.rc
+        check 'status of a stopped proc service, through bash: 1' 1 $r.rc $r
         if ($r.out -notmatch 'web: stopped') { fail "status was not lib/service.sh's: $($r.out)" } else { note "status is lib/service.sh's" }
         $r = dev @('start')
-        check 'start through bash: 0 (no phantom empty argument)' 0 $r.rc
+        check 'start through bash: 0 (no phantom empty argument)' 0 $r.rc $r
         $r = dev @('stop')
-        check 'stop through bash: 0' 0 $r.rc
+        check 'stop through bash: 0' 0 $r.rc $r
         if ($r.out -notmatch 'stopped web') { fail "stop did not stop the service: $($r.out)" } else { note 'stop stopped it' }
     } else {
         note 'SKIP service verbs: no bash'
