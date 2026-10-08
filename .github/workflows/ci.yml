@@ -64,7 +64,9 @@ jobs:
         shell: pwsh
         run: |
           $failed = 0
-          Get-ChildItem -Path ps -Recurse -Filter *.ps1 | ForEach-Object {
+          # templates/ too: the dev-cli template ships to every repository and
+          # was never parsed here.
+          Get-ChildItem -Path ps, templates -Recurse -Filter *.ps1 | ForEach-Object {
             $tokens = $null; $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile(
               $_.FullName, [ref]$tokens, [ref]$errors) | Out-Null

@@ -98,7 +98,7 @@ fi
 repo="$(new_repo plain)"
 : > "$DOCKER_LOG"
 out="$(dev "$repo" stop)"; rc=$?
-if [[ $rc -eq 0 && "$out" == *"stop: not applicable"* && ! -s "$DOCKER_LOG" ]]; then
+if [[ $rc -eq 3 && "$out" == *"stop: not applicable"* && ! -s "$DOCKER_LOG" ]]; then
   note "no compose file and no project_stop: not applicable, exit 0"
 else
   error "plain: rc=$rc out='$out'"
@@ -106,7 +106,7 @@ fi
 
 # 4. The verb is listed.
 out="$(dev "$repo" help)"
-if [[ "$out" == *"stop          Stop what run started"* ]]; then
+if [[ "$out" == *"stop          Stop what start or run started"* ]]; then
   note "help lists stop"
 else
   error "help does not list stop"

@@ -6,7 +6,8 @@
 # PARAMETERS:
 #   --repo <path>   Target repository (default: current directory).
 #   --shims <list>  Comma-separated root scripts to replace with thin shims,
-#                   e.g. "build,test,update,start". Each becomes
+#                   e.g. "build,test,update,start"; "service" stands for
+#                   start,stop,restart,status,logs. Each becomes
 #                   `exec bash scripts/cli.sh <verb> "$@"`. Existing files are
 #                   backed up to <name>.pre-dev-cli unless --force is given.
 #   --no-hooks      Do not wire the pre-push hook.
@@ -122,6 +123,8 @@ for core in dev dev.ps1 scripts/_bootstrap.sh scripts/cli.sh scripts/cli.ps1 scr
 done
 shim_list=()
 if [[ -n "$SHIMS" ]]; then
+  # "service": the five lifecycle verbs a repository with SVC_BACKEND answers.
+  SHIMS="$(printf '%s' "$SHIMS" | awk -v RS=, -v ORS=, '{ gsub(/[[:space:]]/, ""); if ($0 == "service") print "start,stop,restart,status,logs"; else if ($0 != "") print }' | sed 's/,$//')"
   IFS=',' read -r -a shim_list <<< "$SHIMS"
   # Two things are refused. A name with a path
   # separator, or `.`/`..`, would write outside the repository root or over a

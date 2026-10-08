@@ -57,7 +57,7 @@ dev() { (cd "$1" && shift && PATH="$tmp/bin:$PATH" bash scripts/cli.sh "$@") 2>&
 # 1. No config: not applicable, exit 0, npx never called.
 r="$(new_repo none)"
 : > "$NPX_LOG"; rc=0; out="$(dev "$r" e2e)" || rc=$?
-if [[ $rc -eq 0 && "$out" == *"e2e: not applicable"* && ! -s "$NPX_LOG" ]]; then
+if [[ $rc -eq 3 && "$out" == *"e2e: not applicable"* && ! -s "$NPX_LOG" ]]; then
   note "no playwright.config: not applicable"
 else
   error "none: rc=$rc out='$out'"
@@ -110,7 +110,7 @@ fi
 # 5c. A config in a directory git ignores is not found at all.
 r="$(new_repo ignored)"; mkdir -p "$r/dist"; printf 'dist/\n' > "$r/.gitignore"; with_playwright "$r/dist"
 : > "$NPX_LOG"; rc=0; out="$(dev "$r" e2e)" || rc=$?
-if [[ $rc -eq 0 && "$out" == *"e2e: not applicable"* && ! -s "$NPX_LOG" ]]; then
+if [[ $rc -eq 3 && "$out" == *"e2e: not applicable"* && ! -s "$NPX_LOG" ]]; then
   note "a config in an ignored directory: not found"
 else
   error "ignored: rc=$rc out='$out'"
@@ -123,7 +123,7 @@ r="$(new_repo withsub)"
 git -C "$r" -c protocol.file.allow=always submodule --quiet add "$src" libmod >/dev/null 2>&1
 mkdir -p "$r/libmod/node_modules/@playwright/test"
 : > "$NPX_LOG"; rc=0; out="$(dev "$r" e2e)" || rc=$?
-if [[ -f "$r/libmod/playwright.config.ts" && $rc -eq 0 && "$out" == *"e2e: not applicable"* && ! -s "$NPX_LOG" ]]; then
+if [[ -f "$r/libmod/playwright.config.ts" && $rc -eq 3 && "$out" == *"e2e: not applicable"* && ! -s "$NPX_LOG" ]]; then
   note "a Playwright project in a submodule: not run"
 else
   error "submodule: rc=$rc present=$([[ -f "$r/libmod/playwright.config.ts" ]] && echo y || echo n) log='$(cat "$NPX_LOG")' out='$out'"
@@ -153,7 +153,7 @@ fi
 r="$(new_repo deleted)"; with_playwright "$r"
 git -C "$r" add playwright.config.ts package.json; rm "$r/playwright.config.ts"
 : > "$NPX_LOG"; rc=0; out="$(dev "$r" e2e)" || rc=$?
-if [[ $rc -eq 0 && "$out" == *"e2e: not applicable"* && ! -s "$NPX_LOG" ]]; then
+if [[ $rc -eq 3 && "$out" == *"e2e: not applicable"* && ! -s "$NPX_LOG" ]]; then
   note "a tracked config deleted locally: not run"
 else
   error "deleted: rc=$rc log='$(cat "$NPX_LOG")' out='$out'"

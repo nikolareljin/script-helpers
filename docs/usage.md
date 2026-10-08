@@ -370,6 +370,33 @@ For enhanced supply-chain security, pin images to a specific digest:
 ./scripts/ci_security.sh --gitleaks-digest sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
 ```
 
+### Services and a repository's own verbs: `./dev start`
+
+`start`, `stop`, `restart`, `status` and `logs` are the same in every
+repository. Each tries, in order: `project_<verb>` in `scripts/project.sh`,
+then [service](modules/service.md) when the repository declares `SVC_BACKEND`
+(`SVC_PROCS` for native processes, `SVC_COMPOSE_FILES` for compose), then
+"not applicable" (exit 3). `stop` without `SVC_BACKEND` still stops a compose
+file's stack with containers kept; `logs android` and `logs ios` stay device
+logs. `status` also prints `SVC_STATUS_URL` when it is set.
+
+Any other verb runs `project_<verb>`, with its arguments as typed (a `-` in
+the verb is `_` in the name: `./dev user-add bob` runs `project_user_add bob`),
+and `./dev --help` lists those verbs. A repository may add verbs, not redefine a
+standard one. `./dev.ps1` does the same with `Project-<Verb>` in
+`scripts/project.ps1`, and runs the service verbs through Git Bash, so there is
+one implementation.
+
+Root shims: `bash scripts/install_dev_cli.sh --repo <path> --shims service`
+writes `start stop restart status logs`, each `exec`ing `./dev <verb>`.
+
+| Exit | Meaning |
+|---|---|
+| 0 | done |
+| 1 | failed |
+| 2 | unknown verb or bad options |
+| 3 | not applicable in this repository |
+
 ### Security scan: `./dev scan`
 
 `./dev scan` (bash and PowerShell) runs only the secret and dependency scan,
@@ -443,7 +470,7 @@ Each directory runs once, however many configs it holds. It is not part of
 
 | Situation | Result |
 |---|---|
-| no `playwright.config.*` | not applicable, exit 0 |
+| no `playwright.config.*` | not applicable, exit 3 |
 | a config whose `package.json` does not depend on Playwright (a vendored copy) | skipped, with a note |
 | Playwright in no `node_modules` from the project up to the repository root (a workspace install at the root counts) | exit 1: run `./dev install` first |
 | tests fail | exit 1 |
