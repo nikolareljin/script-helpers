@@ -70,11 +70,11 @@ def _serve(root: Path):
 def _fetch(url: str):
     try:
         with urllib.request.urlopen(url, timeout=15) as r:  # noqa: S310 - loopback only
-            return r.status, r.headers.get_content_type(), r.read()
+            return r.status, r.headers.get_content_type(), r.read(), r.geturl()
     except urllib.error.HTTPError as e:
-        return e.code, "", b""
+        return e.code, "", b"", url
     except (urllib.error.URLError, OSError) as e:
-        return 0, str(e), b""
+        return 0, str(e), b"", url
 
 
 def crawl(root: Path) -> list[str]:
@@ -91,13 +91,17 @@ def crawl(root: Path) -> list[str]:
     try:
         while queue:
             path = queue.pop()
-            code, ctype, body = _fetch(urllib.parse.urljoin(base, path))
+            code, ctype, body, final = _fetch(urllib.parse.urljoin(base, path))
             status[path] = code
             if code != 200 or ctype != "text/html":
                 continue
             parser = _Links()
             parser.feed(body.decode("utf-8", "replace"))
             pages[path] = parser.ids
+            # A link to "guide" is redirected to "guide/"; that page's own
+            # relative links resolve against where it was served, as a
+            # browser resolves them.
+            path = urllib.parse.urlsplit(final).path or path
             for raw in parser.targets:
                 parts = urllib.parse.urlsplit(raw)
                 if parts.scheme or parts.netloc or raw.startswith(("mailto:", "tel:", "javascript:", "data:")):

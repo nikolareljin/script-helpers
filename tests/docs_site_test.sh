@@ -65,6 +65,13 @@ said "each is named with the page that links to it" "$tmp/err" \
   "/guide/: links to /#nowhere, and that page has no such id"
 check "and the fragment the page does have is not reported" "0" "$(grep -c '#setup' "$tmp/err" || true)"
 
+redir="$tmp/redir"; mkdir -p "$redir/guide"
+printf '<a href="guide">g</a>\n' >"$redir/index.html"
+printf '<a href="setup.html">s</a>\n' >"$redir/guide/index.html"
+printf 'ok\n' >"$redir/guide/setup.html"
+rc=0; python3 scripts/site_verify.py "$redir" 2>"$tmp/err" || rc=$?
+check "a link without its trailing slash is followed, and that page's links resolve where it is served" "0" "$rc"
+
 rm "$site/index.html"
 rc=0; python3 scripts/site_verify.py "$site" 2>"$tmp/err" || rc=$?
 check "no index.html at the root fails" "1" "$rc"
@@ -82,6 +89,9 @@ printf '# t\n\n```bash\necho\n```python\n\n## swallowed\n' >"$tmp/docs/sub/open.
 rc=0; python3 scripts/site_verify.py --fences "$tmp/docs" 2>"$tmp/err" || rc=$?
 check "an unclosed fence fails (a fence with an info string does not close one)" "1" "$rc"
 said "it names the file and the line the fence opens on" "$tmp/err" "sub/open.md:3: code fence"
+
+# --- the module brings its own needs ------------------------------------------
+check "shlib_import docs_site alone is enough" "ok" "$(bash -c 'source ./helpers.sh; shlib_import docs_site; for f in python_resolve_3 port_choose serve_static_site log_error; do declare -F "$f" >/dev/null || { echo "missing $f"; exit; }; done; echo ok')"
 
 # --- generator and output ----------------------------------------------------
 repo="$tmp/repo"

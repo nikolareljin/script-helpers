@@ -24,9 +24,19 @@
 #   DOCS_SITE_PORT        serve and preview (default 8000); a taken port is
 #                         asked about on a terminal and refused without one
 #   DOCS_VENV             mkdocs: virtualenv (default ~/.cache/nr-docs-venv/<repo>)
+#   DOCS_SITE_ALLOW_EXT   mkdocs: more file extensions the site publishes on
+#                         purpose, space separated (for example "zip csv")
 #
 # Exit codes: 0 ok; 1 build or check failed, or a port is taken with nobody
 # to ask; 2 bad arguments or no generator; 3 no usable python3.
+
+# Its own needs, so `shlib_import docs_site` alone is enough.
+if declare -F shlib_import >/dev/null 2>&1; then
+  for _docs_site__need in logging:log_error python:python_resolve_3 ports:port_choose serve:serve_static_site; do
+    declare -F "${_docs_site__need#*:}" >/dev/null 2>&1 || shlib_import "${_docs_site__need%%:*}"
+  done
+  unset _docs_site__need
+fi
 
 _docs_site__lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _docs_site__root="$(cd "${_docs_site__lib_dir}/.." && pwd)"
@@ -169,11 +179,15 @@ docs_site_check() {
     fi
     # MkDocs copies every file under docs_dir verbatim, so a stray .bak or a
     # script dropped in docs/ is published. This checks what came out.
-    stray="$(cd "$out" && find . -type f \
-      ! -name '*.html' ! -name '*.css' ! -name '*.js' ! -name '*.svg' \
-      ! -name '*.png' ! -name '*.jpg' ! -name '*.jpeg' ! -name '*.gif' ! -name '*.ico' \
-      ! -name '*.webp' ! -name '*.woff' ! -name '*.woff2' ! -name '*.json' ! -name '*.map' \
-      ! -name '*.xml' ! -name '*.xml.gz' ! -name '*.txt' ! -name 'CNAME' ! -name '.nojekyll')"
+    # Web assets and documents a site links on purpose; anything else is a
+    # file that was under docs/ by accident (a .bak, a script, a swapfile).
+    local ext
+    local -a keep=(html css js mjs map json xml xml.gz txt svg png jpg jpeg gif ico webp avif
+      woff woff2 ttf otf eot pdf webmanifest mp4 webm mp3 ogg)
+    for ext in ${DOCS_SITE_ALLOW_EXT:-}; do keep+=("${ext#.}"); done
+    local -a not_kept=()
+    for ext in "${keep[@]}"; do not_kept+=(! -name "*.${ext}"); done
+    stray="$(cd "$out" && find . -type f "${not_kept[@]}" ! -name 'CNAME' ! -name '.nojekyll')"
     if [[ -n "$stray" ]]; then
       log_error "docs_site: unexpected files in the built site; anything under docs/ is published verbatim:"
       printf '%s\n' "$stray" >&2

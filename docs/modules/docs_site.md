@@ -34,7 +34,7 @@ What `check` proves
 
 1. No code fence is left open in the Markdown sources (MkDocs). An open fence renders the rest of the page as one code block, and `mkdocs build --strict` does not see it.
 2. The site builds (MkDocs: strict, into a temporary directory; nothing is written in the repository).
-3. There is a search index when the site has search, and no file was published by accident (MkDocs copies everything under `docs_dir`).
+3. There is a search index when the site has search, and no file was published by accident (MkDocs copies everything under `docs_dir`): anything that is not a web asset, a font, a PDF, common media or a `DOCS_SITE_ALLOW_EXT` extension, such as a `.bak` or a script.
 4. Over HTTP, on a port the operating system picks: `/` and every page reachable from it answer 200, and so does every internal link, image, script and stylesheet; every `#fragment` exists on its page. Each failure is named with the page that links to it. External links are not fetched.
 
 Ports
@@ -66,10 +66,11 @@ Settings
 | `DOCS_SITE_OUT` | `site` | the command generator's output directory |
 | `DOCS_SITE_REQUIREMENTS` | the repository's `requirements-docs.txt`, else this library's | MkDocs toolchain pins |
 | `DOCS_SITE_PORT` | 8000 | `serve` and `preview` |
+| `DOCS_SITE_ALLOW_EXT` | none | more file extensions the site publishes on purpose, space separated (`zip csv`). Web assets, fonts, PDF and common media are allowed already. |
 | `DOCS_VENV` | `~/.cache/nr-docs-venv/<repo>` | MkDocs virtualenv |
 
 Dependencies
 ------------
 
 - `python3` 3.9 or newer (the verifier is standard library only; MkDocs is installed in the virtualenv).
-- Modules: `logging`, `python`, `ports`, `serve`.
+- Modules: `logging`, `python`, `ports`, `serve`; `shlib_import docs_site` imports the ones not loaded yet.
