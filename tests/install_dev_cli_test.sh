@@ -23,7 +23,7 @@ ORIGINAL='echo "original script"'
 # resolver in every consuming repo.
 is_shim() {
   local f="$1"
-  grep -q '^# Compatibility shim\. Use \./dev ' "$f" 2>/dev/null &&
+  grep -qE '^# (Compatibility|Service) shim\. Use \./dev ' "$f" 2>/dev/null &&
     grep -q '/dev" ' "$f" 2>/dev/null
 }
 

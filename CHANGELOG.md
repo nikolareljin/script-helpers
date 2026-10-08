@@ -2,6 +2,17 @@
 
 ### Added
 
+- **`./dev start`, `restart` and `status`; `stop` and `logs` for services.** In
+  both templates, each tries `project_<verb>`, then `lib/service.sh` when
+  `SVC_BACKEND` is declared, then exits 3. `logs android|ios` stay device logs;
+  `status` also prints `SVC_STATUS_URL`. `./dev.ps1` runs the service verbs
+  through Git Bash, one implementation.
+- **A repository's own verbs.** Any other verb runs `project_<verb>`
+  (`Project-<Verb>` in PowerShell) with its arguments as typed, and `./dev
+  --help` lists them.
+- **`install_dev_cli.sh --shims service`** writes the `start stop restart status
+  logs` root shims.
+
 - **`env_set_value` in `lib/env.sh`:** set one key in an env file, quoted so the shell and
   python-dotenv read it the same, written in place so a symlinked `.env` stays one.
 
@@ -35,7 +46,38 @@
   reused by another process is never signalled, and a readiness timeout prints the last 40
   log lines. Exit codes: 0 ok, 1 failure, 2 usage.
 
+### Changed
+
+- **Breaking for a repository's copy of the dev-cli template: a verb that does
+  not apply exits 3, not 0** (R-765 ADR-0061), in `cli.sh` and `cli.ps1`. A
+  skipped build or deploy no longer reads as one that ran. A repository picks
+  this up when it refreshes its copy; a CI step that runs such a verb on
+  purpose must then treat 3 as a skip (`preflight.sh` already does).
+
+- `scripts/docs_site.sh` works on the repository it is run in (or `--dir`),
+  not only on this one; `serve` prints the address under `site_url`'s path.
+
 ### Fixed
+
+- **`./dev.ps1` passed an empty argument to every verb run without arguments.**
+  `@($null)` is an array holding one `$null`; `./dev.ps1 start` handed `''` to
+  `svc_start`, which refused it.
+- **`./dev.ps1 build` (and every verb that detects a stack) failed on any CI
+  runner.** It asks `preflight.ps1 -List`, which refuses to run where `CI=true`,
+  and the refusal ended `./dev.ps1`. `CI` is cleared for the listing alone, as
+  `cli.sh` already did.
+- **`install_dev_cli.sh` filed its own shim as the caller's original.** Run
+  again where it had written a shim and there was no backup, it moved that
+  shim to `<name>.pre-dev-cli`. Its own shims are now rewritten in place. The
+  service shims say they are kept, since systemd units and scripts call them;
+  only the others say they are transitional.
+- **`./dev.ps1` could hand a script to WSL's bash.** It took the first `bash`
+  on `PATH`, often WSL's (`System32`, `WindowsApps`), which cannot read a
+  Windows path. It now passes those over for Git Bash, for the service verbs
+  and for the hook setup in `install`.
+- **CI never parsed `templates/dev-cli/*.ps1`**, and nothing ran the PowerShell
+  template. The parse step covers `templates/`, and
+  `ps/tests/dev_cli_template_test.ps1` drives it.
 
 - **`port_is_free` called a hung server's port free.** It only tried to connect, and a
   listener that does not accept (hung, or its queue full) refuses the connection. It asks
@@ -48,11 +90,6 @@
   header is not read, a PID is kept only when it is a bare number, and BusyBox
   `lsof` is not asked at all (`lsof --help` says BusyBox): `ss`, `netstat` or
   `fuser` answer.
-
-### Changed
-
-- `scripts/docs_site.sh` works on the repository it is run in (or `--dir`),
-  not only on this one; `serve` prints the address under `site_url`'s path.
 
 ## 2026-10-07 — v0.45.1
 
