@@ -76,6 +76,13 @@ try {
         Set-Content -Path $keytool -Value @'
 #!/usr/bin/env sh
 printf '%s\n' "$@" > "$KEYTOOL_ARGS"
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = '-keystore' ]; then
+    : > "$2"
+    break
+  fi
+  shift
+done
 '@ -NoNewline
         & chmod +x $keytool
     }
@@ -85,13 +92,21 @@ printf '%s\n' "$@" > "$KEYTOOL_ARGS"
     $env:PATH = "$bin$([System.IO.Path]::PathSeparator)$env:PATH"
     $env:KEYTOOL_ARGS = $argsFile
     try {
-        $r = dev @('signing', 'android-keystore', (Join-Path $tmp 'release.jks'))
+        $output = Join-Path (Join-Path $tmp 'credentials') 'release.jks'
+        $r = dev @('signing', 'android-keystore', $output)
         check 'signing android-keystore exits 0' 0 $r.rc $r
         $keytoolArgs = if (Test-Path $argsFile) { Get-Content $argsFile } else { @() }
         if ($keytoolArgs -contains '-storetype' -and $keytoolArgs -contains 'JKS') {
             note 'signing android-keystore passes the JKS store type'
         } else {
             fail "signing android-keystore did not invoke keytool for JKS: $($keytoolArgs -join ' ')"
+        }
+        if ($env:OS -ne 'Windows_NT' -and (Test-Path -LiteralPath $output -PathType Leaf)) {
+            note 'signing creates the requested keystore path'
+        } elseif ($env:OS -ne 'Windows_NT') {
+            fail 'signing did not create the requested keystore path'
+        } else {
+            note 'SKIP generated keystore assertion: cmd stub records arguments only'
         }
         $r = dev @('signing', 'android-keystore')
         check 'signing without an output exits 2' 2 $r.rc $r
