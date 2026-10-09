@@ -1,3 +1,15 @@
+## Unreleased
+
+### Added
+
+- **`ollama_endpoint_container_reach url`** (`lib/ollama_endpoint.sh`): for a
+  project whose containers call this machine's Ollama, checks that the Docker
+  bridge answers as an Ollama on the URL's port; 4 when it does not, naming the
+  forwarder. The request goes out from `127.0.0.1`: from the host's own bridge
+  address it was dropped on a machine whose containers were answered. A bridge
+  that is not on this machine (Docker Desktop, a VM, rootless Docker, a remote
+  `DOCKER_HOST`) is not checked, and it says so.
+
 ## 2026-10-08 — v0.46.0
 
 ### Added

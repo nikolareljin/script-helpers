@@ -1188,6 +1188,50 @@ reset main:7b
 check "pulling switched off by the project is not that message's case" "5:0" "$(OLLAMA_PULL_MISSING=0 remote "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(grep -c 'another machine' "$tmp/err")"
 roomy; reset
 
+# --- can a container reach this machine's Ollama ------------------------------
+# docker, ip and curl are stubs (the gateway is an RFC 5737 address: any would do).
+# FAKE_FOREIGN puts the gateway off this machine; FAKE_BODY is
+# what the bridge answers. curl's arguments are recorded.
+mkdir -p "$tmp/fake-reach"
+cat >"$tmp/fake-reach/docker" <<'EOF'
+#!/usr/bin/env sh
+case "$1" in
+  network) echo "${FAKE_GW-198.51.100.1 }" ;;
+esac
+EOF
+# This machine's addresses: the gateway is one of them unless FAKE_FOREIGN is set.
+cat >"$tmp/fake-reach/ip" <<'EOF'
+#!/usr/bin/env sh
+echo "1: lo    inet 127.0.0.1/8 scope host lo"
+[ -n "${FAKE_FOREIGN:-}" ] || echo "3: docker0    inet 198.51.100.1/24 scope global docker0"
+EOF
+printf '#!/usr/bin/env sh\nexit 1\n' >"$tmp/fake-reach/ifconfig"
+cat >"$tmp/fake-reach/curl" <<'EOF'
+#!/usr/bin/env sh
+echo "$*" >>"$REACH_ARGS"
+[ -n "${FAKE_BODY:-}" ] || exit 7
+printf '%s' "$FAKE_BODY"
+EOF
+chmod +x "$tmp/fake-reach/docker" "$tmp/fake-reach/curl" "$tmp/fake-reach/ip" "$tmp/fake-reach/ifconfig"
+reach() { # reach <url> [VAR=value...]: prints the exit code
+  local url="$1"; shift
+  : >"$tmp/reach-args"
+  ( export REACH_ARGS="$tmp/reach-args"; for kv in "$@"; do export "${kv?}"; done; PATH="$tmp/fake-reach:$PATH" ollama_endpoint_container_reach "$url" >"$tmp/out" 2>"$tmp/err"; echo $? )
+}
+OLLAMA_TAGS='{"models":[]}'
+check "the bridge answers as an Ollama: reachable" "0" "$(reach http://host.docker.internal:11434 FAKE_BODY="$OLLAMA_TAGS")"
+check "asked from 127.0.0.1, connected to the bridge gateway, the URL as written" "1" "$(grep -c -- '--interface 127.0.0.1 --connect-to ::198.51.100.1: http://host.docker.internal:11434/api/tags' "$tmp/reach-args")"
+check "the port is the URL's" "1" "$(reach http://127.0.0.1:11500 FAKE_BODY="$OLLAMA_TAGS" >/dev/null; grep -c ' http://127.0.0.1:11500/api/tags' "$tmp/reach-args")"
+check "a proxy's path stays, with no port too, and https keeps its name for TLS" "1:1:1" "$(reach http://127.0.0.1:8080/ollama FAKE_BODY="$OLLAMA_TAGS" >/dev/null; grep -c ' http://127.0.0.1:8080/ollama/api/tags' "$tmp/reach-args"):$(reach http://localhost/ollama FAKE_BODY="$OLLAMA_TAGS" >/dev/null; grep -c ' http://localhost/ollama/api/tags' "$tmp/reach-args"):$(reach https://localhost:8443 FAKE_BODY="$OLLAMA_TAGS" >/dev/null; grep -c -- '--connect-to ::198.51.100.1: https://localhost:8443/api/tags' "$tmp/reach-args")"
+check "credentials stay: the container sends them too" "1" "$(reach http://user:secret@127.0.0.1:9000 FAKE_BODY="$OLLAMA_TAGS" >/dev/null; grep -c ' http://user:secret@127.0.0.1:9000/api/tags' "$tmp/reach-args")"
+check "and are not printed when it fails" "4:0" "$(reach http://user:secret@127.0.0.1:9000):$(grep -c secret "$tmp/err")"
+check "nothing answers on the bridge: 4, and the forwarder is named" "4:1" "$(reach http://host.docker.internal:11434):$(grep -c 'forwarder onto the bridge' "$tmp/err")"
+check "a web server that is not an Ollama does not count" "4" "$(reach http://host.docker.internal:11434 FAKE_BODY='<html>ok</html>')"
+check "another machine: nothing to check, nothing asked" "0:0" "$(reach http://192.0.2.10:11434):$(wc -l <"$tmp/reach-args" | tr -d ' ')"
+check "a bridge that is not on this machine (Desktop, a VM, rootless, remote): not checked, and it says so" "0:1:0" "$(reach http://host.docker.internal:11434 FAKE_FOREIGN=1):$(grep -c 'Not checked' "$tmp/err"):$(wc -l <"$tmp/reach-args" | tr -d ' ')"
+check "no IPv4 gateway on the bridge: nothing to ask" "0:0" "$(reach http://host.docker.internal:11434 FAKE_GW='fd00::1 '):$(wc -l <"$tmp/reach-args" | tr -d ' ')"
+check "not an address: 9" "9" "$(reach 'http:/nowhere')"
+
 if [[ "$failures" -gt 0 ]]; then
   note "FAILED: $failures"
   exit 1

@@ -192,6 +192,16 @@ Then, inside (`ollama_endpoint_ensure_models`):
 6. Pull the missing models, in order, through `POST /api/pull`. A failed pull
    is exit 6, with what Ollama said.
 
+A project whose backend runs in a container and calls this machine's Ollama
+(`http://host.docker.internal:11434`) checks one thing more, after the models:
+that a container can reach it. An Ollama that listens on `127.0.0.1` only
+answers the start script and not the container.
+
+```bash
+ollama_project_ensure_models ai-models.env .env || exit $?
+ollama_endpoint_container_reach "http://host.docker.internal:11434" || exit $?
+```
+
 A start script that needs its own order can call the steps itself:
 
 ```bash

@@ -911,6 +911,57 @@ ollama_endpoint_is_local() {
   grep -qxF -- "$_oep_host" <<<"$_oep_own"
 }
 
+# Usage: ollama_endpoint_container_reach <url>; for a project whose containers
+# call this machine's Ollama at <url> (as the container writes it, e.g.
+# http://host.docker.internal:11434). Returns 0 when a container can reach it:
+# the Docker bridge's gateway, the address host.docker.internal resolves to
+# with host-gateway, answers as an Ollama on <url>'s port.
+# The answer on 127.0.0.1 proves nothing for a container: an Ollama that
+# listens on loopback only is not on the bridge, unless a forwarder puts it
+# there. The probe goes out from 127.0.0.1, not from the host's bridge address:
+# a request with that address as its source is dropped on some hosts while
+# containers are answered.
+# Returns 0, checking nothing, when <url> is another machine (the container
+# reaches it as the host does), with no Docker or none answering (compose says
+# so itself), and when the bridge's gateway is not one of this machine's
+# addresses (Docker Desktop, a VM, rootless Docker, a remote DOCKER_HOST),
+# which it says was not checked.
+# Returns 4 when the bridge does not answer as an Ollama, 9 when <url> is not
+# an address.
+ollama_endpoint_container_reach() {
+  local LC_ALL=C
+  local _oep_url _oep_gw _oep_body
+  if ! _oep_url="$(ollama_endpoint_base_url "${1:-}")"; then
+    print_error "Not the address of an Ollama: $(_ollama_ep_shown_url "${1:-}")" >&2
+    return 9
+  fi
+  ollama_endpoint_is_local "$_oep_url" || return 0
+  command -v docker >/dev/null 2>&1 || return 0
+  # The first IPv4 gateway of the default bridge: host-gateway is that address
+  # unless the daemon sets host-gateway-ip.
+  _oep_gw="$(docker network inspect bridge -f '{{range .IPAM.Config}}{{.Gateway}} {{end}}' 2>/dev/null \
+    | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)" || _oep_gw=""
+  [[ -n "$_oep_gw" ]] || return 0
+  # Only a bridge on this machine can be asked from here. Docker Desktop, a
+  # VM (Colima, OrbStack), rootless Docker and a remote DOCKER_HOST keep theirs
+  # elsewhere, and their containers reach the host by other means.
+  if ! ollama_endpoint_is_local "http://${_oep_gw}"; then
+    print_info "Not checked whether a container reaches this machine's Ollama: Docker's bridge (${_oep_gw}) is not on this machine (Docker Desktop, a VM, rootless Docker or a remote DOCKER_HOST)." >&2
+    return 0
+  fi
+  # The URL as written, connected to the gateway instead (--connect-to): its
+  # scheme, credentials, proxy path, port and TLS name stay what the container
+  # sends. From 127.0.0.1, not from the host's own bridge address.
+  _oep_body="$(curl -sS -m 5 --interface 127.0.0.1 --connect-to "::${_oep_gw}:" "${_oep_url}/api/tags" 2>/dev/null | tr -d '\n\r')" || _oep_body=""
+  # Any web server may answer 200. An Ollama's answer contains "models".
+  if ! grep -q '"models"[[:space:]]*:' <<<"$_oep_body"; then
+    print_error "A container cannot reach this machine's Ollama: it is not on the Docker bridge (${_oep_gw}, at $(_ollama_ep_shown_url "$_oep_url"))." >&2
+    print_error "An Ollama that listens on 127.0.0.1 only needs a forwarder onto the bridge (NikOS installs one with the engine); or run the project without Docker." >&2
+    return 4
+  fi
+  return 0
+}
+
 # Usage: ollama_env_file_export <file> NAME...; exports each NAME from an
 # env-style file, unless the environment already has a value for it that is
 # not blank (a blank one is no choice, and the file's is used). The file is
