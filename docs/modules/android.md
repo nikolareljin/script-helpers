@@ -101,6 +101,10 @@ The Android SDK command-line tools. `apksigner` or `jarsigner` for signing. A
 keystore valid for 10,000 days. It refuses an existing path and `keytool`
 prompts for passwords and identity values, so secrets are never command-line
 arguments. Store the output outside the repository and back it up securely.
+
+The PowerShell equivalent is `android_generate_keystore -OutputPath <output.jks>`
+or `ps/scripts/generate-android-keystore.ps1 -OutputPath <output.jks>`. Android
+and Amazon Fire use the same JKS signing format.
 project Gradle wrapper for building.
 
 Examples
