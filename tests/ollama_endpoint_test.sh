@@ -1189,23 +1189,30 @@ check "pulling switched off by the project is not that message's case" "5:0" "$(
 roomy; reset
 
 # --- can a container reach this machine's Ollama ------------------------------
-# docker and curl are stubs (the gateway is an RFC 5737 address: any would do): FAKE_OS is what `docker info` reports, FAKE_BODY
+# docker, ip and curl are stubs (the gateway is an RFC 5737 address: any would do).
+# FAKE_FOREIGN puts the gateway off this machine; FAKE_BODY is
 # what the bridge answers. curl's arguments are recorded.
 mkdir -p "$tmp/fake-reach"
 cat >"$tmp/fake-reach/docker" <<'EOF'
 #!/usr/bin/env sh
 case "$1" in
-  info) echo "${FAKE_OS:-Ubuntu 24.04 LTS} [\"name=apparmor\"]" ;;
   network) echo "${FAKE_GW-198.51.100.1 }" ;;
 esac
 EOF
+# This machine's addresses: the gateway is one of them unless FAKE_FOREIGN is set.
+cat >"$tmp/fake-reach/ip" <<'EOF'
+#!/usr/bin/env sh
+echo "1: lo    inet 127.0.0.1/8 scope host lo"
+[ -n "${FAKE_FOREIGN:-}" ] || echo "3: docker0    inet 198.51.100.1/24 scope global docker0"
+EOF
+printf '#!/usr/bin/env sh\nexit 1\n' >"$tmp/fake-reach/ifconfig"
 cat >"$tmp/fake-reach/curl" <<'EOF'
 #!/usr/bin/env sh
 echo "$*" >>"$REACH_ARGS"
 [ -n "${FAKE_BODY:-}" ] || exit 7
 printf '%s' "$FAKE_BODY"
 EOF
-chmod +x "$tmp/fake-reach/docker" "$tmp/fake-reach/curl"
+chmod +x "$tmp/fake-reach/docker" "$tmp/fake-reach/curl" "$tmp/fake-reach/ip" "$tmp/fake-reach/ifconfig"
 reach() { # reach <url> [VAR=value...]: prints the exit code
   local url="$1"; shift
   : >"$tmp/reach-args"
@@ -1221,8 +1228,7 @@ check "and are not printed when it fails" "4:0" "$(reach http://user:secret@127.
 check "nothing answers on the bridge: 4, and the forwarder is named" "4:1" "$(reach http://host.docker.internal:11434):$(grep -c 'forwarder onto the bridge' "$tmp/err")"
 check "a web server that is not an Ollama does not count" "4" "$(reach http://host.docker.internal:11434 FAKE_BODY='<html>ok</html>')"
 check "another machine: nothing to check, nothing asked" "0:0" "$(reach http://192.0.2.10:11434):$(wc -l <"$tmp/reach-args" | tr -d ' ')"
-check "Docker Desktop: not checked, and it says so" "0:1:0" "$(reach http://host.docker.internal:11434 FAKE_OS='Docker Desktop'):$(grep -c 'Not checked' "$tmp/err"):$(wc -l <"$tmp/reach-args" | tr -d ' ')"
-check "rootless Docker: not checked" "0:1" "$(reach http://host.docker.internal:11434 FAKE_OS='Ubuntu 24.04 LTS name=rootless'):$(grep -c 'Not checked' "$tmp/err")"
+check "a bridge that is not on this machine (Desktop, a VM, rootless, remote): not checked, and it says so" "0:1:0" "$(reach http://host.docker.internal:11434 FAKE_FOREIGN=1):$(grep -c 'Not checked' "$tmp/err"):$(wc -l <"$tmp/reach-args" | tr -d ' ')"
 check "no IPv4 gateway on the bridge: nothing to ask" "0:0" "$(reach http://host.docker.internal:11434 FAKE_GW='fd00::1 '):$(wc -l <"$tmp/reach-args" | tr -d ' ')"
 check "not an address: 9" "9" "$(reach 'http:/nowhere')"
 

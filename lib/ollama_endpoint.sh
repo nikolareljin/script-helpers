@@ -923,31 +923,32 @@ ollama_endpoint_is_local() {
 # containers are answered.
 # Returns 0, checking nothing, when <url> is another machine (the container
 # reaches it as the host does), with no Docker or none answering (compose says
-# so itself), and with Docker Desktop or rootless Docker, whose containers do
-# not come in on that bridge; the last two say they were not checked.
+# so itself), and when the bridge's gateway is not one of this machine's
+# addresses (Docker Desktop, a VM, rootless Docker, a remote DOCKER_HOST),
+# which it says was not checked.
 # Returns 4 when the bridge does not answer as an Ollama, 9 when <url> is not
 # an address.
 ollama_endpoint_container_reach() {
   local LC_ALL=C
-  local _oep_url _oep_info _oep_gw _oep_body
+  local _oep_url _oep_gw _oep_body
   if ! _oep_url="$(ollama_endpoint_base_url "${1:-}")"; then
     print_error "Not the address of an Ollama: $(_ollama_ep_shown_url "${1:-}")" >&2
     return 9
   fi
   ollama_endpoint_is_local "$_oep_url" || return 0
   command -v docker >/dev/null 2>&1 || return 0
-  _oep_info="$(docker info -f '{{.OperatingSystem}} {{json .SecurityOptions}}' 2>/dev/null)" || return 0
-  case "$_oep_info" in
-    *"Docker Desktop"*|*name=rootless*)
-      print_info "Not checked whether a container reaches this machine's Ollama: with Docker Desktop or rootless Docker, containers do not come in on the bridge." >&2
-      return 0
-      ;;
-  esac
   # The first IPv4 gateway of the default bridge: host-gateway is that address
   # unless the daemon sets host-gateway-ip.
   _oep_gw="$(docker network inspect bridge -f '{{range .IPAM.Config}}{{.Gateway}} {{end}}' 2>/dev/null \
     | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)" || _oep_gw=""
   [[ -n "$_oep_gw" ]] || return 0
+  # Only a bridge on this machine can be asked from here. Docker Desktop, a
+  # VM (Colima, OrbStack), rootless Docker and a remote DOCKER_HOST keep theirs
+  # elsewhere, and their containers reach the host by other means.
+  if ! ollama_endpoint_is_local "http://${_oep_gw}"; then
+    print_info "Not checked whether a container reaches this machine's Ollama: Docker's bridge (${_oep_gw}) is not on this machine (Docker Desktop, a VM, rootless Docker or a remote DOCKER_HOST)." >&2
+    return 0
+  fi
   # The URL as written, connected to the gateway instead (--connect-to): its
   # scheme, credentials, proxy path, port and TLS name stay what the container
   # sends. From 127.0.0.1, not from the host's own bridge address.
