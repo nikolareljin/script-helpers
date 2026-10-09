@@ -206,6 +206,11 @@ OLLAMA_PORT=11435                  # the port published on this machine
   - Purpose: Say whether a URL points at this machine, so that this machine's disk and memory are the ones a pull would use.
   - Behavior: 0 for a loopback name or address (also IPv4 written inside IPv6), `0.0.0.0`, `::`, this host's name and its own addresses (from `ip` and from `ifconfig`, whichever are there), and for `host.docker.internal` and `gateway.docker.internal` when this is not a container itself. Inside a container (`/.dockerenv` or `/run/.containerenv` present, or `KUBERNETES_SERVICE_HOST` set) those two are the host: another machine. 1 for anything else, including a name that only resolves to this machine: read as another machine, nothing is pulled into it unasked.
 
+- ollama_endpoint_container_reach url
+  - Purpose: For a project whose containers call this machine's Ollama at `url` (as the container writes it, for example `http://host.docker.internal:11434`): say whether a container can reach it. An Ollama that answers on `127.0.0.1` but listens on loopback only is not on the Docker bridge unless a forwarder puts it there.
+  - Behavior: Asks the default bridge's IPv4 gateway (what `host-gateway` resolves to, unless the daemon sets `host-gateway-ip`) at `url`'s port, `GET /api/tags`, and counts only an answer with `"models"` in it. The request goes out from `127.0.0.1`: from the host's own bridge address it is dropped on some hosts while containers are answered. Checks nothing and returns 0 when `url` is another machine (`ollama_endpoint_is_local`), when there is no Docker or it does not answer, when the bridge has no IPv4 gateway, and with Docker Desktop or rootless Docker (said: their containers do not come in on that bridge).
+  - Returns: 0; 4 when the bridge does not answer as an Ollama (the forwarder is named); 9 when `url` is not an address.
+
 - ollama_env_file_export file NAME...
   - Purpose: Export each `NAME` from an env-style file, unless the environment already has a value for it that is not blank (a blank one is no choice: the file's is used).
   - Behavior: The file is read as the models file is, as data: it is never sourced, so `$`, a backquote or a space in a value is only a value. A file that is not there exports nothing. A `NAME` may be any variable name, also one this module uses itself (`name`, `value`, `file`).
