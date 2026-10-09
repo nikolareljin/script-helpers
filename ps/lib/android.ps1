@@ -44,7 +44,7 @@ function android_available { return [bool](android_sdk_root) }
 # identity and passwords, so this function never accepts or logs credentials.
 function android_generate_keystore {
     param([Parameter(Mandatory)][string]$OutputPath)
-    if (Test-Path $OutputPath) {
+    if (Get-Item -LiteralPath $OutputPath -Force -ErrorAction SilentlyContinue) {
         Write-Error "android_generate_keystore: refusing to overwrite $OutputPath"
         return $false
     }

@@ -57,7 +57,7 @@ android_generate_keystore() {
     log_error "android_generate_keystore: need <output.jks>"
     return 2
   }
-  [[ ! -e "$output" ]] || {
+  [[ ! -e "$output" && ! -L "$output" ]] || {
     log_error "android_generate_keystore: refusing to overwrite $output"
     return 2
   }

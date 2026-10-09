@@ -6,8 +6,12 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=../helpers.sh
 source "$ROOT_DIR/helpers.sh"
 shlib_import android
-if [[ "${1:-}" == "--help" || $# -ne 1 ]]; then
+if [[ "${1:-}" == "--help" ]]; then
   echo "Usage: $0 <output.jks>"
-  exit $([[ "${1:-}" == "--help" ]] && echo 0 || echo 2)
+  exit 0
+fi
+if [[ $# -ne 1 ]]; then
+  echo "Usage: $0 <output.jks>" >&2
+  exit 2
 fi
 android_generate_keystore "$1"

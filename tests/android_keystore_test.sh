@@ -18,4 +18,6 @@ grep -qx -- '-storetype' "$KEYTOOL_ARGS"
 grep -qx -- 'JKS' "$KEYTOOL_ARGS"
 touch "$TMP/existing.jks"
 if android_generate_keystore "$TMP/existing.jks"; then exit 1; fi
+ln -s "$TMP/missing-target.jks" "$TMP/dangling.jks"
+if android_generate_keystore "$TMP/dangling.jks"; then exit 1; fi
 echo '[android_keystore_test] PASS'
