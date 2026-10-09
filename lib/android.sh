@@ -67,7 +67,7 @@ android_generate_keystore() {
   }
   parent="$(dirname "$output")"
   [[ "$parent" == "." ]] || mkdir -p "$parent" || return 1
-  keytool -genkeypair -keystore "$output" -alias android-release \
+  keytool -genkeypair -storetype JKS -keystore "$output" -alias android-release \
     -keyalg RSA -keysize 4096 -validity 10000
 }
 

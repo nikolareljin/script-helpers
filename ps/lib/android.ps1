@@ -55,7 +55,7 @@ function android_generate_keystore {
     }
     $parent = Split-Path -Parent $OutputPath
     if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
-    & $keytool.Source -genkeypair -keystore $OutputPath -alias android-release -keyalg RSA -keysize 4096 -validity 10000
+    & $keytool.Path -genkeypair -storetype JKS -keystore $OutputPath -alias android-release -keyalg RSA -keysize 4096 -validity 10000
     return ($LASTEXITCODE -eq 0)
 }
 
