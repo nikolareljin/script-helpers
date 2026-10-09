@@ -678,6 +678,16 @@ verb_release() {
   log_info "release: this does NOT tag or push. Tagging happens on merge."
 }
 
+verb_signing() {
+  local kind="${DEV_ARGS[0]:-}" output="${DEV_ARGS[1]:-}"
+  if [[ "$kind" != "android-keystore" || -z "$output" || ${#DEV_ARGS[@]} -ne 2 ]]; then
+    log_error "signing: usage: ./dev signing android-keystore <output.jks>"
+    exit 2
+  fi
+  shlib_import android
+  android_generate_keystore "$output"
+}
+
 # --- dispatch --------------------------------------------------------------
 
 usage() {
@@ -708,6 +718,7 @@ Mobile
   devices       List connected devices, emulators, AVDs and simulators.
   screenshot    Capture a PNG from a device.        [--out <path>]
   record        Capture screen video.               [--seconds <n>] [--gif]
+  signing       Create a local signing credential.  [android-keystore <output.jks>]
   release       Bump the version across manifests and open a CHANGELOG section.
 
 Targets   android ios host backend frontend linux web macos windows cloudflare
@@ -742,7 +753,7 @@ EOF
 
 # The verbs this file implements; a repository may override each with
 # project_<verb>, and may add others, but not redefine one by another name.
-DEV_STANDARD_VERBS="install build run start stop restart status test preflight scan e2e deploy devices screenshot record logs clean update release"
+DEV_STANDARD_VERBS="install build run start stop restart status test preflight scan e2e deploy devices screenshot record logs clean update signing release"
 
 dev_is_standard_verb() {
   case " $DEV_STANDARD_VERBS " in *" $1 "*) return 0 ;; esac
@@ -794,6 +805,7 @@ main() {
     logs)       verb_logs ;;
     clean)      verb_clean ;;
     update)     verb_update ;;
+    signing)    verb_signing ;;
     release)    verb_release ;;
     *)
       echo "Unknown verb: $verb" >&2

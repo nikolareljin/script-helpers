@@ -64,6 +64,57 @@ try {
     $r = dev @('--help')
     if ($r.out -notmatch '(?m)^  hello') { fail "--help does not list the repository's verb: $($r.out)" } else { note "--help lists the repository's own verbs" }
 
+    # keytool prompts in the real command. A stub keeps this CI test
+    # non-interactive while checking the CLI reaches it with JKS arguments.
+    $bin = Join-Path $tmp 'bin'
+    New-Item -ItemType Directory -Path $bin -Force | Out-Null
+    if ($env:OS -eq 'Windows_NT') {
+        $keytool = Join-Path $bin 'keytool.cmd'
+        Set-Content -Path $keytool -Value "@echo off`r`necho %* > `"%KEYTOOL_ARGS%`"" -Encoding ascii
+    } else {
+        $keytool = Join-Path $bin 'keytool'
+        Set-Content -Path $keytool -Value @'
+#!/usr/bin/env sh
+printf '%s\n' "$@" > "$KEYTOOL_ARGS"
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = '-keystore' ]; then
+    : > "$2"
+    break
+  fi
+  shift
+done
+'@ -NoNewline
+        & chmod +x $keytool
+    }
+    $savedPath = $env:PATH
+    $savedKeytoolArgs = $env:KEYTOOL_ARGS
+    $argsFile = Join-Path $tmp 'keytool.args'
+    $env:PATH = "$bin$([System.IO.Path]::PathSeparator)$env:PATH"
+    $env:KEYTOOL_ARGS = $argsFile
+    try {
+        $output = Join-Path (Join-Path $tmp 'credentials') 'release.jks'
+        $r = dev @('signing', 'android-keystore', $output)
+        check 'signing android-keystore exits 0' 0 $r.rc $r
+        $keytoolArgs = if (Test-Path $argsFile) { Get-Content $argsFile } else { @() }
+        if ($keytoolArgs -contains '-storetype' -and $keytoolArgs -contains 'JKS') {
+            note 'signing android-keystore passes the JKS store type'
+        } else {
+            fail "signing android-keystore did not invoke keytool for JKS: $($keytoolArgs -join ' ')"
+        }
+        if ($env:OS -ne 'Windows_NT' -and (Test-Path -LiteralPath $output -PathType Leaf)) {
+            note 'signing creates the requested keystore path'
+        } elseif ($env:OS -ne 'Windows_NT') {
+            fail 'signing did not create the requested keystore path'
+        } else {
+            note 'SKIP generated keystore assertion: cmd stub records arguments only'
+        }
+        $r = dev @('signing', 'android-keystore')
+        check 'signing without an output exits 2' 2 $r.rc $r
+    } finally {
+        $env:PATH = $savedPath
+        $env:KEYTOOL_ARGS = $savedKeytoolArgs
+    }
+
     # Services are lib/service.sh's: with SVC_BACKEND in project.sh, through bash.
     if (Get-Command bash -ErrorAction SilentlyContinue) {
         New-Item -ItemType SymbolicLink -Path (Join-Path $repo 'scripts/script-helpers') -Target $root | Out-Null

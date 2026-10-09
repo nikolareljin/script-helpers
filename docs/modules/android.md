@@ -96,6 +96,39 @@ Dependencies
 The Android SDK command-line tools. `apksigner` or `jarsigner` for signing. A
 project Gradle wrapper for building.
 
+## android_generate_keystore
+
+`./dev signing android-keystore <output.jks>` is the consumer command. It is
+available after the repository refreshes its `scripts/cli.sh` and
+`scripts/cli.ps1` from `templates/dev-cli/`. It creates a 4096-bit RSA Android
+signing keystore valid for 10,000 days. It refuses an existing path and
+`keytool` prompts for passwords and identity values, so secrets are never
+command-line arguments. Store the output outside the repository and back it up
+securely.
+
+The PowerShell equivalent is `android_generate_keystore -OutputPath <output.jks>`
+or `ps/scripts/generate-android-keystore.ps1 -OutputPath <output.jks>`. Android
+and Amazon Fire use the same JKS signing format.
+
+The generator creates the parent directory when needed and refuses to overwrite
+an existing file. Run it outside a repository or in an ignored credential
+directory. It creates only the JKS file; add its Base64 value and prompted
+passwords to the CI secret store separately.
+
+```bash
+./dev signing android-keystore "$HOME/.credentials/my-app-release.jks"
+
+# Direct helper wrapper when the repository does not use the dev CLI.
+scripts/generate-android-keystore.sh "$HOME/.credentials/my-app-release.jks"
+```
+
+```powershell
+./dev.ps1 signing android-keystore "$HOME/.credentials/my-app-release.jks"
+
+# Direct helper wrapper when the repository does not use the dev CLI.
+ps/scripts/generate-android-keystore.ps1 -OutputPath "$HOME/.credentials/my-app-release.jks"
+```
+
 Examples
 --------
 

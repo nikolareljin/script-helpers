@@ -532,6 +532,15 @@ function Verb-Release {
     log_info 'release: this does NOT tag or push. Tagging happens on merge.'
 }
 
+function Verb-Signing {
+    if ($DEV_ARGS.Count -ne 2 -or $DEV_ARGS[0] -ne 'android-keystore' -or -not $DEV_ARGS[1]) {
+        log_error 'signing: usage: ./dev signing android-keystore <output.jks>'
+        exit 2
+    }
+    Import-ScriptHelpers android
+    if (-not (android_generate_keystore -OutputPath $DEV_ARGS[1])) { exit 1 }
+}
+
 # --- dispatch --------------------------------------------------------------
 
 function Show-Usage {
@@ -561,6 +570,7 @@ Mobile
   devices       List connected devices, emulators, AVDs and simulators.
   screenshot    Capture a PNG from a device.        [--out <path>]
   record        Capture screen video.               [--seconds <n>] [--gif]
+  signing       Create a local signing credential.  [android-keystore <output.jks>]
   release       Bump the version across manifests and open a CHANGELOG section.
 
 Targets   android ios host backend frontend linux web macos windows
@@ -578,7 +588,7 @@ Captured media defaults to docs/screenshots/. Override with $env:SCREENCAP_DIR.
 
 # The repository's own verbs: Project-* functions that are not overrides.
 function Show-RepoVerbs {
-    $standard = @('install','build','run','start','stop','restart','status','test','preflight','scan','e2e','deploy','devices','screenshot','record','logs','clean','update','release')
+    $standard = @('install','build','run','start','stop','restart','status','test','preflight','scan','e2e','deploy','devices','screenshot','record','logs','clean','update','signing','release')
     $own = @(Get-Command -Name 'Project-*' -CommandType Function -ErrorAction SilentlyContinue |
         ForEach-Object { $_.Name.Substring(8).ToLower() } | Where-Object { $standard -notcontains $_ })
     if ($own.Count -gt 0) {
@@ -590,7 +600,7 @@ function Show-RepoVerbs {
 
 # --help for a verb of the repository's own is that verb's to answer, as in cli.sh.
 $repoVerb = ($Verb -match '^[a-z][a-z0-9-]*$') -and (Get-Command "Project-$Verb" -ErrorAction SilentlyContinue) -and
-    (@('install','build','run','start','stop','restart','status','test','preflight','scan','e2e','deploy','devices','screenshot','record','logs','clean','update','release') -notcontains $Verb)
+    (@('install','build','run','start','stop','restart','status','test','preflight','scan','e2e','deploy','devices','screenshot','record','logs','clean','update','signing','release') -notcontains $Verb)
 if ($DEV_WANTS_HELP -and -not $repoVerb) { Show-Usage; Show-RepoVerbs; exit 0 }
 
 switch ($Verb) {
@@ -617,6 +627,7 @@ switch ($Verb) {
     'logs'       { Verb-Logs }
     'clean'      { Verb-Clean }
     'update'     { Verb-Update }
+    'signing'    { Verb-Signing }
     'release'    { Verb-Release }
     default {
         # A verb of the repository's own: Project-<Verb> in scripts/project.ps1,
