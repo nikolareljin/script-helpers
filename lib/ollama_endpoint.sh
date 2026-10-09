@@ -929,7 +929,7 @@ ollama_endpoint_is_local() {
 # an address.
 ollama_endpoint_container_reach() {
   local LC_ALL=C
-  local _oep_url _oep_port _oep_info _oep_gw _oep_body _oep_scheme _oep_rest _oep_auth _oep_path _oep_user
+  local _oep_url _oep_info _oep_gw _oep_body
   if ! _oep_url="$(ollama_endpoint_base_url "${1:-}")"; then
     print_error "Not the address of an Ollama: $(_ollama_ep_shown_url "${1:-}")" >&2
     return 9
@@ -948,23 +948,13 @@ ollama_endpoint_container_reach() {
   _oep_gw="$(docker network inspect bridge -f '{{range .IPAM.Config}}{{.Gateway}} {{end}}' 2>/dev/null \
     | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)" || _oep_gw=""
   [[ -n "$_oep_gw" ]] || return 0
-  # The URL with its host swapped for the gateway: credentials and a proxy's
-  # path stay, since the container sends them too.
-  _oep_scheme="${_oep_url%%://*}"
-  _oep_rest="${_oep_url#*://}"
-  _oep_auth="${_oep_rest%%/*}"
-  _oep_path="${_oep_rest#"$_oep_auth"}"
-  _oep_user=""
-  case "$_oep_auth" in *@*) _oep_user="${_oep_auth%@*}@"; _oep_auth="${_oep_auth##*@}" ;; esac
-  _oep_port="${_oep_auth##*]}"
-  case "$_oep_port" in
-    *:*) _oep_port="${_oep_port##*:}" ;;
-    *) if [[ "$_oep_scheme" == https ]]; then _oep_port=443; else _oep_port=80; fi ;;
-  esac
-  _oep_body="$(curl -sS -m 5 --interface 127.0.0.1 "${_oep_scheme}://${_oep_user}${_oep_gw}:${_oep_port}${_oep_path}/api/tags" 2>/dev/null | tr -d '\n\r')" || _oep_body=""
+  # The URL as written, connected to the gateway instead (--connect-to): its
+  # scheme, credentials, proxy path, port and TLS name stay what the container
+  # sends. From 127.0.0.1, not from the host's own bridge address.
+  _oep_body="$(curl -sS -m 5 --interface 127.0.0.1 --connect-to "::${_oep_gw}:" "${_oep_url}/api/tags" 2>/dev/null | tr -d '\n\r')" || _oep_body=""
   # Any web server may answer 200. An Ollama's answer contains "models".
   if ! grep -q '"models"[[:space:]]*:' <<<"$_oep_body"; then
-    print_error "A container cannot reach this machine's Ollama: it is not on the Docker bridge (${_oep_gw}:${_oep_port})." >&2
+    print_error "A container cannot reach this machine's Ollama: it is not on the Docker bridge (${_oep_gw}, at $(_ollama_ep_shown_url "$_oep_url"))." >&2
     print_error "An Ollama that listens on 127.0.0.1 only needs a forwarder onto the bridge (NikOS installs one with the engine); or run the project without Docker." >&2
     return 4
   fi
