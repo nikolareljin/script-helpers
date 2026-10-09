@@ -94,6 +94,13 @@ Dependencies
 ------------
 
 The Android SDK command-line tools. `apksigner` or `jarsigner` for signing. A
+
+## android_generate_keystore
+
+`android_generate_keystore <output.jks>` creates a 4096-bit RSA Android signing
+keystore valid for 10,000 days. It refuses an existing path and `keytool`
+prompts for passwords and identity values, so secrets are never command-line
+arguments. Store the output outside the repository and back it up securely.
 project Gradle wrapper for building.
 
 Examples
