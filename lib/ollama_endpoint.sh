@@ -92,6 +92,55 @@ _ollama_ep_ask_pull() {
   return 1
 }
 
+# Usage: _ollama_ep_check_overrides <models_file> [NAME...]; returns 0 when every
+# model a name gets is approved, and 9 otherwise.
+#
+# The models file is the approved set: for each NAME, the models of its columns
+# (NAME, NAME_SMALL, NAME_LARGE, NAME_XLARGE), one per role and class of machine
+# (fleet model registry). A NAME set in the environment or .env to any other
+# model is a manual override. It is allowed, but never silently: on a terminal
+# the person is told it is not approved and asked; with no terminal, and in CI
+# (CI=true, GITHUB_ACTIONS), it is refused, because nobody is there to say yes.
+# A NAME the file does not name has no approved set, and is not judged.
+_ollama_ep_check_overrides() {
+  local _oep_file="${1:-}" _oep_name _oep_value _oep_col _oep_ok _oep_approved _oep_answer _oep_names
+  [[ -n "$_oep_file" && -f "$_oep_file" ]] || return 0
+  [[ $# -gt 0 ]] && shift
+  if [[ $# -gt 0 ]]; then
+    _oep_names="$(printf '%s\n' "$@")"
+  else
+    _oep_names="$(ollama_models_file_names "$_oep_file" | grep -v -E '_(SMALL|LARGE|XLARGE)(_V?RAM_GB)?$|^AI_TIER_' || true)"
+  fi
+  # The names come in on fd 3: stdin stays the person's, for the answer below.
+  while IFS= read -r _oep_name <&3; do
+    [[ -n "$_oep_name" ]] && _ollama_ep_is_name "$_oep_name" || continue
+    _oep_value="$(printf '%s' "${!_oep_name:-}" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')" || true
+    [[ -n "$_oep_value" ]] || continue
+    _oep_approved="" _oep_ok=1
+    for _oep_col in "" _SMALL _LARGE _XLARGE; do
+      _oep_col="$(_ollama_ep_file_val "$_oep_file" "${_oep_name}${_oep_col}")"
+      [[ -n "$_oep_col" ]] || continue
+      _oep_approved="${_oep_approved:+$_oep_approved, }$_oep_col"
+      # The same model however it is written: case, and an omitted :latest.
+      if [[ "$(ollama_model_tagged "$_oep_col" | tr 'A-Z' 'a-z')" == "$(ollama_model_tagged "$_oep_value" | tr 'A-Z' 'a-z')" ]]; then
+        _oep_ok=0
+      fi
+    done
+    [[ -n "$_oep_approved" && "$_oep_ok" -ne 0 ]] || continue
+    if [[ "${CI:-}" == "true" || -n "${GITHUB_ACTIONS:-}" ]] || ! _ollama_ep_can_ask; then
+      print_error "$_oep_name=$_oep_value is not an approved model for this project (approved: $_oep_approved). An override needs a person to confirm it on a terminal; in CI or with no terminal it is refused. Remove $_oep_name from .env to use the approved model." >&2
+      return 9
+    fi
+    printf '%s=%s is not an approved model for this project.\nApproved, by class of machine: %s\nUse it anyway (a manual override)? [y/N] ' "$_oep_name" "$_oep_value" "$_oep_approved" >&2
+    IFS= read -r _oep_answer || _oep_answer=""
+    case "$(printf '%s' "$_oep_answer" | tr 'A-Z' 'a-z' | tr -d ' \t\r')" in
+      y|yes) print_info "Using $_oep_name=$_oep_value, an override of the approved set." >&2 ;;
+      *) print_error "Not using $_oep_name=$_oep_value. Remove it from .env to use the approved model." >&2; return 9 ;;
+    esac
+  done 3<<<"$_oep_names"
+  return 0
+}
+
 # Usage: _ollama_ep_pull_hint <url> <missing, one per line>; prints the ways
 # past a refusal under ask: the exact pull commands, and the setting that pulls
 # without asking. OLLAMA_HOST is named unless the address is Ollama's own
@@ -460,12 +509,54 @@ ollama_gpu_mem_bytes() {
   printf '%s\n' "$_oep_sum"
 }
 
-# Each GPU's memory in bytes, one per line: NVIDIA from nvidia-smi, AMD from the
-# amdgpu driver's sysfs file. A driver that does not answer counts as no GPU.
-# Apple silicon has none here: its GPU uses the machine's memory, which is
-# counted already. _OLLAMA_EP_DRM is a test seam for /sys/class/drm.
+# Which system this is: linux, macos or windows (Git Bash, MSYS2, Cygwin).
+# _OLLAMA_EP_OS and _OLLAMA_EP_ARCH are test seams.
+_ollama_ep_os() {
+  case "${_OLLAMA_EP_OS:-$(uname -s 2>/dev/null)}" in
+    Darwin|macos) echo macos ;;
+    MINGW*|MSYS*|CYGWIN*|windows) echo windows ;;
+    *) echo linux ;;
+  esac
+}
+
+# Each discrete GPU's memory in bytes, one per line. A driver that does not
+# answer counts as no GPU.
+#   linux    NVIDIA from nvidia-smi; AMD from the amdgpu driver's sysfs file
+#            (_OLLAMA_EP_DRM is a test seam for /sys/class/drm).
+#   windows  every display adapter's dedicated memory from the registry
+#            (HardwareInformation.qwMemorySize: NVIDIA, AMD and Intel, each once;
+#            an older driver writes only the 32-bit HardwareInformation.MemorySize,
+#            a number or 4 bytes, which is read instead).
+#   macos    an Intel Mac's discrete card from system_profiler. Apple silicon
+#            has none here: its GPU uses the machine's memory, counted already.
 _ollama_ep_gpu_list() {
-  local _oep_card _oep_bytes
+  local _oep_card _oep_bytes _oep_line
+  case "$(_ollama_ep_os)" in
+    windows)
+      if command -v powershell.exe >/dev/null 2>&1; then
+        { powershell.exe -NoProfile -NonInteractive -Command \
+            "Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\0*' -ErrorAction SilentlyContinue | ForEach-Object { \$q = \$_.'HardwareInformation.qwMemorySize'; \$m = \$_.'HardwareInformation.MemorySize'; if (\$q) { \$q } elseif (\$m -is [byte[]]) { [BitConverter]::ToUInt32(\$m, 0) } elseif (\$m) { \$m } }" \
+            2>/dev/null || true; } | tr -d '\r' | while IFS= read -r _oep_line; do
+          _oep_bytes="$(_ollama_ep_uint "$_oep_line")" || continue
+          [[ "$_oep_bytes" -gt 0 ]] && printf '%s\n' "$_oep_bytes"
+        done
+      fi
+      return 0
+      ;;
+    macos)
+      if command -v system_profiler >/dev/null 2>&1; then
+        # "VRAM (Total): 8 GB" or "VRAM (Dynamic, Max): 1536 MB"; Apple silicon prints none.
+        { system_profiler SPDisplaysDataType 2>/dev/null || true; } | while IFS= read -r _oep_line; do
+          case "$_oep_line" in *VRAM*:*) ;; *) continue ;; esac
+          _oep_line="${_oep_line##*:}"
+          read -r _oep_bytes _oep_card <<<"$_oep_line"
+          _oep_bytes="$(_ollama_ep_uint "$_oep_bytes")" || continue
+          case "$_oep_card" in GB) printf '%s\n' "$((_oep_bytes * 1073741824))" ;; MB) printf '%s\n' "$((_oep_bytes * 1048576))" ;; esac
+        done
+      fi
+      return 0
+      ;;
+  esac
   if command -v nvidia-smi >/dev/null 2>&1; then
     local _oep_mib
     while IFS= read -r _oep_mib; do
@@ -486,11 +577,26 @@ _ollama_ep_gpu_list() {
 # GPU in bytes, 0 when there is none. A model runs on one GPU, so this, not the
 # sum, says which models a machine can run (two 12 GB cards are not a 24 GB
 # card). OLLAMA_BUDGET_GPU_LARGEST_BYTES states it instead of measuring.
+#
+# Apple silicon shares the machine's memory with its GPU, and macOS lets the GPU
+# use about two thirds of it: that share is its GPU for picking a class, so a
+# 64 GB Mac can run what a 24 GB card can. (The budget check, which adds GPU
+# memory to the machine's, does not count it a second time: ollama_gpu_mem_bytes
+# stays 0 there.)
 ollama_gpu_mem_largest_bytes() {
   local stated
   if stated="$(_ollama_ep_uint "${OLLAMA_BUDGET_GPU_LARGEST_BYTES:-}")"; then
     printf '%s\n' "$stated"
     return 0
+  fi
+  # hw.optional.arm64, not uname -m: a shell under Rosetta reports x86_64.
+  if [[ "$(_ollama_ep_os)" == macos ]] && \
+     [[ "${_OLLAMA_EP_ARCH:-$(sysctl -n hw.optional.arm64 2>/dev/null | sed 's/^1$/arm64/')}" == arm64 ]]; then
+    stated="$(ollama_mem_total_bytes 2>/dev/null)" || stated=""
+    if stated="$(_ollama_ep_uint "$stated")"; then
+      printf '%s\n' "$((stated * 2 / 3))"
+      return 0
+    fi
   fi
   local _oep_b _oep_max=0
   while IFS= read -r _oep_b; do
@@ -1248,6 +1354,9 @@ ollama_project_ensure_models() (
     ollama_env_file_export "$_oep_env" $(_ollama_ep_settings) $_oep_vars $_oep_names || exit 9
   fi
 
+  # A model the project's .env names outside the approved set is asked about,
+  # or refused with nobody to ask (CI).
+  _ollama_ep_check_overrides "$_oep_file" "$@" || exit 9
   _oep_models="$(ollama_models_required "$_oep_file" "$@")" || exit 9
   [[ -n "$_oep_models" ]] || exit 0
   # One model per line. Split on lines, not on words: "small:3b embed" as one

@@ -129,6 +129,7 @@ Functions
 
 - ollama_gpu_mem_largest_bytes
   - Purpose: Print the memory of the largest single GPU, or `0`. A model runs on one GPU, so this, not the sum, says which models the machine can run: two 12 GB cards are not a 24 GB card. `OLLAMA_BUDGET_GPU_LARGEST_BYTES` states it.
+  - Per system: Linux, `nvidia-smi` and amdgpu sysfs. Windows (Git Bash), every display adapter's dedicated memory from the registry (`HardwareInformation.qwMemorySize`, through `powershell.exe`). macOS, an Intel Mac's discrete card from `system_profiler`; on Apple silicon (`hw.optional.arm64`, so also under Rosetta) two thirds of the machine's memory, the share macOS lets its GPU use. `ollama_gpu_mem_bytes` stays 0 there, so the budget check does not count that memory twice.
 
 - ollama_machine_figures
   - Purpose: Print `<memory GiB>:<largest GPU GiB>`, whole GiB rounded down, the two figures the class is picked by. Memory is empty (`:0`) when it cannot be read.
@@ -202,6 +203,7 @@ OLLAMA_PORT=11435                  # the port published on this machine
 ```
 
 - ollama_project_ensure_models models_file [env_file] [NAME...]
+  - Approved set: the models file is the project's approved models, one per role and class of machine. A `NAME` in the environment or `.env` set to any other model is a manual override: on a terminal it is named as not approved, with the approved ones, and used only after a yes; with no terminal and in CI (`CI=true`, `GITHUB_ACTIONS`) it is refused (9), never asked. A `NAME` the file does not name is not judged.
   - Class: the models are this machine's picks (`ollama_model_for_class`). One above the default that the disk or memory check refuses (1-3) falls back one column (xlarge, large, default) and is checked again, with a warning naming the new picks; when the default does not fit either, the refusal stands. `AI_MODEL_TIER` and `OLLAMA_BUDGET_GPU_LARGEST_BYTES` may be in `.env`. For an Ollama on another machine this machine's memory and GPU are not its own: its class is `AI_MODEL_TIER`, or comes from its stated `OLLAMA_BUDGET_MEM_TOTAL_BYTES` (and `OLLAMA_BUDGET_GPU_LARGEST_BYTES`, else no GPU); with neither, the default column.
   - Purpose: The whole start check from a project's own configuration: `.env`, models file, address, mode, then `ollama_endpoint_ensure_models`.
   - Configuration: `env_file` (`""` for none; a file that is not there yet is no `.env`) is read as data for the model names, the address, `OLLAMA_MODE`, `OLLAMA_PORT`, `OLLAMA_HOST_PORT`, `OLLAMA_MODELS` and every setting under Environment above. A value in the environment that is not blank wins. Nothing read from it is left in the caller's environment, and the caller's `IFS` does not change what is read.

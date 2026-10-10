@@ -82,6 +82,11 @@ jobs:
       - name: make test
         run: make test
 
+      # The runner's real figures: an Apple silicon runner's GPU is two thirds
+      # of its memory (lib/ollama_endpoint.sh), not 0.
+      - name: This machine's figures and class (real, not stubbed)
+        run: bash scripts/ollama_models.sh class
+
       - name: make examples
         run: make examples
 
