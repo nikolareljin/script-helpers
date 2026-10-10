@@ -1309,9 +1309,9 @@ fallback() { # fallback <refused model...>: what ensure_models was asked for, in
     ollama_project_ensure_models "$tmp/tiers.env" "" CODE >/dev/null 2>&1; echo "rc=$?"
     cat "$tmp/fallback.log" )
 }
-check "xlarge refused: large is tried" "rc=0|asked: code-xlarge:30b|asked: code-large:14b" "$(fallback code-xlarge:30b | paste -sd'|')"
-check "xlarge and large refused: the default is tried" "rc=0|asked: code-xlarge:30b|asked: code-large:14b|asked: code-default:7b" "$(fallback code-xlarge:30b code-large:14b | paste -sd'|')"
-check "the default refused too: the refusal stands (1)" "rc=1|asked: code-xlarge:30b|asked: code-large:14b|asked: code-default:7b" "$(fallback code-xlarge:30b code-large:14b code-default:7b | paste -sd'|')"
+check "xlarge refused: large is tried" "rc=0|asked: code-xlarge:30b|asked: code-large:14b" "$(fallback code-xlarge:30b | paste -sd'|' -)"
+check "xlarge and large refused: the default is tried" "rc=0|asked: code-xlarge:30b|asked: code-large:14b|asked: code-default:7b" "$(fallback code-xlarge:30b code-large:14b | paste -sd'|' -)"
+check "the default refused too: the refusal stands (1)" "rc=1|asked: code-xlarge:30b|asked: code-large:14b|asked: code-default:7b" "$(fallback code-xlarge:30b code-large:14b code-default:7b | paste -sd'|' -)"
 
 # Another machine's Ollama is not measured by this machine's memory and GPU.
 elsewhere() { # what ensure_models was asked for, for an Ollama on another machine
