@@ -13,7 +13,7 @@
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT_DIR"
+cd "$ROOT_DIR" || exit 1
 
 failures=0
 note()  { echo "[portability_test] $*"; }
@@ -164,6 +164,19 @@ ban "md5sum/sha256sum are GNU" \
     '(^|[^[:alnum:]_])(md5sum|sha256sum)([^[:alnum:]_]|$)' \
     "lib/file.sh"   # verify_checksum's default; guarded by command_exists and
                     # tracked as a follow-up, not reachable from ./dev.
+
+# --- paste -s with no file operand -------------------------------------------
+#
+# GNU paste reads standard input with no operand; BSD paste (macOS) prints
+# nothing and exits 0, so `... | paste -sd',')` was empty only on macOS. Pass
+# `-` as the file. A regex cannot see past a quoted delimiter such as '|', so
+# the line is checked for a ` -` operand instead.
+while IFS= read -r hit; do
+  [[ -n "$hit" ]] || continue
+  case "$hit" in *paste*" -)"*|*paste*" - "*|*paste*" -"|*paste*" -|"*) continue ;; esac
+  error "paste -s needs a - operand (BSD paste reads no stdin without it) -> $hit"
+done < <(printf '%s' "$FILES" | grep -v '^$' | xargs grep -nE 'paste[[:space:]]+-[a-zA-Z]*s' 2>/dev/null \
+           | grep -vE ':[[:space:]]*#')
 
 # --- \t in a bash regex ------------------------------------------------------
 #

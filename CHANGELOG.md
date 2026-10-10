@@ -1,3 +1,25 @@
+## Unreleased
+
+### Added
+
+- **The model this machine gets, by its class** (`lib/ollama_endpoint.sh`).
+  `ollama_model_for_class` picks each name's column of a models file by the
+  machine's memory and largest GPU: xlarge, large, small or the default, by
+  the fleet model registry's rule. A small machine with a good GPU is not small.
+  `ollama_models_required` and `ollama_project_ensure_models` use it, so every
+  project's start now checks and pulls the model its hardware can run. A model
+  above the default that the disk or memory check refuses falls back one column.
+  `AI_MODEL_TIER` names the class instead; a name in `.env` still wins. An
+  Ollama on another machine is not measured by this one: `AI_MODEL_TIER`, its
+  stated memory, or the default column.
+- `ollama_gpu_mem_largest_bytes` and `ollama_machine_figures`.
+- `scripts/ollama_models.sh class|pick|ensure` for callers that cannot source
+  the library (an Ansible task).
+
+### Changed
+
+- `ollama_gpu_mem_bytes` counts AMD GPUs (amdgpu sysfs) as well as NVIDIA.
+
 ## 2026-10-08 — v0.47.0
 
 ### Added

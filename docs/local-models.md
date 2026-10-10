@@ -106,9 +106,9 @@ What goes into a repository
    `=`, one pair of quotes, a trailing ` # comment`, Windows line ends and a
    byte-order mark are all tolerated. A name ending in `_SMALL`, `_LARGE` or
    `_XLARGE` is the model for another class of machine; a name ending in
-   `_RAM_GB` or `_VRAM_GB` after that is a number for the pick. Neither is a
-   model this machine needs by default, and `ollama_models_required` skips
-   them. **Every other name is read as a model**, so the file holds models
+   `_RAM_GB` or `_VRAM_GB` after that is a number for the pick. Each name gives
+   one model: the column this machine qualifies for (below), else the name
+   itself. **Every other name is read as a model**, so the file holds models
    only: `AI_MODEL_TIER=standard` or `OLLAMA_TIMEOUT_MS=180000` written there
    is checked as the model `standard:latest` or `180000:latest`, and the start
    stops with exit 7 ("the registry has no model named ..."). Settings go in
@@ -116,6 +116,24 @@ What goes into a repository
 
    The file may be written by hand or generated from a list shared by
    several projects; a generated one says so in its header, and is not edited.
+
+   **Which column a machine gets.** By its memory and its largest GPU, in whole
+   GiB as it reports them (`scripts/ollama_models.sh class` prints both):
+
+   | Class | When | Column |
+   |---|---|---|
+   | xlarge | largest GPU >= `NAME_XLARGE_VRAM_GB` | `NAME_XLARGE` |
+   | large | largest GPU >= `NAME_LARGE_VRAM_GB`, or memory >= `AI_TIER_LARGE_RAM_GB` | `NAME_LARGE` |
+   | small | memory and largest GPU both < `AI_TIER_SMALL_RAM_GB` | `NAME_SMALL` |
+   | default | otherwise | `NAME` |
+
+   A class with no model for a name gets the next column below. A model
+   above the default that the disk or memory check refuses falls back one
+   column. `AI_MODEL_TIER=small|standard|large|xlarge` in `.env` names the
+   class instead; `NAME` in `.env` names the model on any machine. For an
+   Ollama on another machine, this machine's figures do not count: its class
+   is `AI_MODEL_TIER`, or its stated `OLLAMA_BUDGET_MEM_TOTAL_BYTES`, else the
+   default column.
 
 3. **The application reads the same file.** The models the start script
    checks must be the models the code uses, or the check proves nothing. The
