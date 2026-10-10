@@ -130,7 +130,11 @@ What goes into a repository
    A class with no model for a name gets the next column below. A model
    above the default that the disk or memory check refuses falls back one
    column. `AI_MODEL_TIER=small|standard|large|xlarge` in `.env` names the
-   class instead; `NAME` in `.env` names the model on any machine. For an
+   class instead.
+
+   The file is the project's **approved** models. `NAME` set in `.env` to any
+   other model is a manual override: the start says it is not approved and asks
+   before using it; in CI, or with no terminal, it refuses (exit 9). For an
    Ollama on another machine, this machine's figures do not count: its class
    is `AI_MODEL_TIER`, or its stated `OLLAMA_BUDGET_MEM_TOTAL_BYTES`, else the
    default column.

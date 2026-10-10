@@ -47,6 +47,23 @@ jobs:
         run: |
           make test
 
+  # The class of machine and the model picks run under Git Bash on Windows, as
+  # ./dev runs them there: /proc/meminfo from Git Bash, GPU memory from the
+  # registry through powershell.exe. Only this test file: the rest of the suite
+  # targets Linux and macOS.
+  windows-ollama-endpoint:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-19
+      - name: ollama_endpoint tests under Git Bash
+        shell: bash
+        run: bash tests/ollama_endpoint_test.sh
+      - name: This machine's figures and class (real, not stubbed)
+        shell: bash
+        run: bash scripts/ollama_models.sh class
+
   powershell:
     # The PowerShell companion library was never built or linted here, which is
     # how ps/scripts/tag_release.ps1 shipped with a syntax error that made it

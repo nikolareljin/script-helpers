@@ -944,7 +944,20 @@ reset main:7b small:3b embed:latest
 check "everything there: nothing to do" "0:" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
 reset main:7b embed:latest
 printf 'OLLAMA_URL=%s\nCLASSIFY_MODEL=team/tool:1b\n' "$URL" >"$tmp/proj/.env"
-check "a model named in .env is the one checked, not the file's" "0:team/tool:1b" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+# team/tool:1b is not in the file, so it is an override of the approved set:
+# refused with nobody to ask, used after a yes on a terminal.
+check "an unapproved model in .env, no terminal: refused (9), nothing pulled" "9:" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+said "the refusal names the model and the approved one" "$tmp/err" "CLASSIFY_MODEL=team/tool:1b is not an approved model" "approved: small:3b"
+reset main:7b embed:latest
+check "on a terminal, after a yes, the model named in .env is the one checked" "0:team/tool:1b" "$( ( _ollama_ep_can_ask() { return 0; }; unset CI GITHUB_ACTIONS; ollama_project_ensure_models "$tmp/proj/ai-models.env" "$tmp/proj/.env" >"$tmp/out" 2>"$tmp/err" <<<"y"; echo $? ) ):$(pulled)"
+reset main:7b embed:latest
+check "on a terminal, a no: refused (9)" "9:" "$( ( _ollama_ep_can_ask() { return 0; }; unset CI GITHUB_ACTIONS; ollama_project_ensure_models "$tmp/proj/ai-models.env" "$tmp/proj/.env" >"$tmp/out" 2>"$tmp/err" <<<"n"; echo $? ) ):$(pulled)"
+reset main:7b embed:latest
+check "in CI, even with a terminal: refused, never asked" "9:0" "$( ( _ollama_ep_can_ask() { return 0; }; export CI=true; ollama_project_ensure_models "$tmp/proj/ai-models.env" "$tmp/proj/.env" >"$tmp/out" 2>"$tmp/err" <<<"y"; echo $? ) ):$(pulled)$(grep -c 'Use it anyway' "$tmp/err")"
+reset main:7b embed:latest
+printf 'OLLAMA_URL=%s\nCLASSIFY_MODEL=SMALL:3B\n' "$URL" >"$tmp/proj/.env"
+check "an approved model in .env, however written, is not an override" "0:SMALL:3B" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
+printf 'OLLAMA_URL=%s\nCLASSIFY_MODEL=team/tool:1b\n' "$URL" >"$tmp/proj/.env"
 reset main:7b embed:latest
 check "and the environment wins over .env" "0:small:3b" "$(CLASSIFY_MODEL=small:3b project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
 reset main:7b
@@ -1295,6 +1308,31 @@ check "the largest single card decides the class, not the sum" "$((12 * GIB))" "
 printf '#!/bin/sh\nprintf "16376\\n24576\\n"\n' >"$tmp/no-nvidia/nvidia-smi"; chmod +x "$tmp/no-nvidia/nvidia-smi"
 check "NVIDIA and AMD together: summed for the budget, largest for the class" "$(( (16376 + 24576) * 1048576 + 20 * GIB )) $((24576 * 1048576))" "$(gpu ollama_gpu_mem_bytes) $(gpu ollama_gpu_mem_largest_bytes)"
 rm -f "$tmp/no-nvidia/nvidia-smi"
+
+# The other systems. Each is driven through its own tool, stubbed.
+mkdir -p "$tmp/os-bin"
+os_gpu() { # os_gpu <os> <function> [VAR=value...]
+  local os="$1" fn="$2"; shift 2
+  ( unset OLLAMA_BUDGET_GPU_BYTES OLLAMA_BUDGET_GPU_LARGEST_BYTES
+    export _OLLAMA_EP_OS="$os" _OLLAMA_EP_DRM="$tmp/no-drm" PATH="$tmp/os-bin:/usr/bin:/bin"
+    for kv in "$@"; do export "${kv?}"; done
+    hash -r; "$fn" )
+}
+# Windows: dedicated memory per adapter from the registry, CRLF and an empty
+# value included (an adapter without the value).
+printf '#!/bin/sh\nprintf "8589934592\\r\\n\\r\\n268435456\\r\\n"\n' >"$tmp/os-bin/powershell.exe"
+chmod +x "$tmp/os-bin/powershell.exe"
+check "Windows: every adapter's dedicated memory from the registry" "$((8 * GIB + 256 * 1048576)) $((8 * GIB))" "$(os_gpu MINGW64_NT-10.0 ollama_gpu_mem_bytes) $(os_gpu MINGW64_NT-10.0 ollama_gpu_mem_largest_bytes)"
+rm -f "$tmp/os-bin/powershell.exe"
+check "Windows without powershell.exe: no GPU, not an error" "0" "$(os_gpu MSYS_NT-10.0 ollama_gpu_mem_largest_bytes)"
+# An Intel Mac with a discrete card; Apple silicon prints no VRAM line.
+printf '#!/bin/sh\nprintf "Graphics:\\n  Radeon Pro 5500M:\\n    VRAM (Total): 8 GB\\n  Intel UHD Graphics 630:\\n    VRAM (Dynamic, Max): 1536 MB\\n"\n' >"$tmp/os-bin/system_profiler"
+chmod +x "$tmp/os-bin/system_profiler"
+check "an Intel Mac: its cards from system_profiler" "$((8 * GIB))" "$(os_gpu Darwin ollama_gpu_mem_largest_bytes _OLLAMA_EP_ARCH=x86_64)"
+rm -f "$tmp/os-bin/system_profiler"
+check "Apple silicon: two thirds of its memory is its GPU, for the class" "$((64 * GIB * 2 / 3))" "$(os_gpu Darwin ollama_gpu_mem_largest_bytes _OLLAMA_EP_ARCH=arm64 OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((64 * GIB)))"
+check "and the budget does not count that memory twice" "0" "$(os_gpu Darwin ollama_gpu_mem_bytes _OLLAMA_EP_ARCH=arm64 OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((64 * GIB)))"
+check "so a 64 GB Mac reaches xlarge (42 GiB >= 23) and a 16 GB one stays default" "code-xlarge:30b code-default:7b" "$( ( unset CODE AI_MODEL_TIER OLLAMA_BUDGET_GPU_LARGEST_BYTES; export _OLLAMA_EP_OS=Darwin _OLLAMA_EP_ARCH=arm64 OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((64 * GIB)); ollama_model_for_class "$tmp/tiers.env" CODE ) ) $( ( unset CODE AI_MODEL_TIER OLLAMA_BUDGET_GPU_LARGEST_BYTES; export _OLLAMA_EP_OS=Darwin _OLLAMA_EP_ARCH=arm64 OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((15 * GIB)); ollama_model_for_class "$tmp/tiers.env" CODE ) )"
 
 # A model above the default that the budget refuses falls back one column.
 fallback() { # fallback <refused model...>: what ensure_models was asked for, in order

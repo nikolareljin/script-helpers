@@ -2,6 +2,17 @@
 
 ### Added
 
+- **The approved set is enforced, an override asked about.** A models file is
+  a project's approved models, one per role and class of machine. A `NAME` that
+  `.env` or the environment sets to another model is a manual override: on a
+  terminal the start names it as not approved, with the approved models, and
+  uses it only after a yes; with no terminal and in CI it refuses (exit 9).
+- **The class of machine on Windows and macOS.** Windows (Git Bash) reads every
+  display adapter's dedicated memory from the registry; an Intel Mac reads its
+  card from `system_profiler`; Apple silicon counts two thirds of its memory as
+  its GPU for the class (not for the budget, which would count it twice). A
+  Windows CI job runs `tests/ollama_endpoint_test.sh` under Git Bash, and the
+  Windows and macOS jobs print the runner's real class.
 - **The model this machine gets, by its class** (`lib/ollama_endpoint.sh`).
   `ollama_model_for_class` picks each name's column of a models file by the
   machine's memory and largest GPU: xlarge, large, small or the default, by
@@ -9,7 +20,8 @@
   `ollama_models_required` and `ollama_project_ensure_models` use it, so every
   project's start now checks and pulls the model its hardware can run. A model
   above the default that the disk or memory check refuses falls back one column.
-  `AI_MODEL_TIER` names the class instead; a name in `.env` still wins. An
+  `AI_MODEL_TIER` names the class instead; a name in `.env` wins only as a
+  confirmed override (above). An
   Ollama on another machine is not measured by this one: `AI_MODEL_TIER`, its
   stated memory, or the default column.
 - `ollama_gpu_mem_largest_bytes` and `ollama_machine_figures`.
