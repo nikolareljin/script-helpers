@@ -1313,6 +1313,25 @@ check "xlarge refused: large is tried" "rc=0|asked: code-xlarge:30b|asked: code-
 check "xlarge and large refused: the default is tried" "rc=0|asked: code-xlarge:30b|asked: code-large:14b|asked: code-default:7b" "$(fallback code-xlarge:30b code-large:14b | paste -sd'|')"
 check "the default refused too: the refusal stands (1)" "rc=1|asked: code-xlarge:30b|asked: code-large:14b|asked: code-default:7b" "$(fallback code-xlarge:30b code-large:14b code-default:7b | paste -sd'|')"
 
+# Another machine's Ollama is not measured by this machine's memory and GPU.
+elsewhere() { # what ensure_models was asked for, for an Ollama on another machine
+  ( unset CODE PLAIN REASON SUM AI_MODEL_TIER _OLLAMA_EP_TIER_CAP OLLAMA_BUDGET_MEM_TOTAL_BYTES OLLAMA_BUDGET_GPU_LARGEST_BYTES
+    for kv in "$@"; do export "${kv?}"; done
+    export OLLAMA_URL=http://192.0.2.50:11434 OLLAMA_MODE=remote
+    ollama_endpoint_is_local() { return 1; }
+    ollama_endpoint_models() { echo other:1b; }
+    # This machine is a workstation (64 GiB, a 24 GB GPU), so taking its own
+    # figures for the other machine would show; stated figures still win.
+    ollama_mem_total_bytes() { echo "${OLLAMA_BUDGET_MEM_TOTAL_BYTES:-$((64 * GIB))}"; }
+    _ollama_ep_gpu_list() { echo $((23 * GIB)); }
+    ollama_endpoint_ensure_models() { shift 2; echo "$*"; return 0; }
+    ollama_project_ensure_models "$tmp/tiers.env" "" CODE 2>/dev/null )
+}
+check "a remote Ollama with nothing stated: the default column, not this machine's" "code-default:7b" "$(elsewhere)"
+check "its stated memory picks its class (no GPU unless stated)" "code-large:14b" "$(elsewhere OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((31 * GIB)))"
+check "and its stated GPU" "code-xlarge:30b" "$(elsewhere OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((31 * GIB)) OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((23 * GIB)))"
+check "AI_MODEL_TIER names it" "code-small:4b" "$(elsewhere AI_MODEL_TIER=small)"
+
 if [[ "$failures" -gt 0 ]]; then
   note "FAILED: $failures"
   exit 1

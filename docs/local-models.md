@@ -130,7 +130,10 @@ What goes into a repository
    A class with no model for a name gets the next column below. A model
    above the default that the disk or memory check refuses falls back one
    column. `AI_MODEL_TIER=small|standard|large|xlarge` in `.env` names the
-   class instead; `NAME` in `.env` names the model on any machine.
+   class instead; `NAME` in `.env` names the model on any machine. For an
+   Ollama on another machine, this machine's figures do not count: its class
+   is `AI_MODEL_TIER`, or its stated `OLLAMA_BUDGET_MEM_TOTAL_BYTES`, else the
+   default column.
 
 3. **The application reads the same file.** The models the start script
    checks must be the models the code uses, or the check proves nothing. The

@@ -1347,6 +1347,26 @@ ollama_project_ensure_models() (
       ;;
   esac
 
+  # Another machine's Ollama: this machine's memory and GPU are not its own, so
+  # they do not pick its class. AI_MODEL_TIER names it, or its stated memory
+  # (OLLAMA_BUDGET_MEM_TOTAL_BYTES, with OLLAMA_BUDGET_GPU_LARGEST_BYTES or no
+  # GPU) measures it; with neither, the default column.
+  if [[ "$_oep_where" == "elsewhere" && -z "$(printf '%s' "${AI_MODEL_TIER:-}" | tr -d ' \t\r')" ]]; then
+    if _ollama_ep_uint "${OLLAMA_BUDGET_MEM_TOTAL_BYTES:-}" >/dev/null; then
+      _ollama_ep_uint "${OLLAMA_BUDGET_GPU_LARGEST_BYTES:-}" >/dev/null || export OLLAMA_BUDGET_GPU_LARGEST_BYTES=0
+    else
+      export AI_MODEL_TIER=standard
+    fi
+    _oep_value="$(ollama_models_required "$_oep_file" "$@")" || exit 9
+    if [[ "$_oep_value" != "$_oep_models" ]]; then
+      _oep_models="$_oep_value"
+      _oep_list=()
+      while IFS= read -r _oep_value; do
+        [[ -z "$_oep_value" ]] || _oep_list+=("$_oep_value")
+      done <<<"$_oep_models"
+    fi
+  fi
+
   if [[ "$_oep_where" == "elsewhere" ]]; then
     # Not a directory on this machine. The disk is read only if a pull was
     # asked for, and then the stated figures are what counts.
