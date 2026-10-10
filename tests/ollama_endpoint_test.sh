@@ -1232,6 +1232,87 @@ check "a bridge that is not on this machine (Desktop, a VM, rootless, remote): n
 check "no IPv4 gateway on the bridge: nothing to ask" "0:0" "$(reach http://host.docker.internal:11434 FAKE_GW='fd00::1 '):$(wc -l <"$tmp/reach-args" | tr -d ' ')"
 check "not an address: 9" "9" "$(reach 'http:/nowhere')"
 
+# --- which model this machine gets (class of machine) --------------------------
+# Figures are stated, not measured: OLLAMA_BUDGET_MEM_TOTAL_BYTES and
+# OLLAMA_BUDGET_GPU_LARGEST_BYTES. GiB = 1073741824 bytes; a "32 GB" machine
+# reports 31 GiB, so the registry's floors sit one below the nominal sizes.
+GIB=1073741824
+cat >"$tmp/tiers.env" <<'EOF'
+AI_TIER_SMALL_RAM_GB=11
+AI_TIER_LARGE_RAM_GB=30
+CODE=code-default:7b
+CODE_SMALL=code-small:4b
+CODE_LARGE=code-large:14b
+CODE_LARGE_VRAM_GB=11
+CODE_XLARGE=code-xlarge:30b
+CODE_XLARGE_VRAM_GB=23
+PLAIN=plain:1b
+REASON=reason-default:8b
+REASON_XLARGE=reason-xlarge:20b
+REASON_XLARGE_VRAM_GB=15
+SUM=sum-default:4b
+SUM_SMALL=sum-small:2b
+EOF
+# pick <ram GiB> <largest GPU GiB> NAME [VAR=value...]
+pick() {
+  local ram="$1" gpu="$2" name="$3"; shift 3
+  ( unset CODE PLAIN REASON SUM AI_MODEL_TIER _OLLAMA_EP_TIER_CAP
+    export OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((ram * GIB)) OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((gpu * GIB))
+    for kv in "$@"; do export "${kv?}"; done
+    ollama_model_for_class "$tmp/tiers.env" "$name" 2>/dev/null )
+}
+check "a 16 GB laptop, no GPU: the default" "code-default:7b" "$(pick 15 0 CODE)"
+check "under the small floor in memory and GPU: small" "code-small:4b" "$(pick 10 0 CODE)"
+check "at the small floor: not small" "code-default:7b" "$(pick 11 0 CODE)"
+check "a small machine with a good GPU is not small" "code-large:14b" "$(pick 7 11 CODE)"
+check "not small even with no large column: the GPU alone decides" "sum-default:4b sum-small:2b" "$(pick 7 11 SUM) $(pick 7 10 SUM)"
+check "a 32 GB machine, no GPU: large by memory" "code-large:14b" "$(pick 31 0 CODE)"
+check "just under the large memory floor: default" "code-default:7b" "$(pick 29 0 CODE)"
+check "a 12 GB GPU: large" "code-large:14b" "$(pick 15 11 CODE)"
+check "a 12 GB GPU is not a 24 GB one: still large" "code-large:14b" "$(pick 64 22 CODE)"
+check "a 24 GB GPU: xlarge" "code-xlarge:30b" "$(pick 64 23 CODE)"
+check "64 GB of memory and no GPU never reaches xlarge" "code-large:14b" "$(pick 64 0 CODE)"
+check "a name with no class columns is the same everywhere" "plain:1b plain:1b" "$(pick 10 0 PLAIN) $(pick 64 23 PLAIN)"
+check "xlarge without a large column: xlarge, or the default below it" "reason-xlarge:20b reason-default:8b" "$(pick 64 15 REASON) $(pick 64 14 REASON)"
+check "AI_MODEL_TIER names the class instead of measuring" "code-xlarge:30b" "$(pick 8 0 CODE AI_MODEL_TIER=xlarge)"
+check "a forced class with no column falls to the next below" "reason-default:8b" "$(pick 64 23 REASON AI_MODEL_TIER=large)"
+check "a model set in the environment wins on any machine" "mine:1b" "$(pick 64 23 CODE CODE=mine:1b)"
+check "AI_MODEL_TIER that is not a class: refused (2)" "2" "$( ( export AI_MODEL_TIER=huge; ollama_model_for_class "$tmp/tiers.env" CODE >/dev/null 2>&1; echo $? ) )"
+check "and ollama_models_required refuses it too, not an empty list" "2" "$( ( export AI_MODEL_TIER=huge; ollama_models_required "$tmp/tiers.env" CODE >/dev/null 2>&1; echo $? ) )"
+check "memory that cannot be read picks the default" "code-default:7b" "$( ( unset OLLAMA_BUDGET_MEM_TOTAL_BYTES CODE; export OLLAMA_BUDGET_GPU_LARGEST_BYTES=0; ollama_mem_total_bytes() { return 1; }; ollama_model_for_class "$tmp/tiers.env" CODE ) )"
+check "the cap (a fallback) limits the class" "code-large:14b code-default:7b" "$(pick 64 23 CODE _OLLAMA_EP_TIER_CAP=large) $(pick 64 23 CODE _OLLAMA_EP_TIER_CAP=standard)"
+check "required models are this machine's picks" "code-xlarge:30b plain:1b reason-xlarge:20b sum-default:4b" "$( ( unset CODE PLAIN REASON SUM AI_MODEL_TIER; export OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((64 * GIB)) OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((23 * GIB)); ollama_models_required "$tmp/tiers.env" | one_line ) )"
+
+# GPUs: AMD through sysfs, connectors skipped, the largest single card decides.
+mkdir -p "$tmp/drm/card0/device" "$tmp/drm/card1/device" "$tmp/drm/card0-DP-1/device" "$tmp/drm/renderD128"
+echo $((12 * GIB)) >"$tmp/drm/card0/device/mem_info_vram_total"
+echo $((8 * GIB)) >"$tmp/drm/card1/device/mem_info_vram_total"
+echo $((99 * GIB)) >"$tmp/drm/card0-DP-1/device/mem_info_vram_total"
+mkdir -p "$tmp/no-nvidia"
+gpu() { ( unset OLLAMA_BUDGET_GPU_BYTES OLLAMA_BUDGET_GPU_LARGEST_BYTES; export _OLLAMA_EP_DRM="$tmp/drm" PATH="$tmp/no-nvidia:/usr/bin:/bin"; hash -r; "$@" ); }
+check "AMD cards are read from sysfs; a connector is not a GPU" "$((20 * GIB))" "$(gpu ollama_gpu_mem_bytes)"
+check "the largest single card decides the class, not the sum" "$((12 * GIB))" "$(gpu ollama_gpu_mem_largest_bytes)"
+printf '#!/bin/sh\nprintf "16376\\n24576\\n"\n' >"$tmp/no-nvidia/nvidia-smi"; chmod +x "$tmp/no-nvidia/nvidia-smi"
+check "NVIDIA and AMD together: summed for the budget, largest for the class" "$(( (16376 + 24576) * 1048576 + 20 * GIB )) $((24576 * 1048576))" "$(gpu ollama_gpu_mem_bytes) $(gpu ollama_gpu_mem_largest_bytes)"
+rm -f "$tmp/no-nvidia/nvidia-smi"
+
+# A model above the default that the budget refuses falls back one column.
+fallback() { # fallback <refused model...>: what ensure_models was asked for, in order
+  ( unset CODE PLAIN REASON AI_MODEL_TIER _OLLAMA_EP_TIER_CAP
+    export OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((64 * GIB)) OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((23 * GIB)) OLLAMA_URL="$URL"
+    refused=" $* "
+    ollama_endpoint_ensure_models() {
+      shift 2; echo "asked: $*" >>"$tmp/fallback.log"
+      local m; for m in "$@"; do [[ "$refused" != *" $m "* ]] || return 1; done; return 0
+    }
+    : >"$tmp/fallback.log"
+    ollama_project_ensure_models "$tmp/tiers.env" "" CODE >/dev/null 2>&1; echo "rc=$?"
+    cat "$tmp/fallback.log" )
+}
+check "xlarge refused: large is tried" "rc=0|asked: code-xlarge:30b|asked: code-large:14b" "$(fallback code-xlarge:30b | paste -sd'|')"
+check "xlarge and large refused: the default is tried" "rc=0|asked: code-xlarge:30b|asked: code-large:14b|asked: code-default:7b" "$(fallback code-xlarge:30b code-large:14b | paste -sd'|')"
+check "the default refused too: the refusal stands (1)" "rc=1|asked: code-xlarge:30b|asked: code-large:14b|asked: code-default:7b" "$(fallback code-xlarge:30b code-large:14b code-default:7b | paste -sd'|')"
+
 if [[ "$failures" -gt 0 ]]; then
   note "FAILED: $failures"
   exit 1

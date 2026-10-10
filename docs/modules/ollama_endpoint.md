@@ -96,8 +96,8 @@ Functions
 
 - ollama_models_required file [NAME...]
   - Purpose: Print the models a start needs, as Ollama lists them, one per line, each once.
-  - Behavior: With no `NAME`, every name in the file except a tier's alternative: a name ending in `_SMALL`, `_LARGE` or `_XLARGE` is the model for another class of machine, and `_VRAM_GB` or `_RAM_GB` after that is a figure for the pick, not a model. For each name a non-blank value in the environment wins over the file, trimmed; load the project's `.env` first if it should count.
-  - Returns: 0; 2, printing nothing, when a `NAME` is not a variable name. A list cut short at the bad name would start a project with some of its models. 1, printing nothing, when `file` is named and is not there: a mistyped path would otherwise read as "needs no models". Pass `""` for no file, to take the names from the environment alone.
+  - Behavior: With no `NAME`, every name in the file except a tier's alternative: a name ending in `_SMALL`, `_LARGE` or `_XLARGE` is the model for another class of machine, and `_VRAM_GB` or `_RAM_GB` after that is a figure for the pick, not a model. Each name gives the model this machine gets (`ollama_model_for_class`): a non-blank value in the environment wins, trimmed; load the project's `.env` first if it should count.
+  - Returns: 0; 2, printing nothing, when a `NAME` is not a variable name or `AI_MODEL_TIER` is not a class (checked before any name, so a typo is never an empty list). A list cut short at the bad name would start a project with some of its models. 1, printing nothing, when `file` is named and is not there: a mistyped path would otherwise read as "needs no models". Pass `""` for no file, to take the names from the environment alone.
 
 - ollama_endpoint_models base_url [timeout_seconds=5]
   - Purpose: Print the models the Ollama at `base_url` has, as it names them.
@@ -125,7 +125,23 @@ Functions
   - Purpose: Print the machine's memory, and what a new process could have now. Linux reads `/proc/meminfo`; macOS reads `sysctl hw.memsize` and `vm_stat` (free plus inactive pages). Prints nothing when it cannot be told.
 
 - ollama_gpu_mem_bytes
-  - Purpose: Print the memory of this machine's NVIDIA GPUs together (`nvidia-smi`), or `0`: Ollama spreads a model over them. A driver that cannot be reached counts as no GPU. Apple silicon shares memory with its GPU and is covered by the total.
+  - Purpose: Print the memory of this machine's GPUs together, or `0`: Ollama spreads a model over them. NVIDIA from `nvidia-smi`, AMD from the amdgpu driver's `/sys/class/drm/cardN/device/mem_info_vram_total` (a connector such as `card0-DP-1` is not a GPU). A driver that cannot be reached counts as no GPU. Apple silicon shares memory with its GPU and is covered by the total. `OLLAMA_BUDGET_GPU_BYTES` states it.
+
+- ollama_gpu_mem_largest_bytes
+  - Purpose: Print the memory of the largest single GPU, or `0`. A model runs on one GPU, so this, not the sum, says which models the machine can run: two 12 GB cards are not a 24 GB card. `OLLAMA_BUDGET_GPU_LARGEST_BYTES` states it.
+
+- ollama_machine_figures
+  - Purpose: Print `<memory GiB>:<largest GPU GiB>`, whole GiB rounded down, the two figures the class is picked by. Memory is empty (`:0`) when it cannot be read.
+
+- ollama_model_for_class file NAME
+  - Purpose: Print the model this machine gets for `NAME`: the highest class column it qualifies for that names a model, else `NAME`.
+  - Classes (fleet model registry; figures in whole GiB as the machine reports them, so a 32 GB machine is 31):
+    - `xlarge`: its largest GPU has at least `NAME_XLARGE_VRAM_GB`.
+    - `large`: its largest GPU has at least `NAME_LARGE_VRAM_GB`, or it has `AI_TIER_LARGE_RAM_GB` of memory.
+    - `small`: less than `AI_TIER_SMALL_RAM_GB` of memory *and* of GPU memory (a small machine with a good GPU is not small).
+    - otherwise the default, `NAME`.
+  - A class with no model for `NAME` falls to the next column below (small to the default). A non-blank `NAME` in the environment wins on any machine. `AI_MODEL_TIER=small|standard|large|xlarge` names the class instead of measuring. Memory that cannot be read picks the default, never a guessed class.
+  - Returns: 0, printing nothing when neither `NAME` nor a column has a value; 2 for a `NAME` that is not a variable name or an `AI_MODEL_TIER` that is not a class.
 
 - ollama_budget_check pull_bytes largest_model_bytes models_dir
   - Purpose: Say whether the machine can take a download of `pull_bytes` into `models_dir` and then load a model of `largest_model_bytes`.
@@ -186,6 +202,7 @@ OLLAMA_PORT=11435                  # the port published on this machine
 ```
 
 - ollama_project_ensure_models models_file [env_file] [NAME...]
+  - Class: the models are this machine's picks (`ollama_model_for_class`). One above the default that the disk or memory check refuses (1-3) falls back one column (xlarge, large, default) and is checked again, with a warning naming the new picks; when the default does not fit either, the refusal stands. `AI_MODEL_TIER` and `OLLAMA_BUDGET_GPU_LARGEST_BYTES` may be in `.env`.
   - Purpose: The whole start check from a project's own configuration: `.env`, models file, address, mode, then `ollama_endpoint_ensure_models`.
   - Configuration: `env_file` (`""` for none; a file that is not there yet is no `.env`) is read as data for the model names, the address, `OLLAMA_MODE`, `OLLAMA_PORT`, `OLLAMA_HOST_PORT`, `OLLAMA_MODELS` and every setting under Environment above. A value in the environment that is not blank wins. Nothing read from it is left in the caller's environment, and the caller's `IFS` does not change what is read.
   - Models: as `ollama_models_required models_file [NAME...]`. Pass `""` for the file when the project names its models in `.env` alone. One value is one model: `"small:3b embed"` is refused (8), not read as two.
