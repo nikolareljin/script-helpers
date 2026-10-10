@@ -524,7 +524,9 @@ _ollama_ep_os() {
 #   linux    NVIDIA from nvidia-smi; AMD from the amdgpu driver's sysfs file
 #            (_OLLAMA_EP_DRM is a test seam for /sys/class/drm).
 #   windows  every display adapter's dedicated memory from the registry
-#            (HardwareInformation.qwMemorySize: NVIDIA, AMD and Intel, each once).
+#            (HardwareInformation.qwMemorySize: NVIDIA, AMD and Intel, each once;
+#            an older driver writes only the 32-bit HardwareInformation.MemorySize,
+#            a number or 4 bytes, which is read instead).
 #   macos    an Intel Mac's discrete card from system_profiler. Apple silicon
 #            has none here: its GPU uses the machine's memory, counted already.
 _ollama_ep_gpu_list() {
@@ -533,7 +535,7 @@ _ollama_ep_gpu_list() {
     windows)
       if command -v powershell.exe >/dev/null 2>&1; then
         { powershell.exe -NoProfile -NonInteractive -Command \
-            "Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\0*' -ErrorAction SilentlyContinue | ForEach-Object { \$_.'HardwareInformation.qwMemorySize' }" \
+            "Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\0*' -ErrorAction SilentlyContinue | ForEach-Object { \$q = \$_.'HardwareInformation.qwMemorySize'; \$m = \$_.'HardwareInformation.MemorySize'; if (\$q) { \$q } elseif (\$m -is [byte[]]) { [BitConverter]::ToUInt32(\$m, 0) } elseif (\$m) { \$m } }" \
             2>/dev/null || true; } | tr -d '\r' | while IFS= read -r _oep_line; do
           _oep_bytes="$(_ollama_ep_uint "$_oep_line")" || continue
           [[ "$_oep_bytes" -gt 0 ]] && printf '%s\n' "$_oep_bytes"
