@@ -95,7 +95,7 @@ def read(name, default=""):
     return open(path).read() if os.path.exists(path) else default
 
 def note(name, line):
-    with open(os.path.join(STATE, name), "a") as log:
+    with open(os.path.join(STATE, name), "a", newline="\n") as log:  # LF on Windows too
         log.write(line + "\n")
 
 class H(BaseHTTPRequestHandler):
@@ -119,7 +119,7 @@ class H(BaseHTTPRequestHandler):
         if self.path == "/api/tags":
             if mode == "fail-once":
                 # An Ollama that is still starting: the first listing fails.
-                with open(os.path.join(STATE, "mode"), "w") as f:
+                with open(os.path.join(STATE, "mode"), "w", newline="\n") as f:
                     f.write("")
                 return self.send(503, "{}")
             if mode == "web":
@@ -240,7 +240,7 @@ class Server(HTTPServer):
         self.server_name, self.server_port = self.server_address[0], self.server_address[1]
 
 server = Server(("127.0.0.1", 0), H)
-with open(sys.argv[1], "w") as port:
+with open(sys.argv[1], "w", newline="\n") as port:
     port.write(str(server.server_address[1]))
 server.serve_forever()
 PY
@@ -264,7 +264,8 @@ reset() { # reset [installed model...]
   local m
   for m in "$@"; do echo "$m" >>"$tmp/state/installed"; done
 }
-one_line() { tr '\n' ' ' | sed 's/ $//'; }
+# \r dropped: on Windows the fake Ollama (Python) writes its files with CRLF.
+one_line() { tr -d '\r' | tr '\n' ' ' | sed 's/ $//'; }
 pulled() { if [[ -f "$tmp/state/pulled" ]]; then one_line <"$tmp/state/pulled"; fi; }
 # A machine with room for everything. A test changes this when it needs to.
 roomy() {
@@ -428,7 +429,8 @@ if [[ -z "$real_available" ]] || [[ "$real_available" =~ ^[0-9]+$ && "$real_avai
 mkdir -p "$tmp/empty-path"
 check "no GPU tool means no GPU memory" "0" "$(unset OLLAMA_BUDGET_GPU_BYTES; PATH="$tmp/empty-path" ollama_gpu_mem_bytes)"
 printf '#!/bin/sh\necho 24576\necho 8192\n' >"$tmp/empty-path/nvidia-smi"; chmod +x "$tmp/empty-path/nvidia-smi"
-check "GPUs count together: Ollama spreads a model over them" "$(((24576 + 8192) * 1048576))" "$(unset OLLAMA_BUDGET_GPU_BYTES; PATH="$tmp/empty-path:$PATH" ollama_gpu_mem_bytes)"
+# The Linux path (nvidia-smi), on whatever system the tests run on.
+check "GPUs count together: Ollama spreads a model over them" "$(((24576 + 8192) * 1048576))" "$(unset OLLAMA_BUDGET_GPU_BYTES; _OLLAMA_EP_OS=linux PATH="$tmp/empty-path:$PATH" ollama_gpu_mem_bytes)"
 printf '#!/bin/sh\necho "NVIDIA-SMI has failed because it could not communicate with the NVIDIA driver." >&2\nexit 9\n' >"$tmp/empty-path/nvidia-smi"
 check "a driver that cannot be reached is no GPU" "0" "$(unset OLLAMA_BUDGET_GPU_BYTES; PATH="$tmp/empty-path:$PATH" ollama_gpu_mem_bytes)"
 rm -f "$tmp/empty-path/nvidia-smi"
@@ -1302,7 +1304,8 @@ echo $((12 * GIB)) >"$tmp/drm/card0/device/mem_info_vram_total"
 echo $((8 * GIB)) >"$tmp/drm/card1/device/mem_info_vram_total"
 echo $((99 * GIB)) >"$tmp/drm/card0-DP-1/device/mem_info_vram_total"
 mkdir -p "$tmp/no-nvidia"
-gpu() { ( unset OLLAMA_BUDGET_GPU_BYTES OLLAMA_BUDGET_GPU_LARGEST_BYTES; export _OLLAMA_EP_DRM="$tmp/drm" PATH="$tmp/no-nvidia:/usr/bin:/bin"; hash -r; "$@" ); }
+# The Linux path (nvidia-smi and sysfs), on whatever system the tests run on.
+gpu() { ( unset OLLAMA_BUDGET_GPU_BYTES OLLAMA_BUDGET_GPU_LARGEST_BYTES; export _OLLAMA_EP_OS=linux _OLLAMA_EP_DRM="$tmp/drm" PATH="$tmp/no-nvidia:/usr/bin:/bin"; hash -r; "$@" ); }
 check "AMD cards are read from sysfs; a connector is not a GPU" "$((20 * GIB))" "$(gpu ollama_gpu_mem_bytes)"
 check "the largest single card decides the class, not the sum" "$((12 * GIB))" "$(gpu ollama_gpu_mem_largest_bytes)"
 printf '#!/bin/sh\nprintf "16376\\n24576\\n"\n' >"$tmp/no-nvidia/nvidia-smi"; chmod +x "$tmp/no-nvidia/nvidia-smi"
