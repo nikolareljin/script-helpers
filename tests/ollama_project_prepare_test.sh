@@ -47,6 +47,7 @@ case "$1 $2" in
   "volume create") [ -z "${FAKE_VOLUME_FAIL:-}" ] ;;
   "compose up"|"compose --env-file") [ -z "${FAKE_UP_FAIL:-}" ] ;;
   "network inspect") [ -n "${FAKE_NET:-}" ] ;;
+  "network create") [ -z "${FAKE_NETCREATE_FAIL:-}" ] ;;
   "image ls") [ -n "${FAKE_IMAGE:-}" ] && echo "$FAKE_IMAGE" ;;
   "run --rm")
     [ -n "${FAKE_RUN_FAIL:-}" ] && exit 125
@@ -71,7 +72,7 @@ prep() {
   while [[ $# -gt 0 && "$1" != "--" ]]; do kv+=("$1"); shift; done
   shift
   : >"$tmp/calls"
-  ( unset OLLAMA_RUNTIME OLLAMA_URL OLLAMA_BASE_URL OLLAMA_HOST OLLAMA_MODEL OLLAMA_CONTAINER_PORT \
+  ( unset OLLAMA_RUNTIME OLLAMA_URL OLLAMA_BASE_URL AI_OLLAMA_BASE_URL OLLAMA_HOST OLLAMA_MODEL OLLAMA_CONTAINER_PORT \
       COMPOSE_FILE AI_MODEL_TIER OLLAMA_PULL_MISSING OLLAMA_MODE APP_SKIP
     export CALLS="$tmp/calls" PATH="$tmp/bin:$PATH" OLLAMA_CONTAINER_WAIT_SECONDS=1 _OLLAMA_EP_DOCKERENV="$tmp/none"
     for v in ${kv[@]+"${kv[@]}"}; do export "${v?}"; done
@@ -126,7 +127,7 @@ check "host: rc 0" "rc=0" "$(sed -n 1p <<<"$out")"
 check "host: COMPOSE_FILE is the main file only" "COMPOSE_FILE=$P/docker-compose.yml" "$(grep COMPOSE_FILE <<<"$out")"
 check "host, docker: the app gets host.docker.internal" "OLLAMA_BASE_URL=http://host.docker.internal:11434" "$(grep OLLAMA_BASE_URL <<<"$out")"
 check "the model is exported from the models file" "OLLAMA_MODEL=main:7b" "$(grep OLLAMA_MODEL= <<<"$out")"
-check "the check asks that address and that model, pull ask" "1" "$(got 'ensure: file=ai-models.env env=.env names=OLLAMA_MODEL url=http://host.docker.internal:11434 mode= port= pull=ask')"
+check "the check asks that address and that model, pull ask" "1" "$(got 'ensure: file=ai-models.env env=.env names=OLLAMA_MODEL url=http://host.docker.internal:11434 mode=local port= pull=ask')"
 check "then the reach check, from the project's network when it exists" "1" "$(prep FAKE_NET=1 -- "${D[@]}" >/dev/null; got 'reach: http://host.docker.internal:11434 net=proj_default')"
 check "no container started or volume created in host mode" "0:0" "$(got 'docker volume'):$(got 'up -d')"
 printf 'OLLAMA_PULL_MISSING=0\n' >"$P/.env"
@@ -134,8 +135,8 @@ check "a project's own OLLAMA_PULL_MISSING is kept" "1" "$(prep -- "${D[@]}" >/d
 rm -f "$P/.env"
 check "a remote host Ollama: no pull default" "1" "$(prep OLLAMA_BASE_URL=http://192.0.2.7:11434 -- "${D[@]}" >/dev/null; got 'pull= tier')"
 check "--url-suffix goes on the default" "OLLAMA_BASE_URL=http://host.docker.internal:11434/api/generate" "$(prep -- "${D[@]}" --url-suffix /api/generate | grep OLLAMA_BASE_URL)"
-check "local mode: 127.0.0.1, no reach check" "OLLAMA_BASE_URL=http://127.0.0.1:11434:0" "$(prep -- --mode local --url-var OLLAMA_BASE_URL --volume v | grep OLLAMA_BASE_URL):$(got 'reach:')"
-check "local mode: Docker's name for the host is this machine" "OLLAMA_BASE_URL=http://127.0.0.1:11434/api/generate" "$(prep OLLAMA_BASE_URL=http://host.docker.internal:11434/api/generate -- --mode local --url-var OLLAMA_BASE_URL --volume v | grep OLLAMA_BASE_URL)"
+check "local mode: 127.0.0.1, no reach check" "OLLAMA_BASE_URL=http://127.0.0.1:11434:0" "$(prep -- --mode local --url-var OLLAMA_BASE_URL --volume vv | grep OLLAMA_BASE_URL):$(got 'reach:')"
+check "local mode: Docker's name for the host is this machine" "OLLAMA_BASE_URL=http://127.0.0.1:11434/api/generate" "$(prep OLLAMA_BASE_URL=http://host.docker.internal:11434/api/generate -- --mode local --url-var OLLAMA_BASE_URL --volume vv | grep OLLAMA_BASE_URL)"
 check "--standard-tier sets standard and warns about another" "AI_MODEL_TIER=standard:1" "$(prep AI_MODEL_TIER=large -- "${D[@]}" --standard-tier | grep AI_MODEL_TIER):$(got 'AI_MODEL_TIER=large is not used' "$tmp/err")"
 
 # Failure paths in host mode.
@@ -156,12 +157,28 @@ check "a bad runtime: 9, before Docker or the check" "rc=9:0:0" "$(prep OLLAMA_R
 check "skip: set up, nothing checked" "rc=0:0:OLLAMA_BASE_URL=http://host.docker.internal:11434" "$(prep APP_SKIP=1 -- "${D[@]}" --skip-var APP_SKIP > "$tmp/o"; sed -n 1p "$tmp/o"):$(got ensure):$(grep OLLAMA_BASE_URL "$tmp/o")"
 
 # Bad calls.
-check "no --mode: 9" "rc=9" "$(prep -- --url-var X --volume v | sed -n 1p)"
-check "no --url-var: 9" "rc=9" "$(prep -- --mode docker --volume v | sed -n 1p)"
+check "no --mode: 9" "rc=9" "$(prep -- --url-var X --volume vv | sed -n 1p)"
+check "no --url-var: 9" "rc=9" "$(prep -- --mode docker --volume vv | sed -n 1p)"
 check "no --volume: 9" "rc=9" "$(prep -- --mode docker --url-var X | sed -n 1p)"
 check "an unknown option: 9" "rc=9" "$(prep -- "${D[@]}" --nope | sed -n 1p)"
 check "an option without its value: 9" "rc=9" "$(prep -- "${D[@]}" --url-suffix | sed -n 1p)"
 check "not a root directory: 9" "9" "$(ollama_project_prepare "$tmp/none" "${D[@]}" 2>/dev/null; echo $?)"
+
+# Found in review.
+check "a stale OLLAMA_MODE=docker in host mode: checked as local" "1" "$(prep OLLAMA_MODE=docker -- "${D[@]}" >/dev/null; got 'mode=local')"
+check "a remote host-mode Ollama that does not answer: named, no container advice" "rc=4:1:0" "$(prep FAKE_ENSURE=4 OLLAMA_BASE_URL=http://192.0.2.7:11434 -- "${D[@]}" | sed -n 1p):$(got 'No Ollama answers at http://192.0.2.7:11434 (OLLAMA_BASE_URL)' "$tmp/err"):$(got 'OLLAMA_RUNTIME=container' "$tmp/err")"
+U2=(--mode docker --url-var AI_OLLAMA_BASE_URL --url-var OLLAMA_BASE_URL --volume proj_ollama_data)
+out="$(prep OLLAMA_BASE_URL=http://192.0.2.9:11434 -- "${U2[@]}")"
+check "a second --url-var is read when the first is not set" "1" "$(got 'url=http://192.0.2.9:11434')"
+check "the first --url-var wins when both are set" "1" "$(prep AI_OLLAMA_BASE_URL=http://192.0.2.8:11434 OLLAMA_BASE_URL=http://192.0.2.9:11434 -- "${U2[@]}" >/dev/null; got 'url=http://192.0.2.8:11434')"
+check "a second --url-var naming the container is refused too" "rc=9" "$(prep OLLAMA_BASE_URL=http://ollama:11434 -- "${U2[@]}" | sed -n 1p)"
+check "a one-character volume name (Docker refuses it): 9" "rc=9" "$(prep -- --mode docker --url-var X --volume v | sed -n 1p)"
+check "a --container-url that is not an address: 9, before Docker" "rc=9:0" "$(prep OLLAMA_RUNTIME=container -- "${D[@]}" --container-url 'not a url' | sed -n 1p):$(got docker)"
+mkdir -p "$tmp/c:d"; : >"$tmp/c:d/docker-compose.yml"
+check "a compose path with ':' in it: 9 (COMPOSE_FILE would split it)" "9:rc=9" "$(ollama_project_compose_files "$P" --compose "$tmp/c:d/docker-compose.yml" 2>/dev/null; echo $?):$(prep -- "${D[@]}" --compose "$tmp/c:d/docker-compose.yml" | sed -n 1p)"
+mkdir -p "$tmp/a b"; : >"$tmp/a b/docker-compose.yml"; : >"$tmp/a b/docker-ollama.yml"
+check "a path with a space is kept whole" "$tmp/a b/docker-compose.yml:$tmp/a b/docker-ollama.yml" "$(ollama_project_compose_files "$P" --compose "$tmp/a b/docker-compose.yml")"
+check "compose_files: an option without its value: 9, said" "9:1" "$(ollama_project_compose_files "$P" --compose 2>"$tmp/err"; echo $?):$(got '--compose needs a value' "$tmp/err")"
 
 # --- container runtime -------------------------------------------------------
 out="$(prep OLLAMA_RUNTIME=container FAKE_UP=1 -- "${D[@]}")"
@@ -174,7 +191,7 @@ check "checked on 127.0.0.1:port with OLLAMA_MODE=docker" "1:1" "$(got 'curl -fs
 check "no reach check for the container" "0" "$(got 'reach:')"
 check "an existing volume is not created again" "0" "$(prep OLLAMA_RUNTIME=container FAKE_UP=1 FAKE_VOLUME=1 -- "${D[@]}" >/dev/null; got 'volume create')"
 printf 'OLLAMA_RUNTIME=container\nOLLAMA_CONTAINER_PORT=11500\n' >"$P/.env"
-out="$(prep FAKE_UP=1 -- --mode local --url-var OLLAMA_BASE_URL --volume v)"
+out="$(prep FAKE_UP=1 -- --mode local --url-var OLLAMA_BASE_URL --volume vv)"
 check "from .env, local mode: the app gets 127.0.0.1:port" "OLLAMA_BASE_URL=http://127.0.0.1:11500" "$(grep OLLAMA_BASE_URL <<<"$out")"
 check "compose gets the project's .env" "1" "$(got "compose --env-file $P/.env up -d ollama")"
 rm -f "$P/.env"
@@ -205,7 +222,8 @@ TAGS='{"models":[]}'
 check "an image is here: asked from a container on the project's network" "0:1" "$(reach http://host.docker.internal:11434 app_default FAKE_IMAGE=busybox:1.36 FAKE_NET=1 FAKE_RUN_BODY="$TAGS"):$(got 'run --rm --pull=never --network app_default --add-host host.docker.internal:host-gateway --entrypoint sh busybox:1.36')"
 check "the URL is an argument, not part of the program" "1" "$(got 'probe http://host.docker.internal:11434/api/tags')"
 check "no answer from the container: 4, naming the network" "4:1" "$(reach http://host.docker.internal:11434 app_default FAKE_IMAGE=busybox:1.36 FAKE_NET=1):$(got 'container on network app_default cannot reach' "$tmp/err")"
-check "a network not made yet: the default bridge" "4:0:1" "$(reach http://host.docker.internal:11434 app_default FAKE_IMAGE=busybox:1.36):$(got '--network app_default'):$(got "Docker's default bridge cannot" "$tmp/err")"
+check "a network not made yet: asked from a new network, removed after" "4:0:1:1:1" "$(reach http://host.docker.internal:11434 app_default FAKE_IMAGE=busybox:1.36):$(got '--network app_default'):$(got 'docker network create --label script-helpers.ollama-reach-probe ollama-reach-probe-'):$(got 'docker network rm ollama-reach-probe-'):$(got "new network (app_default does not exist yet)" "$tmp/err")"
+check "the new network cannot be made: the default bridge, said" "4:1" "$(reach http://host.docker.internal:11434 app_default FAKE_IMAGE=busybox:1.36 FAKE_NETCREATE_FAIL=1):$(got "default bridge (network app_default does not exist yet)" "$tmp/err")"
 check "nothing is pulled: --pull=never" "1" "$(got 'pull=never')"
 # No image: the old probe from the host, and it says the network was not checked.
 mkdir -p "$tmp/bin2"
@@ -222,6 +240,7 @@ SH
 chmod +x "$tmp/bin2/docker" "$tmp/bin2/ip"
 check "no image: the bridge probe, and 'not checked from the project's network'" "0:0:1" "$(reach http://host.docker.internal:11434 '' "PATH=$tmp/bin2:$tmp/bin:$PATH" FAKE_UP=1):$(got 'run --rm'):$(got "not checked from the project's network" "$tmp/err")"
 check "a container run that fails (old Docker): falls back to the bridge probe" "0:1" "$(reach http://host.docker.internal:11434 '' FAKE_IMAGE=busybox:1.36 FAKE_RUN_FAIL=1 "PATH=$tmp/bin2:$tmp/bin:$PATH" FAKE_UP=1 OLLAMA_REACH_IMAGE=busybox:1.36):$(got 'curl -sS -m 5 --interface 127.0.0.1')"
+check "OLLAMA_REACH_IMAGE that cannot run: said, not 'no image'" "0:1" "$(reach http://host.docker.internal:11434 '' FAKE_RUN_FAIL=1 "PATH=$tmp/bin2:$tmp/bin:$PATH" FAKE_UP=1 OLLAMA_REACH_IMAGE=nosuch:1):$(got 'image nosuch:1 did not run' "$tmp/err")"
 check "a loopback URL is not asked from a container" "0" "$(reach http://127.0.0.1:11434 '' FAKE_IMAGE=busybox:1.36 "PATH=$tmp/bin2:$tmp/bin:$PATH" FAKE_UP=1 >/dev/null; got 'run --rm')"
 check "another machine: nothing asked" "0:0" "$(reach http://192.0.2.10:11434 '' FAKE_IMAGE=busybox:1.36):$(wc -l <"$tmp/calls" | tr -d ' ')"
 

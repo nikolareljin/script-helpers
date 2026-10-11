@@ -20,8 +20,9 @@
   passed it while a container on the project's compose network timed out.
   With an image already on the machine (busybox, alpine, curlimages/curl or
   `OLLAMA_REACH_IMAGE`; nothing is pulled) it now runs the probe in a
-  container on `[network]`. Without one it keeps the bridge probe and says the
-  project's network was not checked.
+  container on `[network]`, or on a new network made for the probe when
+  `[network]` does not exist yet (before the first start). Without one it
+  keeps the bridge probe and says the project's network was not checked.
 - **A secret blocks the push.** The pre-push run (`preflight --quick`) and a
   full `./dev preflight` ran gitleaks report only: `leaks found: 1` printed a
   WARN, the summary said `PASS  security scan (report only)` and the push went
