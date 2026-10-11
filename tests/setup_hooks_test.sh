@@ -70,7 +70,7 @@ printf '#!/usr/bin/env bash\necho guard-ran; exit 7\n' > "$repo/.githooks/pre-pu
   || error "guard repo: got '$(hooks_path "$repo")'"
 rc=0
 out="$(cd "$repo" && printf 'refs/heads/main 1111 refs/heads/main 2222\n' \
-  | bash vendor/script-helpers/scripts/git-hooks/pre-push origin url 2>&1)" || rc=$?
+  | SECURITY_GATE_ALLOW_UNCHECKED=1 bash vendor/script-helpers/scripts/git-hooks/pre-push origin url 2>&1)" || rc=$?
 [[ $rc -eq 7 && "$out" == *guard-ran* ]] \
   && ok "the shared pre-push hands over to .githooks/pre-push (exit 7 kept)" \
   || error "hand-over: rc=$rc out='$out'"

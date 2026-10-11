@@ -32,8 +32,22 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GATE="${SCRIPT_DIR}/../check_private_names.sh"
 
-command -v python3 >/dev/null 2>&1 || exit 0
-[[ -f "$GATE" ]] || exit 0
+PUBLISH_RE='(^|[^[:alnum:]_-])(gh[[:space:]]+(pr|issue|release|api)|git[[:space:]]+commit)([^[:alnum:]_-]|$)'
+
+# Without python3 the text cannot be extracted. A command that looks like it
+# publishes is refused rather than waved through; anything else proceeds.
+if ! command -v python3 >/dev/null 2>&1; then
+  if grep -qE "$PUBLISH_RE" 2>/dev/null; then
+    if [[ "${SECURITY_GATE_ALLOW_UNCHECKED:-}" == 1 ]]; then
+      echo "WARNING: python3 missing, publishing command NOT checked; SECURITY_GATE_ALLOW_UNCHECKED=1, allowed." >&2
+      exit 0
+    fi
+    echo "python3 is missing, so this publishing command could not be checked; refused." >&2
+    echo "Install python3, or ask the user to allow it once with SECURITY_GATE_ALLOW_UNCHECKED=1." >&2
+    exit 2
+  fi
+  exit 0
+fi
 
 # The payload goes to a file rather than a pipe: the parser below is itself fed
 # to python on stdin, so a pipe would be overridden and python would end up
@@ -57,6 +71,8 @@ try:
     with open(sys.argv[1], encoding="utf-8") as fh:
         data = json.load(fh)
 except Exception:
+    # Not judged here: the shell side refuses it if it looks like publishing.
+    print("VERDICT\tbad-payload")
     sys.exit(0)
 
 if data.get("tool_name") != "Bash":
@@ -137,7 +153,7 @@ TEXT_FLAGS = {"-b", "--body", "-t", "--title", "-m", "--message", "-c", "--comme
 FILE_FLAGS = {"-F", "--body-file", "--file"}
 REPO_FLAGS = {"-R", "--repo"}
 
-pieces, repo = [], ""
+pieces, repo, unreadable = [], "", []
 i = 0
 while i < len(args):
     a = args[i]
@@ -152,9 +168,12 @@ while i < len(args):
         continue
     if a in FILE_FLAGS and nxt:
         try:
+            # "-" is stdin (a heredoc): this hook cannot see it.
+            if nxt == "-":
+                raise OSError("stdin")
             pieces.append(pathlib.Path(nxt).read_text(encoding="utf-8", errors="replace"))
         except OSError:
-            pass
+            unreadable.append(nxt)
         i += 2
         continue
     for flag in TEXT_FLAGS | FILE_FLAGS:
@@ -162,13 +181,22 @@ while i < len(args):
             value = a.split("=", 1)[1]
             if flag in FILE_FLAGS:
                 try:
+                    if value == "-":
+                        raise OSError("stdin")
                     value = pathlib.Path(value).read_text(encoding="utf-8", errors="replace")
                 except OSError:
+                    unreadable.append(value)
                     value = ""
             pieces.append(value)
             break
     i += 1
 
+if unreadable:
+    print("VERDICT\tunreadable")
+    print("REPO\t%s" % repo)
+    print("TEXT")
+    sys.stdout.write("\n".join(unreadable))
+    sys.exit(0)
 if not pieces:
     sys.exit(0)
 print("VERDICT\tcheck")
@@ -177,8 +205,41 @@ print("TEXT")
 sys.stdout.write("\n".join(pieces))
 PY
 )"
+parse_rc=$?
 
+# The decision follows the checkers exactly: 0 allow, 1 refuse with the
+# reason, anything else refuse as "could not check" unless the user set
+# SECURITY_GATE_ALLOW_UNCHECKED=1. Refusal is exit 2 with the reason on stderr,
+# which Claude Code returns to the agent and does not run the command.
+reason=""
+unchecked() {  # <what>
+  if [[ "${SECURITY_GATE_ALLOW_UNCHECKED:-}" == 1 ]]; then
+    echo "WARNING: $1 could not run; SECURITY_GATE_ALLOW_UNCHECKED=1, allowed unchecked." >&2
+    return 0
+  fi
+  {
+    echo "$1 could not run, so this text was NOT checked; refused."
+    [[ -n "$reason" ]] && { echo; printf '%s\n' "$reason"; }
+    echo
+    echo "Fix the cause, or ask the user to allow it once with SECURITY_GATE_ALLOW_UNCHECKED=1."
+    echo "Do not set it yourself."
+  } >&2
+  exit 2
+}
+
+if [[ "$parse_rc" -ne 0 ]]; then
+  reason="the command parser exited $parse_rc"
+  unchecked "The publishing-command parser"
+  exit 0
+fi
 [[ -z "$parsed" ]] && exit 0
+
+if [[ "$parsed" == "VERDICT"$'\t'"bad-payload"* ]]; then
+  grep -qE "$PUBLISH_RE" "$payload_file" || exit 0
+  reason="the hook payload is not valid JSON"
+  unchecked "Reading the command"
+  exit 0
+fi
 
 verdict="$(printf '%s' "$parsed" | sed -n '1s/^VERDICT\t//p')"
 repo="$(printf '%s' "$parsed" | sed -n '2s/^REPO\t//p')"
@@ -190,37 +251,98 @@ if [[ "$verdict" == "no-verify" ]]; then
   echo "say which one and let the user decide -- do not bypass it unasked." >&2
   exit 2
 fi
+if [[ "$verdict" == "unreadable" ]]; then
+  reason="body file(s) this hook cannot read: $(printf '%s' "$text" | tr '\n' ' ')(use a real file with --body-file, not stdin)"
+  unchecked "Reading the text to publish"
+  exit 0
+fi
 
 [[ "$verdict" == "check" || "$verdict" == "check-unparsed" ]] || exit 0
 
-# Strict here, warn elsewhere: nothing reads a warning from a hook that then
-# allows the call. The PR is created and the warning scrolls past.
-gate_args=(--stdin --only-public)
-# Strict only when a publishing command was actually identified. See the
-# unparseable fallback above.
-[[ "$verdict" == "check" ]] && gate_args+=(--strict-ambiguous)
-[[ -n "$repo" ]] && gate_args+=(--for-repo "$repo")
+if [[ ! -f "$GATE" ]]; then
+  reason="check_private_names.sh is missing next to this hook"
+  unchecked "The private-name check"
+else
+  # Strict here, warn elsewhere: nothing reads a warning from a hook that then
+  # allows the call. The PR is created and the warning scrolls past.
+  gate_args=(--stdin --only-public)
+  # Strict only when a publishing command was actually identified. See the
+  # unparseable fallback above.
+  [[ "$verdict" == "check" ]] && gate_args+=(--strict-ambiguous)
+  [[ -n "$repo" ]] && gate_args+=(--for-repo "$repo")
 
-reason="$(printf '%s' "$text" | bash "$GATE" "${gate_args[@]}" 2>&1)"
+  reason="$(printf '%s' "$text" | bash "$GATE" "${gate_args[@]}" 2>&1)"
+  rc=$?
+  case "$rc" in
+    0) ;;
+    1)
+      {
+        echo "This text names a private repository, and the destination is public."
+        echo "GitHub keeps the edit history of every pull request and issue body"
+        echo "publicly, so this cannot be fixed by editing it afterwards."
+        echo
+        printf '%s\n' "$reason"
+        echo
+        echo "Cite the repository by its code instead. If this is a false positive,"
+        echo "ask the user before overriding -- do not set PRIVATE_NAMES_ALLOW yourself."
+      } >&2
+      exit 2
+      ;;
+    *) unchecked "The private-name check (exit $rc)" ;;
+  esac
+fi
+
+# Then credentials, personal identifiers and PII. Scoped like the global git
+# hooks (scripts/owner_scope.sh), failing closed: with no owners configured,
+# every destination; with owners, the -R target and every remote of this
+# directory, and anything that cannot be identified. An unparsed command is the
+# whole command line, which names local paths, so there this machine's
+# identifiers are left out (--no-machine); everything else is checked.
+SENSITIVE="${SCRIPT_DIR}/../check_sensitive.sh"
+SCOPE_LIB="${SCRIPT_DIR}/../owner_scope.sh"
+if [[ ! -f "$SENSITIVE" || ! -f "$SCOPE_LIB" ]]; then
+  reason="check_sensitive.sh or owner_scope.sh is missing next to this hook"
+  unchecked "The sensitive-data check"
+  exit 0
+fi
+# shellcheck source=/dev/null
+source "$SCOPE_LIB"
+in_scope=true
+if owners="$(scope_owners)" && [[ -n "$owners" ]]; then
+  # The -R target plus every remote here. Nothing to go on (no -R, no
+  # repository, or git failing with no -R): checked.
+  remote_urls="$(scope_repo_urls)" || remote_urls=""
+  if [[ -n "$repo$remote_urls" ]]; then
+    urls=("$repo")
+    while IFS= read -r u; do urls+=("$u"); done <<EOF_URLS
+$remote_urls
+EOF_URLS
+    scope_in_scope "$owners" "${urls[@]}" || in_scope=false
+  fi
+fi
+[[ "$in_scope" == true ]] || exit 0
+
+sens_args=(--stdin)
+if [[ "$verdict" == "check-unparsed" ]]; then
+  # Any command shlex cannot split lands here, most of them not publishing
+  # anything. Only one that names a publishing command is scanned.
+  printf '%s' "$text" | grep -qE "$PUBLISH_RE" || exit 0
+  sens_args+=(--no-machine)
+fi
+reason="$(printf '%s' "$text" | bash "$SENSITIVE" "${sens_args[@]}" 2>&1)"
 rc=$?
-
 case "$rc" in
+  0) exit 0 ;;
   1)
     {
-      echo "This text names a private repository, and the destination is public."
-      echo "GitHub keeps the edit history of every pull request and issue body"
-      echo "publicly, so this cannot be fixed by editing it afterwards."
+      echo "This text carries a credential, a personal identifier or PII."
       echo
       printf '%s\n' "$reason"
       echo
-      echo "Cite the repository by its code instead. If this is a false positive,"
-      echo "ask the user before overriding -- do not set PRIVATE_NAMES_ALLOW yourself."
+      echo "Remove it. If this is a false positive, ask the user before allowing it."
     } >&2
     exit 2
     ;;
-  *)
-    # 0 is clean; 2 means the check could not run, which is a setup problem and
-    # must not silently become a refusal of every publishing command.
-    exit 0
-    ;;
+  *) unchecked "The sensitive-data check (exit $rc)" ;;
 esac
+exit 0

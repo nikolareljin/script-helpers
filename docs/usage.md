@@ -530,6 +530,10 @@ present (same-file recursion guard included), so a repository whose `.githooks/`
 holds only `pre-push`, such as a protected-refs guard, gets the shared hooks and
 still runs its own.
 
+The same hooks also refuse credentials, personal identifiers and PII, and
+print foxguard warnings; see [Security gates in the git hooks](security-gates.md),
+including the machine-wide install (`setup-hooks.sh --global`).
+
 ### Stopping a private repository's name before it is published
 
 Three hooks call `scripts/check_private_names.sh`, covering three surfaces:

@@ -13,6 +13,24 @@
   `ollama_project_compose_files` (a stop includes the override).
   Closes https://github.com/nikolareljin/script-helpers/issues/161.
 
+- **Pushes refuse credentials, personal identifiers and PII.** New
+  `scripts/check_sensitive.sh` checks the added lines and messages of the
+  commits being pushed (also `--staged`, `--file`, `--stdin`): gitleaks for
+  credentials, a never-committed `sensitive-terms.txt` plus this machine's
+  addresses, gateways, MACs, hostname and home path, and emails, phone
+  numbers, SSNs and Luhn-valid card numbers. Exit 2 (gitleaks missing) refuses a
+  push; `SECURITY_GATE_ALLOW_UNCHECKED=1` lets one through. `pre-push` then runs
+  foxguard on the changed files, warnings only. The shared `pre-commit`,
+  `commit-msg` and the Claude Code hook run the same check, and a repository's
+  own `.githooks/pre-push` now runs after the checks instead of replacing them.
+- **`setup-hooks.sh --global`** installs the hooks machine-wide for the
+  repositories of the owners in `git config --global script-helpers.owners`,
+  and chains to each repository's own hooks; `--global --uninstall` and
+  `--status`. Scope fails closed (lookalike hosts, owner-looking mirrors, any
+  remote under an owner), committed hooks run only in an owner's clone that
+  opted in, and a check that could not run refuses unless
+  `SECURITY_GATE_ALLOW_UNCHECKED=1`. See `docs/security-gates.md`.
+
 ### Fixed
 
 - **The reach check asks from a container.** `ollama_endpoint_container_reach`
