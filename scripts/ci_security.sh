@@ -12,6 +12,8 @@
 #   --check-foxguard       Exit 0 if foxguard is available, 3 if not (for preflight).
 #   --install-foxguard     Download the pinned foxguard release binary, check its
 #                          SHA-256 against lib/ci_defaults.sh, cache it, and exit.
+#   --install-gitleaks     Download the pinned gitleaks release, check its SHA-256
+#                          against lib/ci_defaults.sh, cache it, and exit.
 #   --python-req <f>       Python requirements file (default: requirements.txt if present).
 #   --node-cmd <c>         Override node audit command (default: npm audit --audit-level=high).
 #   --python-version <v>   Python Docker image tag (default: from ci_defaults module).
@@ -22,6 +24,9 @@
 #   --node-image <i>       Docker image override for node checks.
 #   --gitleaks-image <i>   Docker image override for gitleaks.
 #   --no-docker            Run on the host instead of Docker.
+#   --gitleaks-log-opts <o> In git mode, scan only the commits these git log
+#                          options select, e.g. "HEAD --branches --tags --not --remotes"
+#                          (what a push can send). Default: the whole history.
 #   --fail-on-findings     Exit 1 when any check reports a finding (default: report
 #                          only). gitleaks then scans what git tracks, history
 #                          included, instead of every file on disk: ignored files
@@ -50,7 +55,7 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=/dev/null
 source "$SCRIPT_HELPERS_DIR/helpers.sh"
-shlib_import help logging ci_defaults foxguard
+shlib_import help logging ci_defaults foxguard gitleaks
 
 WORKDIR="."
 INSTALL_TOOLS=false
@@ -60,6 +65,7 @@ SKIP_GITLEAKS=false
 SKIP_FOXGUARD=false
 INSTALL_FOXGUARD=false
 FAIL_ON_FINDINGS=false
+GITLEAKS_LOG_OPTS=""
 FINDINGS=0
 PYTHON_REQ=""
 NODE_CMD="npm audit --audit-level=high"
@@ -82,7 +88,9 @@ while [[ $# -gt 0 ]]; do
     --skip-foxguard) SKIP_FOXGUARD=true; shift;;
     --install-foxguard) INSTALL_FOXGUARD=true; shift;;
     --check-foxguard) foxguard_bin >/dev/null && exit 0; exit 3;;
+    --install-gitleaks) gitleaks_install; exit $?;;
     --fail-on-findings) FAIL_ON_FINDINGS=true; shift;;
+    --gitleaks-log-opts) GITLEAKS_LOG_OPTS="${2:?--gitleaks-log-opts needs a value}"; shift 2;;
     --python-req) PYTHON_REQ="$2"; shift 2;;
     --node-cmd) NODE_CMD="$2"; shift 2;;
     --no-docker) USE_DOCKER=false; shift;;
@@ -140,6 +148,12 @@ fi
 finding() {
   log_warn "$1 reported findings or failed."
   if [[ "$FAIL_ON_FINDINGS" == "true" ]]; then FINDINGS=$((FINDINGS + 1)); fi
+  if [[ "$1" == "gitleaks" && "$FAIL_ON_FINDINGS" == "true" ]]; then
+    log_warn "A real secret: remove it from the commit (git commit --amend, or rebase) and rotate it."
+    log_warn "A false positive (test fixture, public key): add each Fingerprint printed above to"
+    log_warn ".gitleaksignore at the repository top, or end the line with '# gitleaks:allow' in"
+    log_warn "the commit that adds it (amend it; a later commit does not clear an unpushed one)."
+  fi
 }
 
 # ran / skipped <reason>; what this run actually checked. Under preflight
@@ -163,7 +177,10 @@ BANDIT_EXCLUDE="./.venv,./venv,./node_modules,./build,./dist"
 # run and this is a git work tree; otherwise every file on disk, as before.
 gitleaks_args() {
   if [[ "$FAIL_ON_FINDINGS" == "true" ]] && git -C "$WORKDIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    printf '%s\n' detect --source .
+    # -v names the rule, file, line and fingerprint of each finding; --redact
+    # keeps the secret itself out of the terminal and CI logs.
+    printf '%s\n' detect --source . --redact -v
+    [[ -n "$GITLEAKS_LOG_OPTS" ]] && printf '%s\n' --log-opts "$GITLEAKS_LOG_OPTS"
   else
     printf '%s\n' detect --source . --no-git
   fi
@@ -355,18 +372,18 @@ else
     fi
   fi
   if [[ "$SKIP_GITLEAKS" == "false" ]]; then
-    if command -v gitleaks >/dev/null 2>&1; then
+    if GITLEAKS_BIN="$(gitleaks_bin)"; then
       # git mode runs from the repository top: the history is the whole
       # repository's anyway, and gitleaks reads .gitleaks.toml and
       # .gitleaksignore from where it runs.
       if [[ " ${GITLEAKS_ARGS[*]} " != *" --no-git "* ]]; then
-        ( cd "$(git rev-parse --show-toplevel)" && gitleaks "${GITLEAKS_ARGS[@]}" ) || finding "gitleaks"
+        ( cd "$(git rev-parse --show-toplevel)" && "$GITLEAKS_BIN" "${GITLEAKS_ARGS[@]}" ) || finding "gitleaks"
       else
-        gitleaks "${GITLEAKS_ARGS[@]}" || finding "gitleaks"
+        "$GITLEAKS_BIN" "${GITLEAKS_ARGS[@]}" || finding "gitleaks"
       fi
       ran
     else
-      skipped "gitleaks is not installed; the secret scan did not run."
+      skipped "gitleaks is not installed; the secret scan did not run. bash $SCRIPT_DIR/ci_security.sh --install-gitleaks"
     fi
   fi
   popd >/dev/null

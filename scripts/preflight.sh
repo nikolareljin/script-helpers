@@ -33,6 +33,9 @@
 #   2  Bad arguments, or an unknown --stack.
 #   3  No stack could be detected in this directory.
 #
+# ENVIRONMENT:
+#   PREFLIGHT_NO_INSTALL=1  Do not install a missing gitleaks or foxguard (the
+#                           pinned releases, into ~/.cache/script-helpers).
 # EXAMPLE:
 #   bash scripts/preflight.sh                  # everything, on the host
 #   bash scripts/preflight.sh --quick          # what pre-push runs
@@ -55,7 +58,7 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=/dev/null
 source "$SCRIPT_HELPERS_DIR/helpers.sh"
-shlib_import help logging os foxguard
+shlib_import help logging os foxguard gitleaks
 
 QUICK=false
 USE_DOCKER=false
@@ -715,13 +718,26 @@ check_security() {
     common+=(--fail-on-findings)
     suffix=""
   fi
+  # A missing scanner is installed: the pinned release, checked against its
+  # SHA-256, into ~/.cache. No sudo, the same on Linux, macOS and Git Bash.
+  # PREFLIGHT_NO_INSTALL=1 turns it off; a failed install (offline) is a SKIP.
+  if [[ "${PREFLIGHT_NO_INSTALL:-}" != "1" ]]; then
+    if [[ "$USE_DOCKER" == "false" ]] && ! gitleaks_bin >/dev/null; then
+      log_info "preflight: gitleaks is not installed; installing the pinned $CI_DEFAULT_GITLEAKS_VERSION"
+      gitleaks_install || log_warn "preflight: gitleaks install failed"
+    fi
+    if ! foxguard_bin >/dev/null; then
+      log_info "preflight: foxguard is not installed; installing the pinned $CI_DEFAULT_FOXGUARD_VERSION"
+      foxguard_install || log_warn "preflight: foxguard install failed"
+    fi
+  fi
   # gitleaks on the host needs the binary; in Docker mode it comes from the image.
-  if [[ "$USE_DOCKER" == "false" ]] && ! command -v gitleaks >/dev/null 2>&1; then
+  if [[ "$USE_DOCKER" == "false" ]] && ! gitleaks_bin >/dev/null; then
     args+=(--skip-gitleaks)
     log_warn "This is the one check the weekly scheduled sweep exists to backstop. Install gitleaks, or run with --docker."
     # In the summary too: without it, "PASS  security scan" read as if secrets
     # had been scanned.
-    skip_step "gitleaks secret scan" "gitleaks is not installed — $(install_hint gitleaks gitleaks), or run with --docker"
+    skip_step "gitleaks secret scan" "gitleaks is not installed — bash $scanner --install-gitleaks, $(install_hint gitleaks gitleaks), or run with --docker"
     have_gitleaks=false
   fi
   # foxguard runs on the host in both modes; there is no image of it.
@@ -731,7 +747,24 @@ check_security() {
   fi
   # The repository-wide part: the secret scan and foxguard. Not run when both are
   # missing; the two SKIP lines above already say so.
-  [[ "$have_gitleaks" == "true" || "$have_foxguard" == "true" ]] && run_step "security scan$suffix" bash "$scanner" "${common[@]+"${common[@]}"}" "${args[@]}"
+  if [[ "$SECURITY_ONLY" == "true" ]]; then
+    [[ "$have_gitleaks" == "true" || "$have_foxguard" == "true" ]] && run_step "security scan" bash "$scanner" "${common[@]+"${common[@]}"}" "${args[@]}"
+  else
+    # A secret blocks the push in every mode: report only, a gitleaks finding
+    # printed a WARN and the push went out. Git mode, so a fixture in a vendored
+    # submodule or an ignored .env is not a finding. Only commits no remote has
+    # yet, which is what a push can send, HEAD included (a detached HEAD is
+    # on no branch). On the whole history, 10 of 34 fleet repos had old
+    # fixtures flagged and every push would fail. ./dev scan still reads the
+    # whole history. foxguard stays report only.
+    # HEAD only once it exists: in a repository with no commit yet, git log
+    # HEAD fails and the scan with it.
+    local log_opts="--branches --tags --not --remotes"
+    git -C "$PROJECT_DIR" rev-parse -q --verify HEAD >/dev/null 2>&1 && log_opts="HEAD $log_opts"
+    [[ "$have_gitleaks" == "true" ]] && run_step "secret scan" bash "$scanner" "${common[@]+"${common[@]}"}" "${args[@]}" \
+      --skip-foxguard --fail-on-findings --gitleaks-log-opts "$log_opts"
+    [[ "$have_foxguard" == "true" ]] && run_step "foxguard code scan$suffix" bash "$scanner" "${common[@]+"${common[@]}"}" "${args[@]}" --skip-gitleaks
+  fi
   # The dependency audits, one step per project, in the project's directory. At
   # the root only, a repository with backend/ and frontend/ got gitleaks alone
   # and "PASS  security scan". Not in --quick, the pre-push run: they go to the

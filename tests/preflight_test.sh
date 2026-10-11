@@ -4,6 +4,8 @@
 # USAGE: bash tests/preflight_test.sh
 # ----------------------------------------------------
 set -uo pipefail
+# preflight installs a missing gitleaks or foxguard; tests never go to the network.
+export PREFLIGHT_NO_INSTALL=1
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"

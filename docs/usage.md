@@ -421,10 +421,25 @@ found after the file is deleted, because it is still in the history; rotate it.
 reads the whole repository's history, from the repository top, so its
 `.gitleaks.toml` and `.gitleaksignore` apply.
 
-The security step of a full `./dev preflight` (and the pre-push hook) stays
-report only: it prints findings and does not block, and its summary line says
-`security scan (report only)`. Without gitleaks on the host, both report
-`SKIP  gitleaks secret scan` instead of implying secrets were scanned.
+A full `./dev preflight` and the pre-push hook split the step in two. The
+`secret scan` (gitleaks, git mode) blocks: a committed secret fails the run and
+refuses the push. It reads only the commits no remote has yet
+(`--gitleaks-log-opts "HEAD --branches --tags --not --remotes"`), which is what a push
+can send, from any branch; a test fixture flagged in history that is already
+pushed does not block. `./dev scan` still reads the whole history. A blocked
+push names each finding's rule, file, line and fingerprint, with the secret
+redacted. A real secret: remove it from the commit and rotate it. A false
+positive: add its fingerprint to `.gitleaksignore`, or end the line with
+`# gitleaks:allow` in the commit that adds it. foxguard and the dependency audits stay report only: they
+print findings, do not block, and their summary lines say `(report only)`.
+A local preflight installs a missing gitleaks or foxguard before it scans: the
+pinned release for Linux, macOS or Windows (Git Bash), checked against the SHA-256
+in `lib/ci_defaults.sh`, into `~/.cache/script-helpers/`. No sudo. A gitleaks
+already on `PATH` (brew, apt, scoop) is used instead. `PREFLIGHT_NO_INSTALL=1`
+turns this off. When the install fails (offline), both report
+`SKIP  gitleaks secret scan` instead of implying secrets were scanned. Preflight
+never runs in CI, so CI is unaffected. To install by hand:
+`bash scripts/ci_security.sh --install-gitleaks` (or `--install-foxguard`).
 
 The scan also runs [foxguard](https://github.com/0sec-labs/foxguard), a static
 analysis scanner, at the version pinned in `lib/ci_defaults.sh`, on the host in

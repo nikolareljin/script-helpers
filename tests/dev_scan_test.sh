@@ -13,6 +13,8 @@
 # A stub gitleaks records its arguments and "finds" the word LEAKME in the files
 # its mode covers, so these cases do not depend on gitleaks' rules.
 set -uo pipefail
+# preflight installs a missing gitleaks or foxguard; tests never go to the network.
+export PREFLIGHT_NO_INSTALL=1
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR" || exit 1
@@ -36,7 +38,13 @@ cat > "$tmp/bin/gitleaks" <<'EOF'
 where=""
 [[ "$(git rev-parse --show-toplevel 2>/dev/null)" == "$(pwd -P)" ]] && where="top: "
 echo "${where}gitleaks $*" >> "$GL_LOG"
-if [[ " $* " == *" --no-git "* ]]; then
+if [[ " $* " == *" --log-opts "* ]]; then
+  # Only the commits git log selects: the lines they add.
+  all="$*"; opts="${all##*--log-opts }"
+  # shellcheck disable=SC2086
+  if git log -p $opts | grep -q '^+.*LEAKME'; then echo "leaks found: 1"; exit 1; fi
+  echo "no leaks found"; exit 0
+elif [[ " $* " == *" --no-git "* ]]; then
   files="$(find . -type f -not -path './.git/*')"
 else
   files="$(git ls-files)"
@@ -66,7 +74,7 @@ scan() {
 # 1. No stack needed; a clean repository passes; gitleaks runs in git mode.
 r="$(new_repo clean)"
 scan "$r"
-if [[ $RC -eq 0 && "$OUT" == *"PASS  security scan"* ]] && grep -q "^top: gitleaks detect --source \.$" "$GL_LOG"; then
+if [[ $RC -eq 0 && "$OUT" == *"PASS  security scan"* ]] && grep -q "^top: gitleaks detect --source \. --redact -v$" "$GL_LOG"; then
   note "clean repository: PASS, gitleaks in git mode, no stack needed"
 else
   error "clean: rc=$RC log='$(cat "$GL_LOG")' out='$(printf '%s' "$OUT" | tail -4)'"
@@ -88,7 +96,7 @@ r="$(new_repo subdir)"
 mkdir -p "$r/backend"; printf 'x\n' > "$r/backend/a.txt"; commit "$r"
 : > "$GL_LOG"; RC=0
 OUT="$(cd "$r" && CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker --workdir backend --skip-python --skip-node --fail-on-findings 2>&1)" || RC=$?
-if [[ $RC -eq 0 ]] && grep -q "^top: gitleaks detect --source \.$" "$GL_LOG"; then
+if [[ $RC -eq 0 ]] && grep -q "^top: gitleaks detect --source \. --redact -v$" "$GL_LOG"; then
   note "--workdir subdirectory: gitleaks in git mode"
 else
   error "subdirectory: rc=$RC log='$(cat "$GL_LOG")' out='$(printf '%s' "$OUT" | tail -3)'"
@@ -105,7 +113,7 @@ r="$(new_repo ignorefile)"
 mkdir -p "$r/backend"; printf 'x\n' > "$r/backend/a.txt"; commit "$r"
 : > "$GL_LOG"; RC=0
 (cd "$r" && CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker --workdir backend --skip-python --skip-node --fail-on-findings >/dev/null 2>&1) || RC=$?
-if [[ $RC -eq 0 ]] && grep -q "^top: gitleaks detect --source \.$" "$GL_LOG"; then
+if [[ $RC -eq 0 ]] && grep -q "^top: gitleaks detect --source \. --redact -v$" "$GL_LOG"; then
   note "--workdir subdirectory: gitleaks runs from the repository top"
 else
   error "gitleaks cwd: rc=$RC log='$(cat "$GL_LOG")'"
@@ -150,20 +158,70 @@ RC=0
 [[ $RC -eq 2 ]] && note "--skip-security with --security-only: exit 2" \
   || error "conflicting flags: rc=$RC"
 
-# 7. The pre-push run stays report-only and says so.
+# 7. The pre-push run: a secret in a commit no remote has blocks it; one that
+#    is already on the remote does not (old fixtures would block every push).
 if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
   r="$(new_repo prepush)"
+  git init -q --bare "$tmp/prepush-remote.git"
+  git -C "$r" remote add origin "$tmp/prepush-remote.git"
   printf '{"name":"x","version":"1.0.0","scripts":{"test":"node -e \\"process.exit(0)\\""}}\n' > "$r/package.json"
-  printf 'token = LEAKME\n' > "$r/creds.txt"; commit "$r"
-  : > "$GL_LOG"; RC=0
-  OUT="$(cd "$r" && CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/preflight.sh" --quick --stack node 2>&1)" || RC=$?
-  if [[ $RC -eq 0 && "$OUT" == *"PASS  security scan (report only)"* ]] && grep -q -- "--no-git" "$GL_LOG"; then
-    note "pre-push preflight: report only, labelled so, exit 0"
+  printf 'token = LEAKME\n' > "$r/old-fixture.txt"; commit "$r"
+  git -C "$r" push -q origin HEAD:main
+  prepush() {
+    : > "$GL_LOG"; RC=0
+    OUT="$(cd "$r" && CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/preflight.sh" --quick --stack node 2>&1)" || RC=$?
+  }
+  prepush
+  if [[ $RC -eq 0 && "$OUT" == *"PASS  secret scan"* ]] \
+     && grep -q "^top: gitleaks detect --source \. --redact -v --log-opts HEAD --branches --tags --not --remotes$" "$GL_LOG"; then
+    note "pre-push preflight: a secret already on the remote does not block; only unpushed commits are scanned"
   else
-    error "pre-push: rc=$RC log='$(cat "$GL_LOG")' out='$(printf '%s' "$OUT" | tail -4)'"
+    error "pre-push pushed: rc=$RC log='$(cat "$GL_LOG")' out='$(printf '%s' "$OUT" | tail -4)'"
   fi
+  printf 'token = LEAKME\n' > "$r/creds.txt"; commit "$r"
+  prepush
+  if [[ $RC -ne 0 && "$OUT" == *"FAIL  secret scan"* ]]; then
+    note "pre-push preflight: a secret in an unpushed commit fails the run"
+    [[ "$OUT" == *"gitleaks:allow"* && "$OUT" == *".gitleaksignore"* && "$OUT" == *"rotate it"* ]] \
+      && note "pre-push preflight: a blocked push says how to handle a real secret and a false positive" \
+      || error "pre-push hint missing: $(printf '%s' "$OUT" | grep -i gitleaks | tail -3)"
+  else
+    error "pre-push secret: rc=$RC out='$(printf '%s' "$OUT" | tail -4)'"
+  fi
+  # On another local branch: a push can send that too.
+  git -C "$r" reset -q --hard HEAD~1
+  git -C "$r" checkout -q -b side
+  printf 'token = LEAKME\n' > "$r/side.txt"; commit "$r"
+  git -C "$r" checkout -q -
+  prepush
+  [[ $RC -ne 0 && "$OUT" == *"FAIL  secret scan"* ]] && note "pre-push preflight: a secret on another unpushed branch fails" \
+    || error "pre-push side branch: rc=$RC out='$(printf '%s' "$OUT" | tail -4)'"
+  git -C "$r" branch -q -D side
+  # A detached HEAD is on no branch; `git push origin HEAD:x` sends it.
+  git -C "$r" checkout -q --detach
+  printf 'token = LEAKME\n' > "$r/detached.txt"; commit "$r"
+  prepush
+  [[ $RC -ne 0 && "$OUT" == *"FAIL  secret scan"* ]] && note "pre-push preflight: a secret on a detached HEAD fails" \
+    || error "pre-push detached: rc=$RC out='$(printf '%s' "$OUT" | tail -4)'"
+  git -C "$r" checkout -q -
+  # An untracked file (a vendored submodule's fixture, a scratch file) never blocks.
+  printf 'token = LEAKME\n' > "$r/scratch.txt"
+  prepush
+  [[ $RC -eq 0 && "$OUT" == *"PASS  secret scan"* ]] && note "pre-push preflight: a secret in an untracked file does not block" \
+    || error "pre-push untracked: rc=$RC out='$(printf '%s' "$OUT" | tail -4)'"
 else
   note "SKIP pre-push case: node or npm is not installed"
+fi
+
+# 7b. A repository with no commit yet: the pre-push scan passes, not an error.
+r="$(mktemp -d "$tmp/nocommit.XXXXXX")"; git init -q "$r"
+printf '{"name":"x","version":"1.0.0","scripts":{"test":"node -e 0"}}\n' > "$r/package.json"
+: > "$GL_LOG"; RC=0
+OUT="$(cd "$r" && CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/preflight.sh" --quick --stack node 2>&1)" || RC=$?
+if [[ "$OUT" == *"PASS  secret scan"* ]] && grep -q -- "--log-opts --branches --tags --not --remotes$" "$GL_LOG"; then
+  note "no commit yet: the secret scan passes and leaves HEAD out"
+else
+  error "no commit: rc=$RC log='$(cat "$GL_LOG")' out='$(printf '%s' "$OUT" | grep -E 'secret|ERROR' | tail -3)'"
 fi
 
 # 8. ./dev scan runs the security-only preflight; help lists it.

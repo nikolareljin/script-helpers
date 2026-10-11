@@ -23,7 +23,7 @@ tmp="$(mktemp -d)"
 # Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
-TOKEN="tok-SECRET-0123456789abcdef"
+TOKEN="tok-SECRET-0123456789abcdef"  # gitleaks:allow (test fixture)
 TOKEN_B64="$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
 REAL_GIT="$(command -v git)"
 
