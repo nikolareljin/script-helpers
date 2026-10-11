@@ -64,6 +64,42 @@ jobs:
         shell: bash
         run: bash scripts/ollama_models.sh class
 
+  # The Claude hook and its setup on Windows: Git Bash runs them, as Claude
+  # Code does there. setup-hooks.ps1 is the native entry and must find it.
+  windows-security-hooks:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-19
+      - name: Setup tests under Git Bash
+        shell: bash
+        run: bash tests/setup_claude_hook_test.sh
+      - name: Hook destination and latency tests under Git Bash
+        shell: bash
+        run: bash tests/claude_hook_destinations_test.sh
+      - name: setup-hooks.ps1 finds Git Bash and installs (throwaway profile)
+        shell: pwsh
+        run: |
+          $t = Join-Path $env:RUNNER_TEMP 'sh-profile'
+          New-Item -ItemType Directory -Force -Path $t | Out-Null
+          $env:CLAUDE_CONFIG_DIR = Join-Path $t 'claude'
+          $env:LOCALAPPDATA = Join-Path $t 'localappdata'
+          $env:GIT_CONFIG_GLOBAL = Join-Path $t 'gitconfig'
+          $env:SCRIPT_HELPERS_OWNERS = 'example-owner'
+          New-Item -ItemType File -Force -Path $env:GIT_CONFIG_GLOBAL | Out-Null
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-hooks.ps1 --claude
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $s = Get-Content -Raw (Join-Path $env:CLAUDE_CONFIG_DIR 'settings.json') | ConvertFrom-Json
+          $h = $s.hooks.PreToolUse[0].hooks[0]
+          Write-Host "command: $($h.command)"
+          if ($h.shell -ne 'bash' -or $h.timeout -ne 60 -or $h.command -notmatch 'localappdata/script-helpers/claude-hooks/') { exit 1 }
+          # The probes need gitleaks; the runner may have none, so the install
+          # is offered and done here, as a person would after the setup.
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-hooks.ps1 --install-gitleaks
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-hooks.ps1 --doctor
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
   powershell:
     # The PowerShell companion library was never built or linted here, which is
     # how ps/scripts/tag_release.ps1 shipped with a syntax error that made it
@@ -83,7 +119,7 @@ jobs:
           $failed = 0
           # templates/ too: the dev-cli template ships to every repository and
           # was never parsed here.
-          Get-ChildItem -Path ps, templates -Recurse -Filter *.ps1 | ForEach-Object {
+          Get-ChildItem -Path ps, templates, scripts -Recurse -Filter *.ps1 | ForEach-Object {
             $tokens = $null; $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile(
               $_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
