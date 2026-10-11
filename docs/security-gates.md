@@ -205,10 +205,17 @@ parser of shell commands always misses some shape bash runs (`bash -c`,
   file it names that can be read (`--body-file X`, `-F X`, `@X`, `< X`), goes
   through the private-name check and `check_sensitive.sh --no-machine
   --no-inline-allow`. Paths after `cd` and `-C` are left out of the text.
-  Private names are judged against the session directory's repository, or
-  the single `-R` target; a command that runs elsewhere (`cd`, `-C`) is
-  checked whatever that is. Sensitive data follows the owner scope, from the
-  session directory, every `cd`/`-C` target and `-R`.
+  Private names are judged by where each part of the command can publish:
+  a `-R`/`--repo` target by its name; the repository a part runs in (after
+  `cd`, `git -C`, or the session directory) or writes into (`>`, `>>`; a path
+  that does not exist yet, such as a new worktree, counts as the repository of
+  its nearest existing parent). A directory that is not a repository is not a
+  destination, so `echo <name>` there passes. Checked whatever the list says:
+  `gh` and `git commit`/`tag`/`push` outside any repository, a push to a URL,
+  and `curl`/`wget` naming github. A command the parser cannot split is
+  checked as before: any `cd` or `-C` means checked. Sensitive data follows
+  the owner scope, from the session directory, every `cd`/`-C` target and
+  `-R`.
 - refused outright: `--no-verify`, `git commit -n`, a `core.hooksPath`
   override (`-c`, `GIT_CONFIG_*`); a command that sets the gate's own
   overrides or configuration (`SECURITY_GATE_ALLOW_UNCHECKED=`,
@@ -220,8 +227,11 @@ parser of shell commands always misses some shape bash runs (`bash -c`,
 
 The private-name check takes seconds on a large list, so a cheap test runs
 first: if no listed name occurs in the text in any case, with `-`, `_`, `.`
-and spaces ignored, the full check is not needed. Measured on a 5000-name
-list: about 180 ms per ordinary command, about 300 ms for `gh pr create`.
+and spaces ignored, the full check is not needed. The full check is one awk
+pass over the list. Measured on a 4,800-name list: about 180 ms per ordinary
+command, about 250 ms for a command that names a listed repository (about 14 s
+with the old per-name loop). `tests/claude_hook_destinations_test.sh` holds a hit against
+5,000 names under 2 s.
 Nothing is allowed without that scan: another tool's payload (Write, Edit, if
 the hook is wired to them) is scanned as every string of its input; a payload
 that is not valid JSON or not UTF-8, or a machine without python3, has the raw
@@ -232,3 +242,87 @@ gitleaks missing, a checker error) refuses the call; only
 it cannot read (`--body-file -`, a missing file) and an unreadable payload for
 a publishing command count as "could not check". The checkers' exit codes map
 one to one: 0 allows, 1 refuses with the reason, 2 refuses as above.
+
+## Set it up on a machine
+
+One command installs both gates for your user: the git hooks (`--global`) and
+the Claude Code hook (`--claude`). Rerun it at any time; a second run changes
+nothing, and a run from a newer checkout updates the installed copy.
+
+### Prerequisites
+
+| What | Why | Check |
+|---|---|---|
+| bash, git | the hooks are bash scripts | `git --version` |
+| Python 3 (`python3`, or `python` on Windows) | parses the hook payload and merges `settings.json` | `python3 --version` |
+| Git for Windows (Windows only) | Claude Code runs hooks through Git Bash | `git --version` in PowerShell |
+| owners | only their github.com repositories are checked | `git config --global script-helpers.owners` |
+| gitleaks | secret scan; without it publishing in your repositories is refused | `setup-hooks.sh --install-gitleaks` installs the pinned build |
+| private-name list (optional) | `~/.config/script-helpers/private-names.tsv` | `refresh_private_names.sh` |
+
+### Linux and macOS
+
+```bash
+git config --global script-helpers.owners <your-github-user-or-org>
+bash <script-helpers>/scripts/setup-hooks.sh --all
+bash <script-helpers>/scripts/setup-hooks.sh --doctor
+```
+
+### Windows
+
+PowerShell:
+
+```powershell
+git config --global script-helpers.owners <your-github-user-or-org>
+powershell -NoProfile -ExecutionPolicy Bypass -File <script-helpers>\scripts\setup-hooks.ps1 --all
+powershell -NoProfile -ExecutionPolicy Bypass -File <script-helpers>\scripts\setup-hooks.ps1 --doctor
+```
+
+Git Bash: the same commands as on Linux. `setup-hooks.ps1` finds Git Bash
+(`CLAUDE_CODE_GIT_BASH_PATH`, next to `git.exe`, or the standard install
+folders) and runs `setup-hooks.sh` with the same arguments. Without Git Bash it
+stops with exit 2 and names what to install.
+
+### What it writes
+
+| Command | Writes |
+|---|---|
+| `--global` | the hooks copy in `<data>/script-helpers/git-hooks`; global `core.hooksPath` (old value saved) |
+| `--claude` | the hook copy in `<data>/script-helpers/claude-hooks`; one `PreToolUse` entry in `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json` (matcher `Bash`, timeout 60, `"shell": "bash"`), after a `settings.json.bak-<time>` copy |
+| `--all` | both |
+| `--managed` | the entry in the OS managed settings file, and the hook copy in `script-helpers/` beside it (admin only, see below) |
+
+`<data>` is `%LOCALAPPDATA%` on Windows, else `${XDG_DATA_HOME:-~/.local/share}`.
+Every other key and hook in `settings.json` is kept; an older entry for the
+same hook (another path) is replaced. A `settings.json` that is not valid JSON
+is refused (exit 3) and left as it is. CRLF line endings and a BOM are kept.
+
+`--managed` writes `/etc/claude-code/managed-settings.json` (Linux),
+`/Library/Application Support/ClaudeCode/managed-settings.json` (macOS) or
+`C:\Program Files\ClaudeCode\managed-settings.json` (Windows). No user or
+project setting can turn that off. It needs an admin shell (`sudo bash
+setup-hooks.sh --managed`, or an elevated PowerShell); without write access it
+refuses with exit 2 and never runs sudo itself.
+
+### Undo
+
+```bash
+bash <script-helpers>/scripts/setup-hooks.sh --all --uninstall      # or --global / --claude / --managed
+```
+
+This removes only the script-helpers entry and the installed copies, and
+restores the saved global `core.hooksPath`.
+
+### Troubleshooting
+
+- `--status` shows what is installed and the prerequisites; `--doctor` also
+  runs a refused and an allowed command through the installed hook and prints
+  the time each took.
+- A hook that times out, or exits with anything but 0 or 2, lets the command
+  run. The timeout is 60 s; the hook normally answers in well under 1 s. A
+  `--doctor` probe near the limit means something is wrong.
+- In Claude Code, `/hooks` lists the entry. Settings are read when a session
+  starts: open a new session after installing.
+- `no owners configured` (exit 2): set the owners first (above).
+- A hook copy that was deleted fails open; `--doctor` reports it, and
+  `--claude` reinstalls it.

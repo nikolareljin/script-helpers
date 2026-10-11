@@ -13,6 +13,13 @@
   `ollama_project_compose_files` (a stop includes the override).
   Closes https://github.com/nikolareljin/script-helpers/issues/161.
 
+- **`setup-hooks.sh --claude`, `--all`, `--doctor`, `--managed`, and
+  `setup-hooks.ps1`: the Claude Code hook on Linux, macOS and Windows.** Copies
+  the hook to the user data folder and merges one entry into `settings.json`
+  (other keys and hooks kept, backup first, CRLF kept, invalid JSON refused).
+  The hook now judges private names by where each command publishes, so work
+  inside a private repository is no longer refused, and a hit takes about
+  250 ms instead of 14 s. See docs/security-gates.md, "Set it up on a machine".
 - **Pushes refuse credentials, personal identifiers and PII.** New
   `scripts/check_sensitive.sh` checks the added lines and messages of the
   commits being pushed (also `--staged`, `--file`, `--stdin`): gitleaks for
