@@ -33,6 +33,9 @@
 #   2  Bad arguments, or an unknown --stack.
 #   3  No stack could be detected in this directory.
 #
+# ENVIRONMENT:
+#   PREFLIGHT_NO_INSTALL=1  Do not install a missing gitleaks or foxguard (the
+#                           pinned releases, into ~/.cache/script-helpers).
 # EXAMPLE:
 #   bash scripts/preflight.sh                  # everything, on the host
 #   bash scripts/preflight.sh --quick          # what pre-push runs

@@ -74,7 +74,7 @@ scan() {
 # 1. No stack needed; a clean repository passes; gitleaks runs in git mode.
 r="$(new_repo clean)"
 scan "$r"
-if [[ $RC -eq 0 && "$OUT" == *"PASS  security scan"* ]] && grep -q "^top: gitleaks detect --source \.$" "$GL_LOG"; then
+if [[ $RC -eq 0 && "$OUT" == *"PASS  security scan"* ]] && grep -q "^top: gitleaks detect --source \. --redact -v$" "$GL_LOG"; then
   note "clean repository: PASS, gitleaks in git mode, no stack needed"
 else
   error "clean: rc=$RC log='$(cat "$GL_LOG")' out='$(printf '%s' "$OUT" | tail -4)'"
@@ -96,7 +96,7 @@ r="$(new_repo subdir)"
 mkdir -p "$r/backend"; printf 'x\n' > "$r/backend/a.txt"; commit "$r"
 : > "$GL_LOG"; RC=0
 OUT="$(cd "$r" && CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker --workdir backend --skip-python --skip-node --fail-on-findings 2>&1)" || RC=$?
-if [[ $RC -eq 0 ]] && grep -q "^top: gitleaks detect --source \.$" "$GL_LOG"; then
+if [[ $RC -eq 0 ]] && grep -q "^top: gitleaks detect --source \. --redact -v$" "$GL_LOG"; then
   note "--workdir subdirectory: gitleaks in git mode"
 else
   error "subdirectory: rc=$RC log='$(cat "$GL_LOG")' out='$(printf '%s' "$OUT" | tail -3)'"
@@ -113,7 +113,7 @@ r="$(new_repo ignorefile)"
 mkdir -p "$r/backend"; printf 'x\n' > "$r/backend/a.txt"; commit "$r"
 : > "$GL_LOG"; RC=0
 (cd "$r" && CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker --workdir backend --skip-python --skip-node --fail-on-findings >/dev/null 2>&1) || RC=$?
-if [[ $RC -eq 0 ]] && grep -q "^top: gitleaks detect --source \.$" "$GL_LOG"; then
+if [[ $RC -eq 0 ]] && grep -q "^top: gitleaks detect --source \. --redact -v$" "$GL_LOG"; then
   note "--workdir subdirectory: gitleaks runs from the repository top"
 else
   error "gitleaks cwd: rc=$RC log='$(cat "$GL_LOG")'"
@@ -173,7 +173,7 @@ if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
   }
   prepush
   if [[ $RC -eq 0 && "$OUT" == *"PASS  secret scan"* ]] \
-     && grep -q "^top: gitleaks detect --source \. --log-opts --branches --tags --not --remotes$" "$GL_LOG"; then
+     && grep -q "^top: gitleaks detect --source \. --redact -v --log-opts --branches --tags --not --remotes$" "$GL_LOG"; then
     note "pre-push preflight: a secret already on the remote does not block; only unpushed commits are scanned"
   else
     error "pre-push pushed: rc=$RC log='$(cat "$GL_LOG")' out='$(printf '%s' "$OUT" | tail -4)'"
@@ -182,6 +182,9 @@ if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
   prepush
   if [[ $RC -ne 0 && "$OUT" == *"FAIL  secret scan"* ]]; then
     note "pre-push preflight: a secret in an unpushed commit fails the run"
+    [[ "$OUT" == *"gitleaks:allow"* && "$OUT" == *".gitleaksignore"* && "$OUT" == *"rotate it"* ]] \
+      && note "pre-push preflight: a blocked push says how to handle a real secret and a false positive" \
+      || error "pre-push hint missing: $(printf '%s' "$OUT" | grep -i gitleaks | tail -3)"
   else
     error "pre-push secret: rc=$RC out='$(printf '%s' "$OUT" | tail -4)'"
   fi

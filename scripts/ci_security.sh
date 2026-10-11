@@ -12,7 +12,6 @@
 #   --check-foxguard       Exit 0 if foxguard is available, 3 if not (for preflight).
 #   --install-foxguard     Download the pinned foxguard release binary, check its
 #                          SHA-256 against lib/ci_defaults.sh, cache it, and exit.
-#   --check-gitleaks       Exit 0 if gitleaks is available (PATH or cache), 3 if not.
 #   --install-gitleaks     Download the pinned gitleaks release, check its SHA-256
 #                          against lib/ci_defaults.sh, cache it, and exit.
 #   --python-req <f>       Python requirements file (default: requirements.txt if present).
@@ -89,7 +88,6 @@ while [[ $# -gt 0 ]]; do
     --skip-foxguard) SKIP_FOXGUARD=true; shift;;
     --install-foxguard) INSTALL_FOXGUARD=true; shift;;
     --check-foxguard) foxguard_bin >/dev/null && exit 0; exit 3;;
-    --check-gitleaks) gitleaks_bin >/dev/null && exit 0; exit 3;;
     --install-gitleaks) gitleaks_install; exit $?;;
     --fail-on-findings) FAIL_ON_FINDINGS=true; shift;;
     --gitleaks-log-opts) GITLEAKS_LOG_OPTS="${2:?--gitleaks-log-opts needs a value}"; shift 2;;
@@ -150,6 +148,12 @@ fi
 finding() {
   log_warn "$1 reported findings or failed."
   if [[ "$FAIL_ON_FINDINGS" == "true" ]]; then FINDINGS=$((FINDINGS + 1)); fi
+  if [[ "$1" == "gitleaks" && "$FAIL_ON_FINDINGS" == "true" ]]; then
+    log_warn "A real secret: remove it from the commit (git commit --amend, or rebase) and rotate it."
+    log_warn "A false positive (test fixture, public key): add each Fingerprint printed above to"
+    log_warn ".gitleaksignore at the repository top, or end the line with '# gitleaks:allow' in"
+    log_warn "the commit that adds it (amend it; a later commit does not clear an unpushed one)."
+  fi
 }
 
 # ran / skipped <reason>; what this run actually checked. Under preflight
@@ -173,7 +177,9 @@ BANDIT_EXCLUDE="./.venv,./venv,./node_modules,./build,./dist"
 # run and this is a git work tree; otherwise every file on disk, as before.
 gitleaks_args() {
   if [[ "$FAIL_ON_FINDINGS" == "true" ]] && git -C "$WORKDIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    printf '%s\n' detect --source .
+    # -v names the rule, file, line and fingerprint of each finding; --redact
+    # keeps the secret itself out of the terminal and CI logs.
+    printf '%s\n' detect --source . --redact -v
     [[ -n "$GITLEAKS_LOG_OPTS" ]] && printf '%s\n' --log-opts "$GITLEAKS_LOG_OPTS"
   else
     printf '%s\n' detect --source . --no-git

@@ -426,7 +426,11 @@ A full `./dev preflight` and the pre-push hook split the step in two. The
 refuses the push. It reads only the commits no remote has yet
 (`--gitleaks-log-opts "--branches --tags --not --remotes"`), which is what a push
 can send, from any branch; a test fixture flagged in history that is already
-pushed does not block. `./dev scan` still reads the whole history. foxguard and the dependency audits stay report only: they
+pushed does not block. `./dev scan` still reads the whole history. A blocked
+push names each finding's rule, file, line and fingerprint, with the secret
+redacted. A real secret: remove it from the commit and rotate it. A false
+positive: add its fingerprint to `.gitleaksignore`, or end the line with
+`# gitleaks:allow` in the commit that adds it. foxguard and the dependency audits stay report only: they
 print findings, do not block, and their summary lines say `(report only)`.
 A local preflight installs a missing gitleaks or foxguard before it scans: the
 pinned release for Linux, macOS or Windows (Git Bash), checked against the SHA-256
