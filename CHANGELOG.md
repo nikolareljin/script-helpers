@@ -13,6 +13,50 @@
   `ollama_project_compose_files` (a stop includes the override).
   Closes https://github.com/nikolareljin/script-helpers/issues/161.
 
+- **Pushes refuse credentials, personal identifiers and PII.** New
+  `scripts/check_sensitive.sh` checks the added lines and messages of the
+  commits being pushed (also `--staged`, `--file`, `--stdin`): gitleaks for
+  credentials, a never-committed `sensitive-terms.txt` plus this machine's
+  addresses, gateways, MACs, hostname and home path, and emails, phone
+  numbers, SSNs and Luhn-valid card numbers. Exit 2 (gitleaks missing) refuses a
+  push; `SECURITY_GATE_ALLOW_UNCHECKED=1` lets one through. `pre-push` then runs
+  foxguard on the changed files, warnings only. The shared `pre-commit`,
+  `commit-msg` and the Claude Code hook run the same check, and a repository's
+  own `.githooks/pre-push` now runs after the checks instead of replacing them.
+- **`setup-hooks.sh --global`** installs the hooks machine-wide for the
+  repositories of the owners in `git config --global script-helpers.owners`,
+  and chains to each repository's own hooks; `--global --uninstall` and
+  `--status`. Scope fails closed (lookalike hosts, owner-looking mirrors, any
+  remote under an owner), committed hooks run only in an owner's clone that
+  opted in, and a check that could not run refuses unless
+  `SECURITY_GATE_ALLOW_UNCHECKED=1`. See `docs/security-gates.md`.
+  Merge commits' own lines (a conflict resolution) and annotated tag messages
+  are checked; a pure rename adds nothing; a binary file is named as not
+  checked. The Claude Code hook also sees `VAR=x gh ...`, `env gh ...`,
+  `git -C <dir> commit`, `git tag -m`, attached `-b'text'`, `gh api
+  --raw-field`/`-F key=@file`, `gh release --notes`, judges scope from a
+  `cd <dir> &&` or `git -C <dir>` target, and ignores `sensitive:allow` in text
+  the agent wrote (`check_sensitive.sh --no-inline-allow`). It refuses
+  `git commit -n` as it refuses `--no-verify`. Every Bash call is now also
+  checked as a whole (text, quotes removed, and files it names), so shapes
+  the parser does not read (`bash -c`, `$(...)`, `g''it`) are covered; a
+  command that sets the gate's overrides (`SECURITY_GATE_ALLOW_UNCHECKED=1 git
+  push`, `HOME=`, `script-helpers.owners`) or publishes through `eval`,
+  `xargs`, `source` or a variable is refused. Other tools' payloads, invalid
+  or non-UTF-8 input and a missing python3 are scanned raw, never allowed
+  unread. A committed `.gitleaksignore` no longer allows its own key in
+  `check_sensitive.sh` (a local `.git/gitleaksignore` does).
+
+### Changed
+
+- **`pre-push` now refuses when a check cannot run.** Before, a missing
+  private-name list, a missing checker script or unreadable commit messages
+  printed "push allowed". Now each of these, and a missing gitleaks, refuses
+  the push. One push goes through, with a warning, with
+  `SECURITY_GATE_ALLOW_UNCHECKED=1 git push`. Fix: build the list
+  (`refresh_private_names.sh`) and install gitleaks
+  (`bash scripts/ci_security.sh --install-gitleaks`).
+
 ### Fixed
 
 - **The reach check asks from a container.** `ollama_endpoint_container_reach`

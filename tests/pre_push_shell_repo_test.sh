@@ -13,6 +13,11 @@ set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOOK="$ROOT_DIR/scripts/git-hooks/pre-push"
+# This file tests the test stage. The security steps before it fail closed
+# without a private-name list or gitleaks (CI has neither); they are covered by
+# tests/security_gate_test.sh, so here they may run unchecked.
+export SECURITY_GATE_ALLOW_UNCHECKED=1 PRIVATE_NAMES_AUTO_REFRESH=false
+export PRIVATE_NAMES_FILE=/nonexistent/private-names.tsv   # "could not check", fast
 failures=0
 note()  { echo "[pre_push_shell_repo_test] $*"; }
 ok()    { note "PASS: $*"; }
