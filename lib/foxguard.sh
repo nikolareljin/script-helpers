@@ -112,9 +112,9 @@ foxguard_install() {
   mkdir -p "$(dirname "$dest")" || return 1
   tmp="$(mktemp "$(dirname "$dest")/.download.XXXXXX")" || return 1
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL -o "$tmp" "$url" || { rm -f "$tmp"; log_error "foxguard: download failed: $url"; return 1; }
+    curl -fsSL --connect-timeout 15 --max-time 300 -o "$tmp" "$url" || { rm -f "$tmp"; log_error "foxguard: download failed: $url"; return 1; }
   elif command -v wget >/dev/null 2>&1; then
-    wget -q -O "$tmp" "$url" || { rm -f "$tmp"; log_error "foxguard: download failed: $url"; return 1; }
+    wget -q -T 60 -O "$tmp" "$url" || { rm -f "$tmp"; log_error "foxguard: download failed: $url"; return 1; }
   else
     rm -f "$tmp"; log_error "foxguard: curl or wget is needed to download it"; return 3
   fi

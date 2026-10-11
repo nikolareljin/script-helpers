@@ -109,10 +109,15 @@ printf 'token = LEAKME\n' > "$r/creds.txt"; git -C "$r" add -A
 git -C "$r" -c user.name=t -c user.email=t@example.com commit -q -m c
 rm -rf "$tmp/cache"; : > "$tmp/curl.log"
 rc=0
-out="$(cd "$r" && CI="" PREFLIGHT_NO_INSTALL="" CI_DEFAULT_GITLEAKS_SHA256_LINUX_X64="$GOOD_SHA" \
+# Every pin is the fake archive's, so this runs on whatever the host is; on
+# Windows the asset is a .zip, which the fake tar.gz is not, so it is skipped.
+out="$(cd "$r" && CI="" PREFLIGHT_NO_INSTALL="" \
+  CI_DEFAULT_GITLEAKS_SHA256_LINUX_X64="$GOOD_SHA" CI_DEFAULT_GITLEAKS_SHA256_LINUX_ARM64="$GOOD_SHA" \
+  CI_DEFAULT_GITLEAKS_SHA256_DARWIN_X64="$GOOD_SHA" CI_DEFAULT_GITLEAKS_SHA256_DARWIN_ARM64="$GOOD_SHA" \
   XDG_CACHE_HOME="$tmp/cache" PATH="$tmp/bin" bash "$ROOT_DIR/scripts/preflight.sh" --security-only 2>&1)" || rc=$?
-if [[ "$(uname -s)" != Linux || "$(uname -m)" != x86_64 ]]; then
-  note "SKIP preflight install case: the fake archive is pinned as linux x64"
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) win=true ;; *) win=false ;; esac
+if $win; then
+  note "SKIP preflight install case on Windows: the fake archive is a tar.gz"
 elif [[ $rc -ne 0 && "$out" == *"installing the pinned v8.30.0"* && "$out" == *"FAIL  security scan"* ]]; then
   note "preflight: installs a missing gitleaks, then a committed secret fails"
 else

@@ -78,9 +78,9 @@ gitleaks_install() {
   mkdir -p "$dir" || return 1
   tmp="$(mktemp -d "$dir/.download.XXXXXX")" || return 1
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL -o "$tmp/$asset" "$url" || { rm -rf "$tmp"; log_error "gitleaks: download failed: $url"; return 1; }
+    curl -fsSL --connect-timeout 15 --max-time 300 -o "$tmp/$asset" "$url" || { rm -rf "$tmp"; log_error "gitleaks: download failed: $url"; return 1; }
   elif command -v wget >/dev/null 2>&1; then
-    wget -q -O "$tmp/$asset" "$url" || { rm -rf "$tmp"; log_error "gitleaks: download failed: $url"; return 1; }
+    wget -q -T 60 -O "$tmp/$asset" "$url" || { rm -rf "$tmp"; log_error "gitleaks: download failed: $url"; return 1; }
   else
     rm -rf "$tmp"; log_error "gitleaks: curl or wget is needed to download it"; return 3
   fi
