@@ -27,7 +27,7 @@ scope_owners() {
     # 1 = not set; anything else = git could not read the config.
     [[ "$rc" -eq 0 || "$rc" -eq 1 ]] || return 2
   fi
-  printf '%s' "$o" | tr '[:upper:]' '[:lower:]' | tr -d ' \t'
+  printf '%s' "$o" | LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C tr -d ' \t'
   return 0
 }
 
@@ -37,7 +37,7 @@ scope_owners() {
 # o/r; each with or without .git. The host must be exactly github.com.
 scope_owner_of() {
   local u rest
-  u="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  u="$(printf '%s' "$1" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
   case "$u" in
     git@github.com:*)          rest="${u#git@github.com:}" ;;
     ssh://git@github.com/*)    rest="${u#ssh://git@github.com/}" ;;
@@ -71,8 +71,8 @@ scope_in_scope() {
       continue                       # a clean parse to another owner
     fi
     # Unparsable: in scope when it looks like an owner's.
-    lu="$(printf '%s' "$u" | tr '[:upper:]' '[:lower:]')"
-    for o in $(printf '%s' "$owners" | tr ',' ' '); do
+    lu="$(printf '%s' "$u" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+    for o in $(printf '%s' "$owners" | LC_ALL=C tr ',' ' '); do
       [[ -n "$o" ]] || continue
       case "/$lu/" in *[/:@.]"$o"/*) return 0 ;; esac
     done

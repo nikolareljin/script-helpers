@@ -41,6 +41,7 @@
 #     "command": "bash <path>/script-helpers/scripts/claude-hooks/pretooluse_private_names.sh" } ] } ] }
 # ----------------------------------------------------
 set -uo pipefail
+export LC_ALL=C   # bytes: BSD tr/sed abort on non-UTF-8 input under a UTF-8 locale
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -429,7 +430,7 @@ else:
     fi
   fi
   # The same text with quoting removed, as bash would see the words.
-  tr -d "'\"\\\\" < "$cmd_file" > "$cmd_file.plain"
+  tr -d "'\"\\\\" < "$cmd_file" > "$cmd_file.plain" || { reason="could not prepare the command text"; unchecked "Reading the command"; }
   if grep -qE -- "$OVERRIDE_RE" "$cmd_file"; then
     rm -f "$cmd_file" "$cmd_file.plain"
     echo "Refusing a command that sets the security gate's own overrides or configuration" >&2
@@ -456,7 +457,8 @@ if [[ -s "$cmd_file" ]]; then
     fi
     broad_text="${payload_file}.text"
     # Paths after cd and -C are where the command runs, not text it publishes.
-    sed -E 's/(^|[;&|[:space:]])cd[[:space:]]+[^;&|[:space:]]+/\1/g; s/(^|[[:space:]])-C[[:space:]]+[^[:space:]]+/\1/g' "$cmd_file" > "$broad_text"
+    sed -E 's/(^|[;&|[:space:]])cd[[:space:]]+[^;&|[:space:]]+/\1/g; s/(^|[[:space:]])-C[[:space:]]+[^[:space:]]+/\1/g' "$cmd_file" > "$broad_text" \
+      || { reason="could not prepare the command text"; unchecked "Reading the command"; }
     while IFS= read -r f; do
       f="${f#@}"; f="${f#\'}"; f="${f%\'}"; f="${f#\"}"; f="${f%\"}"
       [[ -n "$f" && "$f" != "-" && -f "$f" && -r "$f" ]] && { printf '\n'; head -c 2000000 "$f"; } >> "$broad_text"   # a body is never that large; a log might be

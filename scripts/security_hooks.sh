@@ -104,7 +104,7 @@ sec_maybe_refresh_private_names() {
 # other remote (a private one, say) is still news to this one. A push to a bare
 # URL has no remote refs, so everything it sends is checked.
 sec_not_remote() {
-  if [[ -n "${1:-}" ]] && git remote 2>/dev/null | grep -qxF -- "$1"; then
+  if [[ -n "${1:-}" ]] && git remote 2>/dev/null | LC_ALL=C grep -qxF -- "$1"; then
     printf -- '--not --remotes=%s' "$1"
   else
     printf -- '--not'
@@ -139,8 +139,8 @@ sec_tag_messages() {
     t="$lsha"
     while [[ "$(git cat-file -t "$t" 2>/dev/null)" == tag ]]; do
       body="$(git cat-file tag "$t" 2>/dev/null)" || return 1
-      [[ "$t" == "${rsha:-}" ]] || printf '%s\n' "$body" | awk '/^-----BEGIN (PGP|SSH) SIGNATURE-----/ { exit } p { print } /^$/ { p = 1 }'
-      t="$(printf '%s\n' "$body" | awk '$1 == "object" { print $2; exit }')"
+      [[ "$t" == "${rsha:-}" ]] || printf '%s\n' "$body" | LC_ALL=C awk '/^-----BEGIN (PGP|SSH) SIGNATURE-----/ { exit } p { print } /^$/ { p = 1 }'
+      t="$(printf '%s\n' "$body" | LC_ALL=C awk '$1 == "object" { print $2; exit }')"
       [[ -n "$t" ]] || break
     done
   done < "$1"
@@ -273,7 +273,7 @@ sec_foxguard_push() {
   rm -f "$list"
   # shellcheck disable=SC2086  # FOXGUARD_CMD may carry arguments
   out="$($cmd "${files[@]}" 2>&1)" || rc=$?
-  n="$(printf '%s\n' "$out" | grep -c '[^[:space:]]' || true)"
+  n="$(printf '%s\n' "$out" | LC_ALL=C grep -c '[^[:space:]]' || true)"
   if [[ "$rc" -ne 0 && "$rc" -ne 1 ]]; then
     echo "[pre-push] WARNING (foxguard): could not scan (exit $rc); push not affected."
   fi
@@ -339,7 +339,7 @@ sec_commit_msg() {
   fi
   if gate="$(sec_find check_sensitive.sh)"; then
     # git keeps the template's comment lines in the file until it strips them.
-    grep -v '^#' "$msg" > "$msg.sensitive" 2>/dev/null || true
+    LC_ALL=C grep -v '^#' "$msg" > "$msg.sensitive" 2>/dev/null; [[ $? -le 1 ]] || cp "$msg" "$msg.sensitive"
     bash "$gate" --file "$msg.sensitive"
     rc=$?
     rm -f "$msg.sensitive"
