@@ -1885,9 +1885,9 @@ ollama_project_prepare() {
     if [[ -n "$_oep_svc" && "$_oep_host" == "$_oep_svc" ]]; then
       print_error "$_oep_var=$(_ollama_ep_shown_url "$_oep_url") names the ${_oep_svc} container, which runs only with OLLAMA_RUNTIME=container." >&2
       if [[ "$_oep_mode" == "docker" ]]; then
-        print_error "Fix: delete that line (the default is the host's Ollama, http://host.docker.internal:11434${_oep_suffix}), or set OLLAMA_RUNTIME=container only if Ollama cannot run on this host." >&2
+        print_error "Fix: remove that setting from .env or the environment (the default is the host's Ollama, http://host.docker.internal:11434${_oep_suffix}), or set OLLAMA_RUNTIME=container only if Ollama cannot run on this host." >&2
       else
-        print_error "Fix: delete that line (the default is the host's Ollama, http://127.0.0.1:11434${_oep_suffix}), or set OLLAMA_RUNTIME=container only if Ollama cannot run on this host." >&2
+        print_error "Fix: remove that setting from .env or the environment (the default is the host's Ollama, http://127.0.0.1:11434${_oep_suffix}), or set OLLAMA_RUNTIME=container only if Ollama cannot run on this host." >&2
       fi
       return 9
     fi
@@ -1905,9 +1905,8 @@ ollama_project_prepare() {
       print_info "${_oep_skip}=1: the Ollama check is skipped." >&2
       return 0
     fi
-    if ollama_endpoint_is_local "$_oep_base" || { ! _ollama_ep_in_container && [[ "$_oep_host" == host.docker.internal || "$_oep_host" == gateway.docker.internal ]]; }; then
-      _oep_local=1
-    fi
+    # Docker's names for the host are this machine, seen from the host.
+    if ollama_endpoint_is_local "$_oep_base"; then _oep_local=1; fi
     ( export OLLAMA_URL_VARS=_OLLAMA_EP_PREPARE_URL _OLLAMA_EP_PREPARE_URL="$_oep_url"
       if [[ "$_oep_local" -eq 1 && -z "$(_ollama_ep_setting OLLAMA_PULL_MISSING "$_oep_env")" ]]; then
         export OLLAMA_PULL_MISSING=ask
