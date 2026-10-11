@@ -30,6 +30,34 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# private_name_candidate <file>: 0 when the text could name a listed repository
+# and the full check must run; 1 when no listed name occurs in it in any form.
+# check_private_names.sh takes seconds on a large list, and this hook reads
+# every command, so the cheap test comes first. It is a superset: lower case,
+# with "-", "_", "." and spaces removed on both sides, any substring counts. No
+# list, an unreadable one, or one without a name column: the full check runs
+# and reports that itself.
+private_name_candidate() {
+  local list
+  [[ -n "${PRIVATE_NAMES_ALLOW:-}" ]] && return 0
+  list="${PRIVATE_NAMES_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names.tsv}"
+  [[ -r "$list" && -s "$list" ]] || return 0
+  awk -F'\t' '
+    function norm(x) { x = tolower(x); gsub(/[-_. \t]/, "", x); return x }
+    FILENAME == ARGV[1] {
+      if ($0 ~ /^# *visibility\t/ || $1 == "visibility") { for (i = 1; i <= NF; i++) { h = $i; sub(/^# */, "", h); if (h == "name") col = i } next }
+      if ($0 ~ /^#/ || col == 0) next
+      n = norm($col); if (length(n) >= 3) names[n] = 1; count++
+      next
+    }
+    { text = text norm($0) }
+    END {
+      if (col == 0 || count == 0) exit 0
+      for (n in names) if (index(text, n)) exit 0
+      exit 1
+    }' "$list" "$1"
+}
 GATE="${SCRIPT_DIR}/../check_private_names.sh"
 
 PUBLISH_RE='(^|[^[:alnum:]_-])(gh[[:space:]]+(pr|issue|release|api)|git[[:space:]]+commit)([^[:alnum:]_-]|$)'
@@ -336,6 +364,140 @@ if [[ "$parse_rc" -ne 0 ]]; then
   unchecked "The publishing-command parser"
   exit 0
 fi
+# ------------------------------------------------------------ whole command
+# Every Bash call, whatever it looks like: classifying commands as publishing
+# or not was the gap every bypass used (bash -c, $(...), aliases, quoting).
+#   - --no-verify, git commit -n and any core.hooksPath override: refused;
+#   - setting the gate's own overrides or configuration: refused;
+#   - eval, xargs, source or a variable as the command next to a publishing
+#     verb: refused, it cannot be read;
+#   - the whole command text (also with quoting removed) plus every file it
+#     names that can be read (--body-file X, -F X, @X, < X): private names and
+#     sensitive data. The parsed text further down adds the strict checks.
+#   - scope for sensitive data: the owners (config) against the session
+#     directory, every cd <dir> and -C <dir>, and -R/--repo; any one of them an
+#     owner's, or a directory that cannot be entered: checked.
+SENSITIVE="${SCRIPT_DIR}/../check_sensitive.sh"
+SCOPE_LIB="${SCRIPT_DIR}/../owner_scope.sh"
+# Overrides count only from this hook's own environment, set by the user. A
+# command that sets one, or the gate's configuration, for what it runs is
+# refused: SECURITY_GATE_ALLOW_UNCHECKED=1 git push would switch off the git
+# hook's refusal from inside the call being judged.
+OVERRIDE_RE='(SECURITY_GATE_ALLOW_UNCHECKED|SENSITIVE_ALLOW[A-Z_]*|SENSITIVE_NO_MACHINE|SENSITIVE_MACHINE_IDS_FILE|SENSITIVE_TERMS_FILE|SENSITIVE_PUBLIC_IP_CACHE|PRIVATE_NAMES_ALLOW|PRIVATE_NAMES_FILE|PRIVATE_NAMES_AUTO_REFRESH|GITLEAKS_BIN|SCRIPT_HELPERS_OWNERS|SCRIPT_HELPERS_SECURITY_DIR|SCRIPT_HELPERS_HOOKS_HOME|XDG_CONFIG_HOME|HOME)=|(^|[^[:alnum:]_])(export|declare|typeset|unset)[[:space:]][^;&|]*(SECURITY_GATE_|SENSITIVE_|PRIVATE_NAMES_|GITLEAKS_BIN|SCRIPT_HELPERS_)|script-helpers\.(owners|trust-repo-hooks)|(>|tee|cp|mv|rm|ln|sed[[:space:]]+-i|truncate|chmod)[^;&|]*(sensitive-allow|sensitive-terms|private-names[.-])'
+# Obfuscated command words: quotes and backslashes removed (g''it, "git",
+# \git, $'git'), then eval, xargs, source and variable indirection ($G push,
+# ${X:-git}) next to a publishing verb cannot be read, so they are refused.
+INDIRECT_RE='(^|[^[:alnum:]_])(eval|xargs|source)([^[:alnum:]_]|$)|(^|[;&|(`])[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*\$\{?[A-Za-z_]|(^|[;&|(`])[[:space:]]*\.[[:space:]]'
+VERB_RE='(^|[^[:alnum:]_-])(push|commit|tag|pr|issue|release|api|gist)([^[:alnum:]_-]|$)|github'
+cmd_file="${payload_file}.cmd"
+: > "$cmd_file"
+{
+  python3 -c 'import json,sys; sys.stdout.write((json.load(open(sys.argv[1])).get("tool_input") or {}).get("command") or "")' \
+    "$payload_file" > "$cmd_file" 2>/dev/null || : > "$cmd_file"
+  # The same text with quoting removed, as bash would see the words.
+  tr -d "'\"\\\\" < "$cmd_file" > "$cmd_file.plain"
+  if grep -qE -- "$OVERRIDE_RE" "$cmd_file"; then
+    rm -f "$cmd_file" "$cmd_file.plain"
+    echo "Refusing a command that sets the security gate's own overrides or configuration" >&2
+    echo "(SECURITY_GATE_ALLOW_UNCHECKED, *_ALLOW, the owners, the name or terms lists)." >&2
+    echo "Only the user sets those, outside the command. Ask them." >&2
+    exit 2
+  fi
+  if grep -qiE -- "$VERB_RE" "$cmd_file.plain" && grep -qE -- "$INDIRECT_RE" "$cmd_file.plain"; then
+    rm -f "$cmd_file" "$cmd_file.plain"
+    echo "Refusing a command that may publish through eval, xargs, source or a variable as" >&2
+    echo "the command: this hook cannot read what it would run. Write the command out plainly." >&2
+    exit 2
+  fi
+  cat "$cmd_file.plain" >> "$cmd_file"
+  rm -f "$cmd_file.plain"
+}
+if [[ -s "$cmd_file" ]]; then
+    if grep -qiE -- '--no-verify|core\.hookspath|GIT_CONFIG_(COUNT|KEY|VALUE|PARAMETERS)' "$cmd_file" \
+       || grep -qE -- '(^|[^[:alnum:]_-])commit([[:space:]][^;&|]*)?[[:space:]]-[abeiopqsuvz]*n[a-zA-Z]*([[:space:]]|$)' "$cmd_file"; then
+      rm -f "$cmd_file"
+      echo "Refusing a command that skips or replaces the git hooks (--no-verify, git commit -n," >&2
+      echo "or a core.hooksPath override). If a hook is wrong, say which one and let the user decide." >&2
+      exit 2
+    fi
+    broad_text="${payload_file}.text"
+    # Paths after cd and -C are where the command runs, not text it publishes.
+    sed -E 's/(^|[;&|[:space:]])cd[[:space:]]+[^;&|[:space:]]+/\1/g; s/(^|[[:space:]])-C[[:space:]]+[^[:space:]]+/\1/g' "$cmd_file" > "$broad_text"
+    while IFS= read -r f; do
+      f="${f#@}"; f="${f#\'}"; f="${f%\'}"; f="${f#\"}"; f="${f%\"}"
+      [[ -n "$f" && "$f" != "-" && -f "$f" && -r "$f" ]] && { printf '\n'; head -c 2000000 "$f"; } >> "$broad_text"   # a body is never that large; a log might be
+    done < <(grep -oE -- '(--body-file|--notes-file|--input|--file|-F)[= ]+[^;&|[:space:]]+|@[^;&|[:space:]]+|<[[:space:]]*[^<;&|[:space:]]+' "$cmd_file" \
+               | sed -E 's/^(--body-file|--notes-file|--input|--file|-F)[= ]+//; s/^<[[:space:]]*//; s/^[^=@]*=@?//')
+    # Scope from every place the command could act on.
+    broad_in_scope=true
+    # shellcheck source=/dev/null
+    if [[ -f "$SCOPE_LIB" ]] && source "$SCOPE_LIB" && owners="$(scope_owners)" && [[ -n "$owners" ]]; then
+      urls=()
+      while IFS= read -r u; do urls+=("$u"); done < <(scope_repo_urls 2>/dev/null)
+      while IFS= read -r u; do urls+=("$u"); done < <(grep -oE -- '(-R|--repo)[= ]+[^;&|[:space:]]+' "$cmd_file" | sed -E 's/^(-R|--repo)[= ]+//' | tr -d "'\"")
+      while IFS= read -r d; do
+        d="$(printf '%s' "$d" | tr -d "'\"")"
+        # shellcheck disable=SC2088  # a literal "~" typed in the command
+        case "$d" in "~"|"~/"*) d="${HOME:-}${d#\~}" ;; esac
+        [[ -n "$d" ]] || continue
+        if ! (cd "$d" 2>/dev/null); then urls=(); broad_unknown=1; break; fi
+        while IFS= read -r u; do urls+=("$u"); done < <(cd "$d" && scope_repo_urls 2>/dev/null)
+      done < <(grep -oE -- '(^|[;&|[:space:]])cd[[:space:]]+[^;&|[:space:]]+|(^|[[:space:]])-C[[:space:]]+[^[:space:]]+' "$cmd_file" \
+                 | sed -E 's/^[;&|[:space:]]*(cd|-C)[[:space:]]+//')
+      if [[ -z "${broad_unknown:-}" && ${#urls[@]} -gt 0 ]]; then
+        scope_in_scope "$owners" "${urls[@]}" || broad_in_scope=false
+      fi
+    fi
+    if [[ "$broad_in_scope" == true ]]; then
+      if [[ -f "$GATE" ]]; then
+        # Public or private is judged from the session directory; a command
+        # that runs elsewhere (cd, -C) is checked whatever that is.
+        priv_args=(--stdin --only-public)
+        # One -R/--repo target decides for itself, as in the parsed check.
+        r_targets="$(grep -oE -- '(^|[[:space:]])(-R|--repo)[= ]+[^;&|[:space:]]+' "$cmd_file" | sed -E 's/^[[:space:]]*(-R|--repo)[= ]+//' | tr -d "'\"" | sort -u)"
+        if [[ -n "$r_targets" && "$(printf '%s\n' "$r_targets" | wc -l | tr -d ' ')" == 1 ]]; then
+          priv_args=(--stdin --only-public --for-repo "$r_targets")
+        fi
+        grep -qE -- '(^|[;&|[:space:]])cd[[:space:]]|(^|[[:space:]])-C[[:space:]]' "$cmd_file" && priv_args=(--stdin)
+        rc=0
+        if private_name_candidate "$broad_text"; then
+          reason="$(bash "$GATE" "${priv_args[@]}" < "$broad_text" 2>&1)"
+          rc=$?
+        fi
+        if [[ "$rc" -eq 1 ]]; then
+          { echo "This command names a private repository, and the destination is public."
+            echo; printf '%s\n' "$reason"; echo
+            echo "Cite the repository by its code instead. Ask the user before overriding."; } >&2
+          rm -f "$cmd_file" "$broad_text"; exit 2
+        elif [[ "$rc" -ne 0 ]]; then
+          rm -f "$cmd_file" "$broad_text"; unchecked "The private-name check (exit $rc)"
+        fi
+      else
+        reason="check_private_names.sh is missing next to this hook"
+        rm -f "$cmd_file" "$broad_text"; unchecked "The private-name check"
+      fi
+      if [[ -f "$SENSITIVE" ]]; then
+        # The whole command names local paths, so this machine's identifiers
+        # are left out here; the parsed text below is checked with them.
+        reason="$(bash "$SENSITIVE" --stdin --no-machine --no-inline-allow < "$broad_text" 2>&1)"
+        rc=$?
+        if [[ "$rc" -eq 1 ]]; then
+          { echo "This command carries a credential, a personal identifier or PII."
+            echo; printf '%s\n' "$reason"; echo
+            echo "Remove it. If this is a false positive, ask the user before allowing it."; } >&2
+          rm -f "$cmd_file" "$broad_text"; exit 2
+        elif [[ "$rc" -ne 0 ]]; then
+          rm -f "$cmd_file" "$broad_text"; unchecked "The sensitive-data check (exit $rc)"
+        fi
+      else
+        reason="check_sensitive.sh is missing next to this hook"
+        rm -f "$cmd_file" "$broad_text"; unchecked "The sensitive-data check"
+      fi
+    fi
+    rm -f "$broad_text"
+fi
+rm -f "$cmd_file"
+
 [[ -z "$parsed" ]] && exit 0
 
 if [[ "$parsed" == "VERDICT"$'\t'"bad-payload"* ]]; then
@@ -378,8 +540,13 @@ else
   [[ "$verdict" == "check" ]] && gate_args+=(--strict-ambiguous)
   [[ -n "$repo" ]] && gate_args+=(--for-repo "$repo")
 
-  reason="$(printf '%s' "$text" | bash "$GATE" "${gate_args[@]}" 2>&1)"
-  rc=$?
+  printf '%s' "$text" > "${payload_file}.parsed"
+  rc=0
+  if private_name_candidate "${payload_file}.parsed"; then
+    reason="$(bash "$GATE" "${gate_args[@]}" < "${payload_file}.parsed" 2>&1)"
+    rc=$?
+  fi
+  rm -f "${payload_file}.parsed"
   case "$rc" in
     0) ;;
     1)
@@ -405,8 +572,6 @@ fi
 # directory, and anything that cannot be identified. An unparsed command is the
 # whole command line, which names local paths, so there this machine's
 # identifiers are left out (--no-machine); everything else is checked.
-SENSITIVE="${SCRIPT_DIR}/../check_sensitive.sh"
-SCOPE_LIB="${SCRIPT_DIR}/../owner_scope.sh"
 if [[ ! -f "$SENSITIVE" || ! -f "$SCOPE_LIB" ]]; then
   reason="check_sensitive.sh or owner_scope.sh is missing next to this hook"
   unchecked "The sensitive-data check"

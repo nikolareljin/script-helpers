@@ -513,7 +513,7 @@ if command -v python3 >/dev/null 2>&1; then
   expect "Claude hook: an unparsable publishing command with an email is blocked" 2 "$?"
   printf '{"tool_name":"Bash","tool_input":{"command":"python3 -c \\"print(\x27%s\\""}}' "$real_email" \
     | bash "$CLAUDE_HOOK" >/dev/null 2>&1
-  expect "Claude hook: an unparsable non-publishing command passes" 0 "$?"
+  expect "Claude hook: every command is scanned, an unparsable one with an email too" 2 "$?"
   printf 'not json: gh pr create --body x' | bash "$CLAUDE_HOOK" >/dev/null 2>&1
   expect "Claude hook: an invalid payload that publishes is blocked" 2 "$?"
   printf 'not json: ls -la' | bash "$CLAUDE_HOOK" >/dev/null 2>&1
@@ -551,7 +551,67 @@ if command -v python3 >/dev/null 2>&1; then
   hook_cmd "Claude hook: git commit -an is --no-verify"    "git commit -an -m 'msg'"
   python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.argv[1]}}))' "git commit -m -n -mrun" \
     | PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
-  expect "Claude hook: -n as the value of -m is not --no-verify" 0 "$?"
+  # The whole-command pass errs closed: a bare -n after commit is refused.
+  expect "Claude hook: a bare -n after git commit is refused even as a value" 2 "$?"
+  # Shapes the parser does not read: the broad pass checks the whole text.
+  hook_rc() {  # <want> <description> <command>
+    python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.argv[1]}}))' "$3" \
+      | PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
+    expect "$2" "$1" "$?"
+  }
+  for v in "git -C /tmp push" "env X=1 git push" "command git push" "\\git push" "GIT_DIR=.git git push" \
+           "cd /tmp && git push" "bash -c 'git push'" "echo \$(git push)" "echo \`git push\`" "true; git push" "true | git push"; do
+    hook_rc 2 "broad: $v --no-verify is refused" "$v --no-verify"
+    hook_rc 0 "broad: $v alone is left to the git hooks" "$v"
+  done
+  hook_rc 2 "broad: git -c core.hooksPath=/dev/null push is refused" "git -c core.hooksPath=/dev/null push"
+  hook_rc 2 "broad: GIT_CONFIG_COUNT hook override is refused" "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/x git push"
+  hook_rc 2 "broad: bash -c git commit -n is refused" "bash -c 'git commit -an -m x'"
+  hook_rc 0 "broad: git commit -mrun is not -n" "git commit -mrun"
+  for v in "bash -c \"gh pr create -R example-owner/x --body 'mail $real_email'\"" \
+           "echo \$(gh pr comment 1 -R example-owner/x --body 'mail $real_email')" \
+           "\\gh issue create -R example-owner/x --body 'mail $real_email'" \
+           "gh issue comment 1 -R example-owner/x --body='mail $real_email'" \
+           "gh release create v1 -R example-owner/x --notes 'mail $real_email'" \
+           "gh api repos/example-owner/x/issues -f body='mail $real_email'" \
+           "gh gist create -d 'mail $real_email'" \
+           "curl -d '{\"body\":\"mail $real_email\"}' https://api.github.com/repos/example-owner/x/issues" \
+           "x=1; gh pr create -R example-owner/x -b 'mail $real_email'"; do
+    hook_rc 2 "broad: PII in [$v] is refused" "$v"
+  done
+  hook_rc 2 "broad: a body file named in bash -c is read" "bash -c 'gh pr create -R example-owner/x --body-file $tmp/field-body.md'"
+  hook_rc 0 "broad: another org's -R is left alone" "bash -c \"gh pr create -R other-org/x --body 'mail $real_email'\""
+  hook_rc 2 "broad: a cd target that cannot be entered is checked" "cd /nonexistent/dir && bash -c \"gh pr create --body 'mail $real_email'\""
+  hook_rc 0 "broad: a clean publishing command passes" "bash -c \"gh pr create -R example-owner/x --body 'all fine'\""
+  # Obfuscated or indirect command words next to a publishing verb.
+  for v in "g''it push --no-verify" "\"git\" push --no-verify" "\$'git' push --no-verify" \
+           "G=git; \$G push" "\${X:-git} push" "eval git push" "echo push | xargs git" \
+           "source ./publish.sh push" ". ./publish.sh push"; do
+    hook_rc 2 "obfuscated: [$v] is refused" "$v"
+  done
+  # Overrides come from the hook's environment only, never from the command.
+  for v in "SECURITY_GATE_ALLOW_UNCHECKED=1 git push" "export SENSITIVE_ALLOW=x; git push" \
+           "PRIVATE_NAMES_ALLOW=x gh pr create --body y" "HOME=/tmp/h git push" \
+           "git config --global script-helpers.owners nobody" "git -c script-helpers.owners=x push" \
+           "echo x >> .git/sensitive-allow" "rm ~/.config/script-helpers/sensitive-terms.txt" \
+           "GITLEAKS_BIN=/bin/true git push"; do
+    hook_rc 2 "override in the command: [$v] is refused" "$v"
+  done
+  # Every command is scanned, not only publishing ones.
+  hook_rc 2 "any command: PII in plain echo is refused" "echo 'mail $real_email' > notes.txt"
+  hook_rc 2 "any command: PII in a file read with < is refused" "wc -l < $tmp/field-body.md"
+  hook_rc 0 "any command: an ordinary command passes" "ls -la /tmp && git status"
+  hook_rc 0 "any command: reading the gate's variables is not setting them" "grep -n SENSITIVE_ALLOW scripts/check_sensitive.sh"
+  # The cheap name test in front of check_private_names.sh is a superset.
+  { printf '# generated: 2026-10-11 source: test\n'; printf '# visibility\tnamespace\tname\tcode\tflags\n'
+    printf 'private\tns\tzzq-hidden-widget\tR-777\t\n'; } > "$tmp/names-hdr.tsv"
+  for v in "echo zzq-hidden-widget" "echo ZZQ-HIDDEN-WIDGET" "gh pr create -R example-owner/x --body 'see zzq-hidden-widget'"; do
+    python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.argv[1]}}))' "$v" \
+      | PRIVATE_NAMES_FILE="$tmp/names-hdr.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
+    rc=$?
+    # The full check decides; the prefilter must only let it run.
+    grep -q "names a private repository\|R-777\|zzq" "$tmp/out" && ok "prefilter passes [$v] to the full check" || error "prefilter hid [$v]: rc=$rc $(cat "$tmp/out")"
+  done
   hook_cmd "Claude hook: an agent's sensitive:allow is ignored" "gh pr create -R example-owner/x --body 'mail $real_email sensitive:allow'"
   # Scope follows where the command runs, not only the session's directory.
   other="$tmp/other-org-clone"; new_repo "$other"

@@ -194,7 +194,35 @@ It reads `-b`/`--body`, `--body-file`, `-t`, `-m`, `-F`, `gh api -f`/`-F`/
 values (`-b'text'`), and sees the command behind `VAR=value`, `env` and git's
 global options. `git tag -m` counts as publishing. `--no-verify` on a commit
 or push is refused, and so is its short form `git commit -n` (also in a
-cluster such as `-an`). A check that could not run (no private-name list,
+cluster such as `-an`).
+
+Every Bash call is also checked as a whole, whatever it looks like, because a
+parser of shell commands always misses some shape bash runs (`bash -c`,
+`$(...)`, backticks, quoting such as `g''it`, aliases):
+
+- the whole command text, also with quotes and backslashes removed, plus every
+  file it names that can be read (`--body-file X`, `-F X`, `@X`, `< X`), goes
+  through the private-name check and `check_sensitive.sh --no-machine
+  --no-inline-allow`. Paths after `cd` and `-C` are left out of the text.
+  Private names are judged against the session directory's repository, or
+  the single `-R` target; a command that runs elsewhere (`cd`, `-C`) is
+  checked whatever that is. Sensitive data follows the owner scope, from the
+  session directory, every `cd`/`-C` target and `-R`.
+- refused outright: `--no-verify`, `git commit -n`, a `core.hooksPath`
+  override (`-c`, `GIT_CONFIG_*`); a command that sets the gate's own
+  overrides or configuration (`SECURITY_GATE_ALLOW_UNCHECKED=`,
+  `SENSITIVE_ALLOW=`, `PRIVATE_NAMES_ALLOW=`, `HOME=`, `export ...`,
+  `script-helpers.owners`, writing the allow, terms or name lists); and
+  `eval`, `xargs`, `source` or a variable as the command next to a publishing
+  verb. Overrides count only from the hook's own environment, set by the
+  user.
+
+The private-name check takes seconds on a large list, so a cheap test runs
+first: if no listed name occurs in the text in any case, with `-`, `_`, `.`
+and spaces ignored, the full check is not needed. Measured on a 5000-name
+list: about 180 ms per ordinary command, about 300 ms for `gh pr create`.
+The hook is wired for the Bash tool only; text written with the Write or Edit
+tools reaches GitHub through a commit, which the git hooks check. A check that could not run (no private-name list,
 gitleaks missing, a checker error) refuses the call; only
 `SECURITY_GATE_ALLOW_UNCHECKED=1`, set by the user, lets it through. A body
 it cannot read (`--body-file -`, a missing file) and an unreadable payload for

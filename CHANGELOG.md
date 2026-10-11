@@ -37,7 +37,12 @@
   --raw-field`/`-F key=@file`, `gh release --notes`, judges scope from a
   `cd <dir> &&` or `git -C <dir>` target, and ignores `sensitive:allow` in text
   the agent wrote (`check_sensitive.sh --no-inline-allow`). It refuses
-  `git commit -n` as it refuses `--no-verify`.
+  `git commit -n` as it refuses `--no-verify`. Every Bash call is now also
+  checked as a whole (text, quotes removed, and files it names), so shapes
+  the parser does not read (`bash -c`, `$(...)`, `g''it`) are covered; a
+  command that sets the gate's overrides (`SECURITY_GATE_ALLOW_UNCHECKED=1 git
+  push`, `HOME=`, `script-helpers.owners`) or publishes through `eval`,
+  `xargs`, `source` or a variable is refused.
 
 ### Changed
 
