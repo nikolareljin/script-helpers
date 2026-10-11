@@ -114,6 +114,20 @@ on_exit() {
 # shellcheck disable=SC2154  # _rc is assigned inside the trap string
 trap '_rc=$?; if [[ ${BASHPID-$$} == "$$" ]]; then on_exit "$_rc"; fi' EXIT
 cat > "$payload_file"
+# The session directory is the payload's cwd field, one source of truth for the
+# destination parser and the scope lookups below. When it is missing, relative
+# or cannot be entered, the parser sees a mismatch and checks strictly.
+if [[ "$HAVE_PY" == true ]]; then
+  payload_cwd="$("$PY" -c 'import json,sys
+try:
+    c = json.load(open(sys.argv[1], encoding="utf-8")).get("cwd")
+    print(c if isinstance(c, str) else "")
+except Exception:
+    print("")' "$payload_file" 2>/dev/null)"
+  if [[ -n "$payload_cwd" && -d "$payload_cwd" ]]; then
+    cd "$payload_cwd" 2>/dev/null || true
+  fi
+fi
 
 # One python pass: is this a publishing command, which repository is it aimed
 # at, and what text would it publish. Returns three NUL-free lines plus a body.
@@ -226,6 +240,26 @@ import os, subprocess
 SQ, DQ, BT, BS, NL = chr(39), chr(34), chr(96), chr(92), chr(10)
 
 def write_dests(path):
+    # Relaxing is allowed only for a command modelled exactly. Anything else
+    # writes a single any line: checked whatever the destination (strict).
+    def strict():
+        with open(path, "w") as fh:
+            fh.write("any" + NL)
+    cwd = data.get("cwd")
+    # One source of truth for the session directory: the payload cwd field,
+    # which the shell has already entered. Missing or relative: strict.
+    if not isinstance(cwd, str) or not os.path.isabs(cwd) or not os.path.isdir(cwd):
+        return strict()
+    try:
+        if not os.path.samefile(cwd, os.getcwd()):
+            return strict()
+    except OSError:
+        return strict()
+    for bad in ("$", BT, "(", ")", "{", "}", "<<<"):
+        if bad in command:
+            return strict()
+    if re.search("GIT_DIR|GIT_WORK_TREE|GIT_CONFIG|GIT_NAMESPACE|--git-dir|--work-tree", command):
+        return strict()
     buf, q, esc = [], "", False
     for ch in command:
         if esc:
@@ -246,9 +280,11 @@ def write_dests(path):
         lx.commenters = ""
         toks = list(lx)
     except ValueError:
-        return
+        return strict()
     segs, cur = [], []
     for t in toks:
+        if t == "&" or (t and set(t) <= set("&") and t != "&&"):
+            return strict()
         if t in SEPARATORS or (t and set(t) <= set(";&|")):
             if cur:
                 segs.append(cur)
@@ -257,18 +293,17 @@ def write_dests(path):
             cur.append(t)
     if cur:
         segs.append(cur)
+    KNOWN = ("git", "gh", "echo", "printf", "ls", "cat", "grep", "cd", "mkdir", "cp", "mv")
+    if sum(1 for s in segs if s and s[0] == "cd") > 1:
+        return strict()
     specs = []
     def add(*s):
         if s not in specs:
             specs.append(s)
     def resolve(p, base):
-        if base is None or "$" in p or BT in p:
-            return None
         return os.path.normpath(os.path.join(base, os.path.expanduser(p)))
     tops = {}
     def top_of(p):
-        if p is None:
-            return None
         if p not in tops:
             q = p
             while not os.path.isdir(q) and os.path.dirname(q) != q:
@@ -281,55 +316,61 @@ def write_dests(path):
             except Exception:
                 tops[p] = None
         return tops[p]
-    def repo_flag(s):
-        for k, a in enumerate(s):
-            if a in ("-R", "--repo") and k + 1 < len(s):
-                return s[k + 1]
-            if a.startswith("--repo="):
-                return a[7:]
-            if a.startswith("-R") and len(a) > 2:
-                return a[2:].lstrip("=")
-        return ""
-    cwd = os.getcwd()
     for seg in segs:
         s = list(seg)
-        while s and (ASSIGN.match(s[0]) or s[0] in ("env", "command", "builtin", "exec", "nohup", "time")):
-            s.pop(0)
-        if s and s[0] in ("cd", "pushd"):
-            target = s[1] if len(s) > 1 and not s[1].startswith("-") else "~"
-            cwd = resolve(target, cwd)
-            s = s[2:]
         if not s:
             continue
-        d, pub, low0 = cwd, False, s[0].lower()
-        if low0 == "git":
+        w = s[0]
+        if w not in KNOWN or ASSIGN.match(w):
+            return strict()
+        if w == "cd":
+            if len(s) != 2 or s[1].startswith("-"):
+                return strict()
+            cwd = resolve(s[1], cwd)
+            if not os.path.isdir(cwd):
+                return strict()
+            continue
+        d, pub = cwd, False
+        if w == "git":
             i = 1
             while i < len(s) and s[i].startswith("-"):
                 if s[i] == "-C" and i + 1 < len(s):
                     d = resolve(s[i + 1], d); i += 2
-                elif s[i] in GIT_OPTS_WITH_VALUE:
-                    if s[i] in ("--git-dir", "--work-tree"):
-                        d = None
-                    i += 2
-                else:
+                elif s[i] == "--no-pager":
                     i += 1
-            sub = s[i].lower() if i < len(s) else ""
+                else:
+                    return strict()
+            sub = s[i] if i < len(s) else ""
+            rest = s[i + 1:]
+            if sub == "remote" and any(a in ("add", "set-url", "rename") for a in rest):
+                return strict()
             pub = sub in ("commit", "tag", "push", "send-email", "request-pull")
-            if sub == "push" and any("://" in a or a.startswith("git@") for a in s[i + 1:]):
-                add("any"); continue
-        elif low0 == "gh":
-            r = repo_flag(s)
+            if sub == "push":
+                pos = [a for a in rest if not a.startswith("-")]
+                if any(a.startswith("--repo") for a in rest) or (pos and pos[0] != "origin"):
+                    return strict()
+        elif w == "gh":
+            r = ""
+            for k, a in enumerate(s):
+                if a in ("-R", "--repo"):
+                    if k + 1 >= len(s):
+                        return strict()
+                    r = s[k + 1]
+                elif a.startswith("--repo=") or (a.startswith("-R") and len(a) > 2):
+                    return strict()
             if r:
                 add("repo", r); continue
             pub = True
-        elif low0 in ("curl", "wget") and any("github" in a.lower() for a in s):
-            add("any"); continue
         for k, a in enumerate(s[:-1]):
             if a in (">", ">>", ">|", "&>") and not s[k + 1].startswith("/dev/"):
                 t = top_of(resolve(s[k + 1], d))
+                if t is None:
+                    return strict()
                 if t:
                     add("dir", t)
         t = top_of(d)
+        if t is None:
+            return strict()
         if t:
             add("dir", t)
         elif pub:
@@ -619,6 +660,33 @@ fi
 # destination. 0: clean, or no public destination. 1: a hit. Else: could not
 # check. reason is set on 1 and above. The prefilter only skips text that
 # cannot match.
+# repo_all_private <dir>: 0 only when the repository has remotes and every
+# fetch and push URL is github.com/<owner>/<name> with <owner> configured and
+# <name> listed private. No owners, no list, no remotes, any other URL: 1.
+repo_all_private() {
+  ( local list owners urls u o name
+    [[ -f "$SCOPE_LIB" ]] || exit 1
+    # shellcheck source=/dev/null
+    source "$SCOPE_LIB" || exit 1
+    owners="$(scope_owners 2>/dev/null)" && [[ -n "$owners" ]] || exit 1
+    list="${PRIVATE_NAMES_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names.tsv}"
+    [[ -r "$list" ]] || exit 1
+    urls="$(git -C "$1" remote -v 2>/dev/null | awk '{print $2}' | sort -u)"
+    [[ -n "$urls" ]] || exit 1
+    while IFS= read -r u; do
+      o="$(scope_owner_of "$u")" || exit 1
+      case ",$owners," in *",$o,"*) ;; *) exit 1 ;; esac
+      name="${u%/}"; name="${name%.git}"; name="${name##*/}"
+      name="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
+      awk -F'\t' -v want="$name" '
+        /^# *visibility/ { for (i = 1; i <= NF; i++) { h = $i; sub(/^# */, "", h); col[h] = i } next }
+        /^#/ { next }
+        col["name"] && tolower($col["name"]) == want && $col["visibility"] == "private" { found = 1 }
+        END { exit found ? 0 : 1 }' "$list" || exit 1
+    done <<<"$urls"
+    exit 0 )
+}
+
 names_check() {
   local f="$1" kind val rc out
   shift
@@ -627,11 +695,12 @@ names_check() {
   while IFS="$(printf '\t')" read -r kind val; do
     case "$kind" in
       dir)
-        if [[ -d "$val" ]]; then
-          out="$(cd "$val" && bash "$GATE" --stdin --only-public "$@" < "$f" 2>&1)"; rc=$?
-        else
-          out="$(bash "$GATE" --stdin "$@" < "$f" 2>&1)"; rc=$?
-        fi ;;
+        # Skipped only for a repository whose every remote is a listed
+        # private repository of a configured owner. Anything else: checked.
+        if [[ -d "$val" ]] && repo_all_private "$val"; then
+          continue
+        fi
+        out="$(bash "$GATE" --stdin "$@" < "$f" 2>&1)"; rc=$? ;;
       repo) out="$(bash "$GATE" --stdin --only-public --for-repo "$val" "$@" < "$f" 2>&1)"; rc=$? ;;
       any)  out="$(bash "$GATE" --stdin "$@" < "$f" 2>&1)"; rc=$? ;;
       *) continue ;;

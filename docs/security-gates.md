@@ -210,12 +210,20 @@ parser of shell commands always misses some shape bash runs (`bash -c`,
   `cd`, `git -C`, or the session directory) or writes into (`>`, `>>`; a path
   that does not exist yet, such as a new worktree, counts as the repository of
   its nearest existing parent). A directory that is not a repository is not a
-  destination, so `echo <name>` there passes. Checked whatever the list says:
-  `gh` and `git commit`/`tag`/`push` outside any repository, a push to a URL,
-  and `curl`/`wget` naming github. A command the parser cannot split is
-  checked as before: any `cd` or `-C` means checked. Sensitive data follows
-  the owner scope, from the session directory, every `cd`/`-C` target and
-  `-R`.
+  destination, so `echo <name>` there passes. A repository counts as private
+  only when every fetch and push URL is `github.com/<owner>/<name>` with the
+  owner configured and the name listed private; one public or unknown remote
+  and it is checked. The session directory is the payload's `cwd` field.
+  This only ever relaxes the private-name check, and only for a command it
+  models exactly: `git`, `gh`, `echo`, `printf`, `ls`, `cat`, `grep`, `cd`
+  (once), `mkdir`, `cp`, `mv`, separated by `;`, `&&`, `||`, `|`. Anything else
+  is checked whatever the destination: no or a relative `cwd`, `$`, backticks,
+  `( )`, `{ }`, functions, `&`, `<<<`, `pushd`/`popd`, a second `cd`, `exec`,
+  `alias`, `env`, any other program, `GIT_DIR`/`GIT_WORK_TREE`/`--git-dir`/
+  `--work-tree`/`git -c`, `git remote add`/`set-url`, `git push` to anything
+  but `origin`, `gh --repo=`. Sensitive data and credentials are never
+  relaxed: they follow the owner scope, from the session directory, every
+  `cd`/`-C` target and `-R`.
 - refused outright: `--no-verify`, `git commit -n`, a `core.hooksPath`
   override (`-c`, `GIT_CONFIG_*`); a command that sets the gate's own
   overrides or configuration (`SECURITY_GATE_ALLOW_UNCHECKED=`,

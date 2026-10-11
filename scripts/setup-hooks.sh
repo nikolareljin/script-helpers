@@ -411,6 +411,8 @@ now_ms() { "$PY" -c 'import time; print(int(time.time() * 1000))'; }
 probe() {
   local want="$1" label="$2" payload="$3" hook="$4" dir t0 t1 rc=0
   dir="$(mktemp -d)"
+  # Claude Code sends the session directory as cwd; the hook relies on it.
+  payload="{\"cwd\":\"$(native_path "$dir")\",${payload#\{}"
   t0="$(now_ms)"
   printf '%s' "$payload" | (cd "$dir" && bash "$hook" >/dev/null 2>&1) || rc=$?
   t1="$(now_ms)"

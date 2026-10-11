@@ -36,6 +36,8 @@ export HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/config" XDG_CACHE_HOME="$tmp/cache
 unset SCRIPT_HELPERS_OWNERS 2>/dev/null || true
 mkdir -p "$HOME" "$tmp/bin" "$tmp/plain"
 : > "$GIT_CONFIG_GLOBAL"
+# Out of any repository: git config would otherwise read this checkout.
+cd "$tmp" || exit 1
 printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/bin/gitleaks"; chmod +x "$tmp/bin/gitleaks"
 : > "$tmp/no-machine-ids"; : > "$tmp/no-terms"
 
@@ -51,10 +53,25 @@ for r in "$priv" "$pub"; do
   git -C "$r" remote add origin "git@github.com:example/$(basename "$r").git"
 done
 
+git config --global script-helpers.owners example
+# A private repository with a second, public remote, and one of another owner.
+priv2="$tmp/zzqsecretbox-two"; other="$tmp/zzqsecretbox-other"
+git init -q "$priv2" && git -C "$priv2" commit -q --allow-empty -m init
+git -C "$priv2" remote add origin git@github.com:example/zzqsecretbox.git
+git -C "$priv2" remote add mirror git@github.com:example/zzqopenbox.git
+git init -q "$other" && git -C "$other" commit -q --allow-empty -m init
+git -C "$other" remote add origin git@github.com:someone-else/zzqsecretbox.git
+
 # hook <want> <description> <cwd> <command> [names list]
+# The payload carries cwd as Claude Code sends it; PAYLOAD_CWD overrides it
+# ("-" leaves it out).
 hook() {
   local want="$1" desc="$2" cwd="$3" cmd="$4" names="${5:-$list}" got
-  "$PY" -c 'import json,sys; print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.argv[1]}}))' "$cmd" > "$tmp/payload"
+  "$PY" -c 'import json,sys
+d = {"tool_name": "Bash", "tool_input": {"command": sys.argv[1]}}
+if sys.argv[2] != "-":
+    d["cwd"] = sys.argv[2]
+print(json.dumps(d))' "$cmd" "${PAYLOAD_CWD:-$cwd}" > "$tmp/payload"
   ( cd "$cwd" && PATH="$tmp/bin:$PATH" PRIVATE_NAMES_FILE="$names" SENSITIVE_MACHINE_IDS_FILE="$tmp/no-machine-ids" \
       SENSITIVE_TERMS_FILE="$tmp/no-terms" bash "$HOOK" < "$tmp/payload" > "$tmp/out" 2>&1 )
   got=$?
@@ -81,6 +98,45 @@ hook 2 "git -C <public> commit naming it, from the private one" "$priv" "git -C 
 hook 2 "a push to a URL is checked" "$priv" "git push https://example.invalid/x.git zzqsecretbox"
 hook 0 "a pull request into the private repository itself" "$tmp/plain" \
   "gh pr create -R example/zzqsecretbox --body 'zzqsecretbox internals'"
+
+# Anything the destination parser does not model exactly is checked strictly:
+# each of these would be allowed if it were read as the plain commit above.
+n=zzqsecretbox
+for v in "cd $priv && cd $priv && git commit -m $n" \
+         "pushd $priv && git commit -m $n" \
+         "popd && git -C $priv commit -m $n" \
+         "(cd $priv && git commit -m $n)" \
+         "{ cd $priv; git commit -m $n; }" \
+         "f() { git -C $priv commit -m $n; }; f" \
+         "git -C \$P commit -m $n" \
+         "git -C \${P:-$priv} commit -m $n" \
+         "git -C \$(echo $priv) commit -m $n" \
+         "git -C \`echo $priv\` commit -m $n" \
+         "GIT_DIR=$pub/.git git -C $priv commit -m $n" \
+         "GIT_WORK_TREE=$pub git -C $priv commit -m $n" \
+         "git --git-dir=$pub/.git -C $priv commit -m $n" \
+         "git --work-tree=$pub -C $priv commit -m $n" \
+         "git -C $priv -c core.editor=true commit -m $n" \
+         "git -C $priv remote add pub git@github.com:example/zzqopenbox.git && git -C $priv push pub $n" \
+         "git -C $priv remote set-url origin git@github.com:example/zzqopenbox.git && git -C $priv push origin $n" \
+         "git -C $priv push upstream $n" \
+         "gh pr create -R \$R --body $n" \
+         "git -C $priv commit -m $n &" \
+         "git -C $priv commit -F - <<< $n" \
+         "exec git -C $priv commit -m $n" \
+         "alias g=git; g -C $priv commit -m $n" \
+         "env -C $priv git commit -m $n" \
+         "make -C $priv publish NOTE=$n" \
+         "git -C $priv2 commit -m $n" \
+         "git -C $other commit -m $n"; do
+  hook 2 "strict: [${v//$tmp/<tmp>}]" "$tmp/plain" "$v"
+done
+PAYLOAD_CWD=- hook 2 "strict: no cwd in the payload" "$priv" "git -C $priv commit -m $n"
+PAYLOAD_CWD=relative/dir hook 2 "strict: a relative cwd" "$priv" "git -C $priv commit -m $n"
+PAYLOAD_CWD="$pub" hook 2 "strict: the payload cwd decides, not the process cwd" "$priv" "git commit -m $n"
+# Sensitive data is never relaxed by the destination.
+hook 2 "sensitive: PII in a commit inside the private repository is refused" "$tmp/plain" \
+  "cd $priv && git commit -m 'mail jane.roe""@""mailbox.org'"
 
 # Latency: a hit against 5,000 names. A timeout lets the command run, so the
 # hook has to be well inside its 60 s; the old per-name grep took 14 s.

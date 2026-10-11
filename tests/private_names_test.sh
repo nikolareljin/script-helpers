@@ -403,7 +403,7 @@ if command -v python3 >/dev/null 2>&1; then
   : > "$tmp/no-machine-ids"
   agent() {   # agent <expected> <description> <command string>
     local want="$1" desc="$2" cmd="$3" got
-    printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
+    printf '{"tool_name":"Bash","cwd":"%s","tool_input":{"command":%s}}' "$hook_repo" \
       "$(printf '%s' "$cmd" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')" \
       | ( cd "$hook_repo" && PRIVATE_NAMES_FILE="$hook_list" GITLEAKS_BIN="$tmp/gitleaks-clean" \
           SENSITIVE_MACHINE_IDS_FILE="$tmp/no-machine-ids" SENSITIVE_TERMS_FILE="$tmp/no-terms" \
