@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SCRIPT: check_sensitive.sh
 # DESCRIPTION: Fail when text about to be published carries a credential, a personal identifier or PII.
-# USAGE: scripts/check_sensitive.sh [--push-refs <file>|--range <revs>|--staged|--file <path>|--stdin] [--repo <path>] [--no-gitleaks] [--no-machine] [--terms <path>] [--refresh-public-ip] [--list-identifiers] [-h]
+# USAGE: scripts/check_sensitive.sh [--push-refs <file>|--range <revs>|--staged|--file <path>|--stdin] [--repo <path>] [--no-gitleaks] [--no-machine] [--no-inline-allow] [--terms <path>] [--refresh-public-ip] [--list-identifiers] [-h]
 # PARAMETERS:
 #   --push-refs <file>  The ref lines git gives a pre-push hook on stdin, saved to a file.
 #                       Checks every commit in the push that the target lacks (--remote).
@@ -20,6 +20,8 @@
 #   --refresh-public-ip Fetch this machine's public IPv4/IPv6 once and cache it, then exit.
 #                       The only network call this script makes; never run implicitly.
 #   --list-identifiers  Print the kinds of identifier checked and how many, never the values.
+#   --no-inline-allow   Ignore `sensitive:allow` in the text. For text whose author is
+#                       the one being checked (the agent hook): it could add the marker.
 #   -h, --help          Show this help message.
 # EXIT_CODES:
 #   0  nothing found
@@ -71,6 +73,7 @@ REFRESH_IP=false
 TERMS_FROM_ARG=false
 PUSH_REMOTE=""
 LIST_IDS=false
+INLINE_ALLOW=true
 
 usage() { sed -n '2,/^# ------/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
@@ -96,6 +99,7 @@ while [[ $# -gt 0 ]]; do
     --terms) TERMS_FROM_ARG=true; TERMS_FILE="${2:?--terms needs a path}"; shift 2 ;;
     --refresh-public-ip) REFRESH_IP=true; shift ;;
     --list-identifiers) LIST_IDS=true; shift ;;
+    --no-inline-allow) INLINE_ALLOW=false; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "$TAG unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -293,21 +297,35 @@ TEXT_FILES=()               # whole files (messages, --file, --stdin), for gitle
 # diff_to_units <label prefix>: unified diff on stdin -> added lines as units.
 # A "+++ " line is a file header only between "diff --git" and the first hunk,
 # so an added line whose text starts with "++ " is still read as content.
+#
+# A merge commit comes as a combined diff (--cc): "@@@" hunks, one marker
+# column per parent. Only a line added against every parent ("++") is new in
+# the merge itself, such as a conflict resolution; the others came from a
+# parent, which is checked as its own commit.
+# A binary file has no lines to read: it is named on stderr, not skipped silently.
 diff_to_units() {
-  awk -v pfx="$1" -v sep="$(printf '\001')" '
+  awk -v pfx="$1" -v sep="$(printf '\001')" -v tag="$TAG" '
     index($0, sep) == 1 { commit = substr($0, 2); next }
-    /^diff --git / { hdr = 1; next }
+    /^diff --(git|cc|combined) / { hdr = 1; cc = ($2 != "--git"); np = 1; next }
+    hdr && /^Binary files / { print tag " notice: binary file not checked: " (commit != "" ? commit " " : pfx) $0 > "/dev/stderr"; next }
     hdr && /^\+\+\+ / { f = substr($0, 5); sub(/^b\//, "", f); next }
-    /^@@ / { hdr = 0; n = $3; sub(/^\+/, "", n); split(n, b, ","); ln = b[1] + 0; next }
+    /^@@@* / {
+      hdr = 0; np = 1
+      if (cc) { np = 0; while (substr($1, np + 1, 1) == "@") np++; np-- }
+      n = $(np + 2); sub(/^\+/, "", n); split(n, b, ","); ln = b[1] + 0; next }
     hdr { next }
-    /^\+/ { lab = (commit != "" ? commit " " : pfx) f ":" ln; print lab "\t" substr($0, 2); ln++ }'
+    {
+      m = substr($0, 1, np)
+      if (m ~ /^\++$/) { lab = (commit != "" ? commit " " : pfx) f ":" ln; print lab "\t" substr($0, np + 1); ln++ }
+      else if (m !~ /-/) ln++
+    }'
 }
 
 add_revs() {
   local revs="$1" log msgs
   log="$tmp/log.$RANDOM"; msgs="$tmp/msgs.$RANDOM"
   # shellcheck disable=SC2086  # revs is a list of git log arguments
-  if ! git -C "$TOP" log -p -U0 --no-color --no-ext-diff --no-renames --format='%x01%h' $revs > "$log" 2>"$log.err"; then
+  if ! git -C "$TOP" log -p --cc -M -U0 --no-color --no-ext-diff --format='%x01%h' $revs > "$log" 2>"$log.err"; then
     echo "$TAG git could not read $revs: $(head -1 "$log.err")" >&2
     unchecked=1
     return 0
@@ -331,6 +349,20 @@ case "$MODE" in
     while read -r lref lsha rref rsha; do
       [[ -n "${lsha:-}" ]] || continue
       [[ "$lsha" =~ ^0+$ ]] && continue                  # a deletion adds nothing
+      # An annotated tag publishes its message too (a tag of a tag: each one).
+      # The signature block is not text anybody wrote.
+      t="$lsha"
+      while [[ "$(git -C "$TOP" cat-file -t "$t" 2>/dev/null)" == tag ]]; do
+        tagobj="$tmp/tag.$RANDOM"
+        git -C "$TOP" cat-file tag "$t" > "$tagobj" 2>/dev/null || { fail "could not read tag $t"; break; }
+        if [[ "$rsha" != "$t" ]]; then
+          awk '/^-----BEGIN (PGP|SSH) SIGNATURE-----/ { exit } p { print } /^$/ { p = 1 }' "$tagobj" > "$tagobj.msg"
+          awk -v t="${t:0:7}" '{ print "tag " t ":" FNR "\t" $0 }' "$tagobj.msg" >> "$units"
+          [[ -s "$tagobj.msg" ]] && TEXT_FILES+=("$tagobj.msg")
+        fi
+        t="$(awk '$1 == "object" { print $2; exit }' "$tagobj")"
+        [[ -n "$t" ]] || break
+      done
       if [[ "${rsha:-0}" =~ ^0+$ ]] || ! git -C "$TOP" cat-file -e "${rsha}^{commit}" 2>/dev/null; then
         # New branch, or a remote tip this clone has never seen: everything the
         # target remote's refs do not have. Only that remote counts: a commit
@@ -353,7 +385,7 @@ case "$MODE" in
     ;;
   range) add_revs "$RANGE" ;;
   staged)
-    if ! git -C "$TOP" diff --cached -U0 --no-color --no-ext-diff --no-renames > "$tmp/staged" 2>/dev/null; then
+    if ! git -C "$TOP" diff --cached -M -U0 --no-color --no-ext-diff > "$tmp/staged" 2>/dev/null; then
       echo "$TAG git could not read the index" >&2; exit 2
     fi
     diff_to_units "staged " < "$tmp/staged" >> "$units" || fail "could not read the staged diff"
@@ -379,7 +411,9 @@ esac
 # ---------------------------------------------------------------- allows
 # Inline marker: the line is dropped, and said so.
 allowed_inline="$(grep -ac 'sensitive:allow' "$units" 2>/dev/null || true)"
-if [[ "${allowed_inline:-0}" -gt 0 ]]; then
+if [[ "${allowed_inline:-0}" -gt 0 && "$INLINE_ALLOW" != true ]]; then
+  echo "$TAG --no-inline-allow: sensitive:allow on ${allowed_inline} line(s) is ignored here." >&2
+elif [[ "${allowed_inline:-0}" -gt 0 ]]; then
   grep -a 'sensitive:allow' "$units" | cut -f1 | while IFS= read -r lab; do
     echo "$TAG allowed by inline sensitive:allow: $lab" >&2
   done

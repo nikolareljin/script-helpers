@@ -397,11 +397,17 @@ printf 'feat: wire bluewidget into the thing\n' > "$msg"
 
 if command -v python3 >/dev/null 2>&1; then
   agent_hook="$ROOT_DIR/scripts/claude-hooks/pretooluse_private_names.sh"
+  # The hook also runs check_sensitive.sh, which refuses without gitleaks (CI
+  # has none) and reads this machine. Neither is under test here.
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/gitleaks-clean"; chmod +x "$tmp/gitleaks-clean"
+  : > "$tmp/no-machine-ids"
   agent() {   # agent <expected> <description> <command string>
     local want="$1" desc="$2" cmd="$3" got
     printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
       "$(printf '%s' "$cmd" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')" \
-      | ( cd "$hook_repo" && PRIVATE_NAMES_FILE="$hook_list" bash "$agent_hook" >/dev/null 2>&1 )
+      | ( cd "$hook_repo" && PRIVATE_NAMES_FILE="$hook_list" GITLEAKS_BIN="$tmp/gitleaks-clean" \
+          SENSITIVE_MACHINE_IDS_FILE="$tmp/no-machine-ids" SENSITIVE_TERMS_FILE="$tmp/no-terms" \
+          bash "$agent_hook" >/dev/null 2>&1 )
     got=$?
     [[ "$got" == "$want" ]] && ok "$desc" || error "$desc: exit $got, expected $want"
   }

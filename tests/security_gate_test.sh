@@ -22,7 +22,9 @@ note()  { echo "[security_gate_test] $*"; }
 error() { echo "[security_gate_test][ERROR] $*" >&2; failures=$((failures+1)); }
 ok()    { note "PASS: $*"; }
 expect() {  # <description> <want rc> <got rc>
-  if [[ "$2" == "$3" ]]; then ok "$1"; else error "$1: want exit $2, got $3"; fi
+  if [[ "$2" == "$3" ]]; then ok "$1"; return 0; fi
+  error "$1: want exit $2, got $3"
+  [[ -f "$tmp/out" ]] && sed 's/^/    | /' "$tmp/out" | tail -20 >&2
 }
 
 # Hermetic: no real config, terms, cache or identity of this machine.
@@ -180,11 +182,56 @@ rc=$?; [[ "$rc" -ne 2 ]] && ok "a real push-refs input is checked (exit $rc)" ||
 printf 'mail %s\n' "$real_email" | bash "$CHECK" --stdin --no-gitleaks --no-machine 2>"$tmp/out" >/dev/null
 grep -q "notice: no " "$tmp/out" && ok "a missing terms file is said" || error "no notice for a missing terms file"
 
+# A rename re-adds nothing: the file is already where it was going.
+commit_file "$repo" moved.md "Write to $real_email"
+gc -C "$repo" mv moved.md moved2.md; gc -C "$repo" commit -q -m "rename"
+expect "a rename-only commit passes" 0 "$(run --repo "$repo" --range HEAD~1..HEAD --no-gitleaks)"
+gc -C "$repo" rm -q moved2.md; gc -C "$repo" commit -q -m "drop it"
+
+# A merge commit's own lines (a conflict resolution) are checked.
+mbase="$(gc -C "$repo" rev-parse HEAD)"
+gc -C "$repo" checkout -q -b side
+commit_file "$repo" conflict.md "side"
+gc -C "$repo" checkout -q -
+commit_file "$repo" conflict.md "main"
+gc -C "$repo" merge -q side >/dev/null 2>&1
+printf 'resolved by %s\n' "$real_email" > "$repo/conflict.md"
+gc -C "$repo" add conflict.md; gc -C "$repo" commit -q --no-edit
+expect "a line added by the merge commit itself blocks" 1 "$(run --repo "$repo" --range "$mbase..HEAD" --no-gitleaks)"
+grep -q "conflict.md:1: an email" "$tmp/out" || error "the merge line was not named: $(cat "$tmp/out")"
+gc -C "$repo" reset -q --hard "$mbase"; gc -C "$repo" branch -q -D side
+
+# A binary file cannot be read line by line; that is said, not silent.
+printf 'a\000b\n' > "$repo/blob.bin"; gc -C "$repo" add blob.bin; gc -C "$repo" commit -q -m blob
+run --repo "$repo" --range HEAD~1..HEAD --no-gitleaks >/dev/null
+grep -q "binary file not checked" "$tmp/out" && ok "a binary file is named as not checked" || error "binary file skipped silently: $(cat "$tmp/out")"
+
+# An annotated tag's message is published with the tag.
+gc -C "$repo" tag -a v9 -m "release by $real_email"
+printf 'refs/tags/v9 %s refs/tags/v9 %s\n' "$(gc -C "$repo" rev-parse v9)" 0000000000000000000000000000000000000000 > "$tmp/tag-ref"
+expect "an annotated tag message with an email blocks" 1 "$(run --repo "$repo" --push-refs "$tmp/tag-ref" --no-gitleaks)"
+grep -q "BLOCK tag " "$tmp/out" || error "the tag message was not named: $(cat "$tmp/out")"
+gc -C "$repo" tag -d v9 >/dev/null
+# The private-name step reads the same tag messages (sec_tag_messages).
+gc -C "$repo" tag -a v9 -m "outer note"
+gc -C "$repo" tag -a v9b -m "inner note" v9 >/dev/null 2>&1
+printf 'refs/tags/v9b %s refs/tags/v9b %s\n' "$(gc -C "$repo" rev-parse v9b)" 0000000000000000000000000000000000000000 > "$tmp/tag-ref"
+got="$(cd "$repo" && source "$ROOT_DIR/scripts/security_hooks.sh" && sec_tag_messages "$tmp/tag-ref")"
+[[ "$got" == *"outer note"* && "$got" == *"inner note"* ]] && ok "sec_tag_messages reads every level of a tag of a tag" || error "tag messages: '$got'"
+gc -C "$repo" tag -d v9 v9b >/dev/null
+
+# --no-inline-allow: a marker written by the author being checked is ignored.
+printf 'mail %s sensitive:allow\n' "$real_email" > "$tmp/marked.txt"
+expect "sensitive:allow lets a line through" 0 "$(run --file "$tmp/marked.txt" --no-gitleaks)"
+expect "--no-inline-allow ignores it" 1 "$(run --file "$tmp/marked.txt" --no-gitleaks --no-inline-allow)"
+
 # ------------------------------------------------ shared pre-push (repo mode)
 # A repository that vendors script-helpers at scripts/script-helpers.
 vend="$tmp/vend"; new_repo "$vend"
 mkdir -p "$vend/scripts/script-helpers"
 cp -R "$ROOT_DIR/scripts" "$ROOT_DIR/lib" "$ROOT_DIR/helpers.sh" "$vend/scripts/script-helpers/"
+# preflight.sh is not under test here and detects stacks from the host's tools.
+rm -f "$vend/scripts/script-helpers/scripts/preflight.sh"
 gc -C "$vend" add -A; gc -C "$vend" commit -q -m vendor
 base="$(gc -C "$vend" rev-parse HEAD)"
 HOOK="$vend/scripts/script-helpers/scripts/git-hooks/pre-push"
@@ -258,6 +305,16 @@ gc -C "$vend" commit -q --allow-empty -m "port from zzqsecretproj"
 expect "a private repo pushed to a public mirror is checked for private names" 1 "$?"
 git -C "$vend" remote remove origin
 gc -C "$vend" reset -q --hard "$base"
+
+# A hooks copy without security_hooks.sh still hands over to the repo's own
+# commit-msg hook: the missing library skips the checks, not the repository.
+lone="$tmp/lone"; new_repo "$lone"
+mkdir -p "$lone/hooks-only" "$lone/.githooks"
+cp "$ROOT_DIR/scripts/git-hooks/commit-msg" "$lone/hooks-only/"
+printf '#!/usr/bin/env bash\necho local-commit-msg-ran\nexit 5\n' > "$lone/.githooks/commit-msg"
+printf 'msg\n' > "$tmp/lone-msg"
+(cd "$lone" && bash hooks-only/commit-msg "$tmp/lone-msg" >"$tmp/out" 2>&1)
+expect "commit-msg without its library still runs .githooks/commit-msg" 5 "$?"
 
 # ---------------------------------------------------------- --global install
 SETUP="$ROOT_DIR/scripts/setup-hooks.sh"
@@ -470,6 +527,41 @@ if command -v python3 >/dev/null 2>&1; then
   printf 'echo crashing >&2; exit 3\n' > "$tmp/broken/owner_scope.sh"
   payload example-owner/x "a@example.com" | PRIVATE_NAMES_FILE="$tmp/names.tsv" bash "$tmp/broken/claude-hooks/pretooluse_private_names.sh" >"$tmp/out" 2>&1
   expect "Claude hook: a crash refuses with exit 2" 2 "$?"
+  # Wrapped and attached forms still publish. A stub gitleaks keeps these
+  # about the parsing, with or without a real one installed.
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/gl-clean"; chmod +x "$tmp/gl-clean"
+  hook_cmd() {  # <description> <command>
+    python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.argv[1]}}))' "$2" \
+      | PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
+    expect "$1" 2 "$?"
+  }
+  printf 'body %s\n' "$real_email" > "$tmp/field-body.md"
+  hook_cmd "Claude hook: VAR=value before gh is seen"     "GH_TOKEN=x gh pr create -R example-owner/x --body 'mail $real_email'"
+  hook_cmd "Claude hook: env before gh is seen"           "env -i GH_TOKEN=x gh pr create -R example-owner/x --body 'mail $real_email'"
+  hook_cmd "Claude hook: git -C <dir> commit is seen"     "git -C /tmp commit -m 'mail $real_email'"
+  hook_cmd "Claude hook: git -c k=v commit is seen"       "git -c core.pager=cat commit -m 'mail $real_email'"
+  hook_cmd "Claude hook: an attached -b value is read"    "gh pr create -R example-owner/x -t t -b'mail $real_email'"
+  hook_cmd "Claude hook: an attached -m value is read"    "git commit -m'mail $real_email'"
+  hook_cmd "Claude hook: gh api --raw-field is read"      "gh api repos/example-owner/x/issues --raw-field body='mail $real_email'"
+  hook_cmd "Claude hook: gh api -F key=value is read"     "gh api repos/example-owner/x/issues -F body='mail $real_email'"
+  hook_cmd "Claude hook: gh api -F key=@file is read"     "gh api repos/example-owner/x/issues -F body=@$tmp/field-body.md"
+  hook_cmd "Claude hook: git tag -m is published text"    "git tag -a v1 -m 'mail $real_email'"
+  hook_cmd "Claude hook: gh release --notes is read"      "gh release create v1 -R example-owner/x --notes 'mail $real_email'"
+  hook_cmd "Claude hook: an agent's sensitive:allow is ignored" "gh pr create -R example-owner/x --body 'mail $real_email sensitive:allow'"
+  # Scope follows where the command runs, not only the session's directory.
+  other="$tmp/other-org-clone"; new_repo "$other"
+  git -C "$other" remote add origin git@github.com:other-org/x.git
+  own="$tmp/owner-clone"; new_repo "$own"
+  git -C "$own" remote add origin git@github.com:example-owner/x.git
+  printf '{"tool_name":"Bash","tool_input":{"command":"cd %s && gh pr create --body \\"mail %s\\""}}' "$own" "$real_email" \
+    | (cd "$other" && PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1)
+  expect "Claude hook: cd into an owner repo from another org's is checked" 2 "$?"
+  printf '{"tool_name":"Bash","tool_input":{"command":"git -C %s commit -m \\"mail %s\\""}}' "$own" "$real_email" \
+    | (cd "$other" && PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1)
+  expect "Claude hook: git -C <owner repo> from another org's is checked" 2 "$?"
+  printf '{"tool_name":"Bash","tool_input":{"command":"gh pr create --body \\"mail %s\\""}}' "$real_email" \
+    | (cd "$other" && PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1)
+  expect "Claude hook: another org's repository is still left alone" 0 "$?"
   unset PRIVATE_NAMES_FILE
 else
   note "SKIP: python3 missing; Claude hook cases not run"

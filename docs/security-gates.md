@@ -29,6 +29,17 @@ Only added text is checked. A commit that deletes a value passes; a push that
 adds a value in one commit and removes it in the next is still refused, because
 the push publishes both commits. Rewrite the commit that added it.
 
+A pure rename adds nothing. A merge commit is read as a combined diff: only
+lines it adds against every parent (a conflict resolution) count; the rest
+came from a parent, which is checked as its own commit. A pushed annotated tag
+adds its message (without the signature). A binary file has no lines to read:
+it is named as `binary file not checked`, never skipped silently.
+
+Since this change, a missing private-name list, gitleaks or checker script
+refuses a push where it used to print "push allowed". Build the list and
+install gitleaks, or let one push through with
+`SECURITY_GATE_ALLOW_UNCHECKED=1 git push`.
+
 A push checks what the target remote does not
 have: a new branch is compared with that remote's refs only, so a commit
 already on another remote (a private one) is still checked; a push to a bare
@@ -91,6 +102,10 @@ Each allow is printed, so it shows in the output:
 | `SENSITIVE_ALLOW="a@example.org,@example.net"` | one run |
 | `gitleaks:allow` on the line | credentials, that line |
 
+`--no-inline-allow` ignores `sensitive:allow`. The Claude Code hook uses it:
+the agent writes the text it is checked on, so a marker in it is not an
+allowance from the user.
+
 ## foxguard
 
 foxguard is a static-analysis scanner,
@@ -144,8 +159,8 @@ copy does not depend on any checkout; run `--global` again to update it.
   on another host) is checked; remotes that cannot be listed mean checked.
   `SCRIPT_HELPERS_OWNERS` overrides the git config.
 - Every other repository (another org, a fork of someone else's, no remote
-  and a push elsewhere) gets a pure pass-through: its `.git/hooks/<hook>` runs
-  and nothing is added.
+  and a push elsewhere) gets a pure pass-through: the hook git would have run
+  without the install runs (see Chaining) and nothing is added.
 - No owners configured: `--global` refuses (exit 2), and an installed hook
   passes everything through with one notice per push.
 - Chaining: after the checks, the hook git would have run without the install
@@ -170,9 +185,14 @@ the saved value (or unsets it) and removes the copy.
 `scripts/claude-hooks/pretooluse_private_names.sh` also runs
 `check_sensitive.sh` on the text of a `gh pr create`, `gh issue comment`,
 `git commit -m` and the like, and refuses the tool call on a hit. With owners
-configured it does so for their repositories, judged from `-R` and every
-remote of the current directory; with nothing to judge from (no `-R`, not in a
-repository) it checks. A check that could not run (no private-name list,
+configured it does so for their repositories, judged from `-R`, every
+remote of the current directory, and every remote of the directory the command
+runs in (`cd <dir> && gh ...`, `git -C <dir> commit`); with nothing to judge
+from (no `-R`, not in a repository, a directory it cannot enter) it checks.
+It reads `-b`/`--body`, `--body-file`, `-t`, `-m`, `-F`, `gh api -f`/`-F`/
+`--raw-field` (and `key=@file`), `--notes`/`--notes-file`, attached short
+values (`-b'text'`), and sees the command behind `VAR=value`, `env` and git's
+global options. `git tag -m` counts as publishing. A check that could not run (no private-name list,
 gitleaks missing, a checker error) refuses the call; only
 `SECURITY_GATE_ALLOW_UNCHECKED=1`, set by the user, lets it through. A body
 it cannot read (`--body-file -`, a missing file) and an unreadable payload for

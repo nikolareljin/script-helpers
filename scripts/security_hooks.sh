@@ -129,6 +129,24 @@ sec_revs() {
   done < "$1"
 }
 
+# sec_tag_messages <refs-file>: the message of every annotated tag the push
+# sends (each level of a tag of a tag), without its signature. 1 = unreadable.
+sec_tag_messages() {
+  local lref lsha rref rsha t body
+  # shellcheck disable=SC2034
+  while read -r lref lsha rref rsha; do
+    [[ -n "${lsha:-}" ]] || continue
+    t="$lsha"
+    while [[ "$(git cat-file -t "$t" 2>/dev/null)" == tag ]]; do
+      body="$(git cat-file tag "$t" 2>/dev/null)" || return 1
+      [[ "$t" == "${rsha:-}" ]] || printf '%s\n' "$body" | awk '/^-----BEGIN (PGP|SSH) SIGNATURE-----/ { exit } p { print } /^$/ { p = 1 }'
+      t="$(printf '%s\n' "$body" | awk '$1 == "object" { print $2; exit }')"
+      [[ -n "$t" ]] || break
+    done
+  done < "$1"
+  return 0
+}
+
 # A private repository's name must never reach a public one, and a push is the
 # last moment it can be stopped: GitHub keeps the edit history of every pull
 # request and issue body publicly, and rewriting commits changes every tag.
@@ -176,6 +194,7 @@ sec_private_names() {
     # shellcheck disable=SC2086  # revs is a list of git log arguments
     git log --format='%B' $revs >> "$messages" 2>/dev/null || log_failed=1
   done < <(sec_revs "$refs" "$remote")
+  sec_tag_messages "$refs" >> "$messages" || log_failed=1
 
   if [[ "$log_failed" -eq 1 ]]; then
     # Distinct from both "clean" and "found something", because it is neither.

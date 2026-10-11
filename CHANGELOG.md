@@ -30,6 +30,23 @@
   remote under an owner), committed hooks run only in an owner's clone that
   opted in, and a check that could not run refuses unless
   `SECURITY_GATE_ALLOW_UNCHECKED=1`. See `docs/security-gates.md`.
+  Merge commits' own lines (a conflict resolution) and annotated tag messages
+  are checked; a pure rename adds nothing; a binary file is named as not
+  checked. The Claude Code hook also sees `VAR=x gh ...`, `env gh ...`,
+  `git -C <dir> commit`, `git tag -m`, attached `-b'text'`, `gh api
+  --raw-field`/`-F key=@file`, `gh release --notes`, judges scope from a
+  `cd <dir> &&` or `git -C <dir>` target, and ignores `sensitive:allow` in text
+  the agent wrote (`check_sensitive.sh --no-inline-allow`).
+
+### Changed
+
+- **`pre-push` now refuses when a check cannot run.** Before, a missing
+  private-name list, a missing checker script or unreadable commit messages
+  printed "push allowed". Now each of these, and a missing gitleaks, refuses
+  the push. One push goes through, with a warning, with
+  `SECURITY_GATE_ALLOW_UNCHECKED=1 git push`. Fix: build the list
+  (`refresh_private_names.sh`) and install gitleaks
+  (`bash scripts/ci_security.sh --install-gitleaks`).
 
 ### Fixed
 

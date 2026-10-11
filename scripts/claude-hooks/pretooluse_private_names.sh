@@ -131,6 +131,58 @@ for token in args:
 if current:
     segments.append(current)
 
+import re
+ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+GIT_OPTS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"}
+
+def normalize(seg):
+    # The command itself: leading VAR=value words, env [-i] [VAR=value],
+    # command, and the global options of git (-C <dir>, -c k=v, --no-pager)
+    # dropped, so GH_TOKEN=x gh pr create and git -C repo commit are seen.
+    # (No quote or backtick characters in this block: bash 3.2 parses a heredoc
+    # inside $(...) for them and fails on an unbalanced one.)
+    seg = list(seg)
+    while seg:
+        if ASSIGN.match(seg[0]):
+            seg.pop(0)
+        elif seg[0] in ("env", "command", "builtin", "exec", "nohup", "time"):
+            seg.pop(0)
+            while seg and seg[0].startswith("-") and seg[0] != "--":
+                opt = seg.pop(0)
+                if opt in ("-u", "--unset", "-C", "--chdir", "-S", "--split-string") and seg:
+                    seg.pop(0)
+            if seg and seg[0] == "--":
+                seg.pop(0)
+        else:
+            break
+    if seg and seg[0].lower() == "git":
+        out, i = [seg[0]], 1
+        while i < len(seg) and seg[i].startswith("-"):
+            if seg[i] in GIT_OPTS_WITH_VALUE:
+                i += 2
+            else:
+                i += 1
+        seg = out + seg[i:]
+    return seg
+
+# Where each command runs: the last cd <dir> before it, or -C <dir> of git.
+# The scope check reads the remotes there too, not only those of the session.
+workdir, dirs = "", []
+for seg in segments:
+    if len(seg) >= 2 and seg[0] == "cd":
+        workdir = seg[1]
+    d = workdir
+    if seg and seg[0].lower() == "git":
+        for k in range(1, len(seg) - 1):
+            if seg[k] == "-C":
+                d = seg[k + 1]
+            elif not seg[k].startswith("-"):
+                break
+    dirs.append(d)
+segments = [normalize(seg) for seg in segments]
+dirs = [d for seg, d in zip(segments, dirs) if seg]
+segments = [seg for seg in segments if seg]
+
 PUBLISHES = (("gh", "pr", "create"), ("gh", "pr", "edit"), ("gh", "pr", "comment"),
              ("gh", "issue", "create"), ("gh", "issue", "edit"), ("gh", "issue", "comment"),
              ("gh", "release", "create"), ("gh", "api"))
@@ -140,7 +192,8 @@ def is_publishing(seg):
     for seq in PUBLISHES:
         if len(low) >= len(seq) and tuple(low[:len(seq)]) == seq:
             return True
-    return len(low) >= 2 and low[0] == "git" and low[1] == "commit"
+    # git tag -a/-m: the annotation is published with the tag.
+    return len(low) >= 2 and low[0] == "git" and low[1] in ("commit", "tag")
 
 def skips_hooks(seg):
     low = [a.lower() for a in seg]
@@ -154,17 +207,42 @@ if any(skips_hooks(seg) for seg in segments):
     sys.exit(0)
 
 publishing_segments = [seg for seg in segments if is_publishing(seg)]
+pub_dirs = sorted({d for seg, d in zip(segments, dirs) if is_publishing(seg)})
 if not publishing_segments:
     sys.exit(0)
 # Only the publishing commands' own arguments: a `--repo` belonging to some
 # other command on the line is not this one's destination.
 args = [a for seg in publishing_segments for a in seg]
 
-TEXT_FLAGS = {"-b", "--body", "-t", "--title", "-m", "--message", "-c", "--comment", "-f", "--field"}
-FILE_FLAGS = {"-F", "--body-file", "--file"}
+TEXT_FLAGS = {"-b", "--body", "-t", "--title", "-m", "--message", "-c", "--comment",
+              "-f", "--field", "--raw-field", "-n", "--notes"}
+FILE_FLAGS = {"-F", "--body-file", "--file", "--input", "--notes-file"}
+SHORT_TEXT = {f for f in TEXT_FLAGS if len(f) == 2}
+SHORT_FILE = {f for f in FILE_FLAGS if len(f) == 2}
 REPO_FLAGS = {"-R", "--repo"}
 
 pieces, repo, unreadable = [], "", []
+
+def read_value(path):
+    # The text of a file. "-" is stdin (a heredoc), which this hook cannot see.
+    try:
+        if path == "-":
+            raise OSError("stdin")
+        pieces.append(pathlib.Path(path).read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        unreadable.append(path)
+
+def file_value(value):
+    # gh api -F/--field key=value is a field, and key=@path reads a file.
+    if "=" in value and not pathlib.Path(value).exists():
+        field = value.split("=", 1)[1]
+        if field.startswith("@"):
+            read_value(field[1:])
+        else:
+            pieces.append(field)
+        return
+    read_value(value)
+
 i = 0
 while i < len(args):
     a = args[i]
@@ -173,45 +251,37 @@ while i < len(args):
         repo = nxt
         i += 2
         continue
-    if a in TEXT_FLAGS and nxt:
+    if a in TEXT_FLAGS and nxt is not None:
         pieces.append(nxt)
         i += 2
         continue
-    if a in FILE_FLAGS and nxt:
-        try:
-            # "-" is stdin (a heredoc): this hook cannot see it.
-            if nxt == "-":
-                raise OSError("stdin")
-            pieces.append(pathlib.Path(nxt).read_text(encoding="utf-8", errors="replace"))
-        except OSError:
-            unreadable.append(nxt)
+    if a in FILE_FLAGS and nxt is not None:
+        file_value(nxt)
         i += 2
         continue
+    # Short flags also take their value attached: -bTEXT, -mTEXT.
+    if len(a) > 2 and a[:2] in SHORT_TEXT | SHORT_FILE and a[2] != "=":
+        a = a[:2] + "=" + a[2:]
     for flag in TEXT_FLAGS | FILE_FLAGS:
         if a.startswith(flag + "="):
             value = a.split("=", 1)[1]
             if flag in FILE_FLAGS:
-                try:
-                    if value == "-":
-                        raise OSError("stdin")
-                    value = pathlib.Path(value).read_text(encoding="utf-8", errors="replace")
-                except OSError:
-                    unreadable.append(value)
-                    value = ""
-            pieces.append(value)
+                file_value(value)
+            else:
+                pieces.append(value)
             break
     i += 1
 
 if unreadable:
     print("VERDICT\tunreadable")
-    print("REPO\t%s" % repo)
+    print("REPO\t%s\t%s" % (repo, "\x1f".join(pub_dirs)))
     print("TEXT")
     sys.stdout.write("\n".join(unreadable))
     sys.exit(0)
 if not pieces:
     sys.exit(0)
 print("VERDICT\tcheck")
-print("REPO\t%s" % repo)
+print("REPO\t%s\t%s" % (repo, "\x1f".join(pub_dirs)))
 print("TEXT")
 sys.stdout.write("\n".join(pieces))
 PY
@@ -253,7 +323,10 @@ if [[ "$parsed" == "VERDICT"$'\t'"bad-payload"* ]]; then
 fi
 
 verdict="$(printf '%s' "$parsed" | sed -n '1s/^VERDICT\t//p')"
-repo="$(printf '%s' "$parsed" | sed -n '2s/^REPO\t//p')"
+repo_line="$(printf '%s' "$parsed" | sed -n '2s/^REPO\t//p')"
+repo="${repo_line%%$'\t'*}"
+workdirs=""
+[[ "$repo_line" == *$'\t'* ]] && workdirs="${repo_line#*$'\t'}"
 text="$(printf '%s' "$parsed" | sed -n '4,$p')"
 
 if [[ "$verdict" == "no-verify" ]]; then
@@ -323,6 +396,23 @@ if owners="$(scope_owners)" && [[ -n "$owners" ]]; then
   # The -R target plus every remote here. Nothing to go on (no -R, no
   # repository, or git failing with no -R): checked.
   remote_urls="$(scope_repo_urls)" || remote_urls=""
+  # A command run elsewhere (`cd <dir> && ...`, `git -C <dir>`): that
+  # repository's remotes too. A directory that cannot be read is checked.
+  if [[ -n "$workdirs" ]]; then
+    while IFS= read -r d; do
+      [[ -n "$d" ]] || continue
+      # shellcheck disable=SC2088  # a literal "~" typed in the command
+      case "$d" in "~"|"~/"*) d="${HOME:-}${d#\~}" ;; esac
+      if ! (cd "$d" 2>/dev/null); then
+        repo=""; remote_urls=""; break        # nothing to go on: checked
+      fi
+      # Not a repository there: like here, only -R decides.
+      more="$(cd "$d" && git rev-parse --git-dir >/dev/null 2>&1 && scope_repo_urls)" || more=""
+      [[ -n "$more" ]] && remote_urls="$remote_urls"$'\n'"$more"
+    done <<EOF_DIRS
+$(printf '%s' "$workdirs" | tr '\037' '\n')
+EOF_DIRS
+  fi
   if [[ -n "$repo$remote_urls" ]]; then
     urls=("$repo")
     while IFS= read -r u; do urls+=("$u"); done <<EOF_URLS
@@ -333,7 +423,8 @@ EOF_URLS
 fi
 [[ "$in_scope" == true ]] || exit 0
 
-sens_args=(--stdin)
+# The agent wrote the text, so a sensitive:allow marker in it is not the user's.
+sens_args=(--stdin --no-inline-allow)
 if [[ "$verdict" == "check-unparsed" ]]; then
   # Any command shlex cannot split lands here, most of them not publishing
   # anything. Only one that names a publishing command is scanned.

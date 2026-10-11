@@ -17,15 +17,16 @@ cd "$repo_root"
 
 _hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _security_lib="$_hook_dir/../security_hooks.sh"
-if [[ ! -f "$_security_lib" ]]; then
+if [[ -f "$_security_lib" ]]; then
+  # shellcheck source=/dev/null
+  source "$_security_lib"
+  set +e
+  sec_commit_msg "$msg_file" || exit 1
+  set -e
+else
+  # The repo-local hook below still runs; the push refuses until it is found.
   echo "[commit-msg] security_hooks.sh not found next to this hook; checks skipped." >&2
-  exit 0
 fi
-# shellcheck source=/dev/null
-source "$_security_lib"
-set +e
-sec_commit_msg "$msg_file" || exit 1
-set -e
 
 # A repo-local hook replaces the rest, after the checks above, as in pre-push.
 if [[ -f .githooks/commit-msg ]] && ! [[ .githooks/commit-msg -ef "$0" ]]; then
