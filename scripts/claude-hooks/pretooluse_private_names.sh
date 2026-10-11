@@ -195,10 +195,33 @@ def is_publishing(seg):
     # git tag -a/-m: the annotation is published with the tag.
     return len(low) >= 2 and low[0] == "git" and low[1] in ("commit", "tag")
 
+COMMIT_VALUE_SHORTS = set("mFcCt")   # git commit short options that take a value
+
 def skips_hooks(seg):
     low = [a.lower() for a in seg]
-    return (low[:1] == ["git"] and len(low) > 1 and low[1] in ("commit", "push")
-            and "--no-verify" in low)
+    if not (low[:1] == ["git"] and len(low) > 1 and low[1] in ("commit", "push")):
+        return False
+    if "--no-verify" in low:
+        return True
+    if low[1] != "commit":
+        return False
+    # git commit -n is --no-verify too, alone or in a cluster such as -an.
+    # The rest of a cluster after a value option (-mtext) is its value.
+    skip_next = False
+    for a in seg[2:]:
+        if skip_next:
+            skip_next = False
+            continue
+        if a == "--":
+            break
+        if a.startswith("-") and not a.startswith("--") and len(a) > 1:
+            for k, ch in enumerate(a[1:]):
+                if ch == "n":
+                    return True
+                if ch in COMMIT_VALUE_SHORTS:
+                    skip_next = (k == len(a) - 2)
+                    break
+    return False
 
 if any(skips_hooks(seg) for seg in segments):
     print("VERDICT\tno-verify")

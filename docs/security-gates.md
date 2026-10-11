@@ -192,7 +192,9 @@ from (no `-R`, not in a repository, a directory it cannot enter) it checks.
 It reads `-b`/`--body`, `--body-file`, `-t`, `-m`, `-F`, `gh api -f`/`-F`/
 `--raw-field` (and `key=@file`), `--notes`/`--notes-file`, attached short
 values (`-b'text'`), and sees the command behind `VAR=value`, `env` and git's
-global options. `git tag -m` counts as publishing. A check that could not run (no private-name list,
+global options. `git tag -m` counts as publishing. `--no-verify` on a commit
+or push is refused, and so is its short form `git commit -n` (also in a
+cluster such as `-an`). A check that could not run (no private-name list,
 gitleaks missing, a checker error) refuses the call; only
 `SECURITY_GATE_ALLOW_UNCHECKED=1`, set by the user, lets it through. A body
 it cannot read (`--body-file -`, a missing file) and an unreadable payload for

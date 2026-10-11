@@ -36,7 +36,8 @@
   `git -C <dir> commit`, `git tag -m`, attached `-b'text'`, `gh api
   --raw-field`/`-F key=@file`, `gh release --notes`, judges scope from a
   `cd <dir> &&` or `git -C <dir>` target, and ignores `sensitive:allow` in text
-  the agent wrote (`check_sensitive.sh --no-inline-allow`).
+  the agent wrote (`check_sensitive.sh --no-inline-allow`). It refuses
+  `git commit -n` as it refuses `--no-verify`.
 
 ### Changed
 

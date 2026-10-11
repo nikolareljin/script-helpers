@@ -547,6 +547,11 @@ if command -v python3 >/dev/null 2>&1; then
   hook_cmd "Claude hook: gh api -F key=@file is read"     "gh api repos/example-owner/x/issues -F body=@$tmp/field-body.md"
   hook_cmd "Claude hook: git tag -m is published text"    "git tag -a v1 -m 'mail $real_email'"
   hook_cmd "Claude hook: gh release --notes is read"      "gh release create v1 -R example-owner/x --notes 'mail $real_email'"
+  hook_cmd "Claude hook: git commit -n is --no-verify"     "git commit -n -m 'msg'"
+  hook_cmd "Claude hook: git commit -an is --no-verify"    "git commit -an -m 'msg'"
+  python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.argv[1]}}))' "git commit -m -n -mrun" \
+    | PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
+  expect "Claude hook: -n as the value of -m is not --no-verify" 0 "$?"
   hook_cmd "Claude hook: an agent's sensitive:allow is ignored" "gh pr create -R example-owner/x --body 'mail $real_email sensitive:allow'"
   # Scope follows where the command runs, not only the session's directory.
   other="$tmp/other-org-clone"; new_repo "$other"
