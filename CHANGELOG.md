@@ -1,3 +1,15 @@
+## Unreleased
+
+### Fixed
+
+- **A secret blocks the push.** The pre-push run (`preflight --quick`) and a
+  full `./dev preflight` ran gitleaks report only: `leaks found: 1` printed a
+  WARN, the summary said `PASS  security scan (report only)` and the push went
+  out. Gitleaks is now its own `secret scan` step in git mode with
+  `--fail-on-findings`, so a committed secret fails the run. Git mode also stops
+  the false positive the old `--no-git` scan hit in vendored submodules.
+  foxguard and the dependency audits stay report only.
+
 ## 2026-10-10 — v0.48.0
 
 ### Added

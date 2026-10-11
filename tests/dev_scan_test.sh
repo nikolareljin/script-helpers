@@ -150,17 +150,38 @@ RC=0
 [[ $RC -eq 2 ]] && note "--skip-security with --security-only: exit 2" \
   || error "conflicting flags: rc=$RC"
 
-# 7. The pre-push run stays report-only and says so.
+# 7. The pre-push run: a committed secret blocks it; foxguard stays report only.
 if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
   r="$(new_repo prepush)"
   printf '{"name":"x","version":"1.0.0","scripts":{"test":"node -e \\"process.exit(0)\\""}}\n' > "$r/package.json"
-  printf 'token = LEAKME\n' > "$r/creds.txt"; commit "$r"
-  : > "$GL_LOG"; RC=0
-  OUT="$(cd "$r" && CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/preflight.sh" --quick --stack node 2>&1)" || RC=$?
-  if [[ $RC -eq 0 && "$OUT" == *"PASS  security scan (report only)"* ]] && grep -q -- "--no-git" "$GL_LOG"; then
-    note "pre-push preflight: report only, labelled so, exit 0"
+  commit "$r"
+  prepush() {
+    : > "$GL_LOG"; RC=0
+    OUT="$(cd "$r" && CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/preflight.sh" --quick --stack node 2>&1)" || RC=$?
+  }
+  prepush
+  if [[ $RC -eq 0 && "$OUT" == *"PASS  secret scan"* ]] && grep -q "^top: gitleaks detect --source \.$" "$GL_LOG"; then
+    note "pre-push preflight: clean repository passes, gitleaks in git mode"
   else
-    error "pre-push: rc=$RC log='$(cat "$GL_LOG")' out='$(printf '%s' "$OUT" | tail -4)'"
+    error "pre-push clean: rc=$RC log='$(cat "$GL_LOG")' out='$(printf '%s' "$OUT" | tail -4)'"
+  fi
+  printf 'token = LEAKME\n' > "$r/creds.txt"; commit "$r"
+  prepush
+  if [[ $RC -ne 0 && "$OUT" == *"FAIL  secret scan"* ]]; then
+    note "pre-push preflight: a committed secret fails the run"
+  else
+    error "pre-push secret: rc=$RC out='$(printf '%s' "$OUT" | tail -4)'"
+  fi
+  # A secret in an untracked file (a vendored submodule's fixture, a local
+  # scratch file) is not the repository's and does not block.
+  git -C "$r" rm -q creds.txt; commit "$r"
+  r2="$(new_repo prepush-untracked)"; cp "$r/package.json" "$r2/"; commit "$r2"
+  printf 'token = LEAKME\n' > "$r2/scratch.txt"
+  r_save="$r"; r="$r2"; prepush; r="$r_save"
+  if [[ $RC -eq 0 && "$OUT" == *"PASS  secret scan"* ]]; then
+    note "pre-push preflight: a secret in an untracked file does not block"
+  else
+    error "pre-push untracked: rc=$RC out='$(printf '%s' "$OUT" | tail -4)'"
   fi
 else
   note "SKIP pre-push case: node or npm is not installed"

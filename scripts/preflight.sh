@@ -731,7 +731,15 @@ check_security() {
   fi
   # The repository-wide part: the secret scan and foxguard. Not run when both are
   # missing; the two SKIP lines above already say so.
-  [[ "$have_gitleaks" == "true" || "$have_foxguard" == "true" ]] && run_step "security scan$suffix" bash "$scanner" "${common[@]+"${common[@]}"}" "${args[@]}"
+  if [[ "$SECURITY_ONLY" == "true" ]]; then
+    [[ "$have_gitleaks" == "true" || "$have_foxguard" == "true" ]] && run_step "security scan" bash "$scanner" "${common[@]+"${common[@]}"}" "${args[@]}"
+  else
+    # A secret blocks the push in every mode: report only, a gitleaks finding
+    # printed a WARN and the push went out. Git mode, so a fixture in a vendored
+    # submodule or an ignored .env is not a finding. foxguard stays report only.
+    [[ "$have_gitleaks" == "true" ]] && run_step "secret scan" bash "$scanner" "${common[@]+"${common[@]}"}" "${args[@]}" --skip-foxguard --fail-on-findings
+    [[ "$have_foxguard" == "true" ]] && run_step "foxguard code scan$suffix" bash "$scanner" "${common[@]+"${common[@]}"}" "${args[@]}" --skip-gitleaks
+  fi
   # The dependency audits, one step per project, in the project's directory. At
   # the root only, a repository with backend/ and frontend/ got gitleaks alone
   # and "PASS  security scan". Not in --quick, the pre-push run: they go to the
