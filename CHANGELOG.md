@@ -1,7 +1,27 @@
 ## Unreleased
 
+### Added
+
+- **`ollama_project_prepare`: which Ollama, in one call.** Six projects carried
+  their own copy of the start logic for `OLLAMA_RUNTIME=host|container`. The
+  host's Ollama is the default; the container in `docker-ollama.yml` is used
+  only with `OLLAMA_RUNTIME=container`. It exports `COMPOSE_FILE` and the app's
+  address, creates the external volume, starts and waits for the container,
+  and runs the model check. A host-mode address naming the container is 9;
+  no host Ollama is 4 and names the host first, then `OLLAMA_RUNTIME=container`;
+  Docker failing for the container is 10. Also `ollama_runtime` and
+  `ollama_project_compose_files` (a stop includes the override).
+  Closes https://github.com/nikolareljin/script-helpers/issues/161.
+
 ### Fixed
 
+- **The reach check asks from a container.** `ollama_endpoint_container_reach`
+  asked the default bridge's gateway from the host. A forwarder on that bridge
+  passed it while a container on the project's compose network timed out.
+  With an image already on the machine (busybox, alpine, curlimages/curl or
+  `OLLAMA_REACH_IMAGE`; nothing is pulled) it now runs the probe in a
+  container on `[network]`. Without one it keeps the bridge probe and says the
+  project's network was not checked.
 - **A secret blocks the push.** The pre-push run (`preflight --quick`) and a
   full `./dev preflight` ran gitleaks report only: `leaks found: 1` printed a
   WARN, the summary said `PASS  security scan (report only)` and the push went
