@@ -101,6 +101,7 @@ Each allow is printed, so it shows in the output:
 | `.git/sensitive-allow`, one value or `@domain` per line | that clone (PII only; local, never committed, so cloned content cannot allow itself) |
 | `SENSITIVE_ALLOW="a@example.org,@example.net"` | one run |
 | `gitleaks:allow` on the line | credentials, that line |
+| `.git/gitleaksignore`, gitleaks fingerprints | credentials, that clone (a committed `.gitleaksignore` is ignored here, so a commit cannot list its own key; `preflight.sh`'s secret scan still reads it) |
 
 `--no-inline-allow` ignores `sensitive:allow`. The Claude Code hook uses it:
 the agent writes the text it is checked on, so a marker in it is not an
@@ -221,8 +222,11 @@ The private-name check takes seconds on a large list, so a cheap test runs
 first: if no listed name occurs in the text in any case, with `-`, `_`, `.`
 and spaces ignored, the full check is not needed. Measured on a 5000-name
 list: about 180 ms per ordinary command, about 300 ms for `gh pr create`.
-The hook is wired for the Bash tool only; text written with the Write or Edit
-tools reaches GitHub through a commit, which the git hooks check. A check that could not run (no private-name list,
+Nothing is allowed without that scan: another tool's payload (Write, Edit, if
+the hook is wired to them) is scanned as every string of its input; a payload
+that is not valid JSON or not UTF-8, or a machine without python3, has the raw
+payload scanned, and a publishing command there is refused as "could not
+check". The script's header lists every remaining way it allows a call. A check that could not run (no private-name list,
 gitleaks missing, a checker error) refuses the call; only
 `SECURITY_GATE_ALLOW_UNCHECKED=1`, set by the user, lets it through. A body
 it cannot read (`--body-file -`, a missing file) and an unreadable payload for

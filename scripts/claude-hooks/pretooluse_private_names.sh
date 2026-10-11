@@ -22,6 +22,19 @@
 # the one actor they were written for. A human at a terminal is unaffected:
 # this hook only ever sees an agent's calls.
 #
+# EVERY WAY THIS HOOK ALLOWS A CALL (exit 0), and why each is safe:
+#   - the whole-command pass found nothing: it reads every Bash call (any
+#     other tool: every string of its input), the raw payload when it is not
+#     valid JSON, not UTF-8, or python3 is missing, and the files it names;
+#   - after that pass, the parser found nothing it publishes, or a destination
+#     outside the owners' scope (sensitive data only, per ADR-0063; private
+#     names are still judged by the destination's visibility);
+#   - a check could not run and the USER set SECURITY_GATE_ALLOW_UNCHECKED=1
+#     in this hook's own environment (a command that sets it is refused);
+#   - an empty command: nothing runs.
+# There is no allow before the whole-command pass. The private-name prefilter
+# only decides whether the slow full check is needed, and errs towards it.
+#
 # INSTALL: in the settings.json Claude Code reads for the directory,
 #
 #   "hooks": { "PreToolUse": [ { "matcher": "Bash", "hooks": [ { "type": "command",
@@ -64,18 +77,12 @@ PUBLISH_RE='(^|[^[:alnum:]_-])(gh[[:space:]]+(pr|issue|release|api)|git[[:space:
 
 # Without python3 the text cannot be extracted. A command that looks like it
 # publishes is refused rather than waved through; anything else proceeds.
-if ! command -v python3 >/dev/null 2>&1; then
-  if grep -qE "$PUBLISH_RE" 2>/dev/null; then
-    if [[ "${SECURITY_GATE_ALLOW_UNCHECKED:-}" == 1 ]]; then
-      echo "WARNING: python3 missing, publishing command NOT checked; SECURITY_GATE_ALLOW_UNCHECKED=1, allowed." >&2
-      exit 0
-    fi
-    echo "python3 is missing, so this publishing command could not be checked; refused." >&2
-    echo "Install python3, or ask the user to allow it once with SECURITY_GATE_ALLOW_UNCHECKED=1." >&2
-    exit 2
-  fi
-  exit 0
-fi
+# Without python3 the command cannot be parsed. Nothing is allowed for that
+# reason alone: the raw payload is scanned as a whole below, and a payload that
+# looks like publishing is refused as "could not check".
+HAVE_PY=true
+command -v python3 >/dev/null 2>&1 || HAVE_PY=false
+
 
 # The payload goes to a file rather than a pipe: the parser below is itself fed
 # to python on stdin, so a pipe would be overridden and python would end up
@@ -103,6 +110,9 @@ cat > "$payload_file"
 
 # One python pass: is this a publishing command, which repository is it aimed
 # at, and what text would it publish. Returns three NUL-free lines plus a body.
+parsed=""
+parse_rc=0
+if [[ "$HAVE_PY" == true ]]; then
 parsed="$(python3 - "$payload_file" <<'PY'
 import json, shlex, sys, pathlib
 
@@ -338,6 +348,7 @@ sys.stdout.write("\n".join(pieces))
 PY
 )"
 parse_rc=$?
+fi
 
 # The decision follows the checkers exactly: 0 allow, 1 refuse with the
 # reason, anything else refuse as "could not check" unless the user set
@@ -392,8 +403,31 @@ VERB_RE='(^|[^[:alnum:]_-])(push|commit|tag|pr|issue|release|api|gist)([^[:alnum
 cmd_file="${payload_file}.cmd"
 : > "$cmd_file"
 {
-  python3 -c 'import json,sys; sys.stdout.write((json.load(open(sys.argv[1])).get("tool_input") or {}).get("command") or "")' \
-    "$payload_file" > "$cmd_file" 2>/dev/null || : > "$cmd_file"
+  if [[ "$HAVE_PY" != true ]] || ! python3 -c '
+import json, sys
+def walk(v):
+    if isinstance(v, str):
+        yield v
+    elif isinstance(v, dict):
+        for x in v.values():
+            yield from walk(x)
+    elif isinstance(v, list):
+        for x in v:
+            yield from walk(x)
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+ti = d.get("tool_input") or {}
+if d.get("tool_name") == "Bash" and isinstance(ti, dict):
+    sys.stdout.write(ti.get("command") or "")
+else:
+    sys.stdout.write("\n".join(walk(ti)))
+' "$payload_file" > "$cmd_file" 2>/dev/null; then
+    # Not readable as a payload: the raw bytes are the text to check.
+    cp "$payload_file" "$cmd_file" 2>/dev/null || { reason="could not copy the payload"; unchecked "Reading the command"; }
+    if [[ "$HAVE_PY" != true ]] && grep -qE "$PUBLISH_RE" "$payload_file"; then
+      reason="python3 is missing, so the publishing command cannot be parsed"
+      unchecked "Parsing the command"
+    fi
+  fi
   # The same text with quoting removed, as bash would see the words.
   tr -d "'\"\\\\" < "$cmd_file" > "$cmd_file.plain"
   if grep -qE -- "$OVERRIDE_RE" "$cmd_file"; then
@@ -498,9 +532,12 @@ if [[ -s "$cmd_file" ]]; then
 fi
 rm -f "$cmd_file"
 
+# Allowed: the whole text passed above, and the parser found nothing it
+# publishes (or python3 is missing and nothing looked like publishing).
 [[ -z "$parsed" ]] && exit 0
 
 if [[ "$parsed" == "VERDICT"$'\t'"bad-payload"* ]]; then
+  # Scanned whole above. Allowed only when it does not look like publishing.
   grep -qE "$PUBLISH_RE" "$payload_file" || exit 0
   reason="the hook payload is not valid JSON"
   unchecked "Reading the command"

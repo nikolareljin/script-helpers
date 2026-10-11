@@ -469,20 +469,36 @@ run_gitleaks() {
   # .gitleaks.toml (it would by default) and committed content cannot allow itself.
   printf 'title = "script-helpers default"\n[extend]\nuseDefault = true\n' > "$tmp/gitleaks.toml"
   cfg=(--config "$tmp/gitleaks.toml")
+  # Nor a committed .gitleaksignore: gitleaks reads one from the source
+  # directory (and, in newer releases, from the current one), so a commit
+  # could list its own fingerprint. gitleaks runs in an empty directory whose
+  # .git file points at this repository: every ref and the index, no work
+  # tree. A local, uncommitted <git dir>/gitleaksignore still applies.
+  local src="$tmp/glsrc"
+  if [[ ! -d "$src" ]]; then
+    mkdir -p "$src" || { unchecked=1; echo "$TAG could not prepare the gitleaks directory" >&2; return; }
+    if [[ "$IN_REPO" == true ]]; then
+      printf 'gitdir: %s\n' "$(git -C "$TOP" rev-parse --absolute-git-dir)" > "$src/.git"
+      local common
+      common="$(git -C "$TOP" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || git -C "$TOP" rev-parse --git-common-dir)"
+      [[ -f "$common/gitleaksignore" ]] && cp "$common/gitleaksignore" "$src/.gitleaksignore"
+    fi
+  fi
+  [[ "$kind" == file && "$target" != /* ]] && target="$PWD/$target"
   if [[ "$GL_NEW" == true ]]; then
     case "$kind" in
-      revs)   cmd=(git --log-opts="$target" "$TOP") ;;
-      staged) cmd=(git --staged "$TOP") ;;
+      revs)   cmd=(git --log-opts="$target" "$src") ;;
+      staged) cmd=(git --staged "$src") ;;
       file)   cmd=(dir "$target") ;;
     esac
   else
     case "$kind" in
-      revs)   cmd=(detect --source "$TOP" --log-opts="$target") ;;
-      staged) cmd=(protect --staged --source "$TOP") ;;
+      revs)   cmd=(detect --source "$src" --log-opts="$target") ;;
+      staged) cmd=(protect --staged --source "$src") ;;
       file)   cmd=(detect --no-git --source "$target") ;;
     esac
   fi
-  out="$("$GL" "${cmd[@]}" "${cfg[@]+"${cfg[@]}"}" --no-banner --redact --verbose --exit-code 1 \
+  out="$(cd "$src" && "$GL" "${cmd[@]}" "${cfg[@]+"${cfg[@]}"}" --no-banner --redact --verbose --exit-code 1 \
           --report-format json --report-path "$report" 2>&1)" || rc=$?
   n=0
   [[ -f "$report" ]] && n="$(grep -c '"RuleID"' "$report" 2>/dev/null || true)"

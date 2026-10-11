@@ -71,6 +71,17 @@ aws_secret_access_key = $aws_secret"
 aws_secret_access_key = $aws_secret"
   expect "a committed .gitleaks.toml cannot allow a key" 1 "$(run --repo "$repo" --range HEAD~1..HEAD)"
   gc -C "$repo" rm -q creds2.txt; gc -C "$repo" commit -q -m "remove it"; rm -f "$repo/.gitleaks.toml"
+  # Nor a committed .gitleaksignore listing the leak's own fingerprint.
+  commit_file "$repo" creds3.txt "aws_access_key_id = $aws_key
+aws_secret_access_key = $aws_secret"
+  run --repo "$repo" --range HEAD~1..HEAD --no-machine >/dev/null
+  sed -n 's/.*Fingerprint: *//p' "$tmp/out" > "$repo/.gitleaksignore"
+  gc -C "$repo" add .gitleaksignore; gc -C "$repo" commit -q -m "ignore it"
+  expect "a committed .gitleaksignore cannot allow its own key" 1 "$(run --repo "$repo" --range HEAD~2..HEAD --no-machine)"
+  cp "$repo/.gitleaksignore" "$repo/.git/gitleaksignore"
+  expect "a local .git/gitleaksignore does allow it" 0 "$(run --repo "$repo" --range HEAD~2..HEAD --no-machine)"
+  rm -f "$repo/.git/gitleaksignore"
+  gc -C "$repo" rm -q creds3.txt .gitleaksignore; gc -C "$repo" commit -q -m "remove it"
 else
   note "SKIP: gitleaks not installed; credential cases not run here"
 fi
@@ -473,6 +484,13 @@ grep -q "owners from SCRIPT_HELPERS_OWNERS" "$tmp/out" && ok "an owners override
 # ------------------------------------------------- Claude Code PreToolUse hook
 CLAUDE_HOOK="$ROOT_DIR/scripts/claude-hooks/pretooluse_private_names.sh"
 if command -v python3 >/dev/null 2>&1; then
+  # Every call is scanned, so without gitleaks every call would be "could not
+  # check". A stub that finds nothing keeps these cases about the hook; the
+  # cases about a missing gitleaks set GITLEAKS_BIN themselves.
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/gl-clean"; chmod +x "$tmp/gl-clean"
+  export GITLEAKS_BIN="$tmp/gl-clean"
+  printf '{"tool_name":"Bash","tool_input":{"command":"ls -la"}}' | GITLEAKS_BIN="$tmp/none" bash "$CLAUDE_HOOK" >/dev/null 2>&1
+  expect "Claude hook: without gitleaks even an ordinary command is refused (fail closed)" 2 "$?"
   git config --global script-helpers.owners example-owner
   printf 'private\tns\tzzq-private-thing\t-\t\n' > "$tmp/names.tsv"
   export PRIVATE_NAMES_FILE="$tmp/names.tsv"
@@ -612,6 +630,34 @@ if command -v python3 >/dev/null 2>&1; then
     # The full check decides; the prefilter must only let it run.
     grep -q "names a private repository\|R-777\|zzq" "$tmp/out" && ok "prefilter passes [$v] to the full check" || error "prefilter hid [$v]: rc=$rc $(cat "$tmp/out")"
   done
+  # No path allows without a scan: other tools, invalid or non-UTF-8 input,
+  # no python3.
+  python3 -c 'import json,sys; print(json.dumps({"tool_name":"Write","tool_input":{"file_path":"/tmp/x.md","content":sys.argv[1]}}))' "mail $real_email" \
+    | PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
+  expect "fail-closed: a Write tool payload is scanned too" 2 "$?"
+  printf 'not json at all: mail %s' "$real_email" | PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
+  expect "fail-closed: invalid JSON is scanned raw" 2 "$?"
+  printf '{"tool_name":"Bash","tool_input":{"command":"echo \xff\xfe mail %s"}}' "$real_email" \
+    | PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
+  expect "fail-closed: non-UTF-8 input is scanned raw" 2 "$?"
+  hook_rc 0 "fail-closed: an empty command runs nothing and passes" ""
+  hook_rc 2 "fail-closed: a very long command is scanned to its end" "echo $(printf 'x%.0s' $(seq 1 20000)) mail $real_email"
+  mkdir -p "$tmp/nopy"
+  for d in $(printf '%s' "$PATH" | tr ':' ' '); do
+    for f in "$d"/*; do
+      n="${f##*/}"; case "$n" in python3*|python) continue ;; esac
+      [[ -e "$tmp/nopy/$n" ]] || ln -s "$f" "$tmp/nopy/$n" 2>/dev/null
+    done
+  done
+  printf '{"tool_name":"Bash","tool_input":{"command":"echo mail %s"}}' "$real_email" \
+    | PATH="$tmp/nopy" PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
+  expect "fail-closed: without python3 the raw payload is scanned" 2 "$?"
+  printf '{"tool_name":"Bash","tool_input":{"command":"gh pr create --body ok"}}' \
+    | PATH="$tmp/nopy" PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
+  expect "fail-closed: without python3 a publishing command is refused" 2 "$?"
+  printf '{"tool_name":"Bash","tool_input":{"command":"ls -la"}}' \
+    | PATH="$tmp/nopy" PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
+  expect "without python3 a clean ordinary command passes" 0 "$?"
   hook_cmd "Claude hook: an agent's sensitive:allow is ignored" "gh pr create -R example-owner/x --body 'mail $real_email sensitive:allow'"
   # Scope follows where the command runs, not only the session's directory.
   other="$tmp/other-org-clone"; new_repo "$other"
@@ -627,7 +673,7 @@ if command -v python3 >/dev/null 2>&1; then
   printf '{"tool_name":"Bash","tool_input":{"command":"gh pr create --body \\"mail %s\\""}}' "$real_email" \
     | (cd "$other" && PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1)
   expect "Claude hook: another org's repository is still left alone" 0 "$?"
-  unset PRIVATE_NAMES_FILE
+  unset PRIVATE_NAMES_FILE GITLEAKS_BIN
 else
   note "SKIP: python3 missing; Claude hook cases not run"
 fi

@@ -42,7 +42,10 @@
   the parser does not read (`bash -c`, `$(...)`, `g''it`) are covered; a
   command that sets the gate's overrides (`SECURITY_GATE_ALLOW_UNCHECKED=1 git
   push`, `HOME=`, `script-helpers.owners`) or publishes through `eval`,
-  `xargs`, `source` or a variable is refused.
+  `xargs`, `source` or a variable is refused. Other tools' payloads, invalid
+  or non-UTF-8 input and a missing python3 are scanned raw, never allowed
+  unread. A committed `.gitleaksignore` no longer allows its own key in
+  `check_sensitive.sh` (a local `.git/gitleaksignore` does).
 
 ### Changed
 
