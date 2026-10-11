@@ -8,7 +8,11 @@
   out. Gitleaks is now its own `secret scan` step in git mode with
   `--fail-on-findings`, so a committed secret fails the run. Git mode also stops
   the false positive the old `--no-git` scan hit in vendored submodules.
-  foxguard and the dependency audits stay report only.
+  It scans only commits no remote has yet: on the whole history, 10 of 34
+  repositories had old test fixtures flagged, and every push would have failed.
+  `./dev scan` still reads the whole history. New
+  `ci_security.sh --gitleaks-log-opts`. foxguard and the dependency audits stay
+  report only.
 - **A missing gitleaks or foxguard is installed, not skipped.** A local
   preflight downloads the pinned release for Linux, macOS or Windows (Git Bash),
   checks its SHA-256 and caches it under `~/.cache/script-helpers/`; before, a

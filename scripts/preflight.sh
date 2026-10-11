@@ -749,8 +749,12 @@ check_security() {
   else
     # A secret blocks the push in every mode: report only, a gitleaks finding
     # printed a WARN and the push went out. Git mode, so a fixture in a vendored
-    # submodule or an ignored .env is not a finding. foxguard stays report only.
-    [[ "$have_gitleaks" == "true" ]] && run_step "secret scan" bash "$scanner" "${common[@]+"${common[@]}"}" "${args[@]}" --skip-foxguard --fail-on-findings
+    # submodule or an ignored .env is not a finding. Only commits no remote has
+    # yet, which is what a push can send: on the whole history, 10 of 34 fleet
+    # repos had old fixtures flagged and every push would fail. ./dev scan
+    # still reads the whole history. foxguard stays report only.
+    [[ "$have_gitleaks" == "true" ]] && run_step "secret scan" bash "$scanner" "${common[@]+"${common[@]}"}" "${args[@]}" \
+      --skip-foxguard --fail-on-findings --gitleaks-log-opts "--branches --tags --not --remotes"
     [[ "$have_foxguard" == "true" ]] && run_step "foxguard code scan$suffix" bash "$scanner" "${common[@]+"${common[@]}"}" "${args[@]}" --skip-gitleaks
   fi
   # The dependency audits, one step per project, in the project's directory. At

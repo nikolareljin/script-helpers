@@ -38,7 +38,13 @@ cat > "$tmp/bin/gitleaks" <<'EOF'
 where=""
 [[ "$(git rev-parse --show-toplevel 2>/dev/null)" == "$(pwd -P)" ]] && where="top: "
 echo "${where}gitleaks $*" >> "$GL_LOG"
-if [[ " $* " == *" --no-git "* ]]; then
+if [[ " $* " == *" --log-opts "* ]]; then
+  # Only the commits git log selects: the lines they add.
+  all="$*"; opts="${all##*--log-opts }"
+  # shellcheck disable=SC2086
+  if git log -p $opts | grep -q '^+.*LEAKME'; then echo "leaks found: 1"; exit 1; fi
+  echo "no leaks found"; exit 0
+elif [[ " $* " == *" --no-git "* ]]; then
   files="$(find . -type f -not -path './.git/*')"
 else
   files="$(git ls-files)"
@@ -152,39 +158,47 @@ RC=0
 [[ $RC -eq 2 ]] && note "--skip-security with --security-only: exit 2" \
   || error "conflicting flags: rc=$RC"
 
-# 7. The pre-push run: a committed secret blocks it; foxguard stays report only.
+# 7. The pre-push run: a secret in a commit no remote has blocks it; one that
+#    is already on the remote does not (old fixtures would block every push).
 if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
   r="$(new_repo prepush)"
+  git init -q --bare "$tmp/prepush-remote.git"
+  git -C "$r" remote add origin "$tmp/prepush-remote.git"
   printf '{"name":"x","version":"1.0.0","scripts":{"test":"node -e \\"process.exit(0)\\""}}\n' > "$r/package.json"
-  commit "$r"
+  printf 'token = LEAKME\n' > "$r/old-fixture.txt"; commit "$r"
+  git -C "$r" push -q origin HEAD:main
   prepush() {
     : > "$GL_LOG"; RC=0
     OUT="$(cd "$r" && CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/preflight.sh" --quick --stack node 2>&1)" || RC=$?
   }
   prepush
-  if [[ $RC -eq 0 && "$OUT" == *"PASS  secret scan"* ]] && grep -q "^top: gitleaks detect --source \.$" "$GL_LOG"; then
-    note "pre-push preflight: clean repository passes, gitleaks in git mode"
+  if [[ $RC -eq 0 && "$OUT" == *"PASS  secret scan"* ]] \
+     && grep -q "^top: gitleaks detect --source \. --log-opts --branches --tags --not --remotes$" "$GL_LOG"; then
+    note "pre-push preflight: a secret already on the remote does not block; only unpushed commits are scanned"
   else
-    error "pre-push clean: rc=$RC log='$(cat "$GL_LOG")' out='$(printf '%s' "$OUT" | tail -4)'"
+    error "pre-push pushed: rc=$RC log='$(cat "$GL_LOG")' out='$(printf '%s' "$OUT" | tail -4)'"
   fi
   printf 'token = LEAKME\n' > "$r/creds.txt"; commit "$r"
   prepush
   if [[ $RC -ne 0 && "$OUT" == *"FAIL  secret scan"* ]]; then
-    note "pre-push preflight: a committed secret fails the run"
+    note "pre-push preflight: a secret in an unpushed commit fails the run"
   else
     error "pre-push secret: rc=$RC out='$(printf '%s' "$OUT" | tail -4)'"
   fi
-  # A secret in an untracked file (a vendored submodule's fixture, a local
-  # scratch file) is not the repository's and does not block.
-  git -C "$r" rm -q creds.txt; commit "$r"
-  r2="$(new_repo prepush-untracked)"; cp "$r/package.json" "$r2/"; commit "$r2"
-  printf 'token = LEAKME\n' > "$r2/scratch.txt"
-  r_save="$r"; r="$r2"; prepush; r="$r_save"
-  if [[ $RC -eq 0 && "$OUT" == *"PASS  secret scan"* ]]; then
-    note "pre-push preflight: a secret in an untracked file does not block"
-  else
-    error "pre-push untracked: rc=$RC out='$(printf '%s' "$OUT" | tail -4)'"
-  fi
+  # On another local branch: a push can send that too.
+  git -C "$r" reset -q --hard HEAD~1
+  git -C "$r" checkout -q -b side
+  printf 'token = LEAKME\n' > "$r/side.txt"; commit "$r"
+  git -C "$r" checkout -q -
+  prepush
+  [[ $RC -ne 0 && "$OUT" == *"FAIL  secret scan"* ]] && note "pre-push preflight: a secret on another unpushed branch fails" \
+    || error "pre-push side branch: rc=$RC out='$(printf '%s' "$OUT" | tail -4)'"
+  git -C "$r" branch -q -D side
+  # An untracked file (a vendored submodule's fixture, a scratch file) never blocks.
+  printf 'token = LEAKME\n' > "$r/scratch.txt"
+  prepush
+  [[ $RC -eq 0 && "$OUT" == *"PASS  secret scan"* ]] && note "pre-push preflight: a secret in an untracked file does not block" \
+    || error "pre-push untracked: rc=$RC out='$(printf '%s' "$OUT" | tail -4)'"
 else
   note "SKIP pre-push case: node or npm is not installed"
 fi

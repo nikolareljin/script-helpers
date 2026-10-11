@@ -25,6 +25,9 @@
 #   --node-image <i>       Docker image override for node checks.
 #   --gitleaks-image <i>   Docker image override for gitleaks.
 #   --no-docker            Run on the host instead of Docker.
+#   --gitleaks-log-opts <o> In git mode, scan only the commits these git log
+#                          options select, e.g. "--branches --tags --not --remotes"
+#                          (what a push can send). Default: the whole history.
 #   --fail-on-findings     Exit 1 when any check reports a finding (default: report
 #                          only). gitleaks then scans what git tracks, history
 #                          included, instead of every file on disk: ignored files
@@ -63,6 +66,7 @@ SKIP_GITLEAKS=false
 SKIP_FOXGUARD=false
 INSTALL_FOXGUARD=false
 FAIL_ON_FINDINGS=false
+GITLEAKS_LOG_OPTS=""
 FINDINGS=0
 PYTHON_REQ=""
 NODE_CMD="npm audit --audit-level=high"
@@ -88,6 +92,7 @@ while [[ $# -gt 0 ]]; do
     --check-gitleaks) gitleaks_bin >/dev/null && exit 0; exit 3;;
     --install-gitleaks) gitleaks_install; exit $?;;
     --fail-on-findings) FAIL_ON_FINDINGS=true; shift;;
+    --gitleaks-log-opts) GITLEAKS_LOG_OPTS="${2:?--gitleaks-log-opts needs a value}"; shift 2;;
     --python-req) PYTHON_REQ="$2"; shift 2;;
     --node-cmd) NODE_CMD="$2"; shift 2;;
     --no-docker) USE_DOCKER=false; shift;;
@@ -169,6 +174,7 @@ BANDIT_EXCLUDE="./.venv,./venv,./node_modules,./build,./dist"
 gitleaks_args() {
   if [[ "$FAIL_ON_FINDINGS" == "true" ]] && git -C "$WORKDIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     printf '%s\n' detect --source .
+    [[ -n "$GITLEAKS_LOG_OPTS" ]] && printf '%s\n' --log-opts "$GITLEAKS_LOG_OPTS"
   else
     printf '%s\n' detect --source . --no-git
   fi
