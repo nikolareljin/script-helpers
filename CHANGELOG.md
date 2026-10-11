@@ -19,6 +19,10 @@
   machine without gitleaks pushed with no secret scan at all. New
   `lib/gitleaks.sh` and `ci_security.sh --install-gitleaks`.
   `PREFLIGHT_NO_INSTALL=1` turns it off. CI never runs preflight.
+- **SHA-256 checks work on a minimal Linux.** The foxguard, gitleaks and
+  Ollama installers and `gen_brew_formula.sh` needed `shasum` or `openssl`; an
+  Alpine or slim image has only `sha256sum`, and the install failed there. They
+  now fall back to it.
 
 ## 2026-10-10 — v0.48.0
 

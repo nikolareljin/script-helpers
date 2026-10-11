@@ -32,7 +32,7 @@ Functions
   - Returns: 3 when there is neither.
 
 - foxguard_sha256 file
-  - Purpose: Print the file's SHA-256, with `shasum -a 256`, else `openssl dgst -sha256`.
+  - Purpose: Print the file's SHA-256, with `shasum -a 256`, else `sha256sum`, else `openssl dgst -sha256`.
 
 - foxguard_install
   - Purpose: Download the pinned release binary for this machine, check it against the pinned SHA-256, and install it at `foxguard_cache_path`.

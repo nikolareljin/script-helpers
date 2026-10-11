@@ -84,7 +84,7 @@ gitleaks_install() {
   else
     rm -rf "$tmp"; log_error "gitleaks: curl or wget is needed to download it"; return 3
   fi
-  got="$(foxguard_sha256 "$tmp/$asset")" || { rm -rf "$tmp"; log_error "gitleaks: shasum or openssl is needed to check it"; return 3; }
+  got="$(foxguard_sha256 "$tmp/$asset")" || { rm -rf "$tmp"; log_error "gitleaks: shasum, sha256sum or openssl is needed to check it"; return 3; }
   if [[ "$got" != "$want" ]]; then
     rm -rf "$tmp"
     log_error "gitleaks: $asset does not match the pinned SHA-256 (got $got, want $want); not installed."

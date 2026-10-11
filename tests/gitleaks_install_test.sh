@@ -27,7 +27,7 @@ trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 mkdir -p "$tmp/bin"
 for c in bash sh git env dirname basename mktemp head tail rm cat grep sed awk tr \
          uname find sort date mkdir id chmod mv cp tar gzip shasum openssl ls wc cut \
-         printf tee touch sleep; do
+         printf tee touch sleep sha256sum; do
   p="$(command -v "$c" 2>/dev/null)" && [[ "$p" == /* ]] && ln -sf "$p" "$tmp/bin/$c"
 done
 
@@ -41,7 +41,8 @@ echo "no leaks found"
 EOF
 chmod +x "$tmp/rel/gitleaks"
 tar -czf "$tmp/rel/archive.tar.gz" -C "$tmp/rel" gitleaks
-GOOD_SHA="$(shasum -a 256 "$tmp/rel/archive.tar.gz" | awk '{print $1}')"
+GOOD_SHA="$(source "$ROOT_DIR/lib/foxguard.sh" && foxguard_sha256 "$tmp/rel/archive.tar.gz")"
+[[ ${#GOOD_SHA} -eq 64 ]] || { echo "[gitleaks_install_test] SKIP: no shasum, sha256sum or openssl"; exit 0; }
 ln -sf "$(command -v xargs)" "$tmp/bin/xargs"
 
 # Stub curl: records the URL, writes the fake archive to -o.

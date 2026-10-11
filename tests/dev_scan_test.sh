@@ -173,7 +173,7 @@ if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
   }
   prepush
   if [[ $RC -eq 0 && "$OUT" == *"PASS  secret scan"* ]] \
-     && grep -q "^top: gitleaks detect --source \. --redact -v --log-opts --branches --tags --not --remotes$" "$GL_LOG"; then
+     && grep -q "^top: gitleaks detect --source \. --redact -v --log-opts HEAD --branches --tags --not --remotes$" "$GL_LOG"; then
     note "pre-push preflight: a secret already on the remote does not block; only unpushed commits are scanned"
   else
     error "pre-push pushed: rc=$RC log='$(cat "$GL_LOG")' out='$(printf '%s' "$OUT" | tail -4)'"
@@ -197,6 +197,13 @@ if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
   [[ $RC -ne 0 && "$OUT" == *"FAIL  secret scan"* ]] && note "pre-push preflight: a secret on another unpushed branch fails" \
     || error "pre-push side branch: rc=$RC out='$(printf '%s' "$OUT" | tail -4)'"
   git -C "$r" branch -q -D side
+  # A detached HEAD is on no branch; `git push origin HEAD:x` sends it.
+  git -C "$r" checkout -q --detach
+  printf 'token = LEAKME\n' > "$r/detached.txt"; commit "$r"
+  prepush
+  [[ $RC -ne 0 && "$OUT" == *"FAIL  secret scan"* ]] && note "pre-push preflight: a secret on a detached HEAD fails" \
+    || error "pre-push detached: rc=$RC out='$(printf '%s' "$OUT" | tail -4)'"
+  git -C "$r" checkout -q -
   # An untracked file (a vendored submodule's fixture, a scratch file) never blocks.
   printf 'token = LEAKME\n' > "$r/scratch.txt"
   prepush
@@ -204,6 +211,17 @@ if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
     || error "pre-push untracked: rc=$RC out='$(printf '%s' "$OUT" | tail -4)'"
 else
   note "SKIP pre-push case: node or npm is not installed"
+fi
+
+# 7b. A repository with no commit yet: the pre-push scan passes, not an error.
+r="$(mktemp -d "$tmp/nocommit.XXXXXX")"; git init -q "$r"
+printf '{"name":"x","version":"1.0.0","scripts":{"test":"node -e 0"}}\n' > "$r/package.json"
+: > "$GL_LOG"; RC=0
+OUT="$(cd "$r" && CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/preflight.sh" --quick --stack node 2>&1)" || RC=$?
+if [[ "$OUT" == *"PASS  secret scan"* ]] && grep -q -- "--log-opts --branches --tags --not --remotes$" "$GL_LOG"; then
+  note "no commit yet: the secret scan passes and leaves HEAD out"
+else
+  error "no commit: rc=$RC log='$(cat "$GL_LOG")' out='$(printf '%s' "$OUT" | grep -E 'secret|ERROR' | tail -3)'"
 fi
 
 # 8. ./dev scan runs the security-only preflight; help lists it.

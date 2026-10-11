@@ -25,7 +25,7 @@
 #   --gitleaks-image <i>   Docker image override for gitleaks.
 #   --no-docker            Run on the host instead of Docker.
 #   --gitleaks-log-opts <o> In git mode, scan only the commits these git log
-#                          options select, e.g. "--branches --tags --not --remotes"
+#                          options select, e.g. "HEAD --branches --tags --not --remotes"
 #                          (what a push can send). Default: the whole history.
 #   --fail-on-findings     Exit 1 when any check reports a finding (default: report
 #                          only). gitleaks then scans what git tracks, history

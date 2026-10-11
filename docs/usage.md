@@ -424,7 +424,7 @@ reads the whole repository's history, from the repository top, so its
 A full `./dev preflight` and the pre-push hook split the step in two. The
 `secret scan` (gitleaks, git mode) blocks: a committed secret fails the run and
 refuses the push. It reads only the commits no remote has yet
-(`--gitleaks-log-opts "--branches --tags --not --remotes"`), which is what a push
+(`--gitleaks-log-opts "HEAD --branches --tags --not --remotes"`), which is what a push
 can send, from any branch; a test fixture flagged in history that is already
 pushed does not block. `./dev scan` still reads the whole history. A blocked
 push names each finding's rule, file, line and fingerprint, with the secret

@@ -68,12 +68,14 @@ ollama_install_expected_sha256() {
   esac
 }
 
-# Usage: ollama_install_sha256 <file>; prints its SHA-256, with shasum or
-# openssl (both on macOS; one or the other on nearly every Linux). Returns 3
-# when neither is there.
+# Usage: ollama_install_sha256 <file>; prints its SHA-256, with shasum,
+# sha256sum or openssl (a minimal Linux may have only sha256sum). Returns 3
+# when none is there.
 ollama_install_sha256() {
   if command -v shasum >/dev/null 2>&1; then
     shasum -a 256 "$1" | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
   elif command -v openssl >/dev/null 2>&1; then
     openssl dgst -sha256 "$1" | awk '{print $NF}'
   else
@@ -251,7 +253,7 @@ ollama_install() {
   fi
   if ! got="$(ollama_install_sha256 "$tmpdir/$asset")"; then
     rm -rf "$tmpdir"
-    log_error "ollama_install: shasum or openssl is needed to check it"
+    log_error "ollama_install: shasum, sha256sum or openssl is needed to check it"
     return 3
   fi
   if [[ "$got" != "$want" ]]; then
