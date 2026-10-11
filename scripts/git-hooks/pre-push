@@ -61,7 +61,7 @@ done
 if [[ -n "$_security_lib" ]]; then
   # shellcheck source=/dev/null
   source "$_security_lib"
-  if ! sec_pre_push "$_push_refs"; then
+  if ! sec_pre_push "$_push_refs" "${1:-}" "${2:-}"; then
     exit 1
   fi
 else
@@ -84,9 +84,9 @@ if [[ -f .githooks/pre-push ]] && ! [[ .githooks/pre-push -ef "$0" ]]; then
   exit "$_local_rc"
 fi
 
-# The tests below are not hooks. Left exported, the "already checked" marker
-# would make a test that drives a pre-push hook skip the very checks it tests.
-unset SCRIPT_HELPERS_SECURITY_DONE SCRIPT_HELPERS_SECURITY_DIR
+# The tests below are not hooks: they must not inherit the global hooks'
+# script directory.
+unset SCRIPT_HELPERS_SECURITY_DIR
 
 # Resolve local_test_*.sh scripts directory; submodule path takes priority.
 _scripts_dir=""

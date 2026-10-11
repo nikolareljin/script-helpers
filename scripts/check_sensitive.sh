@@ -4,11 +4,14 @@
 # USAGE: scripts/check_sensitive.sh [--push-refs <file>|--range <revs>|--staged|--file <path>|--stdin] [--repo <path>] [--no-gitleaks] [--no-machine] [--terms <path>] [--refresh-public-ip] [--list-identifiers] [-h]
 # PARAMETERS:
 #   --push-refs <file>  The ref lines git gives a pre-push hook on stdin, saved to a file.
-#                       Checks every commit in the push that no remote has yet.
+#                       Checks every commit in the push that the target lacks (--remote).
 #   --range <revs>      Commits to check, as git log arguments, e.g. origin/main..HEAD.
 #   --staged            The staged changes (pre-commit).
 #   --file <path>       A file, all of it: a commit message, a PR or issue body. Repeatable.
 #   --stdin             Standard input, all of it.
+#   --remote <name>     With --push-refs: the remote pushed to (git's first pre-push
+#                       argument). A new branch is checked against that remote's refs
+#                       only; without it, or for a bare URL, its whole history.
 #   --repo <path>       Repository (default: cwd).
 #   --no-gitleaks       Skip the credential scan. It then reports nothing about credentials.
 #   --no-machine        Skip this machine's live identifiers (addresses, hostname, home path).
@@ -66,6 +69,7 @@ TERMS_FILE="${SENSITIVE_TERMS_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script
 PUBLIC_IP_CACHE="${SENSITIVE_PUBLIC_IP_CACHE:-${XDG_CACHE_HOME:-${HOME:-}/.cache}/script-helpers/public-ip}"
 REFRESH_IP=false
 TERMS_FROM_ARG=false
+PUSH_REMOTE=""
 LIST_IDS=false
 
 usage() { sed -n '2,/^# ------/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
@@ -85,6 +89,7 @@ while [[ $# -gt 0 ]]; do
     --staged) set_mode staged; shift ;;
     --file) set_mode file; FILES+=("${2:?--file needs a path}"); shift 2 ;;
     --stdin) set_mode stdin; shift ;;
+    --remote) PUSH_REMOTE="${2-}"; shift 2 ;;
     --repo) REPO="${2:?--repo needs a path}"; shift 2 ;;
     --no-gitleaks) USE_GITLEAKS=false; shift ;;
     --no-machine) USE_MACHINE=false; shift ;;
@@ -95,7 +100,14 @@ while [[ $# -gt 0 ]]; do
     *) echo "$TAG unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
-[[ "${SENSITIVE_NO_MACHINE:-}" == 1 ]] && USE_MACHINE=false
+[[ "$USE_GITLEAKS" == true ]] || echo "$TAG notice: --no-gitleaks: credentials are NOT checked in this run." >&2
+if [[ "${SENSITIVE_NO_MACHINE:-}" == 1 ]]; then
+  USE_MACHINE=false
+  echo "$TAG WARNING: SENSITIVE_NO_MACHINE=1 is set: this machine's identifiers are NOT checked." >&2
+fi
+if [[ -n "${SENSITIVE_MACHINE_IDS_FILE:-}" ]]; then
+  echo "$TAG WARNING: SENSITIVE_MACHINE_IDS_FILE is set: machine identifiers come from it, not from this machine." >&2
+fi
 
 tmp="$(mktemp -d)" || exit 2
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
@@ -320,9 +332,14 @@ case "$MODE" in
       [[ -n "${lsha:-}" ]] || continue
       [[ "$lsha" =~ ^0+$ ]] && continue                  # a deletion adds nothing
       if [[ "${rsha:-0}" =~ ^0+$ ]] || ! git -C "$TOP" cat-file -e "${rsha}^{commit}" 2>/dev/null; then
-        # New branch, or a remote tip this clone has never seen: everything no
-        # remote has, not the whole history.
-        add_revs "$lsha --not --remotes"
+        # New branch, or a remote tip this clone has never seen: everything the
+        # target remote's refs do not have. Only that remote counts: a commit
+        # already on another remote (a private one) is still new to this one.
+        if [[ -n "$PUSH_REMOTE" ]] && git -C "$TOP" remote 2>/dev/null | grep -qxF -- "$PUSH_REMOTE"; then
+          add_revs "$lsha --not --remotes=$PUSH_REMOTE"
+        else
+          add_revs "$lsha"
+        fi
       else
         add_revs "${rsha}..${lsha}"
       fi

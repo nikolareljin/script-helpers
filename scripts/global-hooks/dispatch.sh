@@ -90,7 +90,7 @@ if [[ "$in_scope" == true ]]; then
         [[ "$lsha" =~ ^0+$ ]] || deletions_only=false
       done < "$stdin_file"
       if [[ "$deletions_only" == false ]]; then
-        (cd "$top" && sec_pre_push "$stdin_file") || exit 1
+        (cd "$top" && sec_pre_push "$stdin_file" "${1:-}" "${2:-}") || exit 1
       fi
       ;;
     pre-commit) (cd "$top" && sec_pre_commit) || exit 1 ;;
@@ -99,7 +99,6 @@ if [[ "$in_scope" == true ]]; then
       (cd "$top" && sec_commit_msg "$msg") || exit 1
       ;;
   esac
-  export SCRIPT_HELPERS_SECURITY_DONE=1
 fi
 
 # ------------------------------------------------------------- chaining

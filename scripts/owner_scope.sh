@@ -20,6 +20,8 @@ scope_owners() {
   local o rc=0
   if [[ -n "${SCRIPT_HELPERS_OWNERS:-}" ]]; then
     o="$SCRIPT_HELPERS_OWNERS"
+    # An inherited variable narrows or widens the scope: say so, every time.
+    echo "[script-helpers] owners from SCRIPT_HELPERS_OWNERS ($o), not git config." >&2
   else
     o="$(git config --global --get script-helpers.owners 2>/dev/null)" || rc=$?
     # 1 = not set; anything else = git could not read the config.

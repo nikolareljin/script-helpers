@@ -13,8 +13,8 @@ set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOOK="$ROOT_DIR/scripts/git-hooks/pre-push"
-# Run from inside a pre-push, the caller's "already checked" marker would skip the hook.
-unset SCRIPT_HELPERS_SECURITY_DONE SCRIPT_HELPERS_SECURITY_DIR
+# Run from inside the global hooks, their script directory would be used.
+unset SCRIPT_HELPERS_SECURITY_DIR
 failures=0
 note()  { echo "[private_names_autorefresh_test] $*"; }
 ok()    { note "PASS: $*"; }

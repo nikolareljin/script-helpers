@@ -31,7 +31,7 @@ mkdir -p "$HOME"
 cd "$tmp" || exit 1
 export XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME="$HOME/.cache" XDG_DATA_HOME="$HOME/.local/share"
 export GIT_CONFIG_GLOBAL="$HOME/.gitconfig" GIT_CONFIG_NOSYSTEM=1
-unset SCRIPT_HELPERS_OWNERS SENSITIVE_ALLOW SENSITIVE_TERMS_FILE SCRIPT_HELPERS_SECURITY_DONE SCRIPT_HELPERS_SECURITY_DIR FOXGUARD_CMD GITLEAKS_BIN SECURITY_GATE_ALLOW_UNCHECKED SENSITIVE_ALLOW_UNCHECKED PRIVATE_NAMES_FILE
+unset SCRIPT_HELPERS_OWNERS SENSITIVE_ALLOW SENSITIVE_TERMS_FILE SCRIPT_HELPERS_SECURITY_DIR FOXGUARD_CMD GITLEAKS_BIN SECURITY_GATE_ALLOW_UNCHECKED SENSITIVE_ALLOW_UNCHECKED PRIVATE_NAMES_FILE
 : > "$tmp/no-machine-ids"
 export SENSITIVE_MACHINE_IDS_FILE="$tmp/no-machine-ids"
 export PRIVATE_NAMES_AUTO_REFRESH=false
@@ -157,6 +157,9 @@ gc -C "$repo" rm -q --cached staged.txt; rm -f "$repo/staged.txt"
 GITLEAKS_BIN="$tmp/none" bash "$CHECK" --file "$tmp/near.txt" >"$tmp/out" 2>&1
 expect "gitleaks missing -> exit 2" 2 "$?"
 grep -q "install" "$tmp/out" || error "no install hint when gitleaks is missing"
+SENSITIVE_NO_MACHINE=1 bash "$CHECK" --file "$tmp/near.txt" --no-gitleaks 2>"$tmp/out" >/dev/null
+grep -q "notice: --no-gitleaks" "$tmp/out" && ok "--no-gitleaks is announced" || error "--no-gitleaks silent"
+grep -q "WARNING: SENSITIVE_NO_MACHINE=1" "$tmp/out" && ok "SENSITIVE_NO_MACHINE=1 is announced" || error "SENSITIVE_NO_MACHINE silent"
 # Unreadable inputs are "could not check", never "clean".
 printf 'quux-corp\n' > "$tmp/terms-locked"; chmod 000 "$tmp/terms-locked"
 if [[ -r "$tmp/terms-locked" ]]; then
@@ -222,6 +225,39 @@ rm -f "$tmp/local-ran"
 expect "a repo-local pre-push cannot skip the checks" 1 "$(push GITLEAKS_BIN="$tmp/none" SENSITIVE_ALLOW_UNCHECKED=1)"
 [[ -f "$tmp/local-ran" ]] && error "the repo-local hook ran although the push was refused"
 rm -rf "$vend/.githooks"
+
+# No environment marker can skip the checks.
+gc -C "$vend" reset -q --hard "$base"
+commit_file "$vend" d.md "Write to $real_email"
+expect "SCRIPT_HELPERS_SECURITY_DONE=1 does not skip the checks" 1 "$(push GITLEAKS_BIN="$tmp/none" SECURITY_GATE_ALLOW_UNCHECKED=1 SCRIPT_HELPERS_SECURITY_DONE=1)"
+# A global script directory missing a checker is not replaced by the repo's copy.
+mkdir -p "$tmp/emptysec"
+expect "SCRIPT_HELPERS_SECURITY_DIR without the checker refuses" 1 "$(push GITLEAKS_BIN="$tmp/none" SCRIPT_HELPERS_SECURITY_DIR="$tmp/emptysec")"
+grep -q "check_sensitive.sh not found\|check_private_names.sh not found" "$tmp/out" && ok "and says the checker is missing" || error "no reason: $(cat "$tmp/out")"
+
+# A commit already on another remote (a private one) is still new to the target.
+gc -C "$vend" update-ref refs/remotes/priv/main HEAD
+git -C "$vend" remote add priv "$tmp/priv.git"
+git -C "$vend" remote add pub "$tmp/pub.git"
+(cd "$vend" && printf 'refs/heads/main %s refs/heads/main 0000000000000000000000000000000000000000\n' "$(git rev-parse HEAD)" \
+  | env PRE_PUSH_SKIP_TESTS=1 GITLEAKS_BIN="$tmp/none" SECURITY_GATE_ALLOW_UNCHECKED=1 bash "$HOOK" pub "$tmp/pub.git" >"$tmp/out" 2>&1)
+expect "a commit on another remote is checked when pushed to a new one" 1 "$?"
+(cd "$vend" && printf 'refs/heads/main %s refs/heads/main 0000000000000000000000000000000000000000\n' "$(git rev-parse HEAD)" \
+  | env PRE_PUSH_SKIP_TESTS=1 GITLEAKS_BIN="$tmp/none" SECURITY_GATE_ALLOW_UNCHECKED=1 bash "$HOOK" priv "$tmp/priv.git" >"$tmp/out" 2>&1)
+expect "the same push to the remote that has it passes" 0 "$?"
+git -C "$vend" remote remove priv; git -C "$vend" remote remove pub
+gc -C "$vend" reset -q --hard "$base"
+
+# Public or private is decided by the push target, not by origin.
+printf '# visibility\tnamespace\tname\tcode\tflags\nprivate\tex-ns\tzzqsecretproj\tR-1\t\npublic\tex-ns\tzzqpubmirror\tR-2\t\n' > "$tmp/vis.tsv"
+git -C "$vend" remote add origin git@github.com:ex-ns/zzqsecretproj.git
+gc -C "$vend" commit -q --allow-empty -m "port from zzqsecretproj"
+(cd "$vend" && printf 'refs/heads/main %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$base" \
+  | env PRE_PUSH_SKIP_TESTS=1 PRIVATE_NAMES_FILE="$tmp/vis.tsv" PRIVATE_NAMES_AUTO_REFRESH=false GITLEAKS_BIN="$tmp/none" SECURITY_GATE_ALLOW_UNCHECKED=1 \
+    bash "$HOOK" mirror git@github.com:ex-ns/zzqpubmirror.git >"$tmp/out" 2>&1)
+expect "a private repo pushed to a public mirror is checked for private names" 1 "$?"
+git -C "$vend" remote remove origin
+gc -C "$vend" reset -q --hard "$base"
 
 # ---------------------------------------------------------- --global install
 SETUP="$ROOT_DIR/scripts/setup-hooks.sh"
@@ -320,6 +356,13 @@ printf '#!/usr/bin/env bash\nexit 7\n' > "$other/.git/hooks/pre-push"; chmod +x 
   | bash "$gdir/hooks/pre-push" origin git@github.com:other-org/other.git >/dev/null 2>&1)
 expect "a chained hook's exit status is the hook's" 7 "$?"
 
+# A broken install refuses a push instead of passing it.
+mv "$gdir/scripts/owner_scope.sh" "$tmp/owner_scope.bak"
+(cd "$own" && printf 'refs/heads/main %s refs/heads/main 0000000000000000000000000000000000000000\n' "$(git rev-parse HEAD)" \
+  | bash "$gdir/hooks/pre-push" origin git@github.com:example-owner/own.git >"$tmp/out" 2>&1)
+expect "a broken global install refuses the push" 1 "$?"
+mv "$tmp/owner_scope.bak" "$gdir/scripts/owner_scope.sh"
+
 # Scope fails closed. Every case pushes a commit carrying a real email.
 gpush() {  # <repo> <push url>: run the installed pre-push; echo its exit
   (cd "$1" && printf 'refs/heads/main %s refs/heads/main 0000000000000000000000000000000000000000\n' "$(git rev-parse HEAD)" \
@@ -343,6 +386,32 @@ git -C "$sc" remote remove origin
 
 bash "$SETUP" --global --uninstall >/dev/null 2>&1
 git config --global --get core.hooksPath >/dev/null && error "uninstall did not unset a previously unset value" || ok "uninstall unsets a value that was unset before"
+
+# ------------------------------------------------------------ owner_scope.sh
+# shellcheck source=/dev/null
+source "$ROOT_DIR/scripts/owner_scope.sh"
+for u in git@github.com:Example-Owner/x git@github.com:example-owner/x.git ssh://git@github.com/EXAMPLE-OWNER/x.git \
+         ssh://git@github.com:22/example-owner/x https://github.com/example-owner/x/ https://tok@github.com/example-owner/x.git \
+         github.com/example-owner/x example-owner/x https://github.com.evil/example-owner/x git://github.com/example-owner/x \
+         ssh://github.com/example-owner/x https://evil.example/@github.com/example-owner/x; do
+  scope_in_scope example-owner "$u" && ok "scope: $u checked" || error "scope: $u passed through"
+done
+for u in git@github.com:example-owner-fork/x git@github.com:other-org/example-owner https://github.com/other-org/x.git /srv/mirror.git; do
+  scope_in_scope example-owner "$u" && error "scope: $u checked" || ok "scope: $u passed through"
+done
+# insteadOf and pushurl are what git really talks to; scope reads them expanded.
+sr="$tmp/sr"; new_repo "$sr"
+git -C "$sr" remote add origin gh:other-org/x
+git -C "$sr" config url.git@github.com:example-owner/.insteadOf gh:other-org/
+urls_out="$(cd "$sr" && scope_repo_urls)"   # captured: grep -q in a pipe trips pipefail
+grep -q "git@github.com:example-owner/x" <<<"$urls_out" && ok "scope: insteadOf is expanded" || error "scope: insteadOf not expanded"
+git -C "$sr" config --unset url.git@github.com:example-owner/.insteadOf
+git -C "$sr" remote set-url origin git@github.com:other-org/x
+git -C "$sr" remote set-url --push origin git@github.com:example-owner/x
+urls_out="$(cd "$sr" && scope_repo_urls)"
+grep -q 'example-owner' <<<"$urls_out" && ok "scope: a pushurl is read" || error "scope: pushurl ignored"
+SCRIPT_HELPERS_OWNERS=example-owner scope_owners 2>"$tmp/out" >/dev/null
+grep -q "owners from SCRIPT_HELPERS_OWNERS" "$tmp/out" && ok "an owners override from the environment is announced" || error "SCRIPT_HELPERS_OWNERS silent"
 
 # ------------------------------------------------- Claude Code PreToolUse hook
 CLAUDE_HOOK="$ROOT_DIR/scripts/claude-hooks/pretooluse_private_names.sh"
@@ -392,6 +461,15 @@ if command -v python3 >/dev/null 2>&1; then
   expect "Claude hook: an invalid payload that publishes is blocked" 2 "$?"
   printf 'not json: ls -la' | bash "$CLAUDE_HOOK" >/dev/null 2>&1
   expect "Claude hook: an invalid payload that does not publish passes" 0 "$?"
+  # A crash inside the hook must refuse (exit 2), never exit 1: Claude Code
+  # runs the command on any exit other than 2.
+  mkdir -p "$tmp/broken/claude-hooks"
+  cp "$CLAUDE_HOOK" "$tmp/broken/claude-hooks/"
+  cp "$ROOT_DIR/scripts/check_private_names.sh" "$ROOT_DIR/scripts/check_sensitive.sh" "$tmp/broken/"
+  cp -R "$ROOT_DIR/lib" "$ROOT_DIR/helpers.sh" "$tmp/" 2>/dev/null
+  printf 'echo crashing >&2; exit 3\n' > "$tmp/broken/owner_scope.sh"
+  payload example-owner/x "a@example.com" | PRIVATE_NAMES_FILE="$tmp/names.tsv" bash "$tmp/broken/claude-hooks/pretooluse_private_names.sh" >"$tmp/out" 2>&1
+  expect "Claude hook: a crash refuses with exit 2" 2 "$?"
   unset PRIVATE_NAMES_FILE
 else
   note "SKIP: python3 missing; Claude hook cases not run"

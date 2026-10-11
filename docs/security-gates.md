@@ -29,6 +29,12 @@ Only added text is checked. A commit that deletes a value passes; a push that
 adds a value in one commit and removes it in the next is still refused, because
 the push publishes both commits. Rewrite the commit that added it.
 
+A push checks what the target remote does not
+have: a new branch is compared with that remote's refs only, so a commit
+already on another remote (a private one) is still checked; a push to a bare
+URL checks the branch's whole history. Private names are judged against the
+push target's visibility, not origin's.
+
 | exit | meaning | `pre-push` | `pre-commit`, `commit-msg` |
 |---|---|---|---|
 | 0 | nothing found | continue | continue |

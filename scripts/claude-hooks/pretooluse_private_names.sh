@@ -59,7 +59,18 @@ payload_file="$(mktemp)"
 # than $BASHPID alone: bash 3.2, which macOS ships, does not define BASHPID,
 # and $$ is the top-level shell's pid in every subshell, so the comparison
 # degrades to always-true there rather than to always-false.
-trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -f "$payload_file"; fi' EXIT
+# Claude Code blocks only on exit 2; any other non-zero exit lets the command
+# run. So a crash here (set -u, a failed command) is turned into a refusal.
+on_exit() {
+  local rc="$1"
+  rm -f "$payload_file"
+  if [[ "$rc" -ne 0 && "$rc" -ne 2 ]]; then
+    echo "The publishing check failed (exit $rc), so this command was NOT checked; refused." >&2
+    exit 2
+  fi
+}
+# shellcheck disable=SC2154  # _rc is assigned inside the trap string
+trap '_rc=$?; if [[ ${BASHPID-$$} == "$$" ]]; then on_exit "$_rc"; fi' EXIT
 cat > "$payload_file"
 
 # One python pass: is this a publishing command, which repository is it aimed

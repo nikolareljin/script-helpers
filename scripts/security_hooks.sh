@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SCRIPT: security_hooks.sh
 # DESCRIPTION: The security steps every git hook runs, sourced by scripts/git-hooks/* and the global dispatcher.
-# USAGE: source scripts/security_hooks.sh; sec_pre_push <refs-file> | sec_pre_commit | sec_commit_msg <msg-file>
+# USAGE: source scripts/security_hooks.sh; sec_pre_push <refs-file> <remote-name> <url> | sec_pre_commit | sec_commit_msg <msg-file>
 # PARAMETERS:
 #   SCRIPT_HELPERS_SECURITY_DIR  Directory holding check_private_names.sh and
 #                                check_sensitive.sh. Set by the global hooks;
@@ -19,8 +19,9 @@
 # identifiers and PII, both in check_sensitive.sh (block) -> foxguard (warn only). The caller handles the deletions-only shortcut and the
 # tests. Every function returns 0 to continue and 1 to refuse.
 #
-# SCRIPT_HELPERS_SECURITY_DONE=1 is exported once the steps ran, so a repository
-# hook chained after the global hooks does not run them a second time.
+# No "already checked" marker is exported: an environment variable that skips
+# the checks could be set by any parent process. A hook chained after these
+# steps runs them again; that costs time, never coverage.
 
 # sec_unchecked <hook> <reason>: a check could not run. Return 1 (refuse) unless
 # SECURITY_GATE_ALLOW_UNCHECKED=1, which lets it through with a warning. A check
@@ -40,7 +41,10 @@ _SEC_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # sec_find <script>: path of a security script, or return 127.
 sec_find() {
   local name="$1" top candidate
-  if [[ -n "${SCRIPT_HELPERS_SECURITY_DIR:-}" && -f "$SCRIPT_HELPERS_SECURITY_DIR/$name" ]]; then
+  # Set by the global hooks: their own copy and nothing else, so a missing
+  # script there never falls back to one from the repository being checked.
+  if [[ -n "${SCRIPT_HELPERS_SECURITY_DIR:-}" ]]; then
+    [[ -f "$SCRIPT_HELPERS_SECURITY_DIR/$name" ]] || return 127
     printf '%s' "$SCRIPT_HELPERS_SECURITY_DIR/$name"; return 0
   fi
   top="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
@@ -95,8 +99,20 @@ sec_maybe_refresh_private_names() {
   return 0
 }
 
-# sec_revs <refs-file>: one line of git log arguments per pushed ref: what that
-# ref sends that no remote has.
+# sec_not_remote <remote-name>: git log arguments excluding what the push
+# target already has. Only that remote's refs count: a commit already on some
+# other remote (a private one, say) is still news to this one. A push to a bare
+# URL has no remote refs, so everything it sends is checked.
+sec_not_remote() {
+  if [[ -n "${1:-}" ]] && git remote 2>/dev/null | grep -qxF -- "$1"; then
+    printf -- '--not --remotes=%s' "$1"
+  else
+    printf -- '--not'
+  fi
+}
+
+# sec_revs <refs-file> <remote-name>: one line of git log arguments per pushed
+# ref: what that ref sends that the target does not have.
 sec_revs() {
   local lref lsha rref rsha
   # shellcheck disable=SC2034
@@ -104,10 +120,9 @@ sec_revs() {
     [[ -n "${lsha:-}" ]] || continue
     [[ "$lsha" =~ ^0+$ ]] && continue          # a deletion carries no commits
     if [[ "${rsha:-0}" =~ ^0+$ ]] || ! git cat-file -e "${rsha}^{commit}" 2>/dev/null; then
-      # A new branch, or a remote tip this clone never fetched: everything not
-      # already on a remote, rather than the whole history, which would
-      # re-check every commit ever made on every first push.
-      printf '%s --not --remotes\n' "$lsha"
+      # A new branch, or a remote tip this clone never fetched: everything the
+      # target remote does not already have (see sec_not_remote).
+      printf '%s %s\n' "$lsha" "$(sec_not_remote "${2:-}")"
     else
       printf '%s..%s\n' "$rsha" "$lsha"
     fi
@@ -123,7 +138,11 @@ sec_revs() {
 # to, so the hook can be installed everywhere rather than only where someone
 # remembered to configure it.
 sec_private_names() {
-  local refs="$1" gate rc revs
+  local refs="$1" remote="${2:-}" url="${3:-}" gate rc revs
+  # Public or private is the push target's, not origin's: a private repository
+  # pushed to a public mirror must be checked. --for-repo takes the target.
+  local -a target=()
+  [[ -n "$url" ]] && target=(--for-repo "$url")
   gate="$(sec_find check_private_names.sh)" || {
     sec_unchecked pre-push "check_private_names.sh not found; private names NOT checked"
     return
@@ -131,7 +150,7 @@ sec_private_names() {
 
   sec_maybe_refresh_private_names
 
-  bash "$gate" --tree --only-public
+  bash "$gate" --tree --only-public "${target[@]+"${target[@]}"}"
   rc=$?
   # 2 means it could not check -- no name list, most often. That is a setup
   # problem rather than a clean tree, and it is deliberately a different exit
@@ -156,14 +175,14 @@ sec_private_names() {
   while IFS= read -r revs; do
     # shellcheck disable=SC2086  # revs is a list of git log arguments
     git log --format='%B' $revs >> "$messages" 2>/dev/null || log_failed=1
-  done < <(sec_revs "$refs")
+  done < <(sec_revs "$refs" "$remote")
 
   if [[ "$log_failed" -eq 1 ]]; then
     # Distinct from both "clean" and "found something", because it is neither.
     sec_unchecked pre-push "could not read every outgoing commit message (shallow clone, or a remote ref never fetched)" || { rm -f "$messages"; return 1; }
   fi
 
-  bash "$gate" --file "$messages" --only-public
+  bash "$gate" --file "$messages" --only-public "${target[@]+"${target[@]}"}"
   rc=$?
   rm -f "$messages"
   if [[ "$rc" -eq 1 ]]; then
@@ -181,12 +200,12 @@ sec_private_names() {
 # Exit 2 (could not check: gitleaks missing, commits unreadable) refuses the
 # push: a credential scan that did not run is not a clean one.
 sec_sensitive_push() {
-  local refs="$1" gate rc
+  local refs="$1" remote="${2:-}" gate rc
   gate="$(sec_find check_sensitive.sh)" || {
     sec_unchecked pre-push "check_sensitive.sh not found; credentials and personal data NOT checked"
     return
   }
-  bash "$gate" --push-refs "$refs"
+  bash "$gate" --push-refs "$refs" --remote "$remote"
   rc=$?
   case "$rc" in
     0) return 0 ;;
@@ -216,7 +235,7 @@ sec_foxguard_cmd() {
 # Measured 2026-09-29: its shell taint rules flagged 93 lines of this library,
 # none exploitable, so as a gate it would fail correct code.
 sec_foxguard_push() {
-  local refs="$1" cmd revs f out rc=0 n shown=0 max="${FOXGUARD_MAX_LINES:-40}"
+  local refs="$1" remote="${2:-}" cmd revs f out rc=0 n shown=0 max="${FOXGUARD_MAX_LINES:-40}"
   if ! cmd="$(sec_foxguard_cmd)"; then
     echo "[pre-push] foxguard not installed; static-analysis warnings skipped (install: docs/security-gates.md)."
     return 0
@@ -226,7 +245,7 @@ sec_foxguard_push() {
   while IFS= read -r revs; do
     # shellcheck disable=SC2086
     git log --name-only --format= --diff-filter=ACMR $revs 2>/dev/null
-  done < <(sec_revs "$refs") | sort -u | while IFS= read -r f; do
+  done < <(sec_revs "$refs" "$remote") | sort -u | while IFS= read -r f; do
     [[ -f "$f" ]] && printf '%s\n' "$f"
   done > "$list"
   if [[ ! -s "$list" ]]; then rm -f "$list"; return 0; fi
@@ -251,25 +270,25 @@ sec_foxguard_push() {
   return 0
 }
 
-# sec_pre_push <refs-file>: every security step of a push. 1 refuses it.
+# sec_pre_push <refs-file> <remote-name> <url>: every security step of a push
+# (git's two pre-push arguments). 1 refuses it.
 sec_pre_push() {
-  [[ "${SCRIPT_HELPERS_SECURITY_DONE:-}" == 1 ]] && return 0
-  sec_private_names "$1" || return 1
-  sec_sensitive_push "$1" || return 1
-  sec_foxguard_push "$1"
-  export SCRIPT_HELPERS_SECURITY_DONE=1
+  sec_private_names "$1" "${2:-}" "${3:-}" || return 1
+  sec_sensitive_push "$1" "${2:-}" || return 1
+  sec_foxguard_push "$1" "${2:-}"
   return 0
 }
 
 # sec_pre_commit: sensitive data in the staged lines. Exit 2 warns here and does
 # not block: the push runs the same check and refuses then.
 sec_pre_commit() {
-  [[ "${SCRIPT_HELPERS_SECURITY_DONE:-}" == 1 ]] && return 0
   local gate rc
-  gate="$(sec_find check_sensitive.sh)" || return 0
+  gate="$(sec_find check_sensitive.sh)" || {
+    echo "[pre-commit] check_sensitive.sh not found; staged lines NOT checked (the push refuses until it is found)." >&2
+    return 0
+  }
   bash "$gate" --staged
   rc=$?
-  export SCRIPT_HELPERS_SECURITY_DONE=1
   case "$rc" in
     0) return 0 ;;
     1) echo "[pre-commit] Sensitive data in the staged lines; commit refused." >&2; return 1 ;;
@@ -279,7 +298,6 @@ sec_pre_commit() {
 
 # sec_commit_msg <file>: a private name or sensitive data in the message.
 sec_commit_msg() {
-  [[ "${SCRIPT_HELPERS_SECURITY_DONE:-}" == 1 ]] && return 0
   local msg="$1" gate rc
   if gate="$(sec_find check_private_names.sh)"; then
     bash "$gate" --file "$msg" --only-public
@@ -312,6 +330,5 @@ sec_commit_msg() {
       *) echo "[commit-msg] sensitive-data check could not run (exit $rc); commit allowed." >&2 ;;
     esac
   fi
-  export SCRIPT_HELPERS_SECURITY_DONE=1
   return 0
 }
