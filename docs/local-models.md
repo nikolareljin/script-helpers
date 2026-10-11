@@ -224,6 +224,37 @@ ollama_project_ensure_models ai-models.env .env || exit $?
 ollama_endpoint_container_reach "http://host.docker.internal:11434" || exit $?
 ```
 
+The host's Ollama or the project's optional container, in one call
+--------------------------------------------------------------------
+
+The machine's one Ollama is the default and preferred. A project may keep an
+optional Ollama container in a compose override, `docker-ollama.yml`, for a
+machine where Ollama cannot run on the host. It is used only when the owner
+sets `OLLAMA_RUNTIME=container`; nothing chooses it by itself. Its models
+volume is external, so `docker compose down -v` never removes it.
+
+```bash
+ollama_project_prepare "$ROOT" --mode docker --url-var OLLAMA_BASE_URL \
+  --volume myapp_ollama_data --model-var OLLAMA_MODEL --standard-tier \
+  --skip-var MYAPP_SKIP_OLLAMA || exit $?
+docker compose up -d          # COMPOSE_FILE is set
+```
+
+| `OLLAMA_RUNTIME` | `COMPOSE_FILE` | the app's address | checked |
+|---|---|---|---|
+| `host` (default) | main file | `OLLAMA_BASE_URL`, else `http://host.docker.internal:11434` | models, then a container on the project's network reaches it |
+| `container` | main and `docker-ollama.yml` | `http://ollama:11434` | volume created, `up -d ollama`, models on `127.0.0.1:$OLLAMA_CONTAINER_PORT` |
+
+When no host Ollama answers, the start stops (4) and says: start or install
+the host's Ollama, or, only if that cannot be done, `OLLAMA_RUNTIME=container`.
+A host-mode address that names the container (`http://ollama:11434`, left from
+an earlier setup) is refused (9). A stop includes the override so a container
+started earlier stops too:
+
+```bash
+COMPOSE_FILE="$(ollama_project_compose_files "$ROOT")" docker compose down
+```
+
 A start script that needs its own order can call the steps itself:
 
 ```bash
@@ -375,7 +406,9 @@ Exit codes and what to do with them
 | 6 | a pull failed | the message has what Ollama said: no network, no space during the pull |
 | 7 | the budget could not be checked: a missing model's size or the free disk space could not be learned, the registry has no such model, or a pull into another machine was asked for without its figures | the message says which; a wrong name is said as a wrong name |
 | 8 | a model is not a model reference | a space, a quote, `@`, `..`, or an empty part such as `qwen3:` |
-| 9 | the project's configuration (`ollama_project_ensure_models` only): no models file at that path, a name that is not a variable name, an address that is not one, an `OLLAMA_MODE` that is none of the three or that the address contradicts, a published port that is not one, or a setting in `.env` the caller holds read-only | the message names the variable |
+| 9 | the project's configuration (`ollama_project_ensure_models` and `ollama_project_prepare` only): no models file at that path, a name that is not a variable name, an address that is not one, an `OLLAMA_MODE` that is none of the three or that the address contradicts, a published port that is not one, or a setting in `.env` the caller holds read-only | the message names the variable |
+
+`ollama_project_prepare` also returns 10 when Docker fails for the container: no `docker`, the volume cannot be created, or `docker compose up -d ollama` fails.
 
 `ollama_budget_check`, called on its own, also returns 4 when a size it is
 given is not a whole number: a size that was never measured is not read as

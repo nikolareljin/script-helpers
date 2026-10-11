@@ -1165,32 +1165,112 @@ ollama_endpoint_is_local() {
   grep -qxF -- "$_oep_host" <<<"$_oep_own"
 }
 
-# Usage: ollama_endpoint_container_reach <url>; for a project whose containers
-# call this machine's Ollama at <url> (as the container writes it, e.g.
-# http://host.docker.internal:11434). Returns 0 when a container can reach it:
-# the Docker bridge's gateway, the address host.docker.internal resolves to
-# with host-gateway, answers as an Ollama on <url>'s port.
+# Usage: _ollama_ep_probe_image; prints an image already on this machine that
+# has a shell with wget or curl: OLLAMA_REACH_IMAGE when set, else the first of
+# busybox, alpine, curlimages/curl that is there. Prints nothing when none is.
+# Nothing is pulled: a start check must not download an image unasked.
+_ollama_ep_probe_image() {
+  local _oep_repo _oep_ref
+  if [[ -n "${OLLAMA_REACH_IMAGE:-}" ]]; then
+    printf '%s\n' "$OLLAMA_REACH_IMAGE"
+    return 0
+  fi
+  for _oep_repo in busybox alpine curlimages/curl; do
+    _oep_ref="$(docker image ls --format '{{.Repository}}:{{.Tag}}' "$_oep_repo" 2>/dev/null \
+      | grep -v '<none>' | head -n 1)" || _oep_ref=""
+    if [[ -n "$_oep_ref" ]]; then
+      printf '%s\n' "$_oep_ref"
+      return 0
+    fi
+  done
+  return 0
+}
+
+# Usage: ollama_endpoint_container_reach <url> [network]; for a project whose
+# containers call this machine's Ollama at <url> (as the container writes it,
+# e.g. http://host.docker.internal:11434). Returns 0 when a container can
+# reach it.
 # The answer on 127.0.0.1 proves nothing for a container: an Ollama that
-# listens on loopback only is not on the bridge, unless a forwarder puts it
-# there. The probe goes out from 127.0.0.1, not from the host's bridge address:
-# a request with that address as its source is dropped on some hosts while
-# containers are answered.
+# listens on loopback only is not on Docker's networks, unless a forwarder
+# puts it there, and a forwarder onto the default bridge does not reach a
+# compose project's own network.
+# 1. When an image with a shell and wget or curl is already on this machine
+#    (_ollama_ep_probe_image; nothing is pulled), a throwaway container on
+#    [network] asks <url>/api/tags, with host.docker.internal mapped to the
+#    host as compose's host-gateway maps it. This is the check that counts.
+#    With no [network], the default bridge. When [network] does not exist yet
+#    (before the first start), a new network made for the probe and removed
+#    after: the default bridge may pass where a compose network does not.
+# 2. Otherwise the Docker bridge's gateway is asked from this machine, from
+#    127.0.0.1, with the URL as written (--connect-to). It says that it was
+#    not checked from the project's network.
 # Returns 0, checking nothing, when <url> is another machine (the container
-# reaches it as the host does), with no Docker or none answering (compose says
-# so itself), and when the bridge's gateway is not one of this machine's
-# addresses (Docker Desktop, a VM, rootless Docker, a remote DOCKER_HOST),
-# which it says was not checked.
-# Returns 4 when the bridge does not answer as an Ollama, 9 when <url> is not
-# an address.
+# reaches it as the host does) and with no Docker or none answering (compose
+# says so itself). Step 2 also checks nothing when the bridge's gateway is not
+# one of this machine's addresses (Docker Desktop, a VM, rootless Docker, a
+# remote DOCKER_HOST), and says so.
+# Returns 4 when no Ollama answers from a container, 9 when <url> is not an
+# address.
 ollama_endpoint_container_reach() {
   local LC_ALL=C
-  local _oep_url _oep_gw _oep_body
+  local _oep_url _oep_net="${2:-}" _oep_gw _oep_body _oep_image _oep_host _oep_where
+  local _oep_probe_net="" _oep_tmpnet="" _oep_why="no image to probe from is here: set OLLAMA_REACH_IMAGE"
   if ! _oep_url="$(ollama_endpoint_base_url "${1:-}")"; then
     print_error "Not the address of an Ollama: $(_ollama_ep_shown_url "${1:-}")" >&2
     return 9
   fi
   ollama_endpoint_is_local "$_oep_url" || return 0
   command -v docker >/dev/null 2>&1 || return 0
+  _oep_where="Docker's default bridge"
+  [[ -z "$_oep_net" ]] || _oep_where="network $(_ollama_ep_said "$_oep_net")"
+
+  # A loopback name in <url> is the container itself, seen from a container:
+  # only the bridge probe below reads it as the host, as before.
+  _oep_host="$(_ollama_ep_host "$_oep_url")"
+  case "$_oep_host" in
+    localhost|*.localhost|::1|127.*|::ffff:127.*|0.0.0.0|::) _oep_image="" ;;
+    *) _oep_image="$(_ollama_ep_probe_image)" ;;
+  esac
+  if [[ -n "$_oep_image" ]]; then
+    _oep_probe_net="$_oep_net"
+    if [[ -n "$_oep_net" ]] && ! docker network inspect "$_oep_net" >/dev/null 2>&1; then
+      # Before the first start the project's network does not exist yet. The
+      # default bridge is not the same test: a forwarder or a firewall rule
+      # may cover docker0 and not a compose network. A new network, removed
+      # after, is what compose will make.
+      # Labelled, so one left by an interrupted run is removed by the next
+      # (prune removes only networks no container uses).
+      docker network prune -f --filter label=script-helpers.ollama-reach-probe >/dev/null 2>&1 || true
+      _oep_probe_net="ollama-reach-probe-$$-${RANDOM}"
+      if docker network create --label script-helpers.ollama-reach-probe "$_oep_probe_net" >/dev/null 2>&1; then
+        _oep_tmpnet="$_oep_probe_net"
+        _oep_where="a new network ($(_ollama_ep_said "$_oep_net") does not exist yet)"
+      else
+        _oep_probe_net=""
+        _oep_where="Docker's default bridge (network $(_ollama_ep_said "$_oep_net") does not exist yet)"
+      fi
+    fi
+    # The URL is an argument of the shell, never part of its program. The
+    # marker line tells "the container ran and nothing answered" from "the
+    # container did not run" (an old Docker without --pull=never, an image
+    # without sh), which falls back to step 2.
+    # shellcheck disable=SC2016  # expanded by the container's shell
+    _oep_body="$(docker run --rm --pull=never ${_oep_probe_net:+--network "$_oep_probe_net"} \
+      --add-host host.docker.internal:host-gateway --entrypoint sh "$_oep_image" \
+      -c 'echo ollama-reach-probe; { wget -q -T 5 -O- "$1" 2>/dev/null || curl -fsS -m 5 "$1" 2>/dev/null; } | tr -d "\r\n"' \
+      probe "${_oep_url}/api/tags" 2>/dev/null)" || true
+    [[ -z "$_oep_tmpnet" ]] || docker network rm "$_oep_tmpnet" >/dev/null 2>&1 || true
+    if grep -q '^ollama-reach-probe' <<<"$_oep_body"; then
+      if grep -q '"models"[[:space:]]*:' <<<"$_oep_body"; then
+        return 0
+      fi
+      print_error "A container on ${_oep_where} cannot reach this machine's Ollama at $(_ollama_ep_shown_url "$_oep_url")." >&2
+      print_error "An Ollama that listens on 127.0.0.1 only needs a forwarder onto Docker's networks, compose networks included (NikOS installs one with the engine), or OLLAMA_HOST=0.0.0.0 behind a firewall; or run the project without Docker." >&2
+      return 4
+    fi
+    _oep_why="the probe container on image $(_ollama_ep_said "$_oep_image") did not run"
+  fi
+
   # The first IPv4 gateway of the default bridge: host-gateway is that address
   # unless the daemon sets host-gateway-ip.
   _oep_gw="$(docker network inspect bridge -f '{{range .IPAM.Config}}{{.Gateway}} {{end}}' 2>/dev/null \
@@ -1200,12 +1280,14 @@ ollama_endpoint_container_reach() {
   # VM (Colima, OrbStack), rootless Docker and a remote DOCKER_HOST keep theirs
   # elsewhere, and their containers reach the host by other means.
   if ! ollama_endpoint_is_local "http://${_oep_gw}"; then
-    print_info "Not checked whether a container reaches this machine's Ollama: Docker's bridge (${_oep_gw}) is not on this machine (Docker Desktop, a VM, rootless Docker or a remote DOCKER_HOST)." >&2
+    print_info "Not checked whether a container reaches this machine's Ollama: Docker's bridge (${_oep_gw}) is not on this machine (Docker Desktop, a VM, rootless Docker or a remote DOCKER_HOST), and ${_oep_why}." >&2
     return 0
   fi
   # The URL as written, connected to the gateway instead (--connect-to): its
   # scheme, credentials, proxy path, port and TLS name stay what the container
-  # sends. From 127.0.0.1, not from the host's own bridge address.
+  # sends. From 127.0.0.1, not from the host's own bridge address: a request
+  # with that address as its source is dropped on some hosts while containers
+  # are answered.
   _oep_body="$(curl -sS -m 5 --interface 127.0.0.1 --connect-to "::${_oep_gw}:" "${_oep_url}/api/tags" 2>/dev/null | tr -d '\n\r')" || _oep_body=""
   # Any web server may answer 200. An Ollama's answer contains "models".
   if ! grep -q '"models"[[:space:]]*:' <<<"$_oep_body"; then
@@ -1213,6 +1295,7 @@ ollama_endpoint_container_reach() {
     print_error "An Ollama that listens on 127.0.0.1 only needs a forwarder onto the bridge (NikOS installs one with the engine); or run the project without Docker." >&2
     return 4
   fi
+  print_info "Docker's default bridge reaches this machine's Ollama; not checked from the project's network (${_oep_why})." >&2
   return 0
 }
 
@@ -1554,3 +1637,410 @@ ollama_project_ensure_models() (
   fi
   exit "$_oep_status"
 )
+
+# --- which Ollama a project uses: the host's, or its optional container -----
+#
+# The machine's one Ollama is the default and preferred. A project may ship an
+# optional Ollama container in a compose override (docker-ollama.yml) for a
+# machine where Ollama cannot run on the host; it is used only when the owner
+# sets OLLAMA_RUNTIME=container, and never chosen here by itself. Its models
+# volume is external, so `docker compose down -v` never removes it.
+
+# Usage: _ollama_ep_setting <NAME> <env_file>; prints NAME from the
+# environment, else from env_file (read as data). Blank is not set.
+_ollama_ep_setting() {
+  local _oep_value
+  _oep_value="$(printf '%s' "${!1:-}" | tr -d ' \t\r\n')" || true
+  if [[ -n "$_oep_value" ]]; then
+    printf '%s' "${!1}"
+    return 0
+  fi
+  ollama_models_file_get "${2:-}" "$1" 2>/dev/null | tr -d '\n' || true
+}
+
+# Usage: _ollama_ep_abs <root> <path>; a path relative to root made absolute.
+_ollama_ep_abs() {
+  case "${2:-}" in
+    /*) printf '%s\n' "$2" ;;
+    *) printf '%s\n' "${1%/}/$2" ;;
+  esac
+}
+
+# Usage: ollama_runtime [env_file]; prints host or container: OLLAMA_RUNTIME
+# from the environment, else from env_file, else host. Returns 9 for any other
+# value, which is named with the two it may be.
+ollama_runtime() {
+  local _oep_value
+  _oep_value="$(_ollama_ep_setting OLLAMA_RUNTIME "${1:-}" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')" || true
+  case "${_oep_value:-host}" in
+    host|container) printf '%s\n' "${_oep_value:-host}" ;;
+    *)
+      print_error "OLLAMA_RUNTIME=$(_ollama_ep_said "$_oep_value") is not a runtime: use host (the machine's Ollama, the default) or container (the project's optional Ollama in docker-ollama.yml)." >&2
+      return 9
+      ;;
+  esac
+}
+
+# Usage: _ollama_ep_project_paths <root> <compose> <override>; sets
+# _oep_compose and _oep_override (absolute) in the caller. The override
+# defaults to docker-ollama.yml next to the main file. Returns 9 when a path
+# holds COMPOSE_PATH_SEPARATOR: COMPOSE_FILE would split it in two.
+_ollama_ep_project_paths() {
+  local _oep_sep="${COMPOSE_PATH_SEPARATOR:-:}" _oep_p
+  _oep_compose="$(_ollama_ep_abs "$1" "${2:-docker-compose.yml}")"
+  if [[ -n "${3:-}" ]]; then
+    _oep_override="$(_ollama_ep_abs "$1" "$3")"
+  else
+    _oep_override="$(dirname "$_oep_compose")/docker-ollama.yml"
+  fi
+  for _oep_p in "$_oep_compose" "$_oep_override"; do
+    if [[ "$_oep_p" == *"$_oep_sep"* ]]; then
+      print_error "$(_ollama_ep_said "$_oep_p") has '${_oep_sep}' in it, which COMPOSE_FILE reads as two files: move the project, or set COMPOSE_PATH_SEPARATOR." >&2
+      return 9
+    fi
+  done
+}
+
+# Usage: ollama_project_compose_files <root> [--compose FILE] [--override FILE] [--by-runtime] [--env-file FILE]
+# Prints the COMPOSE_FILE value for a project's compose call: the main file
+# (default <root>/docker-compose.yml) and the optional Ollama override
+# (default docker-ollama.yml next to it) when that file is there, joined by
+# COMPOSE_PATH_SEPARATOR (default ":"). Paths are absolute.
+# The override is included whatever OLLAMA_RUNTIME says, so a stop also stops
+# a container started earlier in the other mode. With --by-runtime it is
+# included only with OLLAMA_RUNTIME=container (from the environment or the
+# env file, default <root>/.env), for the other verbs.
+# Returns 9 for an unknown option or, with --by-runtime, an unknown runtime.
+ollama_project_compose_files() {
+  local _oep_root="${1:-}" _oep_compose="" _oep_override="" _oep_c="" _oep_o="" _oep_env="" _oep_by=0 _oep_rt
+  if [[ -z "$_oep_root" || ! -d "$_oep_root" ]]; then
+    print_error "ollama_project_compose_files: the first argument is the project's root directory." >&2
+    return 9
+  fi
+  shift
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --compose|--override|--env-file)
+        if [[ $# -lt 2 ]]; then
+          print_error "ollama_project_compose_files: $1 needs a value." >&2
+          return 9
+        fi
+        case "$1" in
+          --compose) _oep_c="$2" ;;
+          --override) _oep_o="$2" ;;
+          *) _oep_env="$2" ;;
+        esac
+        shift 2
+        ;;
+      --by-runtime) _oep_by=1; shift ;;
+      *) print_error "ollama_project_compose_files: unknown option $(_ollama_ep_said "$1")" >&2; return 9 ;;
+    esac
+  done
+  _ollama_ep_project_paths "$_oep_root" "$_oep_c" "$_oep_o" || return 9
+  if [[ "$_oep_by" -eq 1 ]]; then
+    _oep_rt="$(ollama_runtime "$(_ollama_ep_abs "$_oep_root" "${_oep_env:-.env}")")" || return 9
+    if [[ "$_oep_rt" != "container" ]]; then
+      printf '%s\n' "$_oep_compose"
+      return 0
+    fi
+  fi
+  if [[ -f "$_oep_override" ]]; then
+    printf '%s%s%s\n' "$_oep_compose" "${COMPOSE_PATH_SEPARATOR:-:}" "$_oep_override"
+  else
+    printf '%s\n' "$_oep_compose"
+  fi
+}
+
+# Usage: _ollama_ep_compose_network <compose_file> <env_file>; prints the
+# default network compose gives the project (<project>_default): the project
+# name is COMPOSE_PROJECT_NAME, else the main file's directory, normalised as
+# compose does it.
+_ollama_ep_compose_network() {
+  local _oep_name
+  _oep_name="$(_ollama_ep_setting COMPOSE_PROJECT_NAME "${2:-}")"
+  [[ -n "$_oep_name" ]] || _oep_name="$(basename "$(dirname "${1:-.}")")"
+  _oep_name="$(printf '%s' "$_oep_name" | tr 'A-Z' 'a-z' | LC_ALL=C tr -cd 'a-z0-9_-')" || true
+  [[ -z "$_oep_name" ]] || printf '%s_default\n' "$_oep_name"
+}
+
+# Usage: ollama_project_prepare <root> --mode docker|local --url-var NAME --volume NAME [option...]
+#
+# The whole "which Ollama, and does it have the models" step of a project's
+# start, in one call that is not a subshell (it exports what compose and the
+# app read):
+#   ollama_project_prepare "$ROOT" --mode docker --url-var OLLAMA_BASE_URL \
+#     --volume myapp_ollama_data --model-var OLLAMA_MODEL --standard-tier || exit $?
+#
+#   --mode docker|local   where the app runs: in a container, or on this machine
+#   --url-var NAME        the variable the app reads the Ollama address from;
+#                         exported with the address it must use. Repeat for
+#                         older names the app also reads: in host mode the
+#                         first one set is used; only the first is exported
+#   --volume NAME         the external models volume of the optional container
+#   --url-suffix PATH     the API path the app keeps in the address
+#                         (/api/generate); added to the addresses made here
+#                         (the defaults and --container-url), never to a
+#                         value read from the environment or the env file
+#   --compose FILE        the main compose file (docker-compose.yml)
+#   --override FILE       the optional Ollama override (docker-ollama.yml next
+#                         to the main file)
+#   --env-file FILE       the project's settings (.env)
+#   --models-file FILE    the approved models (ai-models.env)
+#   --model-var NAME      a variable the app reads a model from; repeat for
+#                         more. Exported (environment, else env file, else
+#                         models file). None: every name in the models file.
+#   --standard-tier       the app reads that one variable, not the per-class
+#                         columns: AI_MODEL_TIER=standard, so the check asks
+#                         for the model the app will use
+#   --skip-var NAME       when that variable is 1, nothing is checked; the
+#                         compose files, the address and the volume are still
+#                         set up
+#   --port-var NAME       the container's published port (OLLAMA_CONTAINER_PORT,
+#                         default 11435)
+#   --container-url URL   the address the app uses for the container
+#                         (http://ollama:11434), with --mode docker
+#   --network NAME        the network the app's container is on, for the reach
+#                         check (default <project>_default once it exists)
+#   --no-container-pull   the container publishes no port and has no egress:
+#                         it is not started or checked here; its models come
+#                         with the volume
+#
+# OLLAMA_RUNTIME (environment, else env file; default host):
+#   host       COMPOSE_FILE is the main file. The address is <url-var>, else
+#              http://host.docker.internal:11434 (docker) or
+#              http://127.0.0.1:11434 (local). An address naming the
+#              container's service is refused (9): it runs only with
+#              OLLAMA_RUNTIME=container. The models are checked
+#              (ollama_project_ensure_models); with --mode docker, then
+#              ollama_endpoint_container_reach from the project's network.
+#              The check runs with OLLAMA_MODE=local when the address is this
+#              machine, whatever OLLAMA_MODE says.
+#   container  COMPOSE_FILE is main:override. The volume is created when it is
+#              missing, `docker compose up -d ollama` is run, and the models are
+#              checked on 127.0.0.1:<port> with OLLAMA_MODE=docker. The address
+#              is --container-url (docker) or http://127.0.0.1:<port> (local).
+# OLLAMA_PULL_MISSING defaults to ask for an Ollama on this machine only.
+#
+# Returns 0; what ollama_project_ensure_models returns (1-8); 4 also when the
+# container does not answer or (host, --mode docker) a container cannot reach
+# the host's Ollama. A host-mode 4 for this machine's Ollama names the host's
+# Ollama first and OLLAMA_RUNTIME=container second; 9 for the call or
+# the configuration (an unknown option, OLLAMA_RUNTIME, an address that is
+# not one or names the container in host mode, a port, a missing override, a
+# compose path holding COMPOSE_PATH_SEPARATOR);
+# 10 when Docker is needed for the container and fails (absent, the volume,
+# compose up).
+ollama_project_prepare() {
+  local IFS=$' \t\n'
+  local _oep_root="${1:-}" _oep_mode="" _oep_var="" _oep_suffix="" _oep_vol="" _oep_c="" _oep_o=""
+  local _oep_env="" _oep_mf="" _oep_tier=0 _oep_skip="" _oep_pvar="OLLAMA_CONTAINER_PORT"
+  local _oep_curl="http://ollama:11434" _oep_net="" _oep_nopull=0 _oep_compose _oep_override
+  local _oep_rt _oep_url _oep_base _oep_host _oep_svc _oep_port _oep_value _oep_name _oep_rc=0 _oep_i
+  local _oep_local=0 _oep_waited=0
+  local -a _oep_vars=() _oep_dc=() _oep_uvars=()
+  if [[ -z "$_oep_root" || ! -d "$_oep_root" ]]; then
+    print_error "ollama_project_prepare: the first argument is the project's root directory." >&2
+    return 9
+  fi
+  shift
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --mode|--url-var|--url-suffix|--volume|--compose|--override|--env-file|--models-file|--model-var|--skip-var|--port-var|--container-url|--network)
+        if [[ $# -lt 2 ]]; then
+          print_error "ollama_project_prepare: $1 needs a value." >&2
+          return 9
+        fi
+        case "$1" in
+          --mode) _oep_mode="$2" ;;
+          --url-var) if [[ -z "$_oep_var" ]]; then _oep_var="$2"; else _oep_uvars+=("$2"); fi ;;
+          --url-suffix) _oep_suffix="$2" ;;
+          --volume) _oep_vol="$2" ;;
+          --compose) _oep_c="$2" ;;
+          --override) _oep_o="$2" ;;
+          --env-file) _oep_env="$2" ;;
+          --models-file) _oep_mf="$2" ;;
+          --model-var) _oep_vars+=("$2") ;;
+          --skip-var) _oep_skip="$2" ;;
+          --port-var) _oep_pvar="$2" ;;
+          --container-url) _oep_curl="$2" ;;
+          --network) _oep_net="$2" ;;
+        esac
+        shift 2
+        ;;
+      --standard-tier) _oep_tier=1; shift ;;
+      --no-container-pull) _oep_nopull=1; shift ;;
+      *) print_error "ollama_project_prepare: unknown option $(_ollama_ep_said "$1")" >&2; return 9 ;;
+    esac
+  done
+  case "$_oep_mode" in
+    docker|local) ;;
+    *) print_error "ollama_project_prepare: --mode is docker (the app runs in a container) or local (on this machine)." >&2; return 9 ;;
+  esac
+  for _oep_name in "$_oep_var" "$_oep_pvar" ${_oep_skip:+"$_oep_skip"} ${_oep_vars[@]+"${_oep_vars[@]}"} ${_oep_uvars[@]+"${_oep_uvars[@]}"}; do
+    if ! _ollama_ep_is_name "$_oep_name"; then
+      print_error "ollama_project_prepare: not a variable name: $(_ollama_ep_said "$_oep_name") (--url-var is required)." >&2
+      return 9
+    fi
+  done
+  # Docker's rule for a volume name: two characters at least.
+  if ! [[ "$_oep_vol" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]+$ ]]; then
+    print_error "ollama_project_prepare: --volume names the external models volume (two or more of letters, digits, _ . -)." >&2
+    return 9
+  fi
+  case "$_oep_suffix" in ""|/*) ;; *) _oep_suffix="/$_oep_suffix" ;; esac
+  _oep_env="$(_ollama_ep_abs "$_oep_root" "${_oep_env:-.env}")"
+  _oep_mf="$(_ollama_ep_abs "$_oep_root" "${_oep_mf:-ai-models.env}")"
+  _ollama_ep_project_paths "$_oep_root" "$_oep_c" "$_oep_o" || return 9
+  if ! ollama_endpoint_base_url "$_oep_curl" >/dev/null; then
+    print_error "ollama_project_prepare: --container-url is not the address of an Ollama." >&2
+    return 9
+  fi
+
+  _oep_rt="$(ollama_runtime "$_oep_env")" || return 9
+  export OLLAMA_RUNTIME="$_oep_rt"
+
+  # The model the app reads: the environment, else .env, else the models file.
+  for _oep_name in ${_oep_vars[@]+"${_oep_vars[@]}"}; do
+    ollama_env_file_export "$_oep_env" "$_oep_name" || return 9
+    ollama_env_file_export "$_oep_mf" "$_oep_name" || return 9
+  done
+  if [[ "$_oep_tier" -eq 1 ]]; then
+    _oep_value="$(_ollama_ep_setting AI_MODEL_TIER "$_oep_env" | tr -d ' \t\r')" || true
+    if [[ -n "$_oep_value" && "$_oep_value" != "standard" ]]; then
+      print_warning "AI_MODEL_TIER=$(_ollama_ep_said "$_oep_value") is not used: the app reads ${_oep_vars[*]:-its model variable} only." >&2
+    fi
+    export AI_MODEL_TIER=standard
+  fi
+  _oep_value=""
+  [[ -z "$_oep_skip" ]] || _oep_value="$(_ollama_ep_setting "$_oep_skip" "$_oep_env" | tr -d ' \t\r')"
+  [[ "$_oep_value" == "1" ]] || _oep_skip=""
+  _oep_svc="$(_ollama_ep_host "$_oep_curl")"
+
+  if [[ "$_oep_rt" == "host" ]]; then
+    # The first --url-var that is set, from the environment, else the env file.
+    for _oep_name in "$_oep_var" ${_oep_uvars[@]+"${_oep_uvars[@]}"}; do
+      _oep_url="$(_ollama_ep_setting "$_oep_name" "$_oep_env")"
+      [[ -z "$(printf '%s' "$_oep_url" | tr -d ' \t\r')" ]] || break
+    done
+    if [[ -z "$(printf '%s' "$_oep_url" | tr -d ' \t\r')" ]]; then
+      if [[ "$_oep_mode" == "docker" ]]; then
+        _oep_url="http://host.docker.internal:11434${_oep_suffix}"
+      else
+        _oep_url="http://127.0.0.1:11434${_oep_suffix}"
+      fi
+    fi
+    if ! _oep_base="$(ollama_endpoint_base_url "$_oep_url")"; then
+      print_error "$_oep_var is not the address of an Ollama. It is a host, host:port or an http(s) URL; a password in it must be percent-encoded." >&2
+      return 9
+    fi
+    _oep_host="$(_ollama_ep_host "$_oep_base")"
+    if [[ -n "$_oep_svc" && "$_oep_host" == "$_oep_svc" ]]; then
+      print_error "$_oep_var=$(_ollama_ep_shown_url "$_oep_url") names the ${_oep_svc} container, which runs only with OLLAMA_RUNTIME=container." >&2
+      if [[ "$_oep_mode" == "docker" ]]; then
+        print_error "Fix: remove that setting from .env or the environment (the default is the host's Ollama, http://host.docker.internal:11434${_oep_suffix}), or set OLLAMA_RUNTIME=container only if Ollama cannot run on this host." >&2
+      else
+        print_error "Fix: remove that setting from .env or the environment (the default is the host's Ollama, http://127.0.0.1:11434${_oep_suffix}), or set OLLAMA_RUNTIME=container only if Ollama cannot run on this host." >&2
+      fi
+      return 9
+    fi
+    # An app on this machine cannot resolve Docker's name for it.
+    if [[ "$_oep_mode" == "local" ]] && ! _ollama_ep_in_container; then
+      case "$_oep_host" in
+        host.docker.internal|gateway.docker.internal)
+          _oep_url="$(printf '%s' "$_oep_url" | sed -E 's#(://([^/@]*@)?)?(host|gateway)\.docker\.internal#\1127.0.0.1#')" || true
+          ;;
+      esac
+    fi
+    export COMPOSE_FILE="$_oep_compose"
+    export "$_oep_var=$_oep_url"
+    if [[ -n "$_oep_skip" ]]; then
+      print_info "${_oep_skip}=1: the Ollama check is skipped." >&2
+      return 0
+    fi
+    # Docker's names for the host are this machine, seen from the host.
+    if ollama_endpoint_is_local "$_oep_base"; then _oep_local=1; fi
+    ( export OLLAMA_URL_VARS=_OLLAMA_EP_PREPARE_URL _OLLAMA_EP_PREPARE_URL="$_oep_url"
+      if [[ "$_oep_local" -eq 1 ]]; then
+        # Host mode: an OLLAMA_MODE=docker left from a container setup would
+        # measure a pull against Docker's disk instead of the host's.
+        export OLLAMA_MODE=local
+        [[ -n "$(_ollama_ep_setting OLLAMA_PULL_MISSING "$_oep_env")" ]] || export OLLAMA_PULL_MISSING=ask
+      fi
+      ollama_project_ensure_models "$_oep_mf" "$_oep_env" ${_oep_vars[@]+"${_oep_vars[@]}"} ) || _oep_rc=$?
+    if [[ "$_oep_rc" -eq 4 && "$_oep_local" -eq 0 ]]; then
+      print_error "No Ollama answers at $(_ollama_ep_shown_url "$_oep_url") (${_oep_var}): start it there, or remove ${_oep_var} to use this machine's Ollama." >&2
+    elif [[ "$_oep_rc" -eq 4 ]]; then
+      print_error "The host's Ollama does not answer. Start it, or install it: the host's Ollama is the default and preferred." >&2
+      print_error "Only if Ollama cannot run on this host: set OLLAMA_RUNTIME=container in $(_ollama_ep_said "$(basename "$_oep_env")") to use the optional Ollama in Docker ($(basename "$_oep_override"))." >&2
+    fi
+    [[ "$_oep_rc" -eq 0 ]] || return "$_oep_rc"
+    [[ "$_oep_mode" == "docker" ]] || return 0
+    [[ -n "$_oep_net" ]] || _oep_net="$(_ollama_ep_compose_network "$_oep_compose" "$_oep_env")"
+    ollama_endpoint_container_reach "$_oep_url" "$_oep_net"
+    return
+  fi
+
+  # OLLAMA_RUNTIME=container: the owner chose the optional container.
+  if [[ ! -f "$_oep_override" ]]; then
+    print_error "OLLAMA_RUNTIME=container, and there is no $(_ollama_ep_said "$_oep_override"): this project has no optional Ollama container. Use the host's Ollama (delete OLLAMA_RUNTIME)." >&2
+    return 9
+  fi
+  _oep_value="$(_ollama_ep_setting "$_oep_pvar" "$_oep_env" | tr -d ' \t\r')" || true
+  if [[ -z "$_oep_value" ]]; then
+    _oep_port=11435
+  elif ! _oep_port="$(_ollama_ep_uint "$_oep_value")" || [[ "$_oep_port" -lt 1 || "$_oep_port" -gt 65535 ]]; then
+    print_error "$_oep_pvar is not a port number (1 to 65535)." >&2
+    return 9
+  fi
+  if [[ "$_oep_port" -eq 11434 ]]; then
+    print_error "$_oep_pvar=11434 is the host Ollama's port: give the container another (default 11435)." >&2
+    return 9
+  fi
+  export "$_oep_pvar=$_oep_port"
+  export COMPOSE_FILE="${_oep_compose}${COMPOSE_PATH_SEPARATOR:-:}${_oep_override}"
+  if [[ "$_oep_mode" == "docker" ]]; then
+    _oep_url="${_oep_curl%/}${_oep_suffix}"
+  else
+    _oep_url="http://127.0.0.1:${_oep_port}${_oep_suffix}"
+  fi
+  export "$_oep_var=$_oep_url"
+
+  if ! command -v docker >/dev/null 2>&1; then
+    print_error "OLLAMA_RUNTIME=container needs Docker, and there is no docker command. Install Docker, or use the host's Ollama (delete OLLAMA_RUNTIME)." >&2
+    return 10
+  fi
+  # External: compose does not create it, and `down -v` never removes it.
+  # Created before the skip: compose needs it either way.
+  if ! docker volume inspect "$_oep_vol" >/dev/null 2>&1 && ! docker volume create "$_oep_vol" >/dev/null; then
+    print_error "Could not create the Docker volume $_oep_vol." >&2
+    return 10
+  fi
+  if [[ -n "$_oep_skip" ]]; then
+    print_info "${_oep_skip}=1: the Ollama check is skipped." >&2
+    return 0
+  fi
+  if [[ "$_oep_nopull" -eq 1 ]]; then
+    print_warning "OLLAMA_RUNTIME=container: the models are not checked. That container publishes no port and cannot pull; put the models in volume $_oep_vol." >&2
+    return 0
+  fi
+
+  if declare -F docker_compose >/dev/null 2>&1; then _oep_dc=(docker_compose); else _oep_dc=(docker compose); fi
+  [[ ! -f "$_oep_env" ]] || _oep_dc+=(--env-file "$_oep_env")
+  if ! "${_oep_dc[@]}" up -d ollama; then
+    print_error "The ollama container did not start (docker compose up -d ollama, with $(_ollama_ep_said "$(basename "$_oep_override")"))." >&2
+    return 10
+  fi
+  _oep_i="$(_ollama_ep_uint "${OLLAMA_CONTAINER_WAIT_SECONDS:-60}" 2>/dev/null)" || _oep_i=60
+  _oep_waited=$SECONDS
+  until curl -fsS -m 2 "http://127.0.0.1:${_oep_port}/api/tags" >/dev/null 2>&1; do
+    if (( SECONDS - _oep_waited >= _oep_i )); then
+      print_error "The ollama container does not answer on 127.0.0.1:${_oep_port} after ${_oep_i} s (docker compose logs ollama)." >&2
+      return 4
+    fi
+    sleep 1
+  done
+  ( export OLLAMA_URL_VARS=_OLLAMA_EP_PREPARE_URL _OLLAMA_EP_PREPARE_URL="$_oep_url" \
+      OLLAMA_MODE=docker OLLAMA_PORT="$_oep_port" OLLAMA_HOST_PORT="$_oep_port"
+    [[ -n "$(_ollama_ep_setting OLLAMA_PULL_MISSING "$_oep_env")" ]] || export OLLAMA_PULL_MISSING=ask
+    ollama_project_ensure_models "$_oep_mf" "$_oep_env" ${_oep_vars[@]+"${_oep_vars[@]}"} )
+}
