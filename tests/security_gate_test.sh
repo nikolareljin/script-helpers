@@ -615,6 +615,29 @@ if command -v python3 >/dev/null 2>&1; then
            "GITLEAKS_BIN=/bin/true git push"; do
     hook_rc 2 "override in the command: [$v] is refused" "$v"
   done
+  # A here-document that only becomes a file is data: a test or a doc may
+  # mention an override. Anything that runs the body is still refused.
+  hook_rc 0 "heredoc: a body written to a file may mention HOME=" "cat > $tmp/hd-notes.md <<'EOF'
+set HOME=/tmp/h and script-helpers.owners in the test
+EOF"
+  hook_rc 0 "heredoc: tee into a file, <<- form" "tee $tmp/hd-notes2.md <<-EOF
+	export SENSITIVE_ALLOW=x is documented here
+	EOF"
+  hook_rc 2 "heredoc: a body piped to bash is read" "cat <<'EOF' | bash
+HOME=/tmp/h git push
+EOF"
+  hook_rc 2 "heredoc: a body fed to bash is read" "bash <<'EOF'
+HOME=/tmp/h git push
+EOF"
+  hook_rc 2 "heredoc: a command after the body is read" "cat > $tmp/hd-x.md <<'EOF'
+plain
+EOF
+HOME=/tmp/h git push"
+  hook_rc 2 "heredoc: a body that never ends hides nothing after a chained command" "cat > $tmp/hd-y.md <<'EOF'; HOME=/tmp/h git push
+EOF"
+  hook_rc 2 "heredoc: a body fed to python is read" "python3 - <<'EOF'
+import subprocess; subprocess.run('HOME=/tmp/h git push', shell=True)
+EOF"
   # Every command is scanned, not only publishing ones.
   hook_rc 2 "any command: PII in plain echo is refused" "echo 'mail $real_email' > notes.txt"
   hook_rc 2 "any command: PII in a file read with < is refused" "wc -l < $tmp/field-body.md"
@@ -623,9 +646,12 @@ if command -v python3 >/dev/null 2>&1; then
   # The cheap name test in front of check_private_names.sh is a superset.
   { printf '# generated: 2026-10-11 source: test\n'; printf '# visibility\tnamespace\tname\tcode\tflags\n'
     printf 'private\tns\tzzq-hidden-widget\tR-777\t\n'; } > "$tmp/names-hdr.tsv"
+  # Run from a repository with no remote (unlisted, so public): an echo in a
+  # directory that is not a repository has no destination and is not checked.
+  new_repo "$tmp/prefilter-repo"
   for v in "echo zzq-hidden-widget" "echo ZZQ-HIDDEN-WIDGET" "gh pr create -R example-owner/x --body 'see zzq-hidden-widget'"; do
     python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.argv[1]}}))' "$v" \
-      | PRIVATE_NAMES_FILE="$tmp/names-hdr.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
+      | (cd "$tmp/prefilter-repo" && PRIVATE_NAMES_FILE="$tmp/names-hdr.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK") >"$tmp/out" 2>&1
     rc=$?
     # The full check decides; the prefilter must only let it run.
     grep -q "names a private repository\|R-777\|zzq" "$tmp/out" && ok "prefilter passes [$v] to the full check" || error "prefilter hid [$v]: rc=$rc $(cat "$tmp/out")"
