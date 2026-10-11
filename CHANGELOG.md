@@ -9,6 +9,12 @@
   `--fail-on-findings`, so a committed secret fails the run. Git mode also stops
   the false positive the old `--no-git` scan hit in vendored submodules.
   foxguard and the dependency audits stay report only.
+- **A missing gitleaks or foxguard is installed, not skipped.** A local
+  preflight downloads the pinned release for Linux, macOS or Windows (Git Bash),
+  checks its SHA-256 and caches it under `~/.cache/script-helpers/`; before, a
+  machine without gitleaks pushed with no secret scan at all. New
+  `lib/gitleaks.sh` and `ci_security.sh --install-gitleaks`.
+  `PREFLIGHT_NO_INSTALL=1` turns it off. CI never runs preflight.
 
 ## 2026-10-10 — v0.48.0
 

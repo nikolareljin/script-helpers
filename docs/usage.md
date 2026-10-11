@@ -425,8 +425,14 @@ A full `./dev preflight` and the pre-push hook split the step in two. The
 `secret scan` (gitleaks, git mode) blocks: a committed secret fails the run and
 refuses the push. foxguard and the dependency audits stay report only: they
 print findings, do not block, and their summary lines say `(report only)`.
-Without gitleaks on the host, both report `SKIP  gitleaks secret scan` instead
-of implying secrets were scanned.
+A local preflight installs a missing gitleaks or foxguard before it scans: the
+pinned release for Linux, macOS or Windows (Git Bash), checked against the SHA-256
+in `lib/ci_defaults.sh`, into `~/.cache/script-helpers/`. No sudo. A gitleaks
+already on `PATH` (brew, apt, scoop) is used instead. `PREFLIGHT_NO_INSTALL=1`
+turns this off. When the install fails (offline), both report
+`SKIP  gitleaks secret scan` instead of implying secrets were scanned. Preflight
+never runs in CI, so CI is unaffected. To install by hand:
+`bash scripts/ci_security.sh --install-gitleaks` (or `--install-foxguard`).
 
 The scan also runs [foxguard](https://github.com/0sec-labs/foxguard), a static
 analysis scanner, at the version pinned in `lib/ci_defaults.sh`, on the host in

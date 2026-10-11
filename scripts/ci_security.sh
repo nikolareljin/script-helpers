@@ -12,6 +12,9 @@
 #   --check-foxguard       Exit 0 if foxguard is available, 3 if not (for preflight).
 #   --install-foxguard     Download the pinned foxguard release binary, check its
 #                          SHA-256 against lib/ci_defaults.sh, cache it, and exit.
+#   --check-gitleaks       Exit 0 if gitleaks is available (PATH or cache), 3 if not.
+#   --install-gitleaks     Download the pinned gitleaks release, check its SHA-256
+#                          against lib/ci_defaults.sh, cache it, and exit.
 #   --python-req <f>       Python requirements file (default: requirements.txt if present).
 #   --node-cmd <c>         Override node audit command (default: npm audit --audit-level=high).
 #   --python-version <v>   Python Docker image tag (default: from ci_defaults module).
@@ -50,7 +53,7 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=/dev/null
 source "$SCRIPT_HELPERS_DIR/helpers.sh"
-shlib_import help logging ci_defaults foxguard
+shlib_import help logging ci_defaults foxguard gitleaks
 
 WORKDIR="."
 INSTALL_TOOLS=false
@@ -82,6 +85,8 @@ while [[ $# -gt 0 ]]; do
     --skip-foxguard) SKIP_FOXGUARD=true; shift;;
     --install-foxguard) INSTALL_FOXGUARD=true; shift;;
     --check-foxguard) foxguard_bin >/dev/null && exit 0; exit 3;;
+    --check-gitleaks) gitleaks_bin >/dev/null && exit 0; exit 3;;
+    --install-gitleaks) gitleaks_install; exit $?;;
     --fail-on-findings) FAIL_ON_FINDINGS=true; shift;;
     --python-req) PYTHON_REQ="$2"; shift 2;;
     --node-cmd) NODE_CMD="$2"; shift 2;;
@@ -355,18 +360,18 @@ else
     fi
   fi
   if [[ "$SKIP_GITLEAKS" == "false" ]]; then
-    if command -v gitleaks >/dev/null 2>&1; then
+    if GITLEAKS_BIN="$(gitleaks_bin)"; then
       # git mode runs from the repository top: the history is the whole
       # repository's anyway, and gitleaks reads .gitleaks.toml and
       # .gitleaksignore from where it runs.
       if [[ " ${GITLEAKS_ARGS[*]} " != *" --no-git "* ]]; then
-        ( cd "$(git rev-parse --show-toplevel)" && gitleaks "${GITLEAKS_ARGS[@]}" ) || finding "gitleaks"
+        ( cd "$(git rev-parse --show-toplevel)" && "$GITLEAKS_BIN" "${GITLEAKS_ARGS[@]}" ) || finding "gitleaks"
       else
-        gitleaks "${GITLEAKS_ARGS[@]}" || finding "gitleaks"
+        "$GITLEAKS_BIN" "${GITLEAKS_ARGS[@]}" || finding "gitleaks"
       fi
       ran
     else
-      skipped "gitleaks is not installed; the secret scan did not run."
+      skipped "gitleaks is not installed; the secret scan did not run. bash $SCRIPT_DIR/ci_security.sh --install-gitleaks"
     fi
   fi
   popd >/dev/null
