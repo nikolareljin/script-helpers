@@ -140,9 +140,10 @@ on_exit() {
 # shellcheck disable=SC2154  # _rc is assigned inside the trap string
 trap '_rc=$?; if [[ ${BASHPID-$$} == "$$" ]]; then on_exit "$_rc"; fi' EXIT
 cat > "$payload_file"
-# The session directory is the payload's cwd field, one source of truth for the
-# destination parser and the scope lookups below. When it is missing, relative
-# or cannot be entered, the parser sees a mismatch and checks strictly.
+# The session directory is the payload's cwd field: the owner-scope lookups
+# below (sensitive data only) read the remotes there. When it is missing or
+# cannot be entered, the hook's own directory is used; private names are
+# checked either way.
 if [[ "$HAVE_PY" == true ]]; then
   payload_cwd="$("$PY" -c 'import json,sys
 try:
