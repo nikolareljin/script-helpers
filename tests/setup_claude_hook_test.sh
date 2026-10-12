@@ -155,6 +155,15 @@ mv "$XDG_CONFIG_HOME/script-helpers/private-names.tsv" "$tmp/names.off"
 rc="$(run --doctor)"
 [[ "$rc" == 1 ]] && grep -q 'no usable private name' "$tmp/out" && grep -q 'names     MISSING' "$tmp/out" \
   && ok "--doctor: no name list is reported as missing, and fails" || error "--doctor no list: rc=$rc $(cat "$tmp/out")"
+# The probe name is read as the gate reads the list: no header means the v1
+# column order, and a name the machine allowlist lets through is never used.
+printf 'private\texample\tzzqallowedbox\tR-903\t\nprivate\texample\tzzqsecretbox\tR-901\t\n' \
+  > "$XDG_CONFIG_HOME/script-helpers/private-names.tsv"
+printf 'zzqallowedbox\n' > "$XDG_CONFIG_HOME/script-helpers/private-names-allow"
+rc="$(run --doctor)"
+[[ "$rc" == 0 ]] && grep -q 'ok .*private name from your list.*exit 2' "$tmp/out" \
+  && ok "--doctor: a header-less list works, and an allowlisted name is skipped" || error "--doctor v1/allow: rc=$rc $(cat "$tmp/out")"
+rm -f "$XDG_CONFIG_HOME/script-helpers/private-names-allow"
 mv "$tmp/names.off" "$XDG_CONFIG_HOME/script-helpers/private-names.tsv"
 # A hook copy that went missing fails open; the doctor must say so.
 mv "$hook_copy" "$hook_copy.gone"

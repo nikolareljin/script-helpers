@@ -446,19 +446,25 @@ uninstall_global() {
 now_ms() { "$PY" -c 'import time; print(int(time.time() * 1000))'; }
 
 # probe_name: a private name from the list the hook reads, for the name probe.
-# A plain one (longer than 4, not flagged ambiguous), so a hit is certain.
+# Read as check_private_names.sh reads it: columns by the header, else the v1
+# order (visibility, namespace, name, code, flags); only "private" rows; never
+# a name the machine allowlist or PRIVATE_NAMES_ALLOW lets through.
 probe_name() {
   local list="${PRIVATE_NAMES_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names.tsv}"
+  local allow="${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names-allow"
   [[ -s "$list" ]] || return 1
-  awk -F'\t' '
-    /^# *visibility\t/ { for (i = 1; i <= NF; i++) { h = $i; sub(/^# */, "", h); col[h] = i } next }
-    /^#/ || !("name" in col) { next }
+  { printf '%s\n' "${PRIVATE_NAMES_ALLOW:-}" | tr ',' '\n'; if [[ -f "$allow" ]]; then cat "$allow"; fi; echo ' --end-of-allow-- '; } \
+    | tr -d ' \t\r' | tr '[:upper:]' '[:lower:]' | awk -F'\t' '
+    !inlist { if ($0 == "--end-of-allow--") inlist = 1; else if ($0 != "") skip[$0] = 1; next }
+    /^# *visibility/ && !hh { for (i = 1; i <= NF; i++) { h = $i; sub(/^# */, "", h); col[h] = i }; hh = 1; next }
+    /^#/ || NF == 0 { next }
     {
-      v = ("visibility" in col) ? $(col["visibility"]) : "private"
-      f = ("flags" in col) ? $(col["flags"]) : ""
-      n = $(col["name"])
-      if (v != "public" && f !~ /ambiguous/ && n ~ /^[A-Za-z0-9._-]+$/ && length(n) > 4) { print n; exit }
-    }' "$list"
+      vi = ("visibility" in col) ? col["visibility"] : 1
+      mi = ("name" in col) ? col["name"] : 3
+      fi = ("flags" in col) ? col["flags"] : 5
+      n = $mi
+      if ($vi == "private" && $fi !~ /ambiguous/ && n ~ /^[A-Za-z0-9._-]+$/ && length(n) > 4 && !(tolower(n) in skip)) { print n; exit }
+    }' - "$list"
 }
 
 # probe <want rc> <label> <expect> <command> <hook>: run the hook once on a
