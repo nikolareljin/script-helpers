@@ -43,7 +43,8 @@ new_repo() {
   git init -q "$r"; git -C "$r" remote add origin "https://github.com/example-owner/$1.git"
   echo "$r"
 }
-count_ours() { "$PY" -c 'import sys; print(open(sys.argv[1]).read().count("agent_hook.sh"))' "$1"; }
+# count_ours <file>: our entries (a Copilot entry names the hook twice, for bash and powershell).
+count_ours() { "$PY" -c 'import sys; print(sum(1 for l in open(sys.argv[1]) if "agent_hook.sh" in l and "\"powershell\"" not in l))' "$1"; }
 field() { (cd "$1" && bash "$setup" --status --porcelain 2>/dev/null) | tr '\t' '\n' | sed -n "s/^$2=//p"; }
 
 # 1. Install for all four: each file holds one entry, git status is clean, the
@@ -128,6 +129,10 @@ for a in codex gemini copilot cursor; do
   out="$(payload "$a" "ls -la" | bash "$adapter" "$a" 2>/dev/null)"; rc=$?
   [[ $rc -eq 0 && -z "$out" ]] && ok "$a: ls passes (0), no output" || error "$a: ls rc=$rc out=$out"
 done
+# No cwd in the payload: the directory the agent ran the hook from is used.
+out="$(cd "$r" && printf '{"command":"echo zzq-private-thing"}' | bash "$adapter" cursor 2>/dev/null)"; rc=$?
+[[ $rc -eq 2 ]] && ok "no cwd in the payload: the hook's own directory is used (refused)" || error "no cwd: rc=$rc"
+grep -q '"powershell": "& ' "$r/.github/hooks/script-helpers.json" && ok "copilot: a powershell command too (Copilot runs that one on Windows)" || error "copilot: no powershell command"
 # Copilot's toolArgs as JSON text, not an object.
 out="$(printf '{"cwd":"%s","toolName":"bash","toolArgs":"{\\"command\\":\\"echo zzq-private-thing\\"}"}' "$cwd" | bash "$adapter" copilot 2>/dev/null)"; rc=$?
 [[ $rc -eq 2 ]] && ok "copilot: toolArgs given as JSON text is read too" || error "copilot text args: rc=$rc"

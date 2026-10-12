@@ -66,8 +66,11 @@ else:
 if not isinstance(cmd, str):
     # Not a shell command we can read: the check scans the whole payload text.
     cmd = json.dumps(d)
+# No cwd in the payload: the agents run project hooks from the project, and the
+# check treats a missing cwd as out of scope (allowed).
+import os
 print(json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash",
-                  "tool_input": {"command": cmd}, "cwd": d.get("cwd") or ""}))
+                  "tool_input": {"command": cmd}, "cwd": d.get("cwd") or os.getcwd()}))
 ' "$agent")" || claude_payload="$payload"
 fi
 

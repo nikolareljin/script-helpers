@@ -316,7 +316,11 @@ before it is written, a tracked or symlinked file is refused, other hooks in
 the file stay, backups go under `.git/script-helpers/<agent>-backups`, and
 uninstall removes the file and directories only when this script created
 them. Codex and Gemini run a new project hook only after you trust it (Codex:
-`/hooks`). `--status --porcelain` lists them as `agents=`.
+`/hooks`). `--status --porcelain` lists them as `agents=`. On Windows the
+command names Git Bash's `bash.exe` by full path (a bare `bash` can be WSL's),
+and Copilot gets a `powershell` command as well, which is the one it runs there.
+The payload's `cwd` decides scope; without one, the directory the agent ran
+the hook from is used.
 
 ## Set it up on a machine
 

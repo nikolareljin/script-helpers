@@ -413,7 +413,12 @@ copy_agent_hooks() {
     || { rm -rf "$stage"; echo "[setup-hooks] ERROR: could not copy the agent hooks" >&2; exit 1; }
   stage_and_swap "$home" "$stage"
 }
-agent_command() { printf 'bash "%s/%s" %s' "$(native_path "$1")" "$AGENT_HOOK_REL" "$2"; }
+# agent_command <home> <agent>: the command the agent runs. On Windows, Git
+# Bash's own bash.exe by full path: a bare "bash" there can be WSL's.
+agent_bash() {
+  if [[ "$ON_WINDOWS" == true ]]; then printf '"%s"' "$(native_path "$BASH")"; else printf 'bash'; fi
+}
+agent_command() { printf '%s "%s/%s" %s' "$(agent_bash)" "$(native_path "$1")" "$AGENT_HOOK_REL" "$2"; }
 
 install_agents_user() {
   local a f rc

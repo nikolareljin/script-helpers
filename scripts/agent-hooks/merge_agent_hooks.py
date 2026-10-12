@@ -47,7 +47,10 @@ def entry(agent, command):
     if agent == "gemini":
         return {"name": NAME, "type": "command", "command": command, "timeout": TIMEOUT * 1000}
     if agent == "copilot":
-        return {"type": "command", "matcher": "bash|powershell", "bash": command, "timeoutSec": TIMEOUT}
+        # Copilot runs "powershell" on Windows and "bash" elsewhere; without the
+        # first, the hook would not run on Windows at all.
+        return {"type": "command", "matcher": "bash|powershell", "bash": command,
+                "powershell": "& " + command, "timeoutSec": TIMEOUT}
     # A crash or timeout must block: Cursor lets a command run on those otherwise.
     return {"command": command, "timeout": TIMEOUT, "failClosed": True}
 
