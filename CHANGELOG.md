@@ -2,6 +2,16 @@
 
 ### Added
 
+- **The security check for Codex, Gemini, Copilot CLI and Cursor.**
+  `setup-hooks.sh --agent-repo <list|all>` (this repository) and
+  `--agent <list|all>` (this user) add our entry to each agent's hook file:
+  Codex `PreToolUse`, Gemini `BeforeTool`, Copilot CLI `preToolUse`, Cursor
+  `beforeShellExecution`. `scripts/agent-hooks/agent_hook.sh` translates each
+  payload for the Claude hook and answers with exit 2 and the agent's own deny
+  JSON; a check that cannot run refuses. Same rules as `--claude-repo`: only
+  untracked files change, other hooks stay, uninstall removes only what it
+  made. `--status --porcelain` adds `agents=`. Ran for real with Codex 0.162.
+
 - **Hooks survive a takeover.** When another tool rewrites or removes
   `core.hooksPath` after the per-repository setup (husky on `npm install`), our
   hooks stopped with no sign. `setup-hooks.sh --status --porcelain` reports it

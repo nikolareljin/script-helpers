@@ -290,6 +290,34 @@ it cannot read (`--body-file -`, a missing file) and an unreadable payload for
 a publishing command count as "could not check". The checkers' exit codes map
 one to one: 0 allows, 1 refuses with the reason, 2 refuses as above.
 
+### Other AI agents: Codex, Gemini, Copilot CLI, Cursor
+
+The same check runs before each shell command these agents issue, through
+`scripts/agent-hooks/agent_hook.sh <agent>`: it reads the agent's payload,
+runs the Claude hook on the command, and refuses in the agent's own terms
+(exit 2, plus its deny JSON). If the check cannot run, the command is
+refused, since Cursor otherwise lets a command through on a crash.
+
+```bash
+bash <script-helpers>/scripts/setup-hooks.sh --agent-repo all          # this repository
+bash <script-helpers>/scripts/setup-hooks.sh --agent-repo codex,cursor --uninstall
+bash <script-helpers>/scripts/setup-hooks.sh --agent all               # this user
+```
+
+| Agent | Project file | Event (matcher) | User file |
+|---|---|---|---|
+| Codex | `.codex/hooks.json` | `PreToolUse` (`Bash`) | `~/.codex/hooks.json` |
+| Gemini | `.gemini/settings.json` | `BeforeTool` (`run_shell_command`) | `~/.gemini/settings.json` |
+| Copilot CLI | `.github/hooks/script-helpers.json` | `preToolUse` (`bash\|powershell`) | `~/.copilot/hooks/script-helpers.json` |
+| Cursor | `.cursor/hooks.json` | `beforeShellExecution` (`failClosed`) | `~/.cursor/hooks.json` |
+
+As with `--claude-repo`: the project file is listed in `.git/info/exclude`
+before it is written, a tracked or symlinked file is refused, other hooks in
+the file stay, backups go under `.git/script-helpers/<agent>-backups`, and
+uninstall removes the file and directories only when this script created
+them. Codex and Gemini run a new project hook only after you trust it (Codex:
+`/hooks`). `--status --porcelain` lists them as `agents=`.
+
 ## Set it up on a machine
 
 Per repository is the default: see "In one repository" above. The commands
