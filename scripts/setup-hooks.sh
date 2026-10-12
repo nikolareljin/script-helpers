@@ -40,7 +40,8 @@
 #   --status      Show what is installed, and the prerequisites.
 #   --porcelain   With --status, in a repository: one line of tab-separated key=value
 #                 fields for scripts: mode (chained, direct, none), taken_over (yes,
-#                 no), core_hooksPath, expected, previous, target, claude_repo.
+#                 no), core_hooksPath, expected, previous, target, claude_repo (yes,
+#                 no), global (yes when the --global hooks run here).
 #   --doctor      The prerequisites, then four probes through the installed Claude
 #                 hook, from a throwaway repository under the first owner: a private
 #                 name from your list, an SSN-shaped number, and git push --no-verify
@@ -755,12 +756,20 @@ record_setup() {
 
 read_setup_state
 if [[ "$STATUS" == true && "$PORCELAIN" == true ]]; then
+  # Read from the file itself: when a .gitignore already covers it, no
+  # exclude marker is written.
   claude_repo=no
-  grep -qxF '# script-helpers setup-hooks.sh --claude-repo' "$common_dir/info/exclude" 2>/dev/null && claude_repo=yes
-  printf 'mode=%s\ttaken_over=%s\tcore_hooksPath=%s\texpected=%s\tprevious=%s\ttarget=%s\tclaude_repo=%s\n' \
+  if [[ -f "$repo_root/.claude/settings.local.json" && -n "$PY" ]] && \
+     "$PY" "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$repo_root/.claude/settings.local.json")" >/dev/null 2>&1; then
+    claude_repo=yes
+  fi
+  # The machine-wide hooks run here when no local core.hooksPath overrides them.
+  global=no
+  [[ -n "$cur_global" && "$cur_global" == "$global_hooks" && -z "$cur_local" ]] && global=yes
+  printf 'mode=%s\ttaken_over=%s\tcore_hooksPath=%s\texpected=%s\tprevious=%s\ttarget=%s\tclaude_repo=%s\tglobal=%s\n' \
     "$setup_mode" "$taken_over" "$cur_local" "$setup_expected" \
     "$(git config --local --get script-helpers.previous-hooksPath 2>/dev/null || true)" \
-    "$(git config --local --get script-helpers.hooks-target 2>/dev/null || true)" "$claude_repo"
+    "$(git config --local --get script-helpers.hooks-target 2>/dev/null || true)" "$claude_repo" "$global"
   exit 0
 fi
 if [[ "$REPAIR" == true ]]; then

@@ -173,7 +173,7 @@ bash <script-helpers>/scripts/setup-hooks.sh --repair               # chain agai
 value it replaced as `script-helpers.previous-hooksPath-history`. `--uninstall`
 then restores the new tool's value: the setup that was there just before.
 `--status --porcelain` prints one tab-separated line (`mode`, `taken_over`,
-`core_hooksPath`, `expected`, `previous`, `target`, `claude_repo`) for tools
+`core_hooksPath`, `expected`, `previous`, `target`, `claude_repo`, `global`) for tools
 that check many repositories.
 
 Not reachable from git: hooks an IDE runs itself (a JetBrains or VS Code
