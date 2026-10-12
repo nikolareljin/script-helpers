@@ -148,6 +148,18 @@ git -C "$r" config core.hooksPath .husky
   && ok "--repair: chained; committed hooks the target, .husky the previous" || error "direct-takeover: '$(state "$r")'"
 clean_commit "$r" && [[ "$(ran)" == "committed husky" ]] && ok "after --repair both the committed hook and husky run" || error "direct-takeover: ran '$(ran)'"
 
+# An older vendored copy of these hooks run again is not a new tool: --repair
+# keeps the chain, the employer's value included.
+r="$(new_repo vendored-rerun)"
+marker_hook "$tmp/emp4/pre-commit" employer
+git -C "$r" config core.hooksPath "$tmp/emp4"
+(cd "$r" && bash "$setup" >/dev/null 2>&1) || error "vendored-rerun: setup failed"
+git -C "$r" config core.hooksPath scripts/script-helpers/scripts/git-hooks
+(cd "$r" && bash "$setup" --repair >/dev/null 2>&1) || error "vendored-rerun: repair failed"
+[[ "$(field "$r" previous)" == "$(native "$tmp/emp4")" && "$(field "$r" taken_over)" == no ]] \
+  && ok "--repair after an old copy of ours ran: the employer value stays chained" || error "vendored-rerun: '$(state "$r")'"
+clean_commit "$r" && [[ "$(ran)" == "employer" ]] && ok "and the employer hook still runs" || error "vendored-rerun: ran '$(ran)'"
+
 # Rule 4 after a takeover with no repair: uninstall leaves the new tool alone.
 r="$(new_repo takeover-uninstall)"
 (cd "$r" && bash "$setup" >/dev/null 2>&1) || error "takeover-uninstall: setup failed"

@@ -771,10 +771,16 @@ if [[ "$REPAIR" == true ]]; then
     echo "[setup-hooks] nothing to repair: core.hooksPath is still ${cur_local:-(unset)}"; exit 0
   fi
   echo "[setup-hooks] core.hooksPath was changed to '${cur_local:-(unset)}' after the setup here; chaining again."
-  old_prev="$(git config --local --get script-helpers.previous-hooksPath 2>/dev/null || true)"
-  [[ -n "$old_prev" ]] && git config --local script-helpers.previous-hooksPath-history "$old_prev"
-  # The value we set is gone: forget it, so the new one is read as foreign below.
-  unset_local script-helpers.set-hooksPath
+  if [[ "$setup_mode" == chained ]] && set_by_us "$cur_local"; then
+    # Another copy of these hooks (an older vendored setup-hooks.sh run again):
+    # not a new tool, so the chain stays as it was, the saved previous included.
+    cur_local="$repo_hooks"
+  else
+    old_prev="$(git config --local --get script-helpers.previous-hooksPath 2>/dev/null || true)"
+    [[ -n "$old_prev" ]] && git config --local script-helpers.previous-hooksPath-history "$old_prev"
+    # The value we set is gone: forget it, so the new one is read as foreign below.
+    unset_local script-helpers.set-hooksPath
+  fi
 fi
 
 # ---- Claude Code hook, this repository only (--claude-repo) ----------------
