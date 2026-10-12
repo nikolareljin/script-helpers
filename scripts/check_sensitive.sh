@@ -113,7 +113,12 @@ if [[ -n "${SENSITIVE_MACHINE_IDS_FILE:-}" ]]; then
   echo "$TAG WARNING: SENSITIVE_MACHINE_IDS_FILE is set: machine identifiers come from it, not from this machine." >&2
 fi
 
-tmp="$(mktemp -d)" || exit 2
+# One private directory per run (mktemp -d, mode 700, random name).
+tmp="$(mktemp -d 2>/dev/null)" && [[ -n "$tmp" && -d "$tmp" && ! -L "$tmp" ]] || {
+  echo "$TAG could not create a private temp directory (TMPDIR=${TMPDIR:-unset}); NOT checked." >&2
+  exit 2
+}
+chmod 700 "$tmp" 2>/dev/null || true
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 # ---------------------------------------------------------------- public IP

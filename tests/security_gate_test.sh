@@ -32,6 +32,10 @@ export HOME="$tmp/home"
 mkdir -p "$HOME"
 cd "$tmp" || exit 1
 export XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME="$HOME/.cache" XDG_DATA_HOME="$HOME/.local/share"
+# On Windows (Git Bash) setup-hooks.sh keeps its copies under %LOCALAPPDATA%.
+export LOCALAPPDATA="$XDG_DATA_HOME"
+# native <path>: the form git stores a path in (C:/... under Git for Windows).
+native() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s\n' "$1"; fi; }
 export GIT_CONFIG_GLOBAL="$HOME/.gitconfig" GIT_CONFIG_NOSYSTEM=1
 unset SCRIPT_HELPERS_OWNERS SENSITIVE_ALLOW SENSITIVE_TERMS_FILE SCRIPT_HELPERS_SECURITY_DIR FOXGUARD_CMD GITLEAKS_BIN SECURITY_GATE_ALLOW_UNCHECKED SENSITIVE_ALLOW_UNCHECKED PRIVATE_NAMES_FILE
 : > "$tmp/no-machine-ids"
@@ -336,16 +340,16 @@ chmod +x "$tmp/earlier-hooks/pre-commit"
 git config --global core.hooksPath "$tmp/earlier-hooks"
 bash "$SETUP" --global >"$tmp/out" 2>&1
 expect "--global refuses without owners" 2 "$?"
-[[ "$(git config --global core.hooksPath)" == "$tmp/earlier-hooks" ]] && ok "and changes nothing" || error "hooksPath changed without owners"
+[[ "$(git config --global core.hooksPath)" == "$(native "$tmp/earlier-hooks")" ]] && ok "and changes nothing" || error "hooksPath changed without owners"
 
 git config --global script-helpers.owners "example-owner,Second-Org"
 bash "$SETUP" --global >"$tmp/out" 2>&1
 expect "--global installs once owners are set" 0 "$?"
-grep -q "current global core.hooksPath: $tmp/earlier-hooks" "$tmp/out" || error "the previous value was not shown"
-[[ "$(git config --global core.hooksPath)" == "$gdir/hooks" ]] && ok "global core.hooksPath points at the install" || error "hooksPath: $(git config --global core.hooksPath)"
+grep -qF "current global core.hooksPath: $(native "$tmp/earlier-hooks")" "$tmp/out" || error "the previous value was not shown"
+[[ "$(git config --global core.hooksPath)" == "$(native "$gdir/hooks")" ]] && ok "global core.hooksPath points at the install" || error "hooksPath: $(git config --global core.hooksPath)"
 [[ -f "$gdir/scripts/check_sensitive.sh" && -f "$gdir/lib/logging.sh" ]] && ok "the install carries its own check scripts" || error "check scripts not copied"
 bash "$SETUP" --global >/dev/null 2>&1
-[[ "$(cat "$gdir/previous-hooksPath")" == "$tmp/earlier-hooks" ]] && ok "a second --global keeps the original backup" || error "backup overwritten: $(cat "$gdir/previous-hooksPath")"
+[[ "$(cat "$gdir/previous-hooksPath")" == "$(native "$tmp/earlier-hooks")" ]] && ok "a second --global keeps the original backup" || error "backup overwritten: $(cat "$gdir/previous-hooksPath")"
 bash "$SETUP" --status >"$tmp/out" 2>&1
 grep -q "installed at $gdir" "$tmp/out" && ok "--status reports the install" || error "--status: $(cat "$tmp/out")"
 
@@ -413,7 +417,7 @@ grep -q "no owners set" "$tmp/out" && ok "with a one-line notice" || error "no n
 git config --global script-helpers.owners example-owner
 bash "$SETUP" --global --uninstall >"$tmp/out" 2>&1
 expect "--global --uninstall" 0 "$?"
-[[ "$(git config --global core.hooksPath)" == "$tmp/earlier-hooks" ]] && ok "restores the previous global value" || error "not restored: $(git config --global core.hooksPath || echo unset)"
+[[ "$(git config --global core.hooksPath)" == "$(native "$tmp/earlier-hooks")" ]] && ok "restores the previous global value" || error "not restored: $(git config --global core.hooksPath || echo unset)"
 [[ ! -d "$gdir/hooks" ]] && ok "and removes the install" || error "install left behind"
 git config --global --unset core.hooksPath
 bash "$SETUP" --global >/dev/null 2>&1
@@ -482,7 +486,19 @@ SCRIPT_HELPERS_OWNERS=example-owner scope_owners 2>"$tmp/out" >/dev/null
 grep -q "owners from SCRIPT_HELPERS_OWNERS" "$tmp/out" && ok "an owners override from the environment is announced" || error "SCRIPT_HELPERS_OWNERS silent"
 
 # ------------------------------------------------- Claude Code PreToolUse hook
-CLAUDE_HOOK="$ROOT_DIR/scripts/claude-hooks/pretooluse_private_names.sh"
+REAL_CLAUDE_HOOK="$ROOT_DIR/scripts/claude-hooks/pretooluse_private_names.sh"
+# The hook acts only when the session's repository (payload cwd) has its
+# origin under an owner. Payloads here that carry no cwd run in such a
+# repository; a payload with its own cwd keeps it.
+owner_cwd="$tmp/owner-session"
+git init -q "$owner_cwd" && git -C "$owner_cwd" remote add origin git@github.com:example-owner/session.git
+CLAUDE_HOOK="$tmp/claude-hook-with-cwd.sh"
+# inject_cwd: add "cwd" to a payload that starts with { and has none.
+inject_cwd() { LC_ALL=C sed '1{/"cwd"/!s|^{|{"cwd":"'"$owner_cwd"'",|;}'; }
+cat > "$CLAUDE_HOOK" <<EOF_WRAP
+#!/usr/bin/env bash
+LC_ALL=C sed '1{/"cwd"/!s|^{|{"cwd":"$owner_cwd",|;}' | bash "$REAL_CLAUDE_HOOK"
+EOF_WRAP
 if command -v python3 >/dev/null 2>&1; then
   # Every call is scanned, so without gitleaks every call would be "could not
   # check". A stub that finds nothing keeps these cases about the hook; the
@@ -498,7 +514,8 @@ if command -v python3 >/dev/null 2>&1; then
   payload example-owner/x "$real_email" | GITLEAKS_BIN="$tmp/none" bash "$CLAUDE_HOOK" >/dev/null 2>&1
   expect "Claude hook refuses PII in an owner repo's PR body" 2 "$?"
   payload other-org/x "$real_email" | GITLEAKS_BIN="$tmp/none" bash "$CLAUDE_HOOK" >/dev/null 2>&1
-  expect "Claude hook leaves another org's PR body alone" 0 "$?"
+  # -R can name any repository, so it never takes a command out of scope.
+  expect "Claude hook checks a PR body sent with -R to another org" 2 "$?"
   if [[ "$have_gitleaks" == true ]]; then
     payload example-owner/x "a@example.com" | bash "$CLAUDE_HOOK" >/dev/null 2>&1
     expect "Claude hook passes a clean body" 0 "$?"
@@ -509,7 +526,7 @@ if command -v python3 >/dev/null 2>&1; then
     | GITLEAKS_BIN="$tmp/none" SECURITY_GATE_ALLOW_UNCHECKED=1 bash "$CLAUDE_HOOK" >/dev/null 2>&1
   expect "Claude hook: no -R and no repository here -> checked, not passed" 2 "$?"
   payload other-org/x "$real_email" | SENSITIVE_MACHINE_IDS_FILE="$tmp/missing-ids" bash "$CLAUDE_HOOK" >/dev/null 2>&1
-  expect "Claude hook: a clean -R to another org decides, even outside a repository" 0 "$?"
+  expect "Claude hook: -R to another org does not skip the check outside a repository" 2 "$?"
   payload example-owner/x "a@example.com" | SENSITIVE_MACHINE_IDS_FILE="$tmp/missing-ids" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
   expect "Claude hook blocks when the checker fails" 2 "$?"
   grep -q "NOT checked" "$tmp/out" && ok "and says the text was not checked" || error "no reason: $(cat "$tmp/out")"
@@ -533,17 +550,21 @@ if command -v python3 >/dev/null 2>&1; then
     | bash "$CLAUDE_HOOK" >/dev/null 2>&1
   expect "Claude hook: every command is scanned, an unparsable one with an email too" 2 "$?"
   printf 'not json: gh pr create --body x' | bash "$CLAUDE_HOOK" >/dev/null 2>&1
-  expect "Claude hook: an invalid payload that publishes is blocked" 2 "$?"
+  # No cwd can be read from it, so the session repository is unknown: out of
+  # scope by the owner's rule.
+  expect "Claude hook: a payload with no readable cwd is out of scope" 0 "$?"
+  printf '{not json: gh pr create --body x' | bash "$CLAUDE_HOOK" >/dev/null 2>&1
+  expect "Claude hook: an invalid payload that publishes, in an owner repository, is blocked" 2 "$?"
   printf 'not json: ls -la' | bash "$CLAUDE_HOOK" >/dev/null 2>&1
   expect "Claude hook: an invalid payload that does not publish passes" 0 "$?"
   # A crash inside the hook must refuse (exit 2), never exit 1: Claude Code
   # runs the command on any exit other than 2.
   mkdir -p "$tmp/broken/claude-hooks"
-  cp "$CLAUDE_HOOK" "$tmp/broken/claude-hooks/"
+  cp "$REAL_CLAUDE_HOOK" "$tmp/broken/claude-hooks/"
   cp "$ROOT_DIR/scripts/check_private_names.sh" "$ROOT_DIR/scripts/check_sensitive.sh" "$tmp/broken/"
   cp -R "$ROOT_DIR/lib" "$ROOT_DIR/helpers.sh" "$tmp/" 2>/dev/null
   printf 'echo crashing >&2; exit 3\n' > "$tmp/broken/owner_scope.sh"
-  payload example-owner/x "a@example.com" | PRIVATE_NAMES_FILE="$tmp/names.tsv" bash "$tmp/broken/claude-hooks/pretooluse_private_names.sh" >"$tmp/out" 2>&1
+  payload example-owner/x "a@example.com" | inject_cwd | PRIVATE_NAMES_FILE="$tmp/names.tsv" bash "$tmp/broken/claude-hooks/pretooluse_private_names.sh" >"$tmp/out" 2>&1
   expect "Claude hook: a crash refuses with exit 2" 2 "$?"
   # Wrapped and attached forms still publish. A stub gitleaks keeps these
   # about the parsing, with or without a real one installed.
@@ -567,6 +588,16 @@ if command -v python3 >/dev/null 2>&1; then
   hook_cmd "Claude hook: gh release --notes is read"      "gh release create v1 -R example-owner/x --notes 'mail $real_email'"
   hook_cmd "Claude hook: git commit -n is --no-verify"     "git commit -n -m 'msg'"
   hook_cmd "Claude hook: git commit -an is --no-verify"    "git commit -an -m 'msg'"
+  # git takes any unambiguous prefix of a long option.
+  hook_cmd "Claude hook: --no-verif is --no-verify"         "git commit --no-verif -m 'msg'"
+  hook_cmd "Claude hook: --no-ver on push is --no-verify"   "git push --no-ver origin main"
+  # Other git config sources drop the global core.hooksPath.
+  hook_cmd "Claude hook: GIT_CONFIG_GLOBAL= is refused"     "GIT_CONFIG_GLOBAL=/dev/null git push"
+  hook_cmd "Claude hook: GIT_CONFIG_NOSYSTEM is refused"    "GIT_CONFIG_NOSYSTEM=1 git push"
+  hook_cmd "Claude hook: -c include.path is refused"        "git -c include.path=/tmp/x push"
+  # A body read by command substitution is scanned like --body-file.
+  hook_cmd "Claude hook: --body \"\$(cat file)\" is read"   "gh pr create -R example-owner/x --body \"\$(cat $tmp/field-body.md)\""
+  hook_cmd "Claude hook: --body \"\$(<file)\" is read"      "gh pr create -R example-owner/x --body \"\$(<$tmp/field-body.md)\""
   python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.argv[1]}}))' "git commit -m -n -mrun" \
     | PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
   # The whole-command pass errs closed: a bare -n after commit is refused.
@@ -598,7 +629,7 @@ if command -v python3 >/dev/null 2>&1; then
     hook_rc 2 "broad: PII in [$v] is refused" "$v"
   done
   hook_rc 2 "broad: a body file named in bash -c is read" "bash -c 'gh pr create -R example-owner/x --body-file $tmp/field-body.md'"
-  hook_rc 0 "broad: another org's -R is left alone" "bash -c \"gh pr create -R other-org/x --body 'mail $real_email'\""
+  hook_rc 2 "broad: another org's -R is still checked" "bash -c \"gh pr create -R other-org/x --body 'mail $real_email'\""
   hook_rc 2 "broad: a cd target that cannot be entered is checked" "cd /nonexistent/dir && bash -c \"gh pr create --body 'mail $real_email'\""
   hook_rc 0 "broad: a clean publishing command passes" "bash -c \"gh pr create -R example-owner/x --body 'all fine'\""
   # Obfuscated or indirect command words next to a publishing verb.
@@ -615,6 +646,32 @@ if command -v python3 >/dev/null 2>&1; then
            "GITLEAKS_BIN=/bin/true git push"; do
     hook_rc 2 "override in the command: [$v] is refused" "$v"
   done
+  # A here-document that only becomes a file is data: a test or a doc may
+  # mention an override. Anything that runs the body is still refused.
+  hook_rc 0 "heredoc: a body written to a file may mention HOME=" "cat > $tmp/hd-notes.md <<'EOF'
+set HOME=/tmp/h and script-helpers.owners in the test
+EOF"
+  hook_rc 0 "heredoc: tee into a file, <<- form" "tee $tmp/hd-notes2.md <<-\"EOF\"
+	export SENSITIVE_ALLOW=x is documented here
+	EOF"
+  hook_rc 2 "heredoc: an unquoted delimiter expands \$(...) in the body, so it is read" "cat > $tmp/hd-z.md <<EOF
+\$(HOME=/tmp/h git push)
+EOF"
+  hook_rc 2 "heredoc: a body piped to bash is read" "cat <<'EOF' | bash
+HOME=/tmp/h git push
+EOF"
+  hook_rc 2 "heredoc: a body fed to bash is read" "bash <<'EOF'
+HOME=/tmp/h git push
+EOF"
+  hook_rc 2 "heredoc: a command after the body is read" "cat > $tmp/hd-x.md <<'EOF'
+plain
+EOF
+HOME=/tmp/h git push"
+  hook_rc 2 "heredoc: a body that never ends hides nothing after a chained command" "cat > $tmp/hd-y.md <<'EOF'; HOME=/tmp/h git push
+EOF"
+  hook_rc 2 "heredoc: a body fed to python is read" "python3 - <<'EOF'
+import subprocess; subprocess.run('HOME=/tmp/h git push', shell=True)
+EOF"
   # Every command is scanned, not only publishing ones.
   hook_rc 2 "any command: PII in plain echo is refused" "echo 'mail $real_email' > notes.txt"
   hook_rc 2 "any command: PII in a file read with < is refused" "wc -l < $tmp/field-body.md"
@@ -623,9 +680,12 @@ if command -v python3 >/dev/null 2>&1; then
   # The cheap name test in front of check_private_names.sh is a superset.
   { printf '# generated: 2026-10-11 source: test\n'; printf '# visibility\tnamespace\tname\tcode\tflags\n'
     printf 'private\tns\tzzq-hidden-widget\tR-777\t\n'; } > "$tmp/names-hdr.tsv"
+  # Run from a repository with no remote (unlisted, so public): an echo in a
+  # directory that is not a repository has no destination and is not checked.
+  new_repo "$tmp/prefilter-repo"
   for v in "echo zzq-hidden-widget" "echo ZZQ-HIDDEN-WIDGET" "gh pr create -R example-owner/x --body 'see zzq-hidden-widget'"; do
     python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.argv[1]}}))' "$v" \
-      | PRIVATE_NAMES_FILE="$tmp/names-hdr.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
+      | (cd "$tmp/prefilter-repo" && PRIVATE_NAMES_FILE="$tmp/names-hdr.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK") >"$tmp/out" 2>&1
     rc=$?
     # The full check decides; the prefilter must only let it run.
     grep -q "names a private repository\|R-777\|zzq" "$tmp/out" && ok "prefilter passes [$v] to the full check" || error "prefilter hid [$v]: rc=$rc $(cat "$tmp/out")"
@@ -636,12 +696,18 @@ if command -v python3 >/dev/null 2>&1; then
     | PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
   expect "fail-closed: a Write tool payload is scanned too" 2 "$?"
   printf 'not json at all: mail %s' "$real_email" | PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
-  expect "fail-closed: invalid JSON is scanned raw" 2 "$?"
+  expect "out of scope: invalid JSON with no cwd" 0 "$?"
+  printf '{not json at all: mail %s' "$real_email" | PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
+  expect "fail-closed: invalid JSON in an owner repository is scanned raw" 2 "$?"
   printf '{"tool_name":"Bash","tool_input":{"command":"echo \xff\xfe mail %s"}}' "$real_email" \
     | PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
   expect "fail-closed: non-UTF-8 input is scanned raw" 2 "$?"
   hook_rc 0 "fail-closed: an empty command runs nothing and passes" ""
   hook_rc 2 "fail-closed: a very long command is scanned to its end" "echo $(printf 'x%.0s' $(seq 1 20000)) mail $real_email"
+  # A PATH without python, made of symlinks. Where ln -s copies (Git Bash
+  # without symlink support) that would copy every program on PATH: skipped.
+  ln -s "$tmp" "$tmp/link-probe" 2>/dev/null
+  if [[ -L "$tmp/link-probe" ]]; then
   mkdir -p "$tmp/nopy"
   for d in $(printf '%s' "$PATH" | tr ':' ' '); do
     for f in "$d"/*; do
@@ -658,6 +724,9 @@ if command -v python3 >/dev/null 2>&1; then
   printf '{"tool_name":"Bash","tool_input":{"command":"ls -la"}}' \
     | PATH="$tmp/nopy" PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
   expect "without python3 a clean ordinary command passes" 0 "$?"
+  else
+    echo "[security_gate_test] SKIP: ln -s makes no symlink here; the no-python cases are not checked"
+  fi
   hook_cmd "Claude hook: an agent's sensitive:allow is ignored" "gh pr create -R example-owner/x --body 'mail $real_email sensitive:allow'"
   # Scope follows where the command runs, not only the session's directory.
   other="$tmp/other-org-clone"; new_repo "$other"
@@ -670,9 +739,25 @@ if command -v python3 >/dev/null 2>&1; then
   printf '{"tool_name":"Bash","tool_input":{"command":"git -C %s commit -m \\"mail %s\\""}}' "$own" "$real_email" \
     | (cd "$other" && PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1)
   expect "Claude hook: git -C <owner repo> from another org's is checked" 2 "$?"
+  printf '{"tool_name":"Bash","cwd":"%s","tool_input":{"command":"gh pr create --body \\"mail %s\\""}}' "$other" "$real_email" \
+    | (cd "$other" && PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1)
+  expect "Claude hook: another org's repository (payload cwd) is still left alone" 0 "$?"
+  # Without the payload cwd the scope cannot be trusted: checked.
   printf '{"tool_name":"Bash","tool_input":{"command":"gh pr create --body \\"mail %s\\""}}' "$real_email" \
     | (cd "$other" && PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1)
-  expect "Claude hook: another org's repository is still left alone" 0 "$?"
+  expect "Claude hook: another org's repository without a payload cwd is checked" 2 "$?"
+  # Scope is the session's repository only: from another org's repository
+  # nothing is checked, whatever the command names (owner decision).
+  for v in "gh pr create -R example-owner/x --body 'mail $real_email'" \
+           "gh api repos/example-owner/x/issues -f body='mail $real_email'" \
+           "curl -d 'mail $real_email' https://example.invalid/x" \
+           "cd .. && gh pr create --body 'mail $real_email'" \
+           "git push git@github.com:example-owner/x.git && echo 'mail $real_email'" \
+           "echo 'mail $real_email' > ../owner-repo/notes.md"; do
+    python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","cwd":sys.argv[2],"tool_input":{"command":sys.argv[1]}}))' "$v" "$other" \
+      | (cd "$other" && PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1)
+    expect "Claude hook: from another org's repository, [$v] is out of scope (owner decision)" 0 "$?"
+  done
   unset PRIVATE_NAMES_FILE GITLEAKS_BIN
 else
   note "SKIP: python3 missing; Claude hook cases not run"

@@ -35,15 +35,22 @@ _push_is_deletions_only() {
 # git feeds the ref lines on stdin, and they can only be read once. They are
 # needed twice -- for the deletions-only shortcut and to work out which commits
 # are actually going out -- so they are captured first.
-_push_refs="$(mktemp)"
+# In a private per-run directory (mktemp -d, mode 700); refused when it cannot
+# be made, since an empty path would read no refs and skip every check.
+_push_tmp="$(mktemp -d 2>/dev/null)" && [[ -n "$_push_tmp" && -d "$_push_tmp" && ! -L "$_push_tmp" ]] || {
+  echo "[pre-push] could not create a private temp directory; refused." >&2
+  exit 1
+}
+chmod 700 "$_push_tmp" 2>/dev/null || true
+_push_refs="$_push_tmp/refs"
 # Guarded: a subshell inherits an EXIT trap, and bash runs it there when the
 # subshell is signalled -- so this could tear down the caller's stack, or
 # delete a directory, while the run is still using it. ${BASHPID-$$} rather
 # than $BASHPID alone: bash 3.2, which macOS ships, does not define BASHPID,
 # and $$ is the top-level shell's pid in every subshell, so the comparison
 # degrades to always-true there rather than to always-false.
-trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -f "$_push_refs"; fi' EXIT
-cat > "$_push_refs"
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$_push_tmp"; fi' EXIT
+cat > "$_push_refs" || { echo "[pre-push] could not read the ref lines; refused." >&2; exit 1; }
 
 if _push_is_deletions_only < "$_push_refs"; then
   echo "[pre-push] deletions only — no new commits to check."

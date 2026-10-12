@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SCRIPT: dispatch.sh
-# DESCRIPTION: Machine-wide git hook: security checks for the configured owners' repositories, then the repository's own hook.
-# USAGE: dispatch.sh <hook-name> [git's hook arguments...]  (called by the wrappers setup-hooks.sh --global writes)
+# DESCRIPTION: Git hook dispatcher: security checks for the configured owners' repositories, then the hooks that ran before.
+# USAGE: dispatch.sh [--local] <hook-name> [git's hook arguments...]  (called by the wrappers setup-hooks.sh writes)
 # PARAMETERS:
 #   <hook-name>            The git hook being run: pre-push, pre-commit, commit-msg, ...
 #   SCRIPT_HELPERS_OWNERS  Comma-separated GitHub users/orgs whose repositories are
@@ -23,6 +23,10 @@
 #    Its exit status is this hook's.
 set -uo pipefail
 
+# --local: called by a per-repository install (setup-hooks.sh with no mode),
+# which saved what git ran before in .git/config. See "chaining" below.
+local_mode=false
+if [[ "${1:-}" == --local ]]; then local_mode=true; shift; fi
 hook="${1:?dispatch.sh needs the hook name}"
 shift
 
@@ -31,12 +35,19 @@ install_dir="$(cd "$base/.." && pwd)"
 self_wrapper="$install_dir/hooks/$hook"
 
 stdin_file=""
-cleanup() { [[ -n "$stdin_file" ]] && rm -f "$stdin_file" "$stdin_file".*; }
+stdin_dir=""
+cleanup() { [[ -n "$stdin_dir" ]] && rm -rf "$stdin_dir"; }
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then cleanup; fi' EXIT
 case "$hook" in
   pre-push|post-rewrite|reference-transaction|pre-receive|post-receive|proc-receive)
-    stdin_file="$(mktemp)" || exit 1
-    cat > "$stdin_file"
+    # A private per-run directory (mktemp -d, mode 700), never a bare file in TMPDIR.
+    stdin_dir="$(mktemp -d 2>/dev/null)" && [[ -n "$stdin_dir" && -d "$stdin_dir" && ! -L "$stdin_dir" ]] || {
+      echo "[script-helpers] global hooks: could not create a private temp directory; refused." >&2
+      exit 1
+    }
+    chmod 700 "$stdin_dir" 2>/dev/null || true
+    stdin_file="$stdin_dir/stdin"
+    cat > "$stdin_file" || exit 1
     ;;
 esac
 
@@ -112,9 +123,60 @@ run_hook() {
   fi
 }
 
+# is_abs <path>: absolute, also as Git for Windows writes it (C:/x, C:\\x).
+is_abs() { case "$1" in /*|[A-Za-z]:[\\/]*) return 0 ;; esac; return 1; }
+
 top="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 common="$(git rev-parse --git-common-dir 2>/dev/null || true)"
-[[ -n "$common" && "$common" != /* ]] && common="$(pwd)/$common"
+[[ -n "$common" ]] && ! is_abs "$common" && common="$(pwd)/$common"
+
+# expand_hooks_path <value>: a core.hooksPath as git reads it: "~/" is the home
+# directory, a relative path is relative to the top of the work tree.
+expand_hooks_path() {
+  local v="$1"
+  # shellcheck disable=SC2088  # a literal "~/" saved from git config
+  case "$v" in "~/"*) v="${HOME:-}/${v#\~/}" ;; esac
+  [[ -n "$v" && -n "$top" ]] && ! is_abs "$v" && v="$top/$v"
+  printf '%s' "$v"
+}
+
+if [[ "$local_mode" == true ]]; then
+  # Per repository, everything runs, in order, and the first failure stops it:
+  # 1. this repository's committed hooks (script-helpers.hooks-target, the
+  #    directory setup-hooks.sh would otherwise point core.hooksPath at), only
+  #    while this clone keeps script-helpers.trust-repo-hooks;
+  # 2. what git ran before the install: the saved local core.hooksPath, else
+  #    the global one, else .git/hooks. Git ran those before; they run as git
+  #    would (a hooks-directory file only when executable).
+  if [[ "$(git config --local --bool --get script-helpers.trust-repo-hooks 2>/dev/null)" == true ]]; then
+    target="$(git config --local --get script-helpers.hooks-target 2>/dev/null || true)"
+    if [[ -n "$target" && -n "$top" && -f "$top/$target/$hook" ]]; then
+      run_hook "$top/$target/$hook" "$@" || exit $?
+    fi
+  fi
+  prev="$(git config --local --get script-helpers.previous-hooksPath 2>/dev/null || true)"
+  if [[ -z "$prev" ]]; then
+    prev="$(expand_hooks_path "$(git config --global --get core.hooksPath 2>/dev/null || true)")"
+    # The machine-wide install of this dispatcher: its checks just ran here, so
+    # chain to what it chains to (saved by setup-hooks.sh --global), not to it.
+    if [[ -n "$prev" && -f "$prev/../scripts/global-hooks/dispatch.sh" ]]; then
+      prev="$(cat "$prev/../previous-hooksPath" 2>/dev/null || true)"
+      [[ "$prev" == "(unset)" ]] && prev=""
+    fi
+  fi
+  prev="$(expand_hooks_path "$prev")"
+  if [[ -n "$prev" ]]; then
+    native="$prev/$hook"
+  else
+    native="${common:+$common/hooks/$hook}"
+  fi
+  if [[ -n "$native" && -f "$native" && -x "$native" ]] && \
+     ! [[ "$native" -ef "$self_wrapper" || "$native" -ef "${BASH_SOURCE[0]}" ]]; then
+    run_hook "$native" "$@"
+    exit $?
+  fi
+  exit 0
+fi
 previous=""
 if [[ -f "$install_dir/previous-hooksPath" ]]; then
   previous="$(cat "$install_dir/previous-hooksPath")"
@@ -134,7 +196,7 @@ if [[ "$in_scope" == true && -n "$top" ]] && \
    [[ "$(git config --local --bool --get script-helpers.trust-repo-hooks 2>/dev/null)" == true ]]; then
   trusted=true
 fi
-if [[ -n "$previous" && "$previous" != /* ]]; then
+if [[ -n "$previous" ]] && ! is_abs "$previous"; then
   if [[ "$trusted" == true ]]; then previous="$top/$previous"; else previous=""; fi
 fi
 

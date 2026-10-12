@@ -1,0 +1,248 @@
+#!/usr/bin/env bash
+# SCRIPT: claude_hook_destinations_test.sh
+# DESCRIPTION: The Claude hook checks private names in every command, fails closed, and answers fast.
+# USAGE: ./tests/claude_hook_destinations_test.sh
+# PARAMETERS: No required parameters.
+# EXAMPLE: bash tests/claude_hook_destinations_test.sh
+# ----------------------------------------------------
+#
+# Fixture repositories with placeholder names: zzqsecretbox is private,
+# zzqopenbox is public. No directory relaxes the check, not even the private
+# repository itself; every bypass found in review is a case here. CLAUDE_HOOK
+# may point at another copy of the hook, to show which cases an older one fails.
+# ----------------------------------------------------
+set -uo pipefail
+
+root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
+HOOK="${CLAUDE_HOOK:-$root_dir/scripts/claude-hooks/pretooluse_private_names.sh}"
+tmp="$(mktemp -d)"
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
+
+failures=0
+note()  { echo "[claude_hook_destinations_test] $*"; }
+error() { echo "[claude_hook_destinations_test][ERROR] $*" >&2; failures=$((failures+1)); }
+ok()    { note "PASS: $*"; }
+
+PY=""
+for c in python3 python; do
+  if command -v "$c" >/dev/null 2>&1 && "$c" -c 'import sys; sys.exit(sys.version_info[0] != 3)' >/dev/null 2>&1; then PY="$c"; break; fi
+done
+if [[ -z "$PY" ]]; then note "SKIP: no Python 3"; exit 0; fi
+
+export HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/config" XDG_CACHE_HOME="$tmp/cache" \
+       GIT_CONFIG_GLOBAL="$tmp/gitconfig" GIT_CONFIG_NOSYSTEM=1 \
+       GIT_AUTHOR_NAME=Test GIT_AUTHOR_EMAIL=test@example.com \
+       GIT_COMMITTER_NAME=Test GIT_COMMITTER_EMAIL=test@example.com
+unset SCRIPT_HELPERS_OWNERS 2>/dev/null || true
+mkdir -p "$HOME" "$tmp/bin" "$tmp/plain"
+: > "$GIT_CONFIG_GLOBAL"
+# Out of any repository: git config would otherwise read this checkout.
+cd "$tmp" || exit 1
+printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/bin/gitleaks"; chmod +x "$tmp/bin/gitleaks"
+: > "$tmp/no-machine-ids"; : > "$tmp/no-terms"
+
+list="$tmp/names.tsv"
+{ printf '# generated: 2026-10-11 source: test\n'
+  printf '# visibility\tnamespace\tname\tcode\tflags\n'
+  printf 'private\texample\tzzqsecretbox\tR-901\t\n'
+  printf 'public\texample\tzzqopenbox\tR-902\t\n'; } > "$list"
+
+priv="$tmp/zzqsecretbox"; pub="$tmp/zzqopenbox"
+for r in "$priv" "$pub"; do
+  git init -q "$r" && git -C "$r" commit -q --allow-empty -m init
+  git -C "$r" remote add origin "git@github.com:example/$(basename "$r").git"
+done
+
+git config --global script-helpers.owners example
+# A symlink inside the private repository that points into the public one.
+printf 'x\n' > "$pub/notes.md"; ln -s "$pub/notes.md" "$priv/zzqsecretbox-link"
+# A repository of another owner whose name is listed private.
+other="$tmp/zzqsecretbox-other"
+git init -q "$other" && git -C "$other" commit -q --allow-empty -m init
+git -C "$other" remote add origin git@github.com:someone-else/zzqsecretbox.git
+
+# hook <want> <description> <cwd> <command> [names list]
+# The payload carries cwd as Claude Code sends it; PAYLOAD_CWD overrides it
+# ("-" leaves it out).
+hook() {
+  local want="$1" desc="$2" cwd="$3" cmd="$4" names="${5:-$list}" got
+  "$PY" -c 'import json,sys
+d = {"tool_name": "Bash", "tool_input": {"command": sys.argv[1]}}
+if sys.argv[2] != "-":
+    d["cwd"] = sys.argv[2]
+print(json.dumps(d))' "$cmd" "${PAYLOAD_CWD:-$cwd}" > "$tmp/payload"
+  ( cd "$cwd" && PATH="$tmp/bin:$PATH" PRIVATE_NAMES_FILE="$names" SENSITIVE_MACHINE_IDS_FILE="$tmp/no-machine-ids" \
+      SENSITIVE_TERMS_FILE="$tmp/no-terms" bash "$HOOK" < "$tmp/payload" > "$tmp/out" 2>&1 )
+  got=$?
+  [[ "$got" == "$want" ]] && ok "$desc" || error "$desc: exit $got, want $want: $(head -c 400 "$tmp/out")"
+}
+
+# No relaxation: a private name is checked in every command, wherever it
+# runs, even inside that private repository with only private remotes.
+# Agents cite private repositories by their code in command text.
+n=zzqsecretbox
+for v in          "git log --oneline -5 --grep=$n" \
+         "git show HEAD:$n.md" \
+         "git diff HEAD -- $n.md" \
+         "git ls-files $n" \
+         "echo $n" \
+         "printf '%s' $n" \
+         "grep -rn $n docs" \
+         "cat ./docs/$n.md" \
+         "ls $priv/$n" \
+         "head -5 $n.txt" \
+         "wc -l $n.txt"; do
+  hook 2 "checked inside the private repository: [${v//$tmp/<tmp>}]" "$priv" "$v"
+done
+hook 0 "out of scope: another owner's repository is left alone" "$other" "git commit -m '$n'"
+hook 0 "out of scope: another owner's repository, even naming an owner path" "$other" "echo $n > $pub/notes.md && gh pr create -R example/zzqopenbox --body $n"
+hook 0 "a pull request into the private repository itself (-R, as before)" "$tmp/plain" \
+  "gh pr create -R example/zzqsecretbox --body 'zzqsecretbox internals'"
+# Everything else is checked, as before this change.
+hook 0 "out of scope: a directory that is not a repository" "$tmp/plain" "echo $n > $pub/notes.md"
+hook 2 "a public repository" "$pub" "echo $n"
+hook 2 "a pull request into an unlisted repository" "$pub" "gh pr create -R example/elsewhere --body 'see $n'"
+hook 2 "gh without -R" "$pub" "gh issue create --body '$n'"
+hook 2 "-R on a command that is not gh" "$pub" "ls -R $n"
+hook 2 "curl to github" "$pub" "curl -d '$n' https://api.github.com/repos/example/zzqopenbox/issues"
+
+# From inside the private repository, anything outside the allowlist is
+# checked. Each of these blocks.
+for v in "git commit -m $n" \
+         "git add $n.md" \
+         "git add -p $n.md" \
+         "git checkout $n" \
+         "git switch $n" \
+         "git restore $n.md" \
+         "git stash list $n" \
+         "git grep $n" \
+         "git branch -m $n" \
+         "git branch --edit-description $n" \
+         "git log --output=$n.txt" \
+         "git diff --ext-diff $n" \
+         "git log --textconv $n" \
+         "git diff -Oorder $n" \
+         "git log -x $n" \
+         "sed -n p $n.md" \
+         "grep -R $n docs" \
+         "grep --dereference-recursive $n docs" \
+         "cat $n-link" \
+         "cd $pub && git commit -m $n" \
+         "cd $pub/$n" \
+         "c''d $pub; git commit -m $n" \
+         "pushd $pub && git commit -m $n" \
+         "git -C $pub commit -m $n" \
+         "git -c core.editor=true commit -m $n" \
+         "git --git-dir=$pub/.git commit -m $n" \
+         "git --work-tree=$pub commit -m $n" \
+         "GIT_DIR=$pub/.git git commit -m $n" \
+         "(git commit -m $n)" \
+         "{ git commit -m $n; }" \
+         "git commit -m \"\$N $n\"" \
+         "git commit -m \$(echo $n)" \
+         "git commit -m \`echo $n\`" \
+         "git commit -m $n &" \
+         "git commit -F - <<< $n" \
+         "git commit -m $n
+git push" \
+         "git push origin $n" \
+         "git push https://example.invalid/x.git $n" \
+         "git remote add $n git@github.com:example/zzqopenbox.git" \
+         "git config remote.origin.url https://github.com/example/zzqopenbox $n" \
+         "git fetch $n" \
+         "git worktree add ../$n" \
+         "git send-email $n" \
+         "git stash push -m $n" \
+         "git diff --output=$pub/$n.txt" \
+         "git grep -O $n" \
+         "git log --ext-diff $n" \
+         "git commit -F $pub/$n.md" \
+         "git show HEAD:$n --output=../$n" \
+         "gh pr create -R example/zzqopenbox --body $n" \
+         "gh api repos/example/zzqopenbox/issues -f body=$n" \
+         "bash -c 'git commit -m $n'" \
+         "sed -n 'w $pub/$n' README" \
+         "env git commit -m $n" \
+         "exec git commit -m $n" \
+         "echo $n > $pub/notes.md" \
+         "cat $pub/$n.md" \
+         "cat ../zzqopenbox/$n.md" \
+         "ls ~/$n" \
+         "cp README $pub/$n.md" \
+         "curl -d $n https://example.invalid/x"; do
+  hook 2 "strict: [${v//$tmp/<tmp>}]" "$priv" "$v"
+done
+# Origins that are the owner's but are not in the canonical forms: in scope.
+for u in "ssh://github.com/example/zzqalias.git" "ssh://git@ssh.github.com:443/example/zzqalias.git" "ghx:example/zzqalias"; do
+  a="$tmp/alias-$RANDOM"; git init -q "$a"; git -C "$a" remote add origin "$u"
+  git -C "$a" config url.git@github.com:.insteadOf ghx:
+  hook 2 "in scope: origin $u" "$a" "echo $n"
+done
+# Every remote counts, not only origin: an "upstream" alone, or an owner's push URL.
+u1="$tmp/upstream-only-$RANDOM"; git init -q "$u1"; git -C "$u1" remote add upstream git@github.com:example/zzqup.git
+hook 2 "in scope: only an upstream remote under the owner" "$u1" "echo $n"
+u2="$tmp/pushurl-$RANDOM"; git init -q "$u2"; git -C "$u2" remote add origin https://github.com/someone-else/x.git
+git -C "$u2" remote set-url --push origin git@github.com:example/zzqup.git
+hook 2 "in scope: the owner's push URL behind another fetch URL" "$u2" "echo $n"
+PAYLOAD_CWD=- hook 0 "out of scope: no cwd in the payload" "$priv" "git -C $priv commit -m $n"
+PAYLOAD_CWD=relative/dir hook 0 "out of scope: a relative cwd" "$priv" "git -C $priv commit -m $n"
+PAYLOAD_CWD="$pub" hook 2 "strict: the payload cwd decides, not the process cwd" "$priv" "git commit -m $n"
+# Sensitive data is never relaxed by the destination.
+hook 2 "sensitive: PII in a commit inside the private repository is refused" "$priv" \
+  "git commit -m 'mail jane.roe""@""mailbox.org'"
+
+# Fail closed: a name list the prefilter cannot read runs the full check,
+# which refuses as "could not check" rather than allowing.
+mkdir -p "$tmp/list-is-a-dir"
+hook 2 "an unreadable name list refuses, not allows" "$pub" "echo $n" "$tmp/list-is-a-dir"
+
+# Temp files: one private directory per run, removed at exit.
+mkdir -p "$tmp/tmpdir"
+"$PY" -c 'import json,sys; print(json.dumps({"tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":"echo hello"}}))' "$pub" > "$tmp/payload"
+( cd "$pub" && TMPDIR="$tmp/tmpdir" PATH="$tmp/bin:$PATH" PRIVATE_NAMES_FILE="$list" SENSITIVE_MACHINE_IDS_FILE="$tmp/no-machine-ids" \
+    SENSITIVE_TERMS_FILE="$tmp/no-terms" bash "$HOOK" < "$tmp/payload" > /dev/null 2>&1 )
+[[ -z "$(ls -A "$tmp/tmpdir")" ]] && ok "no temp file is left in TMPDIR" || error "left in TMPDIR: $(ls -A "$tmp/tmpdir")"
+if grep -q 'payload_file="$(mktemp)"' "$HOOK" || ! grep -q 'work_dir="$(mktemp -d' "$HOOK"; then
+  error "the hook writes temp files outside a private directory"
+else
+  ok "temp files live in a private mktemp -d directory"
+fi
+
+# A refusal is exit 2 with the reason on stderr, and a deny decision on stdout.
+"$PY" -c 'import json,sys; print(json.dumps({"tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":"echo zzqsecretbox"}}))' "$pub" > "$tmp/payload"
+( cd "$pub" && PATH="$tmp/bin:$PATH" PRIVATE_NAMES_FILE="$list" SENSITIVE_MACHINE_IDS_FILE="$tmp/no-machine-ids" \
+    SENSITIVE_TERMS_FILE="$tmp/no-terms" bash "$HOOK" < "$tmp/payload" > "$tmp/stdout" 2> "$tmp/stderr" ); rc=$?
+if [[ "$rc" == 2 ]] && grep -q 'private repository' "$tmp/stderr" \
+   && "$PY" -c 'import json,sys; d=json.load(open(sys.argv[1]))["hookSpecificOutput"]; sys.exit(0 if d["permissionDecision"]=="deny" and "private repository" in d["permissionDecisionReason"] else 1)' "$tmp/stdout"; then
+  ok "a refusal: exit 2, reason on stderr, deny JSON on stdout"
+else
+  error "refusal output: rc=$rc stdout=$(cat "$tmp/stdout")"
+fi
+
+# Latency: a hit against 5,000 names. A timeout lets the command run, so the
+# hook has to be well inside its 60 s; the old per-name grep took 14 s.
+big="$tmp/big.tsv"
+{ printf '# generated: 2026-10-11 source: test\n'; printf '# visibility\tnamespace\tname\tcode\tflags\n'
+  awk 'BEGIN { for (i = 1; i <= 5000; i++) printf "private\texample\tzzqfixture%04d\tR-%04d\t\n", i, i }'; } > "$big"
+now_ms() { "$PY" -c 'import time; print(int(time.time() * 1000))'; }
+t0="$(now_ms)"
+hook 2 "a hit against 5,000 names is refused" "$pub" "gh pr create --body 'see zzqfixture4999'" "$big"
+t1="$(now_ms)"
+ms=$((t1 - t0))
+# Git Bash on Windows forks slowly (about 2 s for this hit on a CI runner,
+# 0.25 s on Linux), so its bound is wider; both are far inside the timeout.
+limit=2000
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) limit=5000 ;; esac
+[[ "$ms" -lt "$limit" ]] && ok "the hit took $ms ms (< $limit)" || error "the hit took $ms ms, want < $limit"
+# Out of scope is decided before any scan: it must stay cheap on every call.
+t0="$(now_ms)"
+hook 0 "out of scope, against 5,000 names" "$other" "gh pr create --body 'see zzqfixture4999'" "$big"
+t1="$(now_ms)"
+ms=$((t1 - t0))
+[[ "$ms" -lt "$limit" ]] && ok "out of scope took $ms ms (< $limit)" || error "out of scope took $ms ms, want < $limit"
+
+if [[ $failures -gt 0 ]]; then
+  note "$failures failure(s)"
+  exit 1
+fi
+note "all passed"

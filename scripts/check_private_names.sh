@@ -138,7 +138,14 @@ if [[ -n "$REPO" ]]; then
   cd "$REPO" || { log_error "No such directory: $REPO"; exit 2; }
 fi
 
-work="$(mktemp -d)"
+# One private directory per run (mktemp -d, mode 700, random name); every
+# scratch file lives in it. Refuse when it cannot be made: an empty $work would
+# write to /hard, /entries ... and the scan would pass over an empty list.
+work="$(mktemp -d 2>/dev/null)" && [[ -n "$work" && -d "$work" && ! -L "$work" ]] || {
+  log_error "could not create a private temp directory (TMPDIR=${TMPDIR:-unset}); NOT checked."
+  exit 2
+}
+chmod 700 "$work" 2>/dev/null || true
 # Guarded: a subshell inherits an EXIT trap, and bash runs it there when the
 # subshell is signalled -- so this could tear down the caller's stack, or
 # delete a directory, while the run is still using it. ${BASHPID-$$} rather
@@ -161,10 +168,16 @@ qualified="$work/qualified"
 # as evidence that the text is clean.
 declare_from_names() {
   # --names is for tests and one-off use; every name is treated as unambiguous.
-  printf '%s' "$1" | tr ',' '\n' | while IFS= read -r n; do
+  # The trailing newline matters: read drops a last line without one, which
+  # left a single --names value unchecked and the run reporting clean.
+  printf '%s\n' "$1" | tr ',' '\n' | while IFS= read -r n; do
     n="$(printf '%s' "$n" | tr -d '[:space:]')"
     [[ -n "$n" ]] && printf '%s\n' "$n"
   done > "$hard"
+  if [[ ! -s "$hard" ]]; then
+    log_error "--names gave no names; an empty list cannot be told from clean text."
+    exit 2
+  fi
 }
 
 list_age_days() {
@@ -447,22 +460,18 @@ mv "$allowed.clean" "$allowed"
 
 drop_allowed() {  # drop_allowed <names-file>
   [[ -s "$allowed" ]] || return 0
-  local kept="$1.kept"
-  : > "$kept"
-  while IFS="$(printf '\t')" read -r name code; do
-    # `--`, because a repository name may begin with a dash. Without it grep
-    # reads the name as options: a real dictionary here produced
-    # `grep: invalid argument 'j-...' for '--directories'` five times per push,
-    # on every public repository, and the run still reported the tree clean.
-    # The names were kept rather than dropped -- grep's usage error is not 0 --
-    # so nothing was wrongly allowed, but an override that named one of them
-    # silently did nothing.
-    if grep -qix -F -- "$name" "$allowed"; then
-      log_info "allowed by override, not checked: $name"
-    else
-      printf '%s\t%s\n' "$name" "$code" >> "$kept"
-    fi
-  done < "$1"
+  local kept="$1.kept" dropped="$1.dropped" name
+  # One awk pass, not a grep per name: with a list of thousands of names the
+  # loop forked thousands of processes and took 7 s on every run. Same match
+  # as before: the whole name, case-insensitive, as a fixed string.
+  awk -F'\t' -v allowf="$allowed" -v keptf="$kept" -v dropf="$dropped" '
+    BEGIN { while ((getline a < allowf) > 0) allow[tolower(a)] = 1; printf "" > keptf; printf "" > dropf }
+    { if (tolower($1) in allow) print $1 > dropf; else print $1 "\t" $2 > keptf }
+  ' "$1" || { log_error "could not apply the allowlist"; exit 2; }
+  while IFS= read -r name; do
+    log_info "allowed by override, not checked: $name"
+  done < "$dropped"
+  rm -f "$dropped"
   mv "$kept" "$1"
 }
 drop_allowed "$hard"
@@ -499,21 +508,25 @@ ere_patterns() { # ere_patterns <names-file> -> a pattern file for grep -E
 # CI log or a pasted error message -- publishing by accident the thing this
 # gate exists to keep unpublished.
 matched_names() { # matched_names <names-file> <hits-file> [fixed|token]
-  local name code kind="${3:-fixed}" hit
-  while IFS="$(printf '\t')" read -r name code; do
-    [[ -z "$name" ]] && continue
-    if [[ "$kind" == token ]]; then
-      hit="(^|[^A-Za-z0-9])$(printf '%s' "$name" | sed 's/[][\.^$*+?(){}|\\]/\\&/g')([^A-Za-z0-9]|$)"
-      grep -qiE -- "$hit" "$2" || continue
-    else
-      grep -qi -F -- "$name" "$2" || continue
-    fi
-    if [[ "$code" == "-" || -z "$code" ]]; then
-      printf '        %s\n' "$name"
-    else
-      printf '        %s -> %s\n' "$name" "$code"
-    fi
-  done < "$1"
+  # One awk pass over the names, in list order. "fixed" is a case-insensitive
+  # substring; "token" also needs no letter or digit on either side.
+  awk -F'\t' -v hitsf="$2" -v kind="${3:-fixed}" '
+    function tok(line, needle,   n, pos, b, a) {
+      n = length(needle); pos = index(line, needle)
+      while (pos > 0) {
+        b = (pos == 1) ? "" : substr(line, pos - 1, 1); a = substr(line, pos + n, 1)
+        if (b !~ /[a-z0-9]/ && a !~ /[a-z0-9]/) return 1
+        line = substr(line, pos + 1); pos = index(line, needle)
+      }
+      return 0
+    }
+    BEGIN { while ((getline l < hitsf) > 0) hits = hits "\n" tolower(l) }
+    $1 != "" {
+      needle = tolower($1)
+      if (kind == "token" ? !tok(hits, needle) : !index(hits, needle)) next
+      if ($2 == "-" || $2 == "") printf "        %s\n", $1
+      else printf "        %s -> %s\n", $1, $2
+    }' "$1"
 }
 
 # ---- the subject ----------------------------------------------------------
