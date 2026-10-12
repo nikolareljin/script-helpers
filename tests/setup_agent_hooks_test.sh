@@ -138,6 +138,15 @@ out="$(payload cursor "ls" | bash "$tmp/broken/scripts/agent-hooks/agent_hook.sh
 (printf '{}' | bash "$adapter" claude >/dev/null 2>&1); rc=$?
 [[ $rc -eq 2 ]] && ok "the adapter refuses an unknown agent (2)" || error "adapter unknown agent rc=$rc"
 
+# 5b. A json.py in the project (the agents run hooks from there) never runs
+#     inside the check: every Python call is isolated (-I).
+printf 'import os\nopen(os.path.join(os.path.dirname(os.path.abspath(__file__)), "PWNED"), "a").write("x")\n' > "$r/json.py"
+cp "$r/json.py" "$r/re.py"
+(cd "$r" && payload cursor "ls" | bash "$adapter" cursor >/dev/null 2>&1)
+(cd "$r" && payload codex "ls" | bash "$root_dir/scripts/claude-hooks/pretooluse_private_names.sh" >/dev/null 2>&1)
+[[ ! -e "$r/PWNED" ]] && ok "a json.py or re.py in the project does not run inside the hooks" || error "planted module ran inside a hook"
+rm -f "$r/json.py" "$r/re.py" "$r/PWNED"
+
 # 6. User level: --agent all writes the four user files; uninstall removes them and the copy.
 (cd "$tmp" && bash "$setup" --agent all >/dev/null 2>&1) || error "user: install failed"
 n=0

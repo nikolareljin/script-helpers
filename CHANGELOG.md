@@ -22,6 +22,15 @@
   an employer's hooks keep running, ours run too, hooks added later run, a
   takeover is repaired, uninstall leaves `.git/config` as it was.
 
+### Fixed
+
+- **A module in the project ran inside the security hooks.** The Claude hook
+  (0.49.0), the new agent adapter, `check_private_names.sh`,
+  `refresh_private_names.sh` and `setup-hooks.sh` ran `python3 -c` from the
+  project directory, so a `json.py` committed to a cloned repository ran on
+  `import json` inside the check. Every Python call there is now isolated
+  (`-I`): no current directory on the path, no `PYTHON*` variables.
+
 ## 2026-10-12 — v0.49.0
 
 ### Added

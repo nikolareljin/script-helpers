@@ -89,9 +89,9 @@ PUBLISH_RE='(^|[^[:alnum:]_-])(gh[[:space:]]+(pr|issue|release|api)|git[[:space:
 # looks like publishing is refused as "could not check".
 # python3, else a "python" that is 3.x: Windows installs name it python.exe.
 HAVE_PY=false; PY=python3
-if command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(sys.version_info[0] != 3)' >/dev/null 2>&1; then
+if command -v python3 >/dev/null 2>&1 && python3 -I -c 'import sys; sys.exit(sys.version_info[0] != 3)' >/dev/null 2>&1; then
   HAVE_PY=true
-elif command -v python >/dev/null 2>&1 && python -c 'import sys; sys.exit(sys.version_info[0] != 3)' >/dev/null 2>&1; then
+elif command -v python >/dev/null 2>&1 && python -I -c 'import sys; sys.exit(sys.version_info[0] != 3)' >/dev/null 2>&1; then
   HAVE_PY=true; PY=python
 fi
 
@@ -123,7 +123,7 @@ err_file="$work_dir/err"
 exec 3>&2 2>"$err_file"
 deny_json() {
   if [[ "$HAVE_PY" == true ]]; then
-    "$PY" -c 'import json,sys
+    "$PY" -I -c 'import json,sys
 r = open(sys.argv[1], encoding="utf-8", errors="replace").read().strip() or "Refused by the security gate."
 print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
       "permissionDecision": "deny", "permissionDecisionReason": r}}))' "$err_file" 2>/dev/null && return 0
@@ -150,7 +150,7 @@ cat > "$payload_file"
 cwd_ok=false
 payload_cwd=""
 if [[ "$HAVE_PY" == true ]]; then
-  payload_cwd="$("$PY" -c 'import json,sys
+  payload_cwd="$("$PY" -I -c 'import json,sys
 try:
     c = json.load(open(sys.argv[1], encoding="utf-8")).get("cwd")
     print(c if isinstance(c, str) else "")
@@ -207,7 +207,7 @@ fi
 parsed=""
 parse_rc=0
 if [[ "$HAVE_PY" == true ]]; then
-parsed="$("$PY" - "$payload_file" <<'PY'
+parsed="$("$PY" -I - "$payload_file" <<'PY'
 import json, shlex, sys, pathlib
 
 try:
@@ -498,7 +498,7 @@ VERB_RE='(^|[^[:alnum:]_-])(push|commit|tag|pr|issue|release|api|gist)([^[:alnum
 cmd_file="${payload_file}.cmd"
 : > "$cmd_file"
 {
-  if [[ "$HAVE_PY" != true ]] || ! "$PY" -c '
+  if [[ "$HAVE_PY" != true ]] || ! "$PY" -I -c '
 import json, sys
 def walk(v):
     if isinstance(v, str):

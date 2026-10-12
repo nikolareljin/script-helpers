@@ -211,7 +211,7 @@ require_owners() {
 # "python3" may be a store stub that does not run).
 PY=""
 for _c in python3 python; do
-  if command -v "$_c" >/dev/null 2>&1 && "$_c" -c 'import sys; sys.exit(sys.version_info[0] != 3)' >/dev/null 2>&1; then
+  if command -v "$_c" >/dev/null 2>&1 && "$_c" -I -c 'import sys; sys.exit(sys.version_info[0] != 3)' >/dev/null 2>&1; then
     PY="$_c"; break
   fi
 done
@@ -280,7 +280,7 @@ offer_gitleaks() {
 
 file_age_days() {  # <date YYYY-MM-DD>: days since then, or nothing
   [[ -n "$PY" ]] || return 0
-  "$PY" -c 'import datetime,sys
+  "$PY" -I -c 'import datetime,sys
 try:
     d = datetime.datetime.strptime(sys.argv[1], "%Y-%m-%d").date()
     print((datetime.date.today() - d).days)
@@ -294,7 +294,7 @@ prereqs() {
   echo "[setup-hooks] prerequisites:"
   printf '  bash      ok (%s)\n' "${BASH_VERSION:-?}"
   if [[ -n "$PY" ]]; then
-    printf '  python    ok (%s: %s)\n' "$PY" "$("$PY" --version 2>&1)"
+    printf '  python    ok (%s: %s)\n' "$PY" -I "$("$PY" --version 2>&1)"
   else
     echo "  python    MISSING: install Python 3 (python3, or python on Windows)"; missing=$((missing+1))
   fi
@@ -369,7 +369,7 @@ show_global_status() {
     local top_dir
     top_dir="$(git rev-parse --show-toplevel 2>/dev/null || true)"
     if [[ -n "$top_dir" && -f "$top_dir/.claude/settings.local.json" && -n "$PY" ]] && \
-       "$PY" "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$top_dir/.claude/settings.local.json")" >/dev/null 2>&1; then
+       "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$top_dir/.claude/settings.local.json")" >/dev/null 2>&1; then
       echo "[setup-hooks] this repository: Claude hook in .claude/settings.local.json"
     fi
   fi
@@ -392,7 +392,7 @@ agent_user_file() {
     cursor) echo "${HOME:-}/.cursor/hooks.json" ;;
   esac
 }
-agent_merge() { "$PY" "$(native_path "$src_root/$AGENT_MERGE_REL")" "$@"; }
+agent_merge() { "$PY" -I "$(native_path "$src_root/$AGENT_MERGE_REL")" "$@"; }
 
 # require_agent_tools: what every agent install needs; refuses (exit 2) first.
 require_agent_tools() {
@@ -462,7 +462,7 @@ claude_supports_onfailure() {
   command -v claude >/dev/null 2>&1 && [[ -n "$PY" ]] || return 1
   v="$(claude --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
   [[ -n "$v" ]] || return 1
-  "$PY" -c 'import sys
+  "$PY" -I -c 'import sys
 a = [int(x) for x in sys.argv[1].split(".")]; b = [int(x) for x in sys.argv[2].split(".")]
 sys.exit(0 if a >= b else 1)' "$v" "$ONFAILURE_MIN"
 }
@@ -470,14 +470,14 @@ sys.exit(0 if a >= b else 1)' "$v" "$ONFAILURE_MIN"
 # claude_onfailure <settings>: the onFailure value of our entry, or nothing.
 claude_onfailure() {
   [[ -n "$PY" && -f "$1" ]] || return 0
-  "$PY" "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$1")" 2>/dev/null \
+  "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$1")" 2>/dev/null \
     | sed -n 's/^onFailure=//p' | head -1 || true
 }
 
 # claude_entry <settings>: the hook command in that file, or nothing.
 claude_entry() {
   [[ -n "$PY" && -f "$1" ]] || return 0
-  "$PY" "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$1")" 2>/dev/null | head -1 || true
+  "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$1")" 2>/dev/null | head -1 || true
 }
 
 show_claude_status() {
@@ -512,7 +512,7 @@ install_claude() {
     exit 2
   fi
   # Validate first: nothing is copied for a settings file that cannot be merged.
-  "$PY" "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$settings")" >/dev/null || rc=$?
+  "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$settings")" >/dev/null || rc=$?
   [[ "$rc" -le 1 ]] || exit "$rc"
 
   stage="$(stage_common "$home")" || { echo "[setup-hooks] ERROR: could not stage $home" >&2; exit 1; }
@@ -527,7 +527,7 @@ install_claude() {
   onfailure=""
   if claude_supports_onfailure; then onfailure=block; fi
   rc=0
-  "$PY" "$(native_path "$home/$MERGE_REL")" install "$(native_path "$settings")" "$cmd" 60 $onfailure || rc=$?
+  "$PY" -I "$(native_path "$home/$MERGE_REL")" install "$(native_path "$settings")" "$cmd" 60 $onfailure || rc=$?
   [[ "$rc" -eq 0 ]] || exit "$rc"
   echo "[setup-hooks] PreToolUse hook (matcher Bash, timeout 60 s, shell bash${onfailure:+, onFailure block}): $cmd"
   if [[ -z "$onfailure" ]]; then
@@ -541,7 +541,7 @@ uninstall_claude() {
   local settings="$1" home="$2" rc=0
   if [[ -f "$settings" ]]; then
     [[ -n "$PY" ]] || { echo "[setup-hooks] ERROR: Python 3 is needed to edit $settings" >&2; exit 2; }
-    "$PY" "$(native_path "$src_root/$MERGE_REL")" uninstall "$(native_path "$settings")" || rc=$?
+    "$PY" -I "$(native_path "$src_root/$MERGE_REL")" uninstall "$(native_path "$settings")" || rc=$?
     [[ "$rc" -eq 0 ]] || exit "$rc"
   fi
   rm -rf "${home:?}/scripts" "${home:?}/lib" "${home:?}/helpers.sh" "${home:?}/VERSION"
@@ -625,7 +625,7 @@ uninstall_global() {
   echo "[setup-hooks] global hooks removed"
 }
 
-now_ms() { "$PY" -c 'import time; print(int(time.time() * 1000))'; }
+now_ms() { "$PY" -I -c 'import time; print(int(time.time() * 1000))'; }
 
 # probe_name: a private name from the list the hook reads, for the name probe.
 # Read as check_private_names.sh reads it: columns by the header, else the v1
@@ -662,7 +662,7 @@ probe() {
     && git -C "$dir/repo" remote add origin "https://github.com/$(configured_owners | cut -d, -f1 | tr -d ' ')/doctor-probe.git" \
     || { rm -rf "$dir"; printf '  FAIL  %-44s could not create the probe repository\n' "$label"; return 1; }
   # JSON-encoded by Python: a path may hold a quote or a backslash.
-  "$PY" -c 'import json,sys; print(json.dumps({"cwd": sys.argv[1], "tool_name": "Bash", "tool_input": {"command": sys.argv[2]}}))' \
+  "$PY" -I -c 'import json,sys; print(json.dumps({"cwd": sys.argv[1], "tool_name": "Bash", "tool_input": {"command": sys.argv[2]}}))' \
     "$(native_path "$dir/repo")" "$command" > "$dir/payload" \
     || { rm -rf "$dir"; printf '  FAIL  %-44s could not build the payload\n' "$label"; return 1; }
   t0="$(now_ms)"
@@ -886,7 +886,7 @@ if [[ "$STATUS" == true && "$PORCELAIN" == true ]]; then
   # exclude marker is written.
   claude_repo=no
   if [[ -f "$repo_root/.claude/settings.local.json" && -n "$PY" ]] && \
-     "$PY" "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$repo_root/.claude/settings.local.json")" >/dev/null 2>&1; then
+     "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$repo_root/.claude/settings.local.json")" >/dev/null 2>&1; then
     claude_repo=yes
   fi
   # The machine-wide hooks run here when no local core.hooksPath overrides them.
@@ -970,7 +970,7 @@ if [[ -n "$AGENTS_REPO" ]]; then
         [[ "$rc" -eq 0 ]] || exit "$rc"
         move_agent_backups "$a" "$f" || exit 1
         if [[ "$(git config --local --get "script-helpers.$a-local-created" 2>/dev/null)" == true ]] && \
-           "$PY" -c 'import json,sys
+           "$PY" -I -c 'import json,sys
 d = json.load(open(sys.argv[1]))
 sys.exit(0 if all(not v for k, v in d.items() if k != "version") else 1)' "$(native_path "$f")" 2>/dev/null; then
           rm -f "$f"
@@ -1052,12 +1052,12 @@ if [[ "$CLAUDE_REPO" == true ]]; then
   if [[ "$UNINSTALL" == true ]]; then
     if [[ -f "$claude_local" ]]; then
       [[ -n "$PY" ]] || { echo "[setup-hooks] ERROR: Python 3 is needed to edit $claude_local" >&2; exit 2; }
-      rc=0; "$PY" "$(native_path "$src_root/$MERGE_REL")" uninstall "$(native_path "$claude_local")" || rc=$?
+      rc=0; "$PY" -I "$(native_path "$src_root/$MERGE_REL")" uninstall "$(native_path "$claude_local")" || rc=$?
       [[ "$rc" -eq 0 ]] || exit "$rc"
       move_claude_backups || exit 1
       # A file this script created and that now holds nothing is removed again.
       if [[ "$(git config --local --get script-helpers.claude-local-created 2>/dev/null)" == true ]] && \
-         "$PY" -c 'import json,sys
+         "$PY" -I -c 'import json,sys
 d = json.load(open(sys.argv[1]))
 sys.exit(0 if all(not v for v in d.values()) else 1)' "$(native_path "$claude_local")" 2>/dev/null; then
         rm -f "$claude_local"
@@ -1082,7 +1082,7 @@ sys.exit(0 if all(not v for v in d.values()) else 1)' "$(native_path "$claude_lo
   require_owners
   [[ -n "$PY" ]] || { echo "[setup-hooks] ERROR: Python 3 is needed (python3, or python on Windows)." >&2; exit 2; }
   if [[ -f "$claude_local" ]]; then
-    rc=0; "$PY" "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$claude_local")" >/dev/null || rc=$?
+    rc=0; "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$claude_local")" >/dev/null || rc=$?
     [[ "$rc" -le 1 ]] || exit "$rc"
   fi
   existed=false; [[ -e "$claude_local" ]] && existed=true

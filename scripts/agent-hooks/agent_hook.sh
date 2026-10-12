@@ -27,7 +27,7 @@ check="$here/../claude-hooks/pretooluse_private_names.sh"
 
 PY=""
 for c in python3 python; do
-  if command -v "$c" >/dev/null 2>&1 && "$c" -c 'import sys; sys.exit(0 if sys.version_info[0] == 3 else 1)' 2>/dev/null; then
+  if command -v "$c" >/dev/null 2>&1 && "$c" -I -c 'import sys; sys.exit(0 if sys.version_info[0] == 3 else 1)' 2>/dev/null; then
     PY="$c"; break
   fi
 done
@@ -38,7 +38,7 @@ payload="$(cat)"
 # check then scans the raw text, which still holds the command.
 claude_payload="$payload"
 if [[ -n "$PY" ]]; then
-  claude_payload="$(printf '%s' "$payload" | "$PY" -c '
+  claude_payload="$(printf '%s' "$payload" | "$PY" -I -c '
 import json, sys
 agent = sys.argv[1]
 try:
@@ -85,7 +85,7 @@ fi
 # Refused (or the check failed): the reason from the check's JSON, else a fixed one.
 reason="Refused by the script-helpers security gate; see stderr."
 if [[ -n "$PY" && -s "$out_file" ]]; then
-  r="$("$PY" -c '
+  r="$("$PY" -I -c '
 import json, sys
 import re
 try:
@@ -97,7 +97,7 @@ except Exception:
 fi
 [[ "$rc" -ne 2 ]] && reason="The script-helpers security check failed (exit $rc); refused."
 if [[ -n "$PY" ]]; then
-  "$PY" -c '
+  "$PY" -I -c '
 import json, sys
 agent, r = sys.argv[1], sys.argv[2]
 if agent == "codex":
