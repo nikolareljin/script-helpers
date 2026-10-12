@@ -224,160 +224,63 @@ def normalize(seg):
         seg = out + seg[i:]
     return seg
 
-# Where the command can make text public, for the private-name check: one
-# line per destination, written to the file given as the second argument.
-#   repo NAME  a -R/--repo target, judged by its name
-#   dir TOP    a repository the command runs in (cd, git -C) or writes into (a
-#              redirect); a path that does not exist yet (a new worktree)
-#              counts as the repository of its nearest existing parent
-#   any        a publishing command whose repository cannot be identified:
-#              gh or git commit/tag/push outside a repository, a push to a URL,
-#              curl or wget naming github
-# A directory that is not a repository is not a destination. No file at all
-# (not parsed) makes the shell fall back to checking as before.
-# (No quote or backtick characters in this block, see normalize.)
+# The one relaxation of the private-name check, written to the file given as
+# the second argument: "private TOP" when the command stays in the session
+# repository TOP (see write_dests). The shell then skips the check only if
+# every remote of TOP is a listed private repository of an owner. No file:
+# the checks run exactly as before (see the fallback in the shell below).
+# (No single quote or backtick characters in this block, see normalize.)
 import os, subprocess
 SQ, DQ, BT, BS, NL = chr(39), chr(34), chr(96), chr(92), chr(10)
 
+BANNED = re.compile(r"(^|[^A-Za-z0-9_.-])(cd|pushd|popd|eval|exec|curl|wget|remote|source|xargs|alias|env|api|-C|-c|-R|--repo|--git-dir|--work-tree|--config-env)([^A-Za-z0-9_-]|$)|GIT_|://|git@|insteadof", re.I)
+
 def write_dests(path):
-    # Relaxing is allowed only for a command modelled exactly. Anything else
-    # writes a single any line: checked whatever the destination (strict).
-    def strict():
+    # The only relaxation: the command runs in the session directory (the
+    # payload cwd, absolute), that directory is inside a repository, and the
+    # command names nothing that could move it elsewhere. Then one line
+    # private TOP is written, and the shell skips the private-name check only if
+    # every remote of TOP is a listed private repository of an owner.
+    # Anything else writes nothing: checked, as before. No parsing decides
+    # where a command publishes.
+    def write(line):
         with open(path, "w") as fh:
-            fh.write("any" + NL)
+            fh.write(line + NL)
     cwd = data.get("cwd")
-    # One source of truth for the session directory: the payload cwd field,
-    # which the shell has already entered. Missing or relative: strict.
     if not isinstance(cwd, str) or not os.path.isabs(cwd) or not os.path.isdir(cwd):
-        return strict()
+        return
     try:
         if not os.path.samefile(cwd, os.getcwd()):
-            return strict()
+            return
     except OSError:
-        return strict()
-    for bad in ("$", BT, "(", ")", "{", "}", "<<<"):
-        if bad in command:
-            return strict()
-    if re.search("GIT_DIR|GIT_WORK_TREE|GIT_CONFIG|GIT_NAMESPACE|--git-dir|--work-tree", command):
-        return strict()
-    buf, q, esc = [], "", False
-    for ch in command:
-        if esc:
-            buf.append(ch); esc = False; continue
-        if ch == BS and q != SQ:
-            buf.append(ch); esc = True; continue
-        if q:
-            if ch == q:
-                q = ""
-        elif ch in (SQ, DQ):
-            q = ch
-        elif ch == NL:
-            ch = ";"
-        buf.append(ch)
+        return
+    if "$" in command or BT in command or BANNED.search(command):
+        return
     try:
-        lx = shlex.shlex("".join(buf), posix=True, punctuation_chars=True)
+        r = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                           universal_newlines=True, timeout=10)
+    except Exception:
+        return
+    top = r.stdout.strip() if r.returncode == 0 else ""
+    if not top:
+        return
+    try:
+        lx = shlex.shlex(command, posix=True, punctuation_chars=True)
         lx.whitespace_split = True
         lx.commenters = ""
         toks = list(lx)
     except ValueError:
-        return strict()
-    segs, cur = [], []
+        return
+    real_top = os.path.realpath(top)
     for t in toks:
-        if t == "&" or (t and set(t) <= set("&") and t != "&&"):
-            return strict()
-        if t in SEPARATORS or (t and set(t) <= set(";&|")):
-            if cur:
-                segs.append(cur)
-            cur = []
-        else:
-            cur.append(t)
-    if cur:
-        segs.append(cur)
-    KNOWN = ("git", "gh", "echo", "printf", "ls", "cat", "grep", "cd", "mkdir", "cp", "mv")
-    if sum(1 for s in segs if s and s[0] == "cd") > 1:
-        return strict()
-    specs = []
-    def add(*s):
-        if s not in specs:
-            specs.append(s)
-    def resolve(p, base):
-        return os.path.normpath(os.path.join(base, os.path.expanduser(p)))
-    tops = {}
-    def top_of(p):
-        if p not in tops:
-            q = p
-            while not os.path.isdir(q) and os.path.dirname(q) != q:
-                q = os.path.dirname(q)
-            try:
-                r = subprocess.run(["git", "-C", q, "rev-parse", "--show-toplevel"],
-                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                   universal_newlines=True, timeout=10)
-                tops[p] = r.stdout.strip() if r.returncode == 0 else ""
-            except Exception:
-                tops[p] = None
-        return tops[p]
-    for seg in segs:
-        s = list(seg)
-        if not s:
-            continue
-        w = s[0]
-        if w not in KNOWN or ASSIGN.match(w):
-            return strict()
-        if w == "cd":
-            if len(s) != 2 or s[1].startswith("-"):
-                return strict()
-            cwd = resolve(s[1], cwd)
-            if not os.path.isdir(cwd):
-                return strict()
-            continue
-        d, pub = cwd, False
-        if w == "git":
-            i = 1
-            while i < len(s) and s[i].startswith("-"):
-                if s[i] == "-C" and i + 1 < len(s):
-                    d = resolve(s[i + 1], d); i += 2
-                elif s[i] == "--no-pager":
-                    i += 1
-                else:
-                    return strict()
-            sub = s[i] if i < len(s) else ""
-            rest = s[i + 1:]
-            if sub == "remote" and any(a in ("add", "set-url", "rename") for a in rest):
-                return strict()
-            pub = sub in ("commit", "tag", "push", "send-email", "request-pull")
-            if sub == "push":
-                pos = [a for a in rest if not a.startswith("-")]
-                if any(a.startswith("--repo") for a in rest) or (pos and pos[0] != "origin"):
-                    return strict()
-        elif w == "gh":
-            r = ""
-            for k, a in enumerate(s):
-                if a in ("-R", "--repo"):
-                    if k + 1 >= len(s):
-                        return strict()
-                    r = s[k + 1]
-                elif a.startswith("--repo=") or (a.startswith("-R") and len(a) > 2):
-                    return strict()
-            if r:
-                add("repo", r); continue
-            pub = True
-        for k, a in enumerate(s[:-1]):
-            if a in (">", ">>", ">|", "&>") and not s[k + 1].startswith("/dev/"):
-                t = top_of(resolve(s[k + 1], d))
-                if t is None:
-                    return strict()
-                if t:
-                    add("dir", t)
-        t = top_of(d)
-        if t is None:
-            return strict()
-        if t:
-            add("dir", t)
-        elif pub:
-            add("any")
-    with open(path, "w") as fh:
-        for s in specs:
-            fh.write(chr(9).join(s) + NL)
+        # Any word that looks like a path must stay inside the repository.
+        for part in t.split("="):
+            if part.startswith(("/", "~")) or ".." in part:
+                p = os.path.realpath(os.path.join(cwd, os.path.expanduser(part)))
+                if p != real_top and not p.startswith(real_top + os.sep):
+                    return
+    write("private" + chr(9) + top)
 
 if len(sys.argv) > 2:
     write_dests(sys.argv[2])
@@ -611,12 +514,13 @@ else:
   tr -d "'\"\\\\" < "$cmd_file" > "$cmd_file.plain" || { reason="could not prepare the command text"; unchecked "Reading the command"; }
   # The override and indirection checks read the command without the body of
   # a here-document that only becomes a file: `cat > f <<'EOF'` or `tee f
-  # <<EOF` alone on its line, nothing piped or chained. That body is data, and
+  # <<'EOF'` alone on its line, nothing piped or chained, the delimiter quoted
+  # (unquoted, bash expands $(...) in the body). That body is data, and
   # a test or a doc that mentions HOME= or the owners key is not an override.
   # Running the file later is a separate call, checked then. The names and
   # sensitive scans below still read the body.
   awk -v sq="'" '
-    BEGIN { re = "^[[:space:]]*(cat|tee)[[:space:]][^|;&`$()<]*<<-?[[:space:]]*[" sq "\"]?[A-Za-z_][A-Za-z0-9_]*[" sq "\"]?[[:space:]]*$" }
+    BEGIN { re = "^[[:space:]]*(cat|tee)[[:space:]][^|;&`$()<]*<<-?[[:space:]]*(" sq "[A-Za-z_][A-Za-z0-9_]*" sq "|\"[A-Za-z_][A-Za-z0-9_]*\")[[:space:]]*$" }
     skip != "" { t = $0; if (strip_tabs) sub(/^\t+/, "", t); if (t == skip) skip = ""; next }
     {
       print
@@ -642,9 +546,8 @@ else:
   cat "$cmd_file.plain" >> "$cmd_file"
   rm -f "$cmd_file.plain" "$cmd_file.code" "$cmd_file.codeplain"
 }
-# Not parsed (python3 missing, a command shlex cannot split, another tool):
-# the destinations are guessed as before. Any cd or -C: checked whatever the
-# destination; one -R target: that repository; else the session directory.
+# Not relaxed (the usual case): checked. One -R target and no cd or -C: that
+# repository decides, as before (a pull request into a private repository).
 if [[ ! -f "$dest_file" ]]; then
   r_targets="$(grep -oE -- '(^|[[:space:]])(-R|--repo)[= ]+[^;&|[:space:]]+' "$cmd_file" | sed -E 's/^[[:space:]]*(-R|--repo)[= ]+//' | tr -d "'\"" | sort -u)"
   if grep -qE -- '(^|[;&|[:space:]])cd[[:space:]]|(^|[[:space:]])-C[[:space:]]' "$cmd_file"; then
@@ -652,7 +555,7 @@ if [[ ! -f "$dest_file" ]]; then
   elif [[ -n "$r_targets" && "$(printf '%s\n' "$r_targets" | wc -l | tr -d ' ')" == 1 ]]; then
     printf 'repo\t%s\n' "$r_targets" > "$dest_file"
   else
-    printf 'dir\t%s\n' "$PWD" > "$dest_file"
+    printf 'any\n' > "$dest_file"
   fi
 fi
 
@@ -694,7 +597,7 @@ names_check() {
   if [[ ! -f "$GATE" ]]; then reason="check_private_names.sh is missing next to this hook"; return 2; fi
   while IFS="$(printf '\t')" read -r kind val; do
     case "$kind" in
-      dir)
+      private)
         # Skipped only for a repository whose every remote is a listed
         # private repository of a configured owner. Anything else: checked.
         if [[ -d "$val" ]] && repo_all_private "$val"; then

@@ -53,6 +53,10 @@ cd "$tmp" || exit 1
 printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/bin/gitleaks"; chmod +x "$tmp/bin/gitleaks"
 export PATH="$tmp/bin:$PATH"
 
+# A name list: without one the hook cannot check, and refuses every command.
+mkdir -p "$XDG_CONFIG_HOME/script-helpers"
+printf '# generated: 2026-10-11 source: test\n# visibility\tnamespace\tname\tcode\tflags\nprivate\texample\tzzqsecretbox\tR-901\t\n' \
+  > "$XDG_CONFIG_HOME/script-helpers/private-names.tsv"
 settings="$CLAUDE_CONFIG_DIR/settings.json"
 hook_copy="$data_dir/script-helpers/claude-hooks/scripts/claude-hooks/pretooluse_private_names.sh"
 

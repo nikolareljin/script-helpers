@@ -87,6 +87,11 @@ jobs:
           $env:LOCALAPPDATA = Join-Path $t 'localappdata'
           $env:GIT_CONFIG_GLOBAL = Join-Path $t 'gitconfig'
           $env:SCRIPT_HELPERS_OWNERS = 'example-owner'
+          # A placeholder name list: without one the hook refuses everything.
+          $env:XDG_CONFIG_HOME = Join-Path $t 'config'
+          New-Item -ItemType Directory -Force -Path (Join-Path $env:XDG_CONFIG_HOME 'script-helpers') | Out-Null
+          "# generated: 2026-10-11 source: ci`n# visibility`tnamespace`tname`tcode`tflags`nprivate`texample`tzzqsecretbox`tR-901`t`n" |
+            Set-Content -NoNewline -Encoding ascii (Join-Path $env:XDG_CONFIG_HOME 'script-helpers/private-names.tsv')
           New-Item -ItemType File -Force -Path $env:GIT_CONFIG_GLOBAL | Out-Null
           powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-hooks.ps1 --claude
           if ($LASTEXITCODE -ne 0) { exit 1 }

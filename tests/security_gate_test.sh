@@ -620,9 +620,12 @@ if command -v python3 >/dev/null 2>&1; then
   hook_rc 0 "heredoc: a body written to a file may mention HOME=" "cat > $tmp/hd-notes.md <<'EOF'
 set HOME=/tmp/h and script-helpers.owners in the test
 EOF"
-  hook_rc 0 "heredoc: tee into a file, <<- form" "tee $tmp/hd-notes2.md <<-EOF
+  hook_rc 0 "heredoc: tee into a file, <<- form" "tee $tmp/hd-notes2.md <<-\"EOF\"
 	export SENSITIVE_ALLOW=x is documented here
 	EOF"
+  hook_rc 2 "heredoc: an unquoted delimiter expands \$(...) in the body, so it is read" "cat > $tmp/hd-z.md <<EOF
+\$(HOME=/tmp/h git push)
+EOF"
   hook_rc 2 "heredoc: a body piped to bash is read" "cat <<'EOF' | bash
 HOME=/tmp/h git push
 EOF"
