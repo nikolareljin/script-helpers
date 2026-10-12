@@ -34,6 +34,27 @@ done
 
 payload="$(cat)"
 
+# refuse <reason>: exit 2 with the agent's deny JSON (when Python can write it).
+refuse() {
+  echo "[agent_hook] $1" >&2
+  [[ -n "$PY" ]] && "$PY" -I -c '
+import json, sys
+agent, r = sys.argv[1], sys.argv[2]
+if agent == "codex":
+    o = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": r}}
+elif agent == "gemini":
+    o = {"decision": "deny", "reason": r}
+elif agent == "copilot":
+    o = {"permissionDecision": "deny", "permissionDecisionReason": r}
+else:
+    o = {"permission": "deny", "user_message": r, "agent_message": r}
+print(json.dumps(o))' "$agent" "$1"
+  exit 2
+}
+# An agent always sends a payload: none, or one that is not a JSON object,
+# cannot be judged, so it is refused rather than passed.
+[[ -n "${payload//[[:space:]]/}" ]] || refuse "empty hook payload; refused"
+
 # The payload in Claude's shape. Without Python it goes through unchanged: the
 # check then scans the raw text, which still holds the command.
 claude_payload="$payload"
@@ -71,7 +92,7 @@ if not isinstance(cmd, str):
 import os
 print(json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash",
                   "tool_input": {"command": cmd}, "cwd": d.get("cwd") or os.getcwd()}))
-' "$agent")" || claude_payload="$payload"
+' "$agent")" || refuse "the hook payload is not a JSON object; refused"
 fi
 
 out_file="$(mktemp 2>/dev/null)" || { echo "[agent_hook] could not create a temp file; refused" >&2; exit 2; }
@@ -99,20 +120,5 @@ except Exception:
   [[ -n "$r" ]] && reason="$r"
 fi
 [[ "$rc" -ne 2 ]] && reason="The script-helpers security check failed (exit $rc); refused."
-if [[ -n "$PY" ]]; then
-  "$PY" -I -c '
-import json, sys
-agent, r = sys.argv[1], sys.argv[2]
-if agent == "codex":
-    o = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": r}}
-elif agent == "gemini":
-    o = {"decision": "deny", "reason": r}
-elif agent == "copilot":
-    o = {"permissionDecision": "deny", "permissionDecisionReason": r}
-else:
-    o = {"permission": "deny", "user_message": r, "agent_message": r}
-print(json.dumps(o))' "$agent" "$reason"
-fi
-# The check wrote its reason to stderr already; say it here only when it did not run.
-[[ "$rc" -ne 2 ]] && echo "[agent_hook] $reason" >&2
-exit 2
+# The check wrote its reason to stderr already; refuse() repeats it only when it did not run.
+if [[ "$rc" -eq 2 ]]; then refuse "$reason" 2>/dev/null; else refuse "$reason"; fi

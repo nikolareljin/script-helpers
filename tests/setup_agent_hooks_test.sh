@@ -152,6 +152,29 @@ cp "$r/json.py" "$r/re.py"
 [[ ! -e "$r/PWNED" ]] && ok "a json.py or re.py in the project does not run inside the hooks" || error "planted module ran inside a hook"
 rm -f "$r/json.py" "$r/re.py" "$r/PWNED"
 
+# 5c. A payload that cannot be judged is refused, not passed.
+for bad in "" "echo zzq-private-thing" "[1]" "{"; do
+  (cd "$r" && printf '%s' "$bad" | bash "$adapter" cursor >/dev/null 2>&1); rc=$?
+  [[ $rc -eq 2 ]] && ok "unreadable payload refused (2): '${bad:-<empty>}'" || error "unreadable payload passed: '$bad' rc=$rc"
+done
+
+# 5d. Linked worktrees share .git/config and .git/info/exclude: an uninstall in
+#     one must not forget or un-exclude the file another still has.
+w="$(new_repo wt-main)"
+git -C "$w" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m init
+git -C "$w" worktree add -q "$tmp/wt-linked"
+for kind in agent claude; do
+  if [[ $kind == agent ]]; then inst=(--agent-repo cursor); rel=.cursor/hooks.json
+  else inst=(--claude-repo); rel=.claude/settings.local.json; fi
+  (cd "$w" && bash "$setup" "${inst[@]}" >/dev/null 2>&1) || error "$kind wt: main install failed"
+  (cd "$tmp/wt-linked" && bash "$setup" "${inst[@]}" >/dev/null 2>&1) || error "$kind wt: linked install failed"
+  (cd "$tmp/wt-linked" && bash "$setup" "${inst[@]}" --uninstall >/dev/null 2>&1) || error "$kind wt: linked uninstall failed"
+  [[ ! -e "$tmp/wt-linked/$rel" && -z "$(git -C "$w" status --porcelain)" ]] \
+    && ok "$kind: uninstall in a linked worktree keeps the main one's file excluded" || error "$kind wt: main now shows: $(git -C "$w" status --porcelain | tr '\n' ' ')"
+  (cd "$w" && bash "$setup" "${inst[@]}" --uninstall >/dev/null 2>&1)
+  [[ ! -e "$w/$rel" && ! -e "$w/$(dirname "$rel")" ]] && ok "$kind: the main worktree's uninstall still removes what it created" || error "$kind wt: main left $(ls -A "$w" | tr '\n' ' ')"
+done
+
 # 6. User level: --agent all writes the four user files; uninstall removes them and the copy.
 (cd "$tmp" && bash "$setup" --agent all >/dev/null 2>&1) || error "user: install failed"
 n=0

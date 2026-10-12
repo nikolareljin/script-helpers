@@ -320,7 +320,8 @@ them. Codex and Gemini run a new project hook only after you trust it (Codex:
 command names Git Bash's `bash.exe` by full path (a bare `bash` can be WSL's),
 and Copilot gets a `powershell` command as well, which is the one it runs there.
 The payload's `cwd` decides scope; without one, the directory the agent ran
-the hook from is used.
+the hook from is used. An empty payload, or one that is not a JSON object, is
+refused.
 
 ## Set it up on a machine
 

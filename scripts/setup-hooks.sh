@@ -372,6 +372,12 @@ show_global_status() {
        "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$top_dir/.claude/settings.local.json")" >/dev/null 2>&1; then
       echo "[setup-hooks] this repository: Claude hook in .claude/settings.local.json"
     fi
+    local a agents=""
+    for a in codex gemini copilot cursor; do
+      [[ -n "$top_dir" && -f "$top_dir/$(agent_repo_rel "$a")" && -n "$PY" ]] && \
+        agent_merge status "$a" "$(native_path "$top_dir/$(agent_repo_rel "$a")")" >/dev/null 2>&1 && agents="$agents $a"
+    done
+    [[ -n "$agents" ]] && echo "[setup-hooks] this repository: agent hooks:$agents"
   fi
 }
 
@@ -935,6 +941,36 @@ fi
 # and uninstall removes the file only when this script created it.
 agent_exclude_mark() { echo "# script-helpers setup-hooks.sh --agent-repo $1"; }
 
+# What this script created is recorded per worktree, in the worktree's own git
+# directory: .git/config and .git/info/exclude are shared by every linked
+# worktree, so a marker there let an uninstall in one worktree forget, or
+# un-exclude, the file another worktree still has. A key from 0.49.0 in
+# .git/config is still read, and cleared only from the main worktree.
+wt_state="$(git rev-parse --absolute-git-dir 2>/dev/null)/script-helpers"
+in_main_worktree() { [[ "$(git rev-parse --absolute-git-dir)" == "$(cd "$common_dir" && pwd -P)" || "$(git rev-parse --absolute-git-dir)" == "$common_dir" ]]; }
+mark_set() { mkdir -p "$wt_state" && printf '%s\n' "$2" > "$wt_state/$1"; }
+mark_get() {
+  if [[ -f "$wt_state/$1" ]]; then cat "$wt_state/$1"
+  elif in_main_worktree; then git config --local --get "script-helpers.$1" 2>/dev/null || true
+  fi
+}
+mark_clear() {
+  rm -f "$wt_state/$1"
+  in_main_worktree && unset_local "script-helpers.$1"
+  rmdir "$wt_state" 2>/dev/null || true
+}
+# other_worktree_has <rel> <status command...>: 0 when another worktree of this
+# repository still has the file with our entry, so its exclude line stays.
+other_worktree_has() {
+  local rel="$1" wt; shift
+  while IFS= read -r wt; do
+    wt="${wt#worktree }"
+    [[ "$(cd "$wt" 2>/dev/null && pwd -P)" == "$repo_root" ]] && continue
+    [[ -f "$wt/$rel" ]] && "$@" "$(native_path "$wt/$rel")" >/dev/null 2>&1 && return 0
+  done < <(git worktree list --porcelain 2>/dev/null | grep '^worktree ')
+  return 1
+}
+
 # remove_exclude <mark> <line>: only the marker and the line right after it.
 remove_exclude() {
   local f="$common_dir/info/exclude"
@@ -974,22 +1010,22 @@ if [[ -n "$AGENTS_REPO" ]]; then
         rc=0; agent_merge uninstall "$a" "$(native_path "$f")" || rc=$?
         [[ "$rc" -eq 0 ]] || exit "$rc"
         move_agent_backups "$a" "$f" || exit 1
-        if [[ "$(git config --local --get "script-helpers.$a-local-created" 2>/dev/null)" == true ]] && \
+        if [[ "$(mark_get "$a-local-created")" == true ]] && \
            "$PY" -I -c 'import json,sys
 d = json.load(open(sys.argv[1]))
 sys.exit(0 if all(not v for k, v in d.items() if k != "version") else 1)' "$(native_path "$f")" 2>/dev/null; then
           rm -f "$f"
           # Up to the first directory this script made, each only when empty.
-          top_made="$(git config --local --get "script-helpers.$a-created-dir" 2>/dev/null || true)"
+          top_made="$(mark_get "$a-created-dir")"
           if [[ -n "$top_made" ]]; then
             d="$(dirname "$f")"
             while [[ "$d" == "$repo_root/$top_made"* ]]; do rmdir "$d" 2>/dev/null || break; d="$(dirname "$d")"; done
           fi
         fi
       fi
-      unset_local "script-helpers.$a-local-created"
-      unset_local "script-helpers.$a-created-dir"
-      remove_exclude "$(agent_exclude_mark "$a")" "/$rel*"
+      mark_clear "$a-local-created"
+      mark_clear "$a-created-dir"
+      other_worktree_has "$rel" agent_merge status "$a" || remove_exclude "$(agent_exclude_mark "$a")" "/$rel*"
       echo "[setup-hooks] $a: hook removed from this repository."
     done
     if [[ -z "$(git config --local --get-regexp '^script-helpers\.' 2>/dev/null || true)" ]]; then
@@ -1008,7 +1044,7 @@ sys.exit(0 if all(not v for k, v in d.items() if k != "version") else 1)' "$(nat
   for a in $AGENTS_REPO; do
     rel="$(agent_repo_rel "$a")"; f="$repo_root/$rel"
     existed=false; [[ -e "$f" ]] && existed=true
-    if ! git check-ignore -q --no-index -- "$rel" 2>/dev/null; then
+    if ! git check-ignore -q --no-index -- "$rel" 2>/dev/null && ! grep -qxF "$(agent_exclude_mark "$a")" "$common_dir/info/exclude" 2>/dev/null; then
       mkdir -p "$common_dir/info" && printf '%s\n%s\n' "$(agent_exclude_mark "$a")" "/$rel*" >> "$common_dir/info/exclude" || exit 1
     fi
     # The first directory on the path that does not exist yet: uninstall removes
@@ -1016,11 +1052,11 @@ sys.exit(0 if all(not v for k, v in d.items() if k != "version") else 1)' "$(nat
     made="$(dirname "$f")"; first_made=""
     while [[ "$made" != "$repo_root" && ! -d "$made" ]]; do first_made="$made"; made="$(dirname "$made")"; done
     mkdir -p "$(dirname "$f")" || exit 1
-    [[ -n "$first_made" ]] && git config --local "script-helpers.$a-created-dir" "${first_made#"$repo_root"/}"
+    [[ -n "$first_made" ]] && mark_set "$a-created-dir" "${first_made#"$repo_root"/}"
     rc=0; agent_merge install "$a" "$(native_path "$f")" "$(agent_command "$agent_repo_home" "$a")" || rc=$?
     [[ "$rc" -eq 0 ]] || exit "$rc"
     move_agent_backups "$a" "$f" || exit 1
-    [[ "$existed" == true ]] || git config --local "script-helpers.$a-local-created" true
+    [[ "$existed" == true ]] || mark_set "$a-local-created" true
     echo "[setup-hooks] $a: hook set for this repository only: $rel (in .git/info/exclude)."
   done
   echo "[setup-hooks] Codex and Gemini ask you to trust a new project hook before it runs (Codex: /hooks)."
@@ -1061,7 +1097,7 @@ if [[ "$CLAUDE_REPO" == true ]]; then
       [[ "$rc" -eq 0 ]] || exit "$rc"
       move_claude_backups || exit 1
       # A file this script created and that now holds nothing is removed again.
-      if [[ "$(git config --local --get script-helpers.claude-local-created 2>/dev/null)" == true ]] && \
+      if [[ "$(mark_get claude-local-created)" == true ]] && \
          "$PY" -I -c 'import json,sys
 d = json.load(open(sys.argv[1]))
 sys.exit(0 if all(not v for v in d.values()) else 1)' "$(native_path "$claude_local")" 2>/dev/null; then
@@ -1069,9 +1105,11 @@ sys.exit(0 if all(not v for v in d.values()) else 1)' "$(native_path "$claude_lo
         rmdir "$repo_root/.claude" 2>/dev/null || true
       fi
     fi
-    unset_local script-helpers.claude-local-created
+    mark_clear claude-local-created
     # Only the marker and the line right after it: a line the user added stays.
-    if [[ -f "$exclude_file" ]] && grep -qxF "$EXCLUDE_MARK" "$exclude_file"; then
+    # Kept while another worktree still has its own file with our entry.
+    if [[ -f "$exclude_file" ]] && grep -qxF "$EXCLUDE_MARK" "$exclude_file" && \
+       ! other_worktree_has .claude/settings.local.json "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status; then
       awk -v m="$EXCLUDE_MARK" -v l="$EXCLUDE_LINE" '
         skip { skip = 0; if ($0 == l) next }
         $0 == m { skip = 1; next }
@@ -1099,7 +1137,7 @@ sys.exit(0 if all(not v for v in d.values()) else 1)' "$(native_path "$claude_lo
   install_claude "$claude_local" "$claude_repo_home"
   move_claude_backups || exit 1
   # Recorded only after a successful install: uninstall removes the file only then.
-  [[ "$existed" == true ]] || git config --local script-helpers.claude-local-created true
+  [[ "$existed" == true ]] || mark_set claude-local-created true
   echo "[setup-hooks] Claude hook set for this repository only: $claude_local (in .git/info/exclude)."
   exit 0
 fi
