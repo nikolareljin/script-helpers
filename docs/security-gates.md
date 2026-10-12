@@ -208,20 +208,30 @@ parser of shell commands always misses some shape bash runs (`bash -c`,
   Private names are checked in every command, with two exceptions. A
   pull request or issue with one `-R`/`--repo` target, and no `cd` or `-C`,
   is judged by that repository's name. And a command is not checked for
-  private names when all of these hold: the payload's `cwd` is an absolute
-  path inside a git repository; every fetch and push URL of that repository
-  is `github.com/<owner>/<name>` with the owner configured and the name
-  listed private; and the command contains none of `cd`, `pushd`, `popd`,
-  `-C`, `-c`, `-R`, `--repo`, `--git-dir`, `--work-tree`, `--config-env`,
-  `GIT_`, `insteadOf`, `remote`, `api`, `curl`, `wget`, `eval`, `exec`,
-  `source`, `xargs`, `alias`, `env`, `$`, a backtick, a URL (`://`,
-  `git@`), or a path outside the repository (absolute, `~` or `..`). So an
-  agent working on a private repository runs `cd <repo>` as its own command
-  first (the directory persists between calls), then `git commit`, `git log`
-  or `echo` naming the repository pass. One public or unknown remote, no
-  owners, no list, a directory that is not a repository: checked. Sensitive
-  data and credentials are never relaxed: they follow the owner scope, from
-  the session directory, every `cd`/`-C` target and `-R`.
+  private names when all of these hold (a closed allowlist, no deny-list):
+  - the payload's `cwd` is an absolute path inside a git repository, and
+    every fetch and push URL of that repository (`git remote -v`, so after
+    `insteadOf` and `pushurl`) is `github.com/<owner>/<name>` with the owner
+    configured and the name listed private;
+  - the command has no shell syntax: none of `; & | $` backtick `< > ( ) { }`
+    backslash or newline, and its quotes balance;
+  - the program is one of `git`, `echo`, `printf`, `ls`, `cat`, `grep`,
+    `head`, `tail`, `wc`;
+  - for `git`, the subcommand comes first (no global options) and is one of
+    `status`, `log`, `show`, `diff`, `add`, `commit`, `branch`, `checkout`,
+    `switch`, `restore`, `rev-parse`, `ls-files`, `grep`, `blame`,
+    `stash list`, without `--exec`, `-x`, `--ext-diff`, `--textconv`,
+    `--output`, `-o`, `-O`, `--open-files-in-pager`, `--upload-pack`,
+    `--receive-pack`, `--exec-path`, `--template`;
+  - every path-like argument resolves inside that repository.
+
+  A commit message naming the repository stays in it; a push is judged by
+  the git `pre-push` hook. An agent working on a private repository runs
+  `cd <repo>` as its own command first (the directory persists between
+  calls). A directory that is not a repository, a public repository, one
+  public or unknown remote, no owners or no list: checked. Sensitive data
+  and credentials are never relaxed: they follow the owner scope, from the
+  session directory, every `cd`/`-C` target and `-R`.
 - refused outright: `--no-verify`, `git commit -n`, a `core.hooksPath`
   override (`-c`, `GIT_CONFIG_*`); a command that sets the gate's own
   overrides or configuration (`SECURITY_GATE_ALLOW_UNCHECKED=`,

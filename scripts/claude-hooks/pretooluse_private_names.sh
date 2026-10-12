@@ -233,19 +233,23 @@ def normalize(seg):
 import os, subprocess
 SQ, DQ, BT, BS, NL = chr(39), chr(34), chr(96), chr(92), chr(10)
 
-BANNED = re.compile(r"(^|[^A-Za-z0-9_.-])(cd|pushd|popd|eval|exec|curl|wget|remote|source|xargs|alias|env|api|-C|-c|-R|--repo|--git-dir|--work-tree|--config-env)([^A-Za-z0-9_-]|$)|GIT_|://|git@|insteadof", re.I)
+META = (";", "&", "|", "$", BT, "<", ">", "(", ")", "{", "}", BS, NL, chr(13))
+PROGRAMS = {"git", "echo", "printf", "ls", "cat", "grep", "head", "tail", "wc"}
+# Local subcommands only; nothing that talks to a remote or changes config.
+GIT_SUBCOMMANDS = {"status", "log", "show", "diff", "add", "commit", "branch", "checkout",
+                   "switch", "restore", "rev-parse", "ls-files", "grep", "blame", "stash"}
+# Options that run a program or write outside the command output.
+GIT_UNSAFE_OPTIONS = {"--exec", "-x", "--ext-diff", "--textconv", "--output", "-o", "-O",
+                      "--open-files-in-pager", "--upload-pack", "--receive-pack",
+                      "--exec-path", "--template"}
 
 def write_dests(path):
-    # The only relaxation: the command runs in the session directory (the
-    # payload cwd, absolute), that directory is inside a repository, and the
-    # command names nothing that could move it elsewhere. Then one line
-    # private TOP is written, and the shell skips the private-name check only if
-    # every remote of TOP is a listed private repository of an owner.
-    # Anything else writes nothing: checked, as before. No parsing decides
-    # where a command publishes.
-    def write(line):
-        with open(path, "w") as fh:
-            fh.write(line + NL)
+    # The only relaxation, by a closed allowlist (no deny-list): a command with
+    # no shell syntax at all, one of a few read-only programs or a local git
+    # subcommand, every path inside the session repository. Then the line
+    # private TOP is written and the shell skips the private-name check only
+    # if every remote of TOP is a listed private repository of an owner.
+    # Anything else writes nothing: checked, as before.
     cwd = data.get("cwd")
     if not isinstance(cwd, str) or not os.path.isabs(cwd) or not os.path.isdir(cwd):
         return
@@ -254,8 +258,22 @@ def write_dests(path):
             return
     except OSError:
         return
-    if "$" in command or BT in command or BANNED.search(command):
+    if any(c in command for c in META):
         return
+    try:
+        argv = shlex.split(command, posix=True)
+    except ValueError:
+        return
+    if not argv or argv[0] not in PROGRAMS:
+        return
+    if argv[0] == "git":
+        if len(argv) < 2 or argv[1] not in GIT_SUBCOMMANDS:
+            return
+        if argv[1] == "stash" and argv[2:] != ["list"]:
+            return
+        for a in argv[2:]:
+            if a.split("=")[0] in GIT_UNSAFE_OPTIONS:
+                return
     try:
         r = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"],
                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -265,22 +283,15 @@ def write_dests(path):
     top = r.stdout.strip() if r.returncode == 0 else ""
     if not top:
         return
-    try:
-        lx = shlex.shlex(command, posix=True, punctuation_chars=True)
-        lx.whitespace_split = True
-        lx.commenters = ""
-        toks = list(lx)
-    except ValueError:
-        return
     real_top = os.path.realpath(top)
-    for t in toks:
-        # Any word that looks like a path must stay inside the repository.
-        for part in t.split("="):
-            if part.startswith(("/", "~")) or ".." in part:
+    for a in argv[1:]:
+        for part in a.split("="):
+            if "/" in part or part.startswith(("~", ".")) or ".." in part:
                 p = os.path.realpath(os.path.join(cwd, os.path.expanduser(part)))
                 if p != real_top and not p.startswith(real_top + os.sep):
                     return
-    write("private" + chr(9) + top)
+    with open(path, "w") as fh:
+        fh.write("private" + chr(9) + top + NL)
 
 if len(sys.argv) > 2:
     write_dests(sys.argv[2])
