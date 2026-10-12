@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # SCRIPT: claude_hook_destinations_test.sh
-# DESCRIPTION: The Claude hook judges private names by where a command publishes, and answers fast.
+# DESCRIPTION: The Claude hook checks private names in every command, fails closed, and answers fast.
 # USAGE: ./tests/claude_hook_destinations_test.sh
 # PARAMETERS: No required parameters.
 # EXAMPLE: bash tests/claude_hook_destinations_test.sh
 # ----------------------------------------------------
 #
 # Fixture repositories with placeholder names: zzqsecretbox is private,
-# zzqopenbox is public. The cases are the false positives seen live (work
-# inside a private repository refused) and the blocks that must stay. CLAUDE_HOOK
+# zzqopenbox is public. No directory relaxes the check, not even the private
+# repository itself; every bypass found in review is a case here. CLAUDE_HOOK
 # may point at another copy of the hook, to show which cases an older one fails.
 # ----------------------------------------------------
 set -uo pipefail
@@ -54,13 +54,10 @@ for r in "$priv" "$pub"; do
 done
 
 git config --global script-helpers.owners example
-# A private repository with a second, public remote, and one of another owner.
 # A symlink inside the private repository that points into the public one.
 printf 'x\n' > "$pub/notes.md"; ln -s "$pub/notes.md" "$priv/zzqsecretbox-link"
-priv2="$tmp/zzqsecretbox-two"; other="$tmp/zzqsecretbox-other"
-git init -q "$priv2" && git -C "$priv2" commit -q --allow-empty -m init
-git -C "$priv2" remote add origin git@github.com:example/zzqsecretbox.git
-git -C "$priv2" remote add mirror git@github.com:example/zzqopenbox.git
+# A repository of another owner whose name is listed private.
+other="$tmp/zzqsecretbox-other"
 git init -q "$other" && git -C "$other" commit -q --allow-empty -m init
 git -C "$other" remote add origin git@github.com:someone-else/zzqsecretbox.git
 
@@ -80,17 +77,13 @@ print(json.dumps(d))' "$cmd" "${PAYLOAD_CWD:-$cwd}" > "$tmp/payload"
   [[ "$got" == "$want" ]] && ok "$desc" || error "$desc: exit $got, want $want: $(head -c 400 "$tmp/out")"
 }
 
-# Inside a private repository of an owner, whose every remote is private, the
-# name is its own business, for a closed list of plain commands. The same
-# forms are checked when the repository has one public remote.
+# No relaxation: a private name is checked in every command, wherever it
+# runs, even inside that private repository with only private remotes.
+# Agents cite private repositories by their code in command text.
 n=zzqsecretbox
-for v in "git status" \
-         "git log --oneline -5 --grep=$n" \
+for v in          "git log --oneline -5 --grep=$n" \
          "git show HEAD:$n.md" \
          "git diff HEAD -- $n.md" \
-         "git branch -a" \
-         "git blame README" \
-         "git rev-parse HEAD" \
          "git ls-files $n" \
          "echo $n" \
          "printf '%s' $n" \
@@ -99,9 +92,7 @@ for v in "git status" \
          "ls $priv/$n" \
          "head -5 $n.txt" \
          "wc -l $n.txt"; do
-  hook 0 "allowed in the private repository: [${v//$tmp/<tmp>}]" "$priv" "$v"
-  v2="${v//$priv/$priv2}"
-  [[ "$v2" == *"$n"* ]] && hook 2 "checked with one public remote: [${v2//$tmp/<tmp>}]" "$priv2" "$v2"
+  hook 2 "checked inside the private repository: [${v//$tmp/<tmp>}]" "$priv" "$v"
 done
 hook 2 "a private name of another owner" "$other" "git commit -m '$n'"
 hook 0 "a pull request into the private repository itself (-R, as before)" "$tmp/plain" \
@@ -187,17 +178,22 @@ PAYLOAD_CWD="$pub" hook 2 "strict: the payload cwd decides, not the process cwd"
 hook 2 "sensitive: PII in a commit inside the private repository is refused" "$tmp/plain" \
   "cd $priv && git commit -m 'mail jane.roe""@""mailbox.org'"
 
-# The relaxation has one switch. Off, an allowed form is checked again.
-off="$tmp/switch-off"; mkdir -p "$off"
-cp -R "$root_dir/scripts" "$root_dir/lib" "$root_dir/helpers.sh" "$off/"
-"$PY" -c 'import sys
-p = sys.argv[1]; s = open(p).read()
-assert "RELAX_PRIVATE_NAMES = True" in s
-open(p, "w").write(s.replace("RELAX_PRIVATE_NAMES = True", "RELAX_PRIVATE_NAMES = False", 1))' \
-  "$off/scripts/claude-hooks/pretooluse_private_names.sh"
-saved_hook="$HOOK"; HOOK="$off/scripts/claude-hooks/pretooluse_private_names.sh"
-hook 2 "RELAX_PRIVATE_NAMES = False: echo naming it is checked in the private repository" "$priv" "echo $n"
-HOOK="$saved_hook"
+# Fail closed: a name list the prefilter cannot read runs the full check,
+# which refuses as "could not check" rather than allowing.
+mkdir -p "$tmp/list-is-a-dir"
+hook 2 "an unreadable name list refuses, not allows" "$pub" "echo $n" "$tmp/list-is-a-dir"
+
+# Temp files: one private directory per run, removed at exit.
+mkdir -p "$tmp/tmpdir"
+"$PY" -c 'import json,sys; print(json.dumps({"tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":"echo hello"}}))' "$pub" > "$tmp/payload"
+( cd "$pub" && TMPDIR="$tmp/tmpdir" PATH="$tmp/bin:$PATH" PRIVATE_NAMES_FILE="$list" SENSITIVE_MACHINE_IDS_FILE="$tmp/no-machine-ids" \
+    SENSITIVE_TERMS_FILE="$tmp/no-terms" bash "$HOOK" < "$tmp/payload" > /dev/null 2>&1 )
+[[ -z "$(ls -A "$tmp/tmpdir")" ]] && ok "no temp file is left in TMPDIR" || error "left in TMPDIR: $(ls -A "$tmp/tmpdir")"
+if grep -q 'payload_file="$(mktemp)"' "$HOOK" || ! grep -q 'work_dir="$(mktemp -d' "$HOOK"; then
+  error "the hook writes temp files outside a private directory"
+else
+  ok "temp files live in a private mktemp -d directory"
+fi
 
 # A refusal is exit 2 with the reason on stderr, and a deny decision on stdout.
 "$PY" -c 'import json,sys; print(json.dumps({"tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":"echo zzqsecretbox"}}))' "$pub" > "$tmp/payload"
@@ -220,7 +216,11 @@ t0="$(now_ms)"
 hook 2 "a hit against 5,000 names is refused" "$pub" "gh pr create --body 'see zzqfixture4999'" "$big"
 t1="$(now_ms)"
 ms=$((t1 - t0))
-[[ "$ms" -lt 2000 ]] && ok "the hit took $ms ms (< 2000)" || error "the hit took $ms ms, want < 2000"
+# Git Bash on Windows forks slowly (about 2 s for this hit on a CI runner,
+# 0.25 s on Linux), so its bound is wider; both are far inside the timeout.
+limit=2000
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) limit=5000 ;; esac
+[[ "$ms" -lt "$limit" ]] && ok "the hit took $ms ms (< $limit)" || error "the hit took $ms ms, want < $limit"
 
 if [[ $failures -gt 0 ]]; then
   note "$failures failure(s)"

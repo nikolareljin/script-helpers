@@ -28,7 +28,8 @@
 #     valid JSON, not UTF-8, or python3 is missing, and the files it names;
 #   - after that pass, the parser found nothing it publishes, or a destination
 #     outside the owners' scope (sensitive data only, per ADR-0063; private
-#     names are still judged by the destination's visibility);
+#     names are checked in every command, except a gh command whose single
+#     -R target is listed private);
 #   - a check could not run and the USER set SECURITY_GATE_ALLOW_UNCHECKED=1
 #     in this hook's own environment (a command that sets it is refused);
 #   - an empty command: nothing runs.
@@ -56,7 +57,7 @@ private_name_candidate() {
   local list
   [[ -n "${PRIVATE_NAMES_ALLOW:-}" ]] && return 0
   list="${PRIVATE_NAMES_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names.tsv}"
-  [[ -r "$list" && -s "$list" ]] || return 0
+  [[ -f "$list" && -r "$list" && -s "$list" ]] || return 0   # not a readable file: the full check decides
   awk -F'\t' '
     function norm(x) { x = tolower(x); gsub(/[-_. \t]/, "", x); return x }
     FILENAME == ARGV[1] {
@@ -93,8 +94,16 @@ fi
 # The payload goes to a file rather than a pipe: the parser below is itself fed
 # to python on stdin, so a pipe would be overridden and python would end up
 # reading its own source as the payload -- and every call would sail through.
-payload_file="$(mktemp)"
-dest_file="${payload_file}.dests"
+# Every file this hook writes lives in one private directory (mktemp -d is
+# mode 700), so another user cannot predict or replace any of them.
+work_dir="$(mktemp -d 2>/dev/null)" && [[ -d "$work_dir" && ! -L "$work_dir" ]] || {
+  echo "The security gate could not create a private temp directory; refused." >&2
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"The security gate could not create a temp directory."}}'
+  exit 2
+}
+chmod 700 "$work_dir" 2>/dev/null
+payload_file="$work_dir/payload"
+dest_file="$work_dir/dests"
 # Guarded: a subshell inherits an EXIT trap, and bash runs it there when the
 # subshell is signalled -- so this could tear down the caller's stack, or
 # delete a directory, while the run is still using it. ${BASHPID-$$} rather
@@ -106,7 +115,7 @@ dest_file="${payload_file}.dests"
 # stderr is collected in a file while the hook runs and copied to the real
 # stderr at exit; on a refusal the same text also goes to stdout as a
 # PreToolUse deny decision, for agents that read JSON rather than exit codes.
-err_file="${payload_file}.err"
+err_file="$work_dir/err"
 exec 3>&2 2>"$err_file"
 deny_json() {
   if [[ "$HAVE_PY" == true ]]; then
@@ -119,14 +128,13 @@ print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
 }
 on_exit() {
   local rc="$1"
-  rm -f "$payload_file" "$dest_file"
   if [[ "$rc" -ne 0 && "$rc" -ne 2 ]]; then
     echo "The publishing check failed (exit $rc), so this command was NOT checked; refused." >&2
     rc=2
   fi
   cat "$err_file" >&3 2>/dev/null
   [[ "$rc" -eq 2 ]] && deny_json
-  rm -f "$err_file"
+  rm -rf "$work_dir"
   exit "$rc"
 }
 # shellcheck disable=SC2154  # _rc is assigned inside the trap string
@@ -152,7 +160,7 @@ fi
 parsed=""
 parse_rc=0
 if [[ "$HAVE_PY" == true ]]; then
-parsed="$("$PY" - "$payload_file" "$dest_file" <<'PY'
+parsed="$("$PY" - "$payload_file" <<'PY'
 import json, shlex, sys, pathlib
 
 try:
@@ -242,90 +250,6 @@ def normalize(seg):
         seg = out + seg[i:]
     return seg
 
-# The one relaxation of the private-name check, written to the file given as
-# the second argument: "private TOP" when the command stays in the session
-# repository TOP (see write_dests). The shell then skips the check only if
-# every remote of TOP is a listed private repository of an owner. No file:
-# the checks run exactly as before (see the fallback in the shell below).
-# (No single quote or backtick characters in this block, see normalize.)
-import os, subprocess
-SQ, DQ, BT, BS, NL = chr(39), chr(34), chr(96), chr(92), chr(10)
-
-META = (";", "&", "|", "$", BT, "<", ">", "(", ")", "{", "}", BS, NL, chr(13))
-# One switch for the whole relaxation: False checks private names in every
-# command, as before it existed.
-RELAX_PRIVATE_NAMES = True
-PROGRAMS = {"git", "echo", "printf", "ls", "cat", "grep", "head", "tail", "wc"}
-# Read-only subcommands. Nothing that writes (add, commit, checkout, stash),
-# talks to a remote, or changes config: those are checked.
-GIT_SUBCOMMANDS = {"status", "log", "show", "diff", "rev-parse", "ls-files", "branch", "blame"}
-# Options that run a program or write a file.
-GIT_UNSAFE_PREFIXES = ("--output", "--ext-diff", "--textconv", "-O", "--exec", "--open-files",
-                       "-x", "-o", "--upload-pack", "--receive-pack", "--exec-path")
-# git branch: listing only.
-GIT_BRANCH_LIST = {"-a", "-r", "-v", "-vv", "-l", "--list", "--all", "--remotes",
-                   "--show-current", "--verbose", "--no-color", "--color"}
-
-def write_dests(path):
-    # The only relaxation, by a closed allowlist (no deny-list): a command with
-    # no shell syntax at all, one of a few read-only programs or a local git
-    # subcommand, every path inside the session repository. Then the line
-    # private TOP is written and the shell skips the private-name check only
-    # if every remote of TOP is a listed private repository of an owner.
-    # Anything else writes nothing: checked, as before.
-    if not RELAX_PRIVATE_NAMES:
-        return
-    cwd = data.get("cwd")
-    if not isinstance(cwd, str) or not os.path.isabs(cwd) or not os.path.isdir(cwd):
-        return
-    try:
-        if not os.path.samefile(cwd, os.getcwd()):
-            return
-    except OSError:
-        return
-    if any(c in command for c in META):
-        return
-    try:
-        argv = shlex.split(command, posix=True)
-    except ValueError:
-        return
-    if not argv or argv[0] not in PROGRAMS:
-        return
-    if argv[0] == "git":
-        if len(argv) < 2 or argv[1] not in GIT_SUBCOMMANDS:
-            return
-        if argv[1] == "branch" and any(a not in GIT_BRANCH_LIST for a in argv[2:]):
-            return
-        for a in argv[2:]:
-            if a.startswith(GIT_UNSAFE_PREFIXES):
-                return
-    if argv[0] == "grep" and any(a.startswith("-") and not a.startswith("--") and "R" in a
-                                 or a.startswith("--dereference") for a in argv[1:]):
-        return
-    try:
-        r = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"],
-                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                           universal_newlines=True, timeout=10)
-    except Exception:
-        return
-    top = r.stdout.strip() if r.returncode == 0 else ""
-    if not top:
-        return
-    real_top = os.path.realpath(top)
-    # Every argument, and every value after =, is read as a path with symlinks
-    # resolved; a word that is not a file resolves inside cwd and is harmless.
-    for a in argv[1:]:
-        for part in a.split("="):
-            if not part:
-                continue
-            p = os.path.realpath(os.path.join(cwd, os.path.expanduser(part)))
-            if p != real_top and not p.startswith(real_top + os.sep):
-                return
-    with open(path, "w") as fh:
-        fh.write("private" + chr(9) + top + NL)
-
-if len(sys.argv) > 2:
-    write_dests(sys.argv[2])
 
 # Where each command runs: the last cd <dir> before it, or -C <dir> of git.
 # The scope check reads the remotes there too, not only those of the session.
@@ -588,65 +512,32 @@ else:
   cat "$cmd_file.plain" >> "$cmd_file"
   rm -f "$cmd_file.plain" "$cmd_file.code" "$cmd_file.codeplain"
 }
-# Not relaxed (the usual case): checked. One -R target and no cd or -C: that
-# repository decides, as before (a pull request into a private repository).
-if [[ ! -f "$dest_file" ]]; then
-  r_targets="$(grep -oE -- '(^|[[:space:]])(-R|--repo)[= ]+[^;&|[:space:]]+' "$cmd_file" | sed -E 's/^[[:space:]]*(-R|--repo)[= ]+//' | tr -d "'\"" | sort -u)"
-  if grep -qE -- '(^|[;&|[:space:]])cd[[:space:]]|(^|[[:space:]])-C[[:space:]]' "$cmd_file"; then
-    printf 'any\n' > "$dest_file"
-  elif [[ -n "$r_targets" && "$(printf '%s\n' "$r_targets" | wc -l | tr -d ' ')" == 1 ]] \
-       && grep -qE -- '^[[:space:]]*gh[[:space:]]' "$cmd_file" && ! grep -qE -- '[;&|`$()<>]' "$cmd_file"; then
-    printf 'repo\t%s\n' "$r_targets" > "$dest_file"
-  else
-    printf 'any\n' > "$dest_file"
-  fi
+# Where private names are judged: everywhere, except one -R target of a gh
+# command with no shell syntax, which that repository decides (a pull request
+# into a private repository). cwd never relaxes the check.
+r_targets="$(grep -oE -- '(^|[[:space:]])(-R|--repo)[= ]+[^;&|[:space:]]+' "$cmd_file" | sed -E 's/^[[:space:]]*(-R|--repo)[= ]+//' | tr -d "'\"" | sort -u)"
+if grep -qE -- '(^|[;&|[:space:]])cd[[:space:]]|(^|[[:space:]])-C[[:space:]]' "$cmd_file"; then
+  printf 'any\n' > "$dest_file"
+elif [[ -n "$r_targets" && "$(printf '%s\n' "$r_targets" | wc -l | tr -d ' ')" == 1 ]] \
+     && grep -qE -- '^[[:space:]]*gh[[:space:]]' "$cmd_file" && ! grep -qE -- '[;&|`$()<>]' "$cmd_file"; then
+  printf 'repo\t%s\n' "$r_targets" > "$dest_file"
+else
+  printf 'any\n' > "$dest_file"
 fi
 
 # names_check <text file> [gate args]: the private-name check, once per
 # destination. 0: clean, or no public destination. 1: a hit. Else: could not
 # check. reason is set on 1 and above. The prefilter only skips text that
 # cannot match.
-# repo_all_private <dir>: 0 only when the repository has remotes and every
-# fetch and push URL is github.com/<owner>/<name> with <owner> configured and
-# <name> listed private. No owners, no list, no remotes, any other URL: 1.
-repo_all_private() {
-  ( local list owners urls u o name
-    [[ -f "$SCOPE_LIB" ]] || exit 1
-    # shellcheck source=/dev/null
-    source "$SCOPE_LIB" || exit 1
-    owners="$(scope_owners 2>/dev/null)" && [[ -n "$owners" ]] || exit 1
-    list="${PRIVATE_NAMES_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names.tsv}"
-    [[ -r "$list" ]] || exit 1
-    urls="$(git -C "$1" remote -v 2>/dev/null | awk '{print $2}' | sort -u)"
-    [[ -n "$urls" ]] || exit 1
-    while IFS= read -r u; do
-      o="$(scope_owner_of "$u")" || exit 1
-      case ",$owners," in *",$o,"*) ;; *) exit 1 ;; esac
-      name="${u%/}"; name="${name%.git}"; name="${name##*/}"
-      name="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
-      awk -F'\t' -v want="$name" '
-        /^# *visibility/ { for (i = 1; i <= NF; i++) { h = $i; sub(/^# */, "", h); col[h] = i } next }
-        /^#/ { next }
-        col["name"] && tolower($col["name"]) == want && $col["visibility"] == "private" { found = 1 }
-        END { exit found ? 0 : 1 }' "$list" || exit 1
-    done <<<"$urls"
-    exit 0 )
-}
-
 names_check() {
   local f="$1" kind val rc out
   shift
-  private_name_candidate "$f" || return 0
+  local pc=0
+  private_name_candidate "$f" || pc=$?
+  [[ "$pc" -eq 1 ]] && return 0      # no listed name in the text; awk failing (2+) runs the full check
   if [[ ! -f "$GATE" ]]; then reason="check_private_names.sh is missing next to this hook"; return 2; fi
   while IFS="$(printf '\t')" read -r kind val; do
     case "$kind" in
-      private)
-        # Skipped only for a repository whose every remote is a listed
-        # private repository of a configured owner. Anything else: checked.
-        if [[ -d "$val" ]] && repo_all_private "$val"; then
-          continue
-        fi
-        out="$(bash "$GATE" --stdin "$@" < "$f" 2>&1)"; rc=$? ;;
       repo) out="$(bash "$GATE" --stdin --only-public --for-repo "$val" "$@" < "$f" 2>&1)"; rc=$? ;;
       any)  out="$(bash "$GATE" --stdin "$@" < "$f" 2>&1)"; rc=$? ;;
       *) continue ;;

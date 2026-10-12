@@ -154,10 +154,7 @@ ban "GNU \\s/\\b in grep or sed"          '(grep|sed)([^|;]*)(\\s|\\b)'
 
 # --- GNU-only coreutils flags ----------------------------------------------
 ban "GNU sed -i/-r"                       'sed[[:space:]]+(-[a-zA-Z]*i([[:space:]]|$)|-[a-zA-Z]*r([[:space:]]|$))'
-# The Claude hook calls Python's os.path.realpath in its embedded parser,
-# which is portable; the shell tools are what this bans.
-ban "readlink -f / realpath"              '(readlink[[:space:]]+-[a-zA-Z]*f|(^|[^[:alnum:]_])realpath([^[:alnum:]_]|$))' \
-    scripts/claude-hooks/pretooluse_private_names.sh
+ban "readlink -f / realpath"              '(readlink[[:space:]]+-[a-zA-Z]*f|(^|[^[:alnum:]_])realpath([^[:alnum:]_]|$))'
 ban "GNU date -d"                         'date[[:space:]]+(-d|--date)([[:space:]]|=)'
 ban "grep -P"                             'grep[[:space:]]+-[a-zA-Z]*P'
 ban "find -printf/-regextype"             'find[^|;]*(-printf|-regextype)'

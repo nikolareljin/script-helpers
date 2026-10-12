@@ -205,34 +205,14 @@ parser of shell commands always misses some shape bash runs (`bash -c`,
   file it names that can be read (`--body-file X`, `-F X`, `@X`, `< X`), goes
   through the private-name check and `check_sensitive.sh --no-machine
   --no-inline-allow`. Paths after `cd` and `-C` are left out of the text.
-  Private names are checked in every command, with two exceptions. A `gh`
-  command with one `-R`/`--repo` target and no shell syntax is judged by
-  that repository's name. And a command is not checked for private names
-  when all of these hold (a closed allowlist, no deny-list; one constant,
-  `RELAX_PRIVATE_NAMES`, switches it off):
-  - the payload's `cwd` is an absolute path inside a git repository, and
-    every fetch and push URL of that repository (`git remote -v`, so after
-    `insteadOf` and `pushurl`) is `github.com/<owner>/<name>` with the owner
-    configured and the name listed private;
-  - the command has no shell syntax: none of `; & | $` backtick `< > ( ) { }`
-    backslash or newline, and its quotes balance;
-  - the program is one of `git`, `echo`, `printf`, `ls`, `cat`, `grep`
-    (not `-R`), `head`, `tail`, `wc`;
-  - for `git`, the subcommand comes first (no global options) and is one of
-    `status`, `log`, `show`, `diff`, `rev-parse`, `ls-files`, `blame`, or
-    `branch` with listing options only, and no option starts with
-    `--output`, `--ext-diff`, `--textconv`, `-O`, `--exec`, `--open-files`,
-    `-x`, `-o`, `--upload-pack`, `--receive-pack`, `--exec-path`;
-  - every argument, and every value after `=`, resolves (symlinks followed)
-    inside that repository.
-
-  Anything that writes (`git add`, `commit`, `checkout`, `stash`) is
-  checked. An agent working on a private repository runs `cd <repo>` as its
-  own command first (the directory persists between calls). A directory that
-  is not a repository, a public repository, one public or unknown remote, no
-  owners or no list: checked. Private names do not follow the owner scope.
-  Sensitive data and credentials are never relaxed: they follow the owner
-  scope, from the session directory, every `cd`/`-C` target and `-R`.
+  Private names are checked in every command, wherever it runs, including
+  inside the private repository itself: agents cite a private repository by
+  its code in command text, never by name. The one exception is a `gh`
+  command with a single `-R`/`--repo` target and no shell syntax (`;`, `&`,
+  `|`, `$`, backtick, `( )`, `< >`), which that repository's listing decides,
+  so a pull request into a private repository may name it. Private names do
+  not follow the owner scope. Sensitive data and credentials follow the
+  owner scope, from the session directory, every `cd`/`-C` target and `-R`.
 - refused outright: `--no-verify`, `git commit -n`, a `core.hooksPath`
   override (`-c`, `GIT_CONFIG_*`); a command that sets the gate's own
   overrides or configuration (`SECURITY_GATE_ALLOW_UNCHECKED=`,

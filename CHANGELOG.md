@@ -18,10 +18,11 @@
   the hook to the user data folder and merges one entry into `settings.json`
   (other keys and hooks kept, backup first, CRLF kept, invalid JSON refused),
   with `"onFailure": "block"` on Claude Code 2.1.295+.
-  The hook no longer refuses a closed list of local commands (git status,
-  commit, log, echo, ...) run inside a private repository
-  whose remotes are all private (anything else is checked as before), and a
-  hit takes about 250 ms instead of 14 s. See docs/security-gates.md, "Set it up on a machine".
+  The hook checks private names in every command (a hit now takes about
+  250 ms instead of 14 s), fails closed when its name list cannot be read,
+  keeps its temp files in a private directory, and prints a deny decision on
+  stdout as well as exit 2. See docs/security-gates.md, "Set it up on a
+  machine".
 - **Pushes refuse credentials, personal identifiers and PII.** New
   `scripts/check_sensitive.sh` checks the added lines and messages of the
   commits being pushed (also `--staged`, `--file`, `--stdin`): gitleaks for
