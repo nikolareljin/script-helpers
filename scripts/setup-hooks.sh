@@ -700,6 +700,14 @@ move_claude_backups() {
 }
 
 if [[ "$CLAUDE_REPO" == true ]]; then
+  # Both paths come from the work tree, which is whatever was cloned: a
+  # committed symlink would send the write (and the merge script follows
+  # symlinks on purpose) to a file outside the repository.
+  if [[ -L "$repo_root/.claude" || -L "$claude_local" ]] || \
+     git ls-files --error-unmatch -- .claude/settings.local.json >/dev/null 2>&1; then
+    echo "[setup-hooks] ERROR: .claude or .claude/settings.local.json is a symlink or tracked by git; nothing changed." >&2
+    exit 2
+  fi
   if [[ "$UNINSTALL" == true ]]; then
     if [[ -f "$claude_local" ]]; then
       [[ -n "$PY" ]] || { echo "[setup-hooks] ERROR: Python 3 is needed to edit $claude_local" >&2; exit 2; }

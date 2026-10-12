@@ -198,6 +198,19 @@ if command -v python3 >/dev/null 2>&1; then
     || error "claude-existing: in .claude: $(ls -A "$r/.claude" | tr '\n' ' ')"
   [[ -z "$(git -C "$r" status --porcelain --untracked-files=all | grep -v '^A  f$')" ]] && ok "existing file: git status shows nothing new" \
     || error "claude-existing: git status: $(git -C "$r" status --porcelain --untracked-files=all | tr '\n' ' ')"
+  # A committed symlink must not redirect the write outside the repository.
+  r="$(new_repo claude-symlink)"
+  mkdir -p "$tmp/outside-target"
+  ln -s "$tmp/outside-target" "$r/.claude"
+  rc=0; (cd "$r" && bash "$setup" --claude-repo >/dev/null 2>&1) || rc=$?
+  [[ $rc -eq 2 && ! -e "$tmp/outside-target/settings.local.json" ]] && ok "a symlinked .claude is refused (2), nothing written outside" \
+    || error "claude-symlink: rc=$rc, outside: $(ls -A "$tmp/outside-target" | tr '\n' ' ')"
+  r="$(new_repo claude-file-symlink)"
+  mkdir -p "$r/.claude"; : > "$tmp/outside-file.json"
+  ln -s "$tmp/outside-file.json" "$r/.claude/settings.local.json"
+  rc=0; (cd "$r" && bash "$setup" --claude-repo >/dev/null 2>&1) || rc=$?
+  [[ $rc -eq 2 && ! -s "$tmp/outside-file.json" ]] && ok "a symlinked settings.local.json is refused (2)" \
+    || error "claude-file-symlink: rc=$rc"
   unset SCRIPT_HELPERS_OWNERS
 else
   note "SKIP: python3 not available, --claude-repo not checked"
