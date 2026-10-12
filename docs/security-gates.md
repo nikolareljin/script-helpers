@@ -186,10 +186,10 @@ the saved value (or unsets it) and removes the copy.
 `scripts/claude-hooks/pretooluse_private_names.sh` also runs
 `check_sensitive.sh` on the text of a `gh pr create`, `gh issue comment`,
 `git commit -m` and the like, and refuses the tool call on a hit. With owners
-configured it does so for their repositories, judged from `-R`, every
-remote of the current directory, and every remote of the directory the command
-runs in (`cd <dir> && gh ...`, `git -C <dir> commit`); with nothing to judge
-from (no `-R`, not in a repository, a directory it cannot enter) it checks.
+configured it skips another owner's repository only when it is certain: the
+payload `cwd` was entered, every remote there is another owner's, and the
+command has no `cd`, `-C`, `-R`, path separator, `~`, URL, `gh api`, `curl`,
+`wget`, `ssh` or `scp`. Anything uncertain is checked.
 It reads `-b`/`--body`, `--body-file`, `-t`, `-m`, `-F`, `gh api -f`/`-F`/
 `--raw-field` (and `key=@file`), `--notes`/`--notes-file`, attached short
 values (`-b'text'`), and sees the command behind `VAR=value`, `env` and git's
@@ -211,8 +211,8 @@ parser of shell commands always misses some shape bash runs (`bash -c`,
   command with a single `-R`/`--repo` target and no shell syntax (`;`, `&`,
   `|`, `$`, backtick, `( )`, `< >`), which that repository's listing decides,
   so a pull request into a private repository may name it. Private names do
-  not follow the owner scope. Sensitive data and credentials follow the
-  owner scope, from the session directory, every `cd`/`-C` target and `-R`.
+  not follow the owner scope. Sensitive data and credentials follow it, as
+  above.
 - refused outright: `--no-verify`, `git commit -n`, a `core.hooksPath`
   override (`-c`, `GIT_CONFIG_*`); a command that sets the gate's own
   overrides or configuration (`SECURITY_GATE_ALLOW_UNCHECKED=`,

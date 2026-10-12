@@ -498,7 +498,8 @@ if command -v python3 >/dev/null 2>&1; then
   payload example-owner/x "$real_email" | GITLEAKS_BIN="$tmp/none" bash "$CLAUDE_HOOK" >/dev/null 2>&1
   expect "Claude hook refuses PII in an owner repo's PR body" 2 "$?"
   payload other-org/x "$real_email" | GITLEAKS_BIN="$tmp/none" bash "$CLAUDE_HOOK" >/dev/null 2>&1
-  expect "Claude hook leaves another org's PR body alone" 0 "$?"
+  # -R can name any repository, so it never takes a command out of scope.
+  expect "Claude hook checks a PR body sent with -R to another org" 2 "$?"
   if [[ "$have_gitleaks" == true ]]; then
     payload example-owner/x "a@example.com" | bash "$CLAUDE_HOOK" >/dev/null 2>&1
     expect "Claude hook passes a clean body" 0 "$?"
@@ -509,7 +510,7 @@ if command -v python3 >/dev/null 2>&1; then
     | GITLEAKS_BIN="$tmp/none" SECURITY_GATE_ALLOW_UNCHECKED=1 bash "$CLAUDE_HOOK" >/dev/null 2>&1
   expect "Claude hook: no -R and no repository here -> checked, not passed" 2 "$?"
   payload other-org/x "$real_email" | SENSITIVE_MACHINE_IDS_FILE="$tmp/missing-ids" bash "$CLAUDE_HOOK" >/dev/null 2>&1
-  expect "Claude hook: a clean -R to another org decides, even outside a repository" 0 "$?"
+  expect "Claude hook: -R to another org does not skip the check outside a repository" 2 "$?"
   payload example-owner/x "a@example.com" | SENSITIVE_MACHINE_IDS_FILE="$tmp/missing-ids" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
   expect "Claude hook blocks when the checker fails" 2 "$?"
   grep -q "NOT checked" "$tmp/out" && ok "and says the text was not checked" || error "no reason: $(cat "$tmp/out")"
@@ -598,7 +599,7 @@ if command -v python3 >/dev/null 2>&1; then
     hook_rc 2 "broad: PII in [$v] is refused" "$v"
   done
   hook_rc 2 "broad: a body file named in bash -c is read" "bash -c 'gh pr create -R example-owner/x --body-file $tmp/field-body.md'"
-  hook_rc 0 "broad: another org's -R is left alone" "bash -c \"gh pr create -R other-org/x --body 'mail $real_email'\""
+  hook_rc 2 "broad: another org's -R is still checked" "bash -c \"gh pr create -R other-org/x --body 'mail $real_email'\""
   hook_rc 2 "broad: a cd target that cannot be entered is checked" "cd /nonexistent/dir && bash -c \"gh pr create --body 'mail $real_email'\""
   hook_rc 0 "broad: a clean publishing command passes" "bash -c \"gh pr create -R example-owner/x --body 'all fine'\""
   # Obfuscated or indirect command words next to a publishing verb.
@@ -699,9 +700,24 @@ EOF"
   printf '{"tool_name":"Bash","tool_input":{"command":"git -C %s commit -m \\"mail %s\\""}}' "$own" "$real_email" \
     | (cd "$other" && PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1)
   expect "Claude hook: git -C <owner repo> from another org's is checked" 2 "$?"
+  printf '{"tool_name":"Bash","cwd":"%s","tool_input":{"command":"gh pr create --body \\"mail %s\\""}}' "$other" "$real_email" \
+    | (cd "$other" && PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1)
+  expect "Claude hook: another org's repository (payload cwd) is still left alone" 0 "$?"
+  # Without the payload cwd the scope cannot be trusted: checked.
   printf '{"tool_name":"Bash","tool_input":{"command":"gh pr create --body \\"mail %s\\""}}' "$real_email" \
     | (cd "$other" && PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1)
-  expect "Claude hook: another org's repository is still left alone" 0 "$?"
+  expect "Claude hook: another org's repository without a payload cwd is checked" 2 "$?"
+  # From another org's repository, anything that can act elsewhere is checked.
+  for v in "gh pr create -R example-owner/x --body 'mail $real_email'" \
+           "gh api repos/example-owner/x/issues -f body='mail $real_email'" \
+           "curl -d 'mail $real_email' https://example.invalid/x" \
+           "cd .. && gh pr create --body 'mail $real_email'" \
+           "git push git@github.com:example-owner/x.git && echo 'mail $real_email'" \
+           "echo 'mail $real_email' > ../owner-repo/notes.md"; do
+    python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","cwd":sys.argv[2],"tool_input":{"command":sys.argv[1]}}))' "$v" "$other" \
+      | (cd "$other" && PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1)
+    expect "Claude hook: from another org's repository, [$v] is checked" 2 "$?"
+  done
   unset PRIVATE_NAMES_FILE GITLEAKS_BIN
 else
   note "SKIP: python3 missing; Claude hook cases not run"

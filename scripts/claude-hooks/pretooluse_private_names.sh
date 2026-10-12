@@ -26,10 +26,14 @@
 #   - the whole-command pass found nothing: it reads every Bash call (any
 #     other tool: every string of its input), the raw payload when it is not
 #     valid JSON, not UTF-8, or python3 is missing, and the files it names;
-#   - after that pass, the parser found nothing it publishes, or a destination
-#     outside the owners' scope (sensitive data only, per ADR-0063; private
-#     names are checked in every command, except a gh command whose single
-#     -R target is listed private);
+#   - after that pass, the parser found nothing it publishes (or the payload
+#     is unreadable and does not look like publishing);
+#   - sensitive data only (ADR-0063): the payload cwd was entered, its
+#     repository's remotes are all another owner's, and the command has no
+#     cd, -C, -R, path separator, ~, URL, gh api, curl, wget, ssh or scp
+#     (scope_skip_ok). Anything uncertain is in scope;
+#   - private names are checked in every command, except a gh command with no
+#     shell syntax whose single -R target is listed private;
 #   - a check could not run and the USER set SECURITY_GATE_ALLOW_UNCHECKED=1
 #     in this hook's own environment (a command that sets it is refused);
 #   - an empty command: nothing runs.
@@ -141,9 +145,10 @@ on_exit() {
 trap '_rc=$?; if [[ ${BASHPID-$$} == "$$" ]]; then on_exit "$_rc"; fi' EXIT
 cat > "$payload_file"
 # The session directory is the payload's cwd field: the owner-scope lookups
-# below (sensitive data only) read the remotes there. When it is missing or
-# cannot be entered, the hook's own directory is used; private names are
-# checked either way.
+# below (sensitive data only) read the remotes there. When it is missing,
+# relative or cannot be entered, cwd_ok stays false and no scope skip happens.
+cwd_ok=false
+payload_cwd=""
 if [[ "$HAVE_PY" == true ]]; then
   payload_cwd="$("$PY" -c 'import json,sys
 try:
@@ -151,9 +156,10 @@ try:
     print(c if isinstance(c, str) else "")
 except Exception:
     print("")' "$payload_file" 2>/dev/null)"
-  if [[ -n "$payload_cwd" && -d "$payload_cwd" ]]; then
-    cd "$payload_cwd" 2>/dev/null || true
-  fi
+  case "$payload_cwd" in
+    /*|[A-Za-z]:[/\\]*)
+      if [[ -d "$payload_cwd" ]] && cd "$payload_cwd" 2>/dev/null; then cwd_ok=true; fi ;;
+  esac
 fi
 
 # One python pass: is this a publishing command, which repository is it aimed
@@ -513,6 +519,16 @@ else:
   cat "$cmd_file.plain" >> "$cmd_file"
   rm -f "$cmd_file.plain" "$cmd_file.code" "$cmd_file.codeplain"
 }
+# scope_skip_ok: an out-of-scope (other owner) verdict may skip the sensitive
+# checks only when the payload cwd was entered and the command cannot act
+# anywhere else: no cd/pushd/popd, -C, -R/--repo, path separator, ~, URL,
+# gh api, curl, wget, ssh or scp. Anything uncertain is in scope (checked).
+scope_skip_ok=false
+if [[ "$cwd_ok" == true ]] \
+   && ! grep -qE -- '(^|[^[:alnum:]_-])(cd|pushd|popd|curl|wget|ssh|scp|rsync|nc)([^[:alnum:]_-]|$)|(^|[[:space:]])(-C|-R|--repo|--git-dir|--work-tree)([[:space:]=]|$)|/|~|://|git@|gh[[:space:]]+api' "$cmd_file"; then
+  scope_skip_ok=true
+fi
+
 # Where private names are judged: everywhere, except one -R target of a gh
 # command with no shell syntax, which that repository decides (a pull request
 # into a private repository). cwd never relaxes the check.
@@ -556,8 +572,8 @@ if [[ -s "$cmd_file" ]]; then
       exit 2
     fi
     broad_text="${payload_file}.text"
-    # Paths after cd and -C are where the command runs, not text it publishes.
-    sed -E 's/(^|[;&|[:space:]])cd[[:space:]]+[^;&|[:space:]]+/\1/g; s/(^|[[:space:]])-C[[:space:]]+[^[:space:]]+/\1/g' "$cmd_file" > "$broad_text" \
+    # The same text the decision reads: nothing is removed before the scan.
+    cp "$cmd_file" "$broad_text" \
       || { reason="could not prepare the command text"; unchecked "Reading the command"; }
     while IFS= read -r f; do
       f="${f#@}"; f="${f#\'}"; f="${f%\'}"; f="${f#\"}"; f="${f%\"}"
@@ -581,7 +597,7 @@ if [[ -s "$cmd_file" ]]; then
       done < <(grep -oE -- '(^|[;&|[:space:]])cd[[:space:]]+[^;&|[:space:]]+|(^|[[:space:]])-C[[:space:]]+[^[:space:]]+' "$cmd_file" \
                  | sed -E 's/^[;&|[:space:]]*(cd|-C)[[:space:]]+//')
       if [[ -z "${broad_unknown:-}" && ${#urls[@]} -gt 0 ]]; then
-        scope_in_scope "$owners" "${urls[@]}" || broad_in_scope=false
+        if ! scope_in_scope "$owners" "${urls[@]}" && [[ "$scope_skip_ok" == true ]]; then broad_in_scope=false; fi
       fi
     fi
     # Private names do not follow the owner scope: a -R value or a remote of
@@ -719,7 +735,7 @@ EOF_DIRS
     while IFS= read -r u; do urls+=("$u"); done <<EOF_URLS
 $remote_urls
 EOF_URLS
-    scope_in_scope "$owners" "${urls[@]}" || in_scope=false
+    if ! scope_in_scope "$owners" "${urls[@]}" && [[ "$scope_skip_ok" == true ]]; then in_scope=false; fi
   fi
 fi
 [[ "$in_scope" == true ]] || exit 0
