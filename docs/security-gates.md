@@ -144,7 +144,7 @@ Hooks that already run here keep running:
 
 | Before setup | After setup |
 |---|---|
-| no hooks, committed `.githooks/` or vendored script-helpers hooks | `core.hooksPath` points straight at them, as before |
+| no hooks, committed `.githooks/` or vendored script-helpers hooks | `core.hooksPath` points straight at them, as before (chained instead when they are not executable, so no tracked file mode changes) |
 | executable hooks in `.git/hooks` | chained |
 | a local `core.hooksPath` from another tool (husky, an employer's tooling) | saved as `script-helpers.previous-hooksPath`, chained |
 | a global `core.hooksPath` (an employer's, or `--global`) | chained; the global value is not touched |
@@ -265,7 +265,7 @@ and spaces ignored, the full check is not needed. The full check is one awk
 pass over the list. Measured on a 4,800-name list: about 180 ms per ordinary
 command, about 250 ms for a command that names a listed repository (about 14 s
 with the old per-name loop). `tests/claude_hook_destinations_test.sh` holds a hit against
-5,000 names under 2 s.
+5,000 names under 2 s (5 s under Git Bash on Windows).
 Nothing is allowed without that scan: another tool's payload (Write, Edit, if
 the hook is wired to them) is scanned as every string of its input; a payload
 that is not valid JSON or not UTF-8, or a machine without python3, has the raw

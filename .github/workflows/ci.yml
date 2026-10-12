@@ -78,6 +78,11 @@ jobs:
       - name: Per-repository setup keeps earlier hooks, under Git Bash
         shell: bash
         run: bash tests/setup_hooks_chain_test.sh
+      - name: Gate temp-dir and security gate tests under Git Bash
+        shell: bash
+        run: |
+          bash tests/gate_tempdir_test.sh
+          bash tests/security_gate_test.sh
       - name: Hook destination and latency tests under Git Bash
         shell: bash
         run: bash tests/claude_hook_destinations_test.sh

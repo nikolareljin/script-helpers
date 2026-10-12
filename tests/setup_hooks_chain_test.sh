@@ -172,6 +172,17 @@ unset SCRIPT_HELPERS_OWNERS
 rc=0; (cd "$r" && bash "$setup" --claude-repo --global >/dev/null 2>&1) || rc=$?
 [[ $rc -eq 2 ]] && ok "--claude-repo with --global is refused (2)" || error "claude-repo+global: rc=$rc"
 
+# 10a. A failing committed hook stops the chain: what ran before does not run.
+r="$(new_repo committed-fails)"
+marker_hook "$r/.githooks/pre-commit" committed-refuses 1
+marker_hook "$r/.githooks/pre-push" committed-push
+marker_hook "$r/.git/hooks/pre-commit" theirs
+(cd "$r" && bash "$setup" >/dev/null 2>&1) || error "committed-fails: setup failed"
+head_before="$(git -C "$r" rev-parse -q --verify HEAD || echo none)"
+commit_in "$r"
+[[ "$(ran)" == "committed-refuses" && "$(git -C "$r" rev-parse -q --verify HEAD || echo none)" == "$head_before" ]] \
+  && ok "a failing committed hook blocks the commit and stops the chain" || error "committed-fails: ran '$(ran)'"
+
 # 10b. The repository's own core.hooksPath (.githooks) survives setup and --uninstall.
 r="$(new_repo own-githooks)"
 marker_hook "$r/.githooks/pre-commit" committed
@@ -232,6 +243,14 @@ if command -v python3 >/dev/null 2>&1; then
   mkdir -p "$r/.claude"; printf '{"permissions": {}}\n' > "$r/.claude/settings.local.json"
   (cd "$r" && bash "$setup" --claude-repo --uninstall >/dev/null 2>&1) || true
   [[ -f "$r/.claude/settings.local.json" ]] && ok "uninstall after a refused install keeps the user's file" || error "claude-refused: user's file deleted"
+
+  # A tracked settings.local.json is refused and left as it is.
+  r="$(new_repo claude-tracked)"
+  mkdir -p "$r/.claude"; printf '{}\n' > "$r/.claude/settings.local.json"
+  git -C "$r" add -f .claude/settings.local.json
+  rc=0; (cd "$r" && bash "$setup" --claude-repo >/dev/null 2>&1) || rc=$?
+  [[ $rc -eq 2 && "$(cat "$r/.claude/settings.local.json")" == "{}" ]] && ok "a tracked settings.local.json is refused (2), unchanged" \
+    || error "claude-tracked: rc=$rc"
 
   # A user's own exclude line survives install and uninstall.
   r="$(new_repo claude-user-exclude)"
