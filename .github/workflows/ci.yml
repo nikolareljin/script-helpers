@@ -77,7 +77,9 @@ jobs:
         run: bash tests/setup_claude_hook_test.sh
       - name: Per-repository setup keeps earlier hooks, under Git Bash
         shell: bash
-        run: bash tests/setup_hooks_chain_test.sh
+        run: |
+          bash tests/setup_hooks_chain_test.sh
+          bash tests/hooks_coexistence_test.sh
       - name: Gate temp-dir and security gate tests under Git Bash
         shell: bash
         run: |

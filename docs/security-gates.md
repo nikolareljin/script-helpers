@@ -159,9 +159,22 @@ runs, in order, stopping at the first failure:
    else `.git/hooks`, with git's arguments and stdin.
 
 So a hook name only the other tool has (`commit-msg`, `post-checkout`) still
-runs. If another tool later rewrites `core.hooksPath` (`husky install`,
-`pre-commit install`), its hooks keep working and ours stop; `--status` shows
-it, and running setup again chains them again.
+runs, and so does a hook added later to `.git/hooks` or to the saved path.
+
+If another tool later rewrites or removes `core.hooksPath` (`husky install`,
+`pre-commit install`), its hooks run and ours stop until repaired:
+
+```bash
+bash <script-helpers>/scripts/setup-hooks.sh --status --porcelain   # taken_over=yes
+bash <script-helpers>/scripts/setup-hooks.sh --repair               # chain again
+```
+
+`--repair` makes the new value the previous one, so both run, and keeps the
+value it replaced as `script-helpers.previous-hooksPath-history`. `--uninstall`
+then restores the new tool's value: the setup that was there just before.
+`--status --porcelain` prints one tab-separated line (`mode`, `taken_over`,
+`core_hooksPath`, `expected`, `previous`, `target`, `claude_repo`) for tools
+that check many repositories.
 
 Not reachable from git: hooks an IDE runs itself (a JetBrains or VS Code
 pre-commit check) and server-side hooks. They are never touched, so they keep

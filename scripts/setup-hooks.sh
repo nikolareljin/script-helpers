@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SCRIPT: setup-hooks.sh
 # DESCRIPTION: Configure git to use shared or repository-local hook scripts, and install the Claude Code security hook.
-# USAGE: bash scripts/setup-hooks.sh [--claude-repo|--global|--claude|--all|--managed] [--uninstall] | --status | --doctor | --install-gitleaks
+# USAGE: bash scripts/setup-hooks.sh [--claude-repo|--global|--claude|--all|--managed] [--uninstall] | --repair | --status [--porcelain] | --doctor | --install-gitleaks
 # PARAMETERS:
 #   (none)        Set up this repository. With no hooks running here yet, point its
 #                 core.hooksPath at the shared hooks. If hooks already run (a local or
@@ -32,7 +32,15 @@
 #                 The hook copy goes to script-helpers/ next to that file.
 #   --uninstall   With --global, --claude, --all or --managed: undo that install.
 #                 Other settings and hooks are left as they are.
+#   --repair      In this repository: if another tool replaced core.hooksPath after
+#                 the setup here (husky does on npm install), chain again: the new
+#                 value becomes the previous one, so its hooks and ours both run. The
+#                 value it replaced is kept as script-helpers.previous-hooksPath-history.
+#                 Nothing to repair: exit 0. Not set up here: exit 1.
 #   --status      Show what is installed, and the prerequisites.
+#   --porcelain   With --status, in a repository: one line of tab-separated key=value
+#                 fields for scripts: mode (chained, direct, none), taken_over (yes,
+#                 no), core_hooksPath, expected, previous, target, claude_repo.
 #   --doctor      The prerequisites, then four probes through the installed Claude
 #                 hook, from a throwaway repository under the first owner: a private
 #                 name from your list, an SSN-shaped number, and git push --no-verify
@@ -63,6 +71,7 @@
 set -euo pipefail
 
 GLOBAL=false; CLAUDE=false; CLAUDE_REPO=false; MANAGED=false; UNINSTALL=false; STATUS=false; DOCTOR=false; GITLEAKS=false
+REPAIR=false; PORCELAIN=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --global) GLOBAL=true ;;
@@ -72,6 +81,8 @@ while [[ $# -gt 0 ]]; do
     --managed) MANAGED=true ;;
     --uninstall) UNINSTALL=true ;;
     --status) STATUS=true ;;
+    --porcelain) PORCELAIN=true ;;
+    --repair) REPAIR=true ;;
     --doctor) DOCTOR=true ;;
     --install-gitleaks) GITLEAKS=true ;;
     -h|--help) sed -n '2,/^# ------/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -81,6 +92,12 @@ while [[ $# -gt 0 ]]; do
 done
 if [[ "$CLAUDE_REPO" == true ]] && [[ "$GLOBAL" == true || "$CLAUDE" == true || "$MANAGED" == true ]]; then
   echo "[setup-hooks] --claude-repo is for this repository only; run it on its own, not with --global, --claude, --all or --managed" >&2; exit 2
+fi
+if [[ "$PORCELAIN" == true && "$STATUS" != true ]]; then
+  echo "[setup-hooks] --porcelain goes with --status" >&2; exit 2
+fi
+if [[ "$REPAIR" == true ]] && [[ "$GLOBAL" == true || "$CLAUDE" == true || "$MANAGED" == true || "$CLAUDE_REPO" == true || "$UNINSTALL" == true || "$STATUS" == true ]]; then
+  echo "[setup-hooks] --repair is for this repository's git hooks; run it on its own" >&2; exit 2
 fi
 if [[ "$MANAGED" == true && "$CLAUDE" == true ]]; then
   echo "[setup-hooks] --managed is an alternative to --claude/--all, not an addition" >&2; exit 2
@@ -296,9 +313,14 @@ show_global_status() {
         "then $(git config --local --get script-helpers.hooks-target 2>/dev/null || echo '(no committed hooks)')," \
         "then $(git config --local --get script-helpers.previous-hooksPath 2>/dev/null || echo 'the global core.hooksPath or .git/hooks')"
     elif [[ -n "$local_path" ]]; then
-      echo "[setup-hooks] this repository: core.hooksPath = $local_path (overrides the global one; its hooks run the checks unconditionally)"
+      echo "[setup-hooks] this repository: core.hooksPath = $local_path (overrides the global one; the checks run only if those hooks run them)"
     else
       echo "[setup-hooks] this repository: no local core.hooksPath; the global value applies"
+    fi
+    local expected
+    expected="$(git config --local --get script-helpers.expected-hooksPath 2>/dev/null || true)"
+    if [[ -n "$expected" && "$local_path" != "$expected" ]]; then
+      echo "[setup-hooks] this repository: WARN: core.hooksPath was changed after the setup here (was $expected); our hooks do not run. Fix: setup-hooks.sh --repair"
     fi
     local top_dir
     top_dir="$(git rev-parse --show-toplevel 2>/dev/null || true)"
@@ -583,7 +605,7 @@ if [[ "$DOCTOR" == true ]]; then
   rc=0; doctor || rc=$?
   exit "$rc"
 fi
-if [[ "$STATUS" == true ]]; then
+if [[ "$STATUS" == true && "$PORCELAIN" != true ]]; then
   show_global_status
   show_claude_status
   prereqs || true
@@ -694,6 +716,67 @@ native_hooks() {
 # unset_local <key>: remove a local key; a missing key is not an error.
 unset_local() { git config --local --unset "$1" 2>/dev/null || true; }
 
+# The setup here, as recorded in .git/config: mode (chained, direct, none) and the
+# core.hooksPath it set. A setup from 0.49.0 recorded neither; it is read from
+# the keys it did write. taken_over: the value is no longer the one we set
+# (another tool replaced or removed it), so our hooks no longer run.
+setup_mode=""; setup_expected=""; taken_over=no
+read_setup_state() {
+  setup_mode="$(git config --local --get script-helpers.mode 2>/dev/null || true)"
+  setup_expected="$(git config --local --get script-helpers.expected-hooksPath 2>/dev/null || true)"
+  if [[ -z "$setup_mode" ]]; then
+    if [[ "$cur_local" == "$repo_hooks" ]] || \
+       git config --local --get script-helpers.hooks-target >/dev/null 2>&1 || \
+       git config --local --get script-helpers.previous-hooksPath >/dev/null 2>&1; then
+      setup_mode=chained; setup_expected="$repo_hooks"
+    elif [[ -n "$(git config --local --get script-helpers.set-hooksPath 2>/dev/null)" ]]; then
+      setup_mode=direct; setup_expected="$(git config --local --get script-helpers.set-hooksPath)"
+    elif [[ "$(git config --local --bool --get script-helpers.trust-repo-hooks 2>/dev/null)" == true ]]; then
+      # Direct without a recorded value only when the repository already pointed
+      # at its own hooks; any other value means a chained setup was replaced.
+      if [[ -n "$hooks_dir" && "$cur_local" == "$hooks_dir" ]]; then
+        setup_mode=direct; setup_expected="$hooks_dir"
+      else
+        setup_mode=chained; setup_expected="$repo_hooks"
+      fi
+    else
+      setup_mode=none
+    fi
+  fi
+  taken_over=no
+  if [[ "$setup_mode" != none && "$cur_local" != "$setup_expected" ]]; then taken_over=yes; fi
+}
+
+# record_setup <mode> <value>: what this run set, for --status and --repair.
+record_setup() {
+  git config --local script-helpers.mode "$1"
+  git config --local script-helpers.expected-hooksPath "$2"
+}
+
+read_setup_state
+if [[ "$STATUS" == true && "$PORCELAIN" == true ]]; then
+  claude_repo=no
+  grep -qxF '# script-helpers setup-hooks.sh --claude-repo' "$common_dir/info/exclude" 2>/dev/null && claude_repo=yes
+  printf 'mode=%s\ttaken_over=%s\tcore_hooksPath=%s\texpected=%s\tprevious=%s\ttarget=%s\tclaude_repo=%s\n' \
+    "$setup_mode" "$taken_over" "$cur_local" "$setup_expected" \
+    "$(git config --local --get script-helpers.previous-hooksPath 2>/dev/null || true)" \
+    "$(git config --local --get script-helpers.hooks-target 2>/dev/null || true)" "$claude_repo"
+  exit 0
+fi
+if [[ "$REPAIR" == true ]]; then
+  if [[ "$setup_mode" == none ]]; then
+    echo "[setup-hooks] not set up in this repository; run setup-hooks.sh first" >&2; exit 1
+  fi
+  if [[ "$taken_over" == no ]]; then
+    echo "[setup-hooks] nothing to repair: core.hooksPath is still ${cur_local:-(unset)}"; exit 0
+  fi
+  echo "[setup-hooks] core.hooksPath was changed to '${cur_local:-(unset)}' after the setup here; chaining again."
+  old_prev="$(git config --local --get script-helpers.previous-hooksPath 2>/dev/null || true)"
+  [[ -n "$old_prev" ]] && git config --local script-helpers.previous-hooksPath-history "$old_prev"
+  # The value we set is gone: forget it, so the new one is read as foreign below.
+  unset_local script-helpers.set-hooksPath
+fi
+
 # ---- Claude Code hook, this repository only (--claude-repo) ----------------
 # Writes .claude/settings.local.json, which Claude Code reads for this project
 # only, and lists it in .git/info/exclude so it can never be committed. Backups
@@ -791,6 +874,9 @@ if [[ "$UNINSTALL" == true ]]; then
   unset_local script-helpers.hooks-target
   unset_local script-helpers.trust-repo-hooks
   unset_local script-helpers.set-hooksPath
+  unset_local script-helpers.mode
+  unset_local script-helpers.expected-hooksPath
+  unset_local script-helpers.previous-hooksPath-history
   if [[ -z "$(git config --local --get-regexp '^script-helpers\.' 2>/dev/null || true)" ]]; then
     git config --local --remove-section script-helpers 2>/dev/null || true
   fi
@@ -839,6 +925,7 @@ if [[ "$direct" == true ]]; then
     git config --local script-helpers.set-hooksPath "$hooks_dir"
   fi
   git config core.hooksPath "$hooks_dir"
+  record_setup direct "$hooks_dir"
   # This clone opted in: if the machine-wide hooks ever run here (no local
   # core.hooksPath), they may chain to this repository's committed hooks.
   git config --local script-helpers.trust-repo-hooks true
@@ -882,6 +969,7 @@ else
   unset_local script-helpers.hooks-target
 fi
 git config --local core.hooksPath "$repo_hooks"
+record_setup chained "$repo_hooks"
 git config --local script-helpers.trust-repo-hooks true
 echo "[setup-hooks] core.hooksPath = $repo_hooks"
 echo "[setup-hooks] Chained, in order: security checks (configured owners only)${hooks_dir:+, then $hooks_dir}, then what ran before: $foreign"
