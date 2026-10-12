@@ -205,33 +205,34 @@ parser of shell commands always misses some shape bash runs (`bash -c`,
   file it names that can be read (`--body-file X`, `-F X`, `@X`, `< X`), goes
   through the private-name check and `check_sensitive.sh --no-machine
   --no-inline-allow`. Paths after `cd` and `-C` are left out of the text.
-  Private names are checked in every command, with two exceptions. A
-  pull request or issue with one `-R`/`--repo` target, and no `cd` or `-C`,
-  is judged by that repository's name. And a command is not checked for
-  private names when all of these hold (a closed allowlist, no deny-list):
+  Private names are checked in every command, with two exceptions. A `gh`
+  command with one `-R`/`--repo` target and no shell syntax is judged by
+  that repository's name. And a command is not checked for private names
+  when all of these hold (a closed allowlist, no deny-list; one constant,
+  `RELAX_PRIVATE_NAMES`, switches it off):
   - the payload's `cwd` is an absolute path inside a git repository, and
     every fetch and push URL of that repository (`git remote -v`, so after
     `insteadOf` and `pushurl`) is `github.com/<owner>/<name>` with the owner
     configured and the name listed private;
   - the command has no shell syntax: none of `; & | $` backtick `< > ( ) { }`
     backslash or newline, and its quotes balance;
-  - the program is one of `git`, `echo`, `printf`, `ls`, `cat`, `grep`,
-    `head`, `tail`, `wc`;
+  - the program is one of `git`, `echo`, `printf`, `ls`, `cat`, `grep`
+    (not `-R`), `head`, `tail`, `wc`;
   - for `git`, the subcommand comes first (no global options) and is one of
-    `status`, `log`, `show`, `diff`, `add`, `commit`, `branch`, `checkout`,
-    `switch`, `restore`, `rev-parse`, `ls-files`, `grep`, `blame`,
-    `stash list`, without `--exec`, `-x`, `--ext-diff`, `--textconv`,
-    `--output`, `-o`, `-O`, `--open-files-in-pager`, `--upload-pack`,
-    `--receive-pack`, `--exec-path`, `--template`;
-  - every path-like argument resolves inside that repository.
+    `status`, `log`, `show`, `diff`, `rev-parse`, `ls-files`, `blame`, or
+    `branch` with listing options only, and no option starts with
+    `--output`, `--ext-diff`, `--textconv`, `-O`, `--exec`, `--open-files`,
+    `-x`, `-o`, `--upload-pack`, `--receive-pack`, `--exec-path`;
+  - every argument, and every value after `=`, resolves (symlinks followed)
+    inside that repository.
 
-  A commit message naming the repository stays in it; a push is judged by
-  the git `pre-push` hook. An agent working on a private repository runs
-  `cd <repo>` as its own command first (the directory persists between
-  calls). A directory that is not a repository, a public repository, one
-  public or unknown remote, no owners or no list: checked. Sensitive data
-  and credentials are never relaxed: they follow the owner scope, from the
-  session directory, every `cd`/`-C` target and `-R`.
+  Anything that writes (`git add`, `commit`, `checkout`, `stash`) is
+  checked. An agent working on a private repository runs `cd <repo>` as its
+  own command first (the directory persists between calls). A directory that
+  is not a repository, a public repository, one public or unknown remote, no
+  owners or no list: checked. Private names do not follow the owner scope.
+  Sensitive data and credentials are never relaxed: they follow the owner
+  scope, from the session directory, every `cd`/`-C` target and `-R`.
 - refused outright: `--no-verify`, `git commit -n`, a `core.hooksPath`
   override (`-c`, `GIT_CONFIG_*`); a command that sets the gate's own
   overrides or configuration (`SECURITY_GATE_ALLOW_UNCHECKED=`,
@@ -304,7 +305,7 @@ stops with exit 2 and names what to install.
 | Command | Writes |
 |---|---|
 | `--global` | the hooks copy in `<data>/script-helpers/git-hooks`; global `core.hooksPath` (old value saved) |
-| `--claude` | the hook copy in `<data>/script-helpers/claude-hooks`; one `PreToolUse` entry in `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json` (matcher `Bash`, timeout 60, `"shell": "bash"`), after a `settings.json.bak-<time>` copy |
+| `--claude` | the hook copy in `<data>/script-helpers/claude-hooks`; one `PreToolUse` entry in `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json` (matcher `Bash`, timeout 60, `"shell": "bash"`, and `"onFailure": "block"` when `claude --version` is 2.1.295 or newer), after a `settings.json.bak-<time>` copy |
 | `--all` | both |
 | `--managed` | the entry in the OS managed settings file, and the hook copy in `script-helpers/` beside it (admin only, see below) |
 
@@ -334,9 +335,13 @@ restores the saved global `core.hooksPath`.
 - `--status` shows what is installed and the prerequisites; `--doctor` also
   runs a refused and an allowed command through the installed hook and prints
   the time each took.
-- A hook that times out, or exits with anything but 0 or 2, lets the command
-  run. The timeout is 60 s; the hook normally answers in well under 1 s. A
-  `--doctor` probe near the limit means something is wrong.
+- Without `"onFailure": "block"` (Claude Code older than 2.1.295), a hook
+  that times out, or exits with anything but 0 or 2, lets the command run;
+  `--status` and `--doctor` warn about it. Update Claude Code and run
+  `--claude` again. The timeout is 60 s; the hook normally answers in well
+  under 1 s. A `--doctor` probe near the limit means something is wrong.
+- A refusal is exit 2 with the reason on stderr, and the same reason as a
+  `PreToolUse` deny decision (JSON) on stdout.
 - In Claude Code, `/hooks` lists the entry. Settings are read when a session
   starts: open a new session after installing.
 - `no owners configured` (exit 2): set the owners first (above).

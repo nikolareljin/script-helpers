@@ -55,6 +55,8 @@ done
 
 git config --global script-helpers.owners example
 # A private repository with a second, public remote, and one of another owner.
+# A symlink inside the private repository that points into the public one.
+printf 'x\n' > "$pub/notes.md"; ln -s "$pub/notes.md" "$priv/zzqsecretbox-link"
 priv2="$tmp/zzqsecretbox-two"; other="$tmp/zzqsecretbox-other"
 git init -q "$priv2" && git -C "$priv2" commit -q --allow-empty -m init
 git -C "$priv2" remote add origin git@github.com:example/zzqsecretbox.git
@@ -83,16 +85,19 @@ print(json.dumps(d))' "$cmd" "${PAYLOAD_CWD:-$cwd}" > "$tmp/payload"
 # forms are checked when the repository has one public remote.
 n=zzqsecretbox
 for v in "git status" \
-         "git commit -m '$n: fix'" \
-         "git log --oneline -5" \
-         "git show HEAD" \
-         "git grep $n" \
-         "git stash list" \
+         "git log --oneline -5 --grep=$n" \
+         "git show HEAD:$n.md" \
+         "git diff HEAD -- $n.md" \
+         "git branch -a" \
+         "git blame README" \
+         "git rev-parse HEAD" \
+         "git ls-files $n" \
          "echo $n" \
          "printf '%s' $n" \
          "grep -rn $n docs" \
          "cat ./docs/$n.md" \
          "ls $priv/$n" \
+         "head -5 $n.txt" \
          "wc -l $n.txt"; do
   hook 0 "allowed in the private repository: [${v//$tmp/<tmp>}]" "$priv" "$v"
   v2="${v//$priv/$priv2}"
@@ -106,11 +111,31 @@ hook 2 "a plain directory (cd into the repository first; cwd persists)" "$tmp/pl
 hook 2 "a public repository" "$pub" "echo $n"
 hook 2 "a pull request into an unlisted repository" "$tmp/plain" "gh pr create -R example/elsewhere --body 'see $n'"
 hook 2 "gh without -R outside a repository" "$tmp/plain" "gh issue create --body '$n'"
+hook 2 "-R on a command that is not gh is not a repository" "$tmp/plain" "ls -R $n"
 hook 2 "curl to github" "$tmp/plain" "curl -d '$n' https://api.github.com/repos/example/zzqopenbox/issues"
 
 # From inside the private repository, anything outside the allowlist is
 # checked. Each of these blocks.
-for v in "cd $pub && git commit -m $n" \
+for v in "git commit -m $n" \
+         "git add $n.md" \
+         "git add -p $n.md" \
+         "git checkout $n" \
+         "git switch $n" \
+         "git restore $n.md" \
+         "git stash list $n" \
+         "git grep $n" \
+         "git branch -m $n" \
+         "git branch --edit-description $n" \
+         "git log --output=$n.txt" \
+         "git diff --ext-diff $n" \
+         "git log --textconv $n" \
+         "git diff -Oorder $n" \
+         "git log -x $n" \
+         "sed -n p $n.md" \
+         "grep -R $n docs" \
+         "grep --dereference-recursive $n docs" \
+         "cat $n-link" \
+         "cd $pub && git commit -m $n" \
          "cd $pub/$n" \
          "c''d $pub; git commit -m $n" \
          "pushd $pub && git commit -m $n" \
@@ -161,6 +186,29 @@ PAYLOAD_CWD="$pub" hook 2 "strict: the payload cwd decides, not the process cwd"
 # Sensitive data is never relaxed by the destination.
 hook 2 "sensitive: PII in a commit inside the private repository is refused" "$tmp/plain" \
   "cd $priv && git commit -m 'mail jane.roe""@""mailbox.org'"
+
+# The relaxation has one switch. Off, an allowed form is checked again.
+off="$tmp/switch-off"; mkdir -p "$off"
+cp -R "$root_dir/scripts" "$root_dir/lib" "$root_dir/helpers.sh" "$off/"
+"$PY" -c 'import sys
+p = sys.argv[1]; s = open(p).read()
+assert "RELAX_PRIVATE_NAMES = True" in s
+open(p, "w").write(s.replace("RELAX_PRIVATE_NAMES = True", "RELAX_PRIVATE_NAMES = False", 1))' \
+  "$off/scripts/claude-hooks/pretooluse_private_names.sh"
+saved_hook="$HOOK"; HOOK="$off/scripts/claude-hooks/pretooluse_private_names.sh"
+hook 2 "RELAX_PRIVATE_NAMES = False: echo naming it is checked in the private repository" "$priv" "echo $n"
+HOOK="$saved_hook"
+
+# A refusal is exit 2 with the reason on stderr, and a deny decision on stdout.
+"$PY" -c 'import json,sys; print(json.dumps({"tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":"echo zzqsecretbox"}}))' "$pub" > "$tmp/payload"
+( cd "$pub" && PATH="$tmp/bin:$PATH" PRIVATE_NAMES_FILE="$list" SENSITIVE_MACHINE_IDS_FILE="$tmp/no-machine-ids" \
+    SENSITIVE_TERMS_FILE="$tmp/no-terms" bash "$HOOK" < "$tmp/payload" > "$tmp/stdout" 2> "$tmp/stderr" ); rc=$?
+if [[ "$rc" == 2 ]] && grep -q 'private repository' "$tmp/stderr" \
+   && "$PY" -c 'import json,sys; d=json.load(open(sys.argv[1]))["hookSpecificOutput"]; sys.exit(0 if d["permissionDecision"]=="deny" and "private repository" in d["permissionDecisionReason"] else 1)' "$tmp/stdout"; then
+  ok "a refusal: exit 2, reason on stderr, deny JSON on stdout"
+else
+  error "refusal output: rc=$rc stdout=$(cat "$tmp/stdout")"
+fi
 
 # Latency: a hit against 5,000 names. A timeout lets the command run, so the
 # hook has to be well inside its 60 s; the old per-name grep took 14 s.

@@ -16,7 +16,8 @@
 - **`setup-hooks.sh --claude`, `--all`, `--doctor`, `--managed`, and
   `setup-hooks.ps1`: the Claude Code hook on Linux, macOS and Windows.** Copies
   the hook to the user data folder and merges one entry into `settings.json`
-  (other keys and hooks kept, backup first, CRLF kept, invalid JSON refused).
+  (other keys and hooks kept, backup first, CRLF kept, invalid JSON refused),
+  with `"onFailure": "block"` on Claude Code 2.1.295+.
   The hook no longer refuses a closed list of local commands (git status,
   commit, log, echo, ...) run inside a private repository
   whose remotes are all private (anything else is checked as before), and a

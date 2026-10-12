@@ -91,7 +91,7 @@ else
   data_base="${XDG_DATA_HOME:-${HOME:-}/.local/share}"
 fi
 global_dir="${SCRIPT_HELPERS_HOOKS_HOME:-$data_base/script-helpers/git-hooks}"
-global_hooks="$global_dir/hooks"
+global_hooks="$(native_path "$global_dir/hooks")"   # as git stores it (C:/... on Windows)
 backup_file="$global_dir/previous-hooksPath"
 claude_settings="$(unix_path "${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}")/settings.json"
 claude_home="$data_base/script-helpers/claude-hooks"
@@ -272,6 +272,26 @@ show_global_status() {
   fi
 }
 
+# claude_supports_onfailure: 0 when the installed claude is 2.1.295 or newer,
+# which honours "onFailure": "block" (a timeout or crash blocks, not passes).
+ONFAILURE_MIN="2.1.295"
+claude_supports_onfailure() {
+  local v
+  command -v claude >/dev/null 2>&1 && [[ -n "$PY" ]] || return 1
+  v="$(claude --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  [[ -n "$v" ]] || return 1
+  "$PY" -c 'import sys
+a = [int(x) for x in sys.argv[1].split(".")]; b = [int(x) for x in sys.argv[2].split(".")]
+sys.exit(0 if a >= b else 1)' "$v" "$ONFAILURE_MIN"
+}
+
+# claude_onfailure <settings>: the onFailure value of our entry, or nothing.
+claude_onfailure() {
+  [[ -n "$PY" && -f "$1" ]] || return 0
+  "$PY" "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$1")" 2>/dev/null \
+    | sed -n 's/^onFailure=//p' | head -1 || true
+}
+
 # claude_entry <settings>: the hook command in that file, or nothing.
 claude_entry() {
   [[ -n "$PY" && -f "$1" ]] || return 0
@@ -286,6 +306,11 @@ show_claude_status() {
     if [[ -n "$entry" ]]; then
       echo "[setup-hooks] claude hook ($kind): $file -> $entry"
       echo "[setup-hooks]   installed copy: $home ($(cat "$home/VERSION" 2>/dev/null || echo 'MISSING: the hook cannot run'))"
+      if [[ "$(claude_onfailure "$file")" == block ]]; then
+        echo "[setup-hooks]   onFailure: block (a timeout or crash blocks the command)"
+      else
+        echo "[setup-hooks]   WARN: no onFailure: a timeout or crash lets the command run. Claude Code $ONFAILURE_MIN or newer supports it; update it, then run --claude again."
+      fi
     elif [[ "$kind" == user ]]; then
       echo "[setup-hooks] claude hook ($kind): not in $file"
     fi
@@ -294,7 +319,7 @@ show_claude_status() {
 
 # install_claude <settings> <copy dir>
 install_claude() {
-  local settings="$1" home="$2" stage cmd rc=0
+  local settings="$1" home="$2" stage cmd onfailure rc=0
   require_owners
   if [[ -z "$PY" ]]; then
     echo "[setup-hooks] ERROR: Python 3 is needed (python3, or python on Windows): the hook and this installer use it." >&2
@@ -317,10 +342,15 @@ install_claude() {
   echo "[setup-hooks] hook copied to $home ($(cat "$home/VERSION"))"
 
   cmd="bash \"$(native_path "$home")/$HOOK_REL\""
+  onfailure=""
+  if claude_supports_onfailure; then onfailure=block; fi
   rc=0
-  "$PY" "$(native_path "$home/$MERGE_REL")" install "$(native_path "$settings")" "$cmd" 60 || rc=$?
+  "$PY" "$(native_path "$home/$MERGE_REL")" install "$(native_path "$settings")" "$cmd" 60 $onfailure || rc=$?
   [[ "$rc" -eq 0 ]] || exit "$rc"
-  echo "[setup-hooks] PreToolUse hook (matcher Bash, timeout 60 s, shell bash): $cmd"
+  echo "[setup-hooks] PreToolUse hook (matcher Bash, timeout 60 s, shell bash${onfailure:+, onFailure block}): $cmd"
+  if [[ -z "$onfailure" ]]; then
+    echo "[setup-hooks] WARN: Claude Code older than $ONFAILURE_MIN (or not found): a hook timeout or crash lets the command run."
+  fi
   echo "[setup-hooks] New Claude Code sessions use it; /hooks lists it. Check it with: bash $src_root/scripts/setup-hooks.sh --doctor"
   offer_gitleaks
 }

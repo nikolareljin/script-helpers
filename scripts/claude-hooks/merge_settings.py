@@ -2,7 +2,7 @@
 """Add, remove or report the script-helpers PreToolUse hook in a Claude Code settings.json.
 
 USAGE:
-  merge_settings.py install   <settings.json> <command> [timeout]
+  merge_settings.py install   <settings.json> <command> [timeout] [block]
   merge_settings.py uninstall <settings.json>
   merge_settings.py status    <settings.json>
 
@@ -141,6 +141,7 @@ def main(argv):
         found = ours(data)
         for h in found:
             print(h.get("command"))
+            print("onFailure={}".format(h.get("onFailure", "")))
         return 0 if found else 1
     if action == "install":
         if len(argv) < 4 or not argv[3].strip():
@@ -149,6 +150,9 @@ def main(argv):
         timeout = int(argv[4]) if len(argv) > 4 else 60
         want = {"type": "command", "command": argv[3], "timeout": timeout,
                 "shell": "bash", "statusMessage": STATUS_MESSAGE}
+        if len(argv) > 5 and argv[5] == "block":
+            # Claude Code 2.1.295+: a timeout or crash blocks instead of failing open.
+            want["onFailure"] = "block"
         if ours(data) == [want] and {"matcher": "Bash", "hooks": [want]} in data["hooks"]["PreToolUse"]:
             print("unchanged {}".format(path))
             return 0

@@ -51,6 +51,9 @@ cd "$tmp" || exit 1
 # A stand-in gitleaks that finds nothing: the hook refuses without one, and
 # the scanner itself is not under test here.
 printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/bin/gitleaks"; chmod +x "$tmp/bin/gitleaks"
+# A stand-in claude: the version decides whether onFailure is written.
+fake_claude() { printf '#!/usr/bin/env bash\necho "%s (Claude Code)"\n' "$1" > "$tmp/bin/claude"; chmod +x "$tmp/bin/claude"; }
+fake_claude 2.1.200
 export PATH="$tmp/bin:$PATH"
 
 # A name list: without one the hook cannot check, and refuses every command.
@@ -157,12 +160,32 @@ bash "$SETUP" --claude --uninstall >/dev/null 2>&1
 
 # 9. --all: the global git hooks and the Claude hook; --all --uninstall undoes both.
 git config --global core.hooksPath /some/previous/path
+prev_path="$(git config --global core.hooksPath)"   # Git Bash rewrites it on Windows
 rc="$(run --all)"
-[[ "$rc" == 0 && "$(git config --global core.hooksPath)" == "$data_dir/script-helpers/git-hooks/hooks" && "$(ours_count "$settings")" == 1 ]] \
+[[ "$rc" == 0 && "$(git config --global core.hooksPath)" == "$(native "$data_dir")/script-helpers/git-hooks/hooks" && "$(ours_count "$settings")" == 1 ]] \
   && ok "--all installs both" || error "--all: rc=$rc hooksPath=$(git config --global core.hooksPath) $(cat "$tmp/out")"
 rc="$(run --all --uninstall)"
-[[ "$rc" == 0 && "$(git config --global core.hooksPath)" == /some/previous/path && "$(ours_count "$settings")" == 0 ]] \
+[[ "$rc" == 0 && "$(git config --global core.hooksPath)" == "$prev_path" && "$(ours_count "$settings")" == 0 ]] \
   && ok "--all --uninstall restores both" || error "--all --uninstall: rc=$rc $(cat "$tmp/out")"
+
+# 10a. onFailure: written for Claude Code 2.1.295+, warned about before.
+onfailure_of() { jq_py "$settings" '[h.get("onFailure","") for g in d["hooks"]["PreToolUse"] for h in g["hooks"] if "pretooluse" in h["command"]][0]'; }
+rc="$(run --claude)"
+[[ "$rc" == 0 && -z "$(onfailure_of)" ]] && grep -q 'WARN: Claude Code older than 2.1.295' "$tmp/out" \
+  && ok "Claude Code 2.1.200: no onFailure, and a warning" || error "old claude: rc=$rc $(cat "$tmp/out")"
+rc="$(run --status)"
+grep -q 'WARN: no onFailure' "$tmp/out" && ok "--status warns that a timeout fails open" || error "--status onFailure: $(cat "$tmp/out")"
+fake_claude 2.1.295
+rc="$(run --claude)"
+[[ "$rc" == 0 && "$(onfailure_of)" == block && "$(ours_count "$settings")" == 1 ]] \
+  && ok "Claude Code 2.1.295: onFailure block written, still one entry" || error "new claude: rc=$rc $(cat "$settings")"
+rc="$(run --status)"
+grep -q 'onFailure: block' "$tmp/out" && ok "--status reports onFailure block" || error "--status block: $(cat "$tmp/out")"
+fake_claude 2.2.0
+cp "$settings" "$tmp/before.json"; run --claude >/dev/null
+cmp -s "$settings" "$tmp/before.json" && ok "a re-run with onFailure changes nothing" || error "onFailure re-run changed the file"
+bash "$SETUP" --claude --uninstall >/dev/null 2>&1
+fake_claude 2.1.200
 
 # 10. Bad combinations.
 [[ "$(run --uninstall)" == 2 ]] && ok "--uninstall alone -> exit 2" || error "--uninstall alone accepted"

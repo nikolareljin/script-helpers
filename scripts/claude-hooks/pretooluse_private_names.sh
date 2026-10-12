@@ -103,13 +103,31 @@ dest_file="${payload_file}.dests"
 # degrades to always-true there rather than to always-false.
 # Claude Code blocks only on exit 2; any other non-zero exit lets the command
 # run. So a crash here (set -u, a failed command) is turned into a refusal.
+# stderr is collected in a file while the hook runs and copied to the real
+# stderr at exit; on a refusal the same text also goes to stdout as a
+# PreToolUse deny decision, for agents that read JSON rather than exit codes.
+err_file="${payload_file}.err"
+exec 3>&2 2>"$err_file"
+deny_json() {
+  if [[ "$HAVE_PY" == true ]]; then
+    "$PY" -c 'import json,sys
+r = open(sys.argv[1], encoding="utf-8", errors="replace").read().strip() or "Refused by the security gate."
+print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+      "permissionDecision": "deny", "permissionDecisionReason": r}}))' "$err_file" 2>/dev/null && return 0
+  fi
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Refused by the security gate; see stderr."}}'
+}
 on_exit() {
   local rc="$1"
   rm -f "$payload_file" "$dest_file"
   if [[ "$rc" -ne 0 && "$rc" -ne 2 ]]; then
     echo "The publishing check failed (exit $rc), so this command was NOT checked; refused." >&2
-    exit 2
+    rc=2
   fi
+  cat "$err_file" >&3 2>/dev/null
+  [[ "$rc" -eq 2 ]] && deny_json
+  rm -f "$err_file"
+  exit "$rc"
 }
 # shellcheck disable=SC2154  # _rc is assigned inside the trap string
 trap '_rc=$?; if [[ ${BASHPID-$$} == "$$" ]]; then on_exit "$_rc"; fi' EXIT
@@ -234,14 +252,19 @@ import os, subprocess
 SQ, DQ, BT, BS, NL = chr(39), chr(34), chr(96), chr(92), chr(10)
 
 META = (";", "&", "|", "$", BT, "<", ">", "(", ")", "{", "}", BS, NL, chr(13))
+# One switch for the whole relaxation: False checks private names in every
+# command, as before it existed.
+RELAX_PRIVATE_NAMES = True
 PROGRAMS = {"git", "echo", "printf", "ls", "cat", "grep", "head", "tail", "wc"}
-# Local subcommands only; nothing that talks to a remote or changes config.
-GIT_SUBCOMMANDS = {"status", "log", "show", "diff", "add", "commit", "branch", "checkout",
-                   "switch", "restore", "rev-parse", "ls-files", "grep", "blame", "stash"}
-# Options that run a program or write outside the command output.
-GIT_UNSAFE_OPTIONS = {"--exec", "-x", "--ext-diff", "--textconv", "--output", "-o", "-O",
-                      "--open-files-in-pager", "--upload-pack", "--receive-pack",
-                      "--exec-path", "--template"}
+# Read-only subcommands. Nothing that writes (add, commit, checkout, stash),
+# talks to a remote, or changes config: those are checked.
+GIT_SUBCOMMANDS = {"status", "log", "show", "diff", "rev-parse", "ls-files", "branch", "blame"}
+# Options that run a program or write a file.
+GIT_UNSAFE_PREFIXES = ("--output", "--ext-diff", "--textconv", "-O", "--exec", "--open-files",
+                       "-x", "-o", "--upload-pack", "--receive-pack", "--exec-path")
+# git branch: listing only.
+GIT_BRANCH_LIST = {"-a", "-r", "-v", "-vv", "-l", "--list", "--all", "--remotes",
+                   "--show-current", "--verbose", "--no-color", "--color"}
 
 def write_dests(path):
     # The only relaxation, by a closed allowlist (no deny-list): a command with
@@ -250,6 +273,8 @@ def write_dests(path):
     # private TOP is written and the shell skips the private-name check only
     # if every remote of TOP is a listed private repository of an owner.
     # Anything else writes nothing: checked, as before.
+    if not RELAX_PRIVATE_NAMES:
+        return
     cwd = data.get("cwd")
     if not isinstance(cwd, str) or not os.path.isabs(cwd) or not os.path.isdir(cwd):
         return
@@ -269,11 +294,14 @@ def write_dests(path):
     if argv[0] == "git":
         if len(argv) < 2 or argv[1] not in GIT_SUBCOMMANDS:
             return
-        if argv[1] == "stash" and argv[2:] != ["list"]:
+        if argv[1] == "branch" and any(a not in GIT_BRANCH_LIST for a in argv[2:]):
             return
         for a in argv[2:]:
-            if a.split("=")[0] in GIT_UNSAFE_OPTIONS:
+            if a.startswith(GIT_UNSAFE_PREFIXES):
                 return
+    if argv[0] == "grep" and any(a.startswith("-") and not a.startswith("--") and "R" in a
+                                 or a.startswith("--dereference") for a in argv[1:]):
+        return
     try:
         r = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"],
                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -284,12 +312,15 @@ def write_dests(path):
     if not top:
         return
     real_top = os.path.realpath(top)
+    # Every argument, and every value after =, is read as a path with symlinks
+    # resolved; a word that is not a file resolves inside cwd and is harmless.
     for a in argv[1:]:
         for part in a.split("="):
-            if "/" in part or part.startswith(("~", ".")) or ".." in part:
-                p = os.path.realpath(os.path.join(cwd, os.path.expanduser(part)))
-                if p != real_top and not p.startswith(real_top + os.sep):
-                    return
+            if not part:
+                continue
+            p = os.path.realpath(os.path.join(cwd, os.path.expanduser(part)))
+            if p != real_top and not p.startswith(real_top + os.sep):
+                return
     with open(path, "w") as fh:
         fh.write("private" + chr(9) + top + NL)
 
@@ -563,7 +594,8 @@ if [[ ! -f "$dest_file" ]]; then
   r_targets="$(grep -oE -- '(^|[[:space:]])(-R|--repo)[= ]+[^;&|[:space:]]+' "$cmd_file" | sed -E 's/^[[:space:]]*(-R|--repo)[= ]+//' | tr -d "'\"" | sort -u)"
   if grep -qE -- '(^|[;&|[:space:]])cd[[:space:]]|(^|[[:space:]])-C[[:space:]]' "$cmd_file"; then
     printf 'any\n' > "$dest_file"
-  elif [[ -n "$r_targets" && "$(printf '%s\n' "$r_targets" | wc -l | tr -d ' ')" == 1 ]]; then
+  elif [[ -n "$r_targets" && "$(printf '%s\n' "$r_targets" | wc -l | tr -d ' ')" == 1 ]] \
+       && grep -qE -- '^[[:space:]]*gh[[:space:]]' "$cmd_file" && ! grep -qE -- '[;&|`$()<>]' "$cmd_file"; then
     printf 'repo\t%s\n' "$r_targets" > "$dest_file"
   else
     printf 'any\n' > "$dest_file"
@@ -660,17 +692,19 @@ if [[ -s "$cmd_file" ]]; then
         scope_in_scope "$owners" "${urls[@]}" || broad_in_scope=false
       fi
     fi
+    # Private names do not follow the owner scope: a -R value or a remote of
+    # another owner says nothing about where a private name may appear.
+    rc=0
+    names_check "$broad_text" || rc=$?
+    if [[ "$rc" -eq 1 ]]; then
+      { echo "This command names a private repository, and the destination is public."
+        echo; printf '%s\n' "$reason"; echo
+        echo "Cite the repository by its code instead. Ask the user before overriding."; } >&2
+      rm -f "$cmd_file" "$broad_text"; exit 2
+    elif [[ "$rc" -ne 0 ]]; then
+      rm -f "$cmd_file" "$broad_text"; unchecked "The private-name check (exit $rc)"
+    fi
     if [[ "$broad_in_scope" == true ]]; then
-      rc=0
-      names_check "$broad_text" || rc=$?
-      if [[ "$rc" -eq 1 ]]; then
-        { echo "This command names a private repository, and the destination is public."
-          echo; printf '%s\n' "$reason"; echo
-          echo "Cite the repository by its code instead. Ask the user before overriding."; } >&2
-        rm -f "$cmd_file" "$broad_text"; exit 2
-      elif [[ "$rc" -ne 0 ]]; then
-        rm -f "$cmd_file" "$broad_text"; unchecked "The private-name check (exit $rc)"
-      fi
       if [[ -f "$SENSITIVE" ]]; then
         # The whole command names local paths, so this machine's identifiers
         # are left out here; the parsed text below is checked with them.
