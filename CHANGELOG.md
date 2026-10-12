@@ -1,3 +1,17 @@
+## Unreleased
+
+### Added
+
+- **Hooks survive a takeover.** When another tool rewrites or removes
+  `core.hooksPath` after the per-repository setup (husky on `npm install`), our
+  hooks stopped with no sign. `setup-hooks.sh --status --porcelain` reports it
+  (`taken_over=yes`) and `--repair` chains again: the new tool's hooks and ours
+  both run, and `--uninstall` restores the new tool's value. The setup now
+  records `script-helpers.mode` and `expected-hooksPath`; a 0.49.0 setup is read
+  from the keys it wrote. `tests/hooks_coexistence_test.sh` covers each rule:
+  an employer's hooks keep running, ours run too, hooks added later run, a
+  takeover is repaired, uninstall leaves `.git/config` as it was.
+
 ## 2026-10-12 — v0.49.0
 
 ### Added
