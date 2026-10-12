@@ -126,17 +126,52 @@ bash scripts/ci_security.sh --install-foxguard
 
 ## Turning it on
 
-### In one repository
+### In one repository (the default)
 
 ```bash
-bash scripts/script-helpers/scripts/setup-hooks.sh     # or vendor/script-helpers/...
+bash <script-helpers>/scripts/setup-hooks.sh                 # git hooks
+bash <script-helpers>/scripts/setup-hooks.sh --claude-repo   # Claude Code hook, this repository only
+bash <script-helpers>/scripts/setup-hooks.sh --uninstall     # undo the git hooks (add --claude-repo for the Claude hook)
 ```
 
-This sets the repository's `core.hooksPath` to the shared hooks. They run the
-checks for every push from that repository, whoever owns it: the repository
-opted in.
+Only untracked files change: keys in `.git/config`, `.claude/settings.local.json`
+(listed in `.git/info/exclude`), and the hook copies outside the repository.
+`git status` is the same before and after, and `--uninstall` restores the old
+values. A tool that sets up many repositories (git-lantern) runs these per
+repository.
 
-### On a whole machine
+Hooks that already run here keep running:
+
+| Before setup | After setup |
+|---|---|
+| no hooks, committed `.githooks/` or vendored script-helpers hooks | `core.hooksPath` points straight at them, as before |
+| executable hooks in `.git/hooks` | chained |
+| a local `core.hooksPath` from another tool (husky, an employer's tooling) | saved as `script-helpers.previous-hooksPath`, chained |
+| a global `core.hooksPath` (an employer's, or `--global`) | chained; the global value is not touched |
+
+Chained means `core.hooksPath` points at a per-repository copy of the wrappers
+in `<data>/script-helpers/repo-hooks`, one for every git hook name, and each
+runs, in order, stopping at the first failure:
+
+1. the security checks, in the configured owners' repositories only;
+2. this repository's committed hooks (`script-helpers.hooks-target`);
+3. what git ran before: the saved local `core.hooksPath`, else the global one,
+   else `.git/hooks`, with git's arguments and stdin.
+
+So a hook name only the other tool has (`commit-msg`, `post-checkout`) still
+runs. If another tool later rewrites `core.hooksPath` (`husky install`,
+`pre-commit install`), its hooks keep working and ours stop; `--status` shows
+it, and running setup again chains them again.
+
+Not reachable from git: hooks an IDE runs itself (a JetBrains or VS Code
+pre-commit check) and server-side hooks. They are never touched, so they keep
+working, but nothing here runs alongside them.
+
+### On a whole machine (optional, off by default)
+
+None of this changes code in any repository: it writes `~/.gitconfig`,
+`~/.claude/settings.json` and copies outside every repository. It does change
+what runs in every repository on the machine, so it is opt-in.
 
 ```bash
 git config --global script-helpers.owners <your-github-user-or-org>[,<another>]
@@ -176,7 +211,7 @@ copy does not depend on any checkout; run `--global` again to update it.
   and the scope logic always come from the installed copy, never from the
   repository.
 - A repository with its own `core.hooksPath` ignores the global value. Run
-  `setup-hooks.sh` in it so its hooks carry the checks.
+  `setup-hooks.sh` in it: its own hooks are kept and chained (see above).
 
 `bash <script-helpers>/scripts/setup-hooks.sh --global --uninstall` restores
 the saved value (or unsets it) and removes the copy.
@@ -244,9 +279,11 @@ one to one: 0 allows, 1 refuses with the reason, 2 refuses as above.
 
 ## Set it up on a machine
 
-One command installs both gates for your user: the git hooks (`--global`) and
-the Claude Code hook (`--claude`). Rerun it at any time; a second run changes
-nothing, and a run from a newer checkout updates the installed copy.
+Per repository is the default: see "In one repository" above. The commands
+below are the optional machine-wide install, both gates for your user: the git
+hooks (`--global`) and the Claude Code hook (`--claude`). Rerun at any time; a
+second run changes nothing, and a run from a newer checkout updates the
+installed copy.
 
 ### Prerequisites
 
@@ -286,6 +323,8 @@ stops with exit 2 and names what to install.
 
 | Command | Writes |
 |---|---|
+| (none) | `core.hooksPath` and `script-helpers.*` keys in this repository's `.git/config`; when chaining, the wrapper copy in `<data>/script-helpers/repo-hooks` |
+| `--claude-repo` | one entry in this repository's `.claude/settings.local.json` and a line in `.git/info/exclude`; the hook copy in `<data>/script-helpers/claude-repo-hooks`; backups in `.git/script-helpers/claude-backups` |
 | `--global` | the hooks copy in `<data>/script-helpers/git-hooks`; global `core.hooksPath` (old value saved) |
 | `--claude` | the hook copy in `<data>/script-helpers/claude-hooks`; one `PreToolUse` entry in `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json` (matcher `Bash`, timeout 60, `"shell": "bash"`, and `"onFailure": "block"` when `claude --version` is 2.1.295 or newer), after a `settings.json.bak-<time>` copy |
 | `--all` | both |
@@ -307,6 +346,8 @@ refuses with exit 2 and never runs sudo itself.
 
 ```bash
 bash <script-helpers>/scripts/setup-hooks.sh --all --uninstall      # or --global / --claude / --managed
+bash <script-helpers>/scripts/setup-hooks.sh --uninstall            # in a repository: its git hooks
+bash <script-helpers>/scripts/setup-hooks.sh --claude-repo --uninstall
 ```
 
 This removes only the script-helpers entry and the installed copies, and

@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # SCRIPT: setup-hooks.sh
 # DESCRIPTION: Configure git to use shared or repository-local hook scripts, and install the Claude Code security hook.
-# USAGE: bash scripts/setup-hooks.sh [--global|--claude|--all|--managed] [--uninstall] | --status | --doctor | --install-gitleaks
+# USAGE: bash scripts/setup-hooks.sh [--claude-repo|--global|--claude|--all|--managed] [--uninstall] | --status | --doctor | --install-gitleaks
 # PARAMETERS:
-#   (none)        Point this repository's core.hooksPath at the shared hooks.
+#   (none)        Set up this repository. With no hooks running here yet, point its
+#                 core.hooksPath at the shared hooks. If hooks already run (a local or
+#                 global core.hooksPath set by another tool, or .git/hooks), keep them:
+#                 save the old value in .git/config and chain, in order, the security
+#                 checks (owners' repositories only), this repository's committed
+#                 hooks, then the hooks that ran before. Only untracked files change.
+#                 --uninstall alone undoes it and restores the previous value.
 #   --global      Install the git hooks machine-wide: copy them, with their own copy of
 #                 the check scripts, to <data>/script-helpers/git-hooks and set the
 #                 GLOBAL core.hooksPath there, after printing the old value and saving it.
@@ -12,6 +18,10 @@
 #                 ${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json (matcher Bash, timeout
 #                 60 s, shell bash). Every other key and hook in the file is kept; an
 #                 older entry for the same hook is replaced; a backup is written first.
+#   --claude-repo Install the Claude Code hook for this repository only: one entry in
+#                 .claude/settings.local.json, listed in .git/info/exclude so it is never
+#                 committed; backups go under .git/script-helpers/. With --uninstall:
+#                 remove it, and the file too when this script created it.
 #   --all         --global and --claude.
 #   --managed     Install the Claude hook into the OS managed settings file instead,
 #                 which no user or project setting can turn off. Needs admin rights;
@@ -52,11 +62,12 @@
 # After running, hooks are active for all subsequent git operations in this repo.
 set -euo pipefail
 
-GLOBAL=false; CLAUDE=false; MANAGED=false; UNINSTALL=false; STATUS=false; DOCTOR=false; GITLEAKS=false
+GLOBAL=false; CLAUDE=false; CLAUDE_REPO=false; MANAGED=false; UNINSTALL=false; STATUS=false; DOCTOR=false; GITLEAKS=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --global) GLOBAL=true ;;
     --claude) CLAUDE=true ;;
+    --claude-repo) CLAUDE_REPO=true ;;
     --all) GLOBAL=true; CLAUDE=true ;;
     --managed) MANAGED=true ;;
     --uninstall) UNINSTALL=true ;;
@@ -68,8 +79,8 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
-if [[ "$UNINSTALL" == true && "$GLOBAL" != true && "$CLAUDE" != true && "$MANAGED" != true ]]; then
-  echo "[setup-hooks] --uninstall goes with --global, --claude, --all or --managed" >&2; exit 2
+if [[ "$CLAUDE_REPO" == true ]] && [[ "$GLOBAL" == true || "$CLAUDE" == true || "$MANAGED" == true ]]; then
+  echo "[setup-hooks] --claude-repo is for this repository only; run it on its own, not with --global, --claude, --all or --managed" >&2; exit 2
 fi
 if [[ "$MANAGED" == true && "$CLAUDE" == true ]]; then
   echo "[setup-hooks] --managed is an alternative to --claude/--all, not an addition" >&2; exit 2
@@ -97,8 +108,15 @@ fi
 global_dir="${SCRIPT_HELPERS_HOOKS_HOME:-$data_base/script-helpers/git-hooks}"
 global_hooks="$(native_path "$global_dir/hooks")"   # as git stores it (C:/... on Windows)
 backup_file="$global_dir/previous-hooksPath"
+# The per-repository copy: separate from the global one, so --global --uninstall
+# never breaks a repository that chains through it.
+repo_hooks_dir="${SCRIPT_HELPERS_REPO_HOOKS_HOME:-$data_base/script-helpers/repo-hooks}"
+repo_hooks="$(native_path "$repo_hooks_dir/hooks")"
 claude_settings="$(unix_path "${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}")/settings.json"
 claude_home="$data_base/script-helpers/claude-hooks"
+# Per-repository installs use their own copy, so removing the user-wide hook
+# never breaks a repository that points at it.
+claude_repo_home="$data_base/script-helpers/claude-repo-hooks"
 if [[ -n "${SCRIPT_HELPERS_MANAGED_SETTINGS:-}" ]]; then
   managed_settings="$(unix_path "$SCRIPT_HELPERS_MANAGED_SETTINGS")"
 else
@@ -273,10 +291,20 @@ show_global_status() {
   fi
   if git rev-parse --git-dir >/dev/null 2>&1; then
     local_path="$(git config --local --get core.hooksPath 2>/dev/null || true)"
-    if [[ -n "$local_path" ]]; then
+    if [[ -n "$local_path" && "$local_path" == "$repo_hooks" ]]; then
+      echo "[setup-hooks] this repository: chained: security checks (configured owners only)," \
+        "then $(git config --local --get script-helpers.hooks-target 2>/dev/null || echo '(no committed hooks)')," \
+        "then $(git config --local --get script-helpers.previous-hooksPath 2>/dev/null || echo 'the global core.hooksPath or .git/hooks')"
+    elif [[ -n "$local_path" ]]; then
       echo "[setup-hooks] this repository: core.hooksPath = $local_path (overrides the global one; its hooks run the checks unconditionally)"
     else
       echo "[setup-hooks] this repository: no local core.hooksPath; the global value applies"
+    fi
+    local top_dir
+    top_dir="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+    if [[ -n "$top_dir" && -f "$top_dir/.claude/settings.local.json" && -n "$PY" ]] && \
+       "$PY" "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$top_dir/.claude/settings.local.json")" >/dev/null 2>&1; then
+      echo "[setup-hooks] this repository: Claude hook in .claude/settings.local.json"
     fi
   fi
 }
@@ -395,8 +423,25 @@ require_managed_access() {
   fi
 }
 
+# install_hook_copy <dir> <dispatch flag>: copy the check scripts and
+# dispatch.sh to <dir>, with one wrapper per git hook in <dir>/hooks. The flag
+# ("" machine-wide, "--local" per repository) tells dispatch.sh which earlier
+# hooks to chain to.
+install_hook_copy() {
+  local dir="$1" flag="$2" stage name
+  stage="$(stage_common "$dir")" || return 1
+  mkdir -p "$stage/scripts/global-hooks" "$stage/hooks" || { rm -rf "$stage"; return 1; }
+  cp "$src_root/scripts/security_hooks.sh" "$stage/scripts/" \
+    && cp "$src_root/scripts/global-hooks/dispatch.sh" "$stage/scripts/global-hooks/" || { rm -rf "$stage"; return 1; }
+  for name in $GLOBAL_HOOK_NAMES; do
+    printf '#!/usr/bin/env bash\nexec bash "%s/scripts/global-hooks/dispatch.sh" %s%s "$@"\n' "$dir" "${flag:+$flag }" "$name" > "$stage/hooks/$name"
+    chmod +x "$stage/hooks/$name"
+  done
+  stage_and_swap "$dir" "$stage"
+}
+
 install_global() {
-  local cur owners name stage
+  local cur owners
   require_owners
   owners="$(configured_owners)"
   cur="$(git config --global --get core.hooksPath 2>/dev/null || true)"
@@ -407,15 +452,7 @@ install_global() {
     echo "[setup-hooks] saved it to $backup_file; --global --uninstall restores it"
   fi
 
-  stage="$(stage_common "$global_dir")" || exit 1
-  mkdir -p "$stage/scripts/global-hooks" "$stage/hooks" || { rm -rf "$stage"; exit 1; }
-  cp "$src_root/scripts/security_hooks.sh" "$stage/scripts/" \
-    && cp "$src_root/scripts/global-hooks/dispatch.sh" "$stage/scripts/global-hooks/" || { rm -rf "$stage"; exit 1; }
-  for name in $GLOBAL_HOOK_NAMES; do
-    printf '#!/usr/bin/env bash\nexec bash "%s/scripts/global-hooks/dispatch.sh" %s "$@"\n' "$global_dir" "$name" > "$stage/hooks/$name"
-    chmod +x "$stage/hooks/$name"
-  done
-  stage_and_swap "$global_dir" "$stage"
+  install_hook_copy "$global_dir" "" || exit 1
 
   git config --global core.hooksPath "$global_hooks"
   echo "[setup-hooks] global core.hooksPath = $global_hooks"
@@ -619,26 +656,181 @@ resolve_hooks_dir() {
 }
 
 hooks_dir="$(resolve_hooks_dir)"   # relative — portable across clones
-hooks_dir_abs="$repo_root/$hooks_dir"
+common_dir="$(git rev-parse --git-common-dir)"
+[[ "$common_dir" == /* ]] || common_dir="$repo_root/$common_dir"
+cur_local="$(git config --local --get core.hooksPath 2>/dev/null || true)"
+cur_global="$(git config --global --get core.hooksPath 2>/dev/null || true)"
 
-if [[ -z "$hooks_dir" ]]; then
-  echo "[setup-hooks] ERROR: No hooks directory found. Looked for pre-commit and pre-push in:" >&2
-  echo "  .githooks/" >&2
-  echo "  ${script_dir_logical}/git-hooks/  (next to this script)" >&2
-  echo "  scripts/script-helpers/scripts/git-hooks/" >&2
-  echo "  scripts/git-hooks/" >&2
-  exit 1
+# ours <value>: a core.hooksPath this script sets, now or in an earlier version.
+ours() {
+  [[ -n "$1" ]] || return 1
+  [[ "$1" == "$repo_hooks" || ( -n "$hooks_dir" && "$1" == "$hooks_dir" ) ]] && return 0
+  case "$1" in */script-helpers/scripts/git-hooks) return 0 ;; esac
+  return 1
+}
+
+# native_hooks: 0 when .git/hooks holds a hook git would run (executable, not a .sample).
+native_hooks() {
+  local f
+  for f in "$common_dir"/hooks/*; do
+    [[ -f "$f" && -x "$f" && "$f" != *.sample ]] && return 0
+  done
+  return 1
+}
+
+# unset_local <key>: remove a local key; a missing key is not an error.
+unset_local() { git config --local --unset "$1" 2>/dev/null || true; }
+
+# ---- Claude Code hook, this repository only (--claude-repo) ----------------
+# Writes .claude/settings.local.json, which Claude Code reads for this project
+# only, and lists it in .git/info/exclude so it can never be committed. Backups
+# of the file go under .git/script-helpers/, not next to it.
+claude_local="$repo_root/.claude/settings.local.json"
+exclude_file="$common_dir/info/exclude"
+EXCLUDE_MARK="# script-helpers setup-hooks.sh --claude-repo"
+EXCLUDE_LINE="/.claude/settings.local.json*"
+
+# move_claude_backups: the merge script's <file>.bak-* copies, out of the work tree.
+move_claude_backups() {
+  local b dest="$common_dir/script-helpers/claude-backups"
+  for b in "$claude_local".bak-*; do
+    [[ -f "$b" ]] || continue
+    mkdir -p "$dest" && mv -f "$b" "$dest/" || return 1
+  done
+}
+
+if [[ "$CLAUDE_REPO" == true ]]; then
+  if [[ "$UNINSTALL" == true ]]; then
+    if [[ -f "$claude_local" ]]; then
+      [[ -n "$PY" ]] || { echo "[setup-hooks] ERROR: Python 3 is needed to edit $claude_local" >&2; exit 2; }
+      rc=0; "$PY" "$(native_path "$src_root/$MERGE_REL")" uninstall "$(native_path "$claude_local")" || rc=$?
+      [[ "$rc" -eq 0 ]] || exit "$rc"
+      move_claude_backups || exit 1
+      # A file this script created and that now holds nothing is removed again.
+      if [[ "$(git config --local --get script-helpers.claude-local-created 2>/dev/null)" == true ]] && \
+         "$PY" -c 'import json,sys
+d = json.load(open(sys.argv[1]))
+sys.exit(0 if all(not v for v in d.values()) else 1)' "$(native_path "$claude_local")" 2>/dev/null; then
+        rm -f "$claude_local"
+        rmdir "$repo_root/.claude" 2>/dev/null || true
+      fi
+    fi
+    unset_local script-helpers.claude-local-created
+    if [[ -f "$exclude_file" ]] && grep -qxF "$EXCLUDE_MARK" "$exclude_file"; then
+      grep -vxF -e "$EXCLUDE_MARK" -e "$EXCLUDE_LINE" "$exclude_file" > "$exclude_file.tmp" \
+        && mv -f "$exclude_file.tmp" "$exclude_file"
+    fi
+    if [[ -z "$(git config --local --get-regexp '^script-helpers\.' 2>/dev/null || true)" ]]; then
+      git config --local --remove-section script-helpers 2>/dev/null || true
+    fi
+    echo "[setup-hooks] Claude hook removed from this repository."
+    exit 0
+  fi
+  # Excluded first: nothing is written that git could pick up.
+  if ! { [[ -f "$exclude_file" ]] && grep -qxF "$EXCLUDE_MARK" "$exclude_file"; }; then
+    mkdir -p "$(dirname "$exclude_file")" && printf '%s\n%s\n' "$EXCLUDE_MARK" "$EXCLUDE_LINE" >> "$exclude_file" || exit 1
+  fi
+  if [[ ! -e "$claude_local" ]]; then
+    git config --local script-helpers.claude-local-created true
+  fi
+  mkdir -p "$repo_root/.claude" || exit 1
+  install_claude "$claude_local" "$claude_repo_home"
+  move_claude_backups || exit 1
+  echo "[setup-hooks] Claude hook set for this repository only: $claude_local (in .git/info/exclude)."
+  exit 0
 fi
 
-# Make all hook files executable
-while IFS= read -r -d '' hook; do
-  chmod +x "$hook"
-done < <(find "$hooks_dir_abs" -maxdepth 1 -type f -print0)
+if [[ "$UNINSTALL" == true ]]; then
+  if [[ "$cur_local" == "$repo_hooks" ]]; then
+    prev="$(git config --local --get script-helpers.previous-hooksPath 2>/dev/null || true)"
+    if [[ -n "$prev" ]]; then
+      git config --local core.hooksPath "$prev"
+      echo "[setup-hooks] core.hooksPath restored to $prev"
+    else
+      unset_local core.hooksPath
+      echo "[setup-hooks] core.hooksPath unset (as before)"
+    fi
+  elif ours "$cur_local"; then
+    unset_local core.hooksPath
+    echo "[setup-hooks] core.hooksPath unset"
+  elif [[ -n "$cur_local" ]]; then
+    echo "[setup-hooks] core.hooksPath is '$cur_local', which this script did not set; left as is." >&2
+  fi
+  unset_local script-helpers.previous-hooksPath
+  unset_local script-helpers.hooks-target
+  unset_local script-helpers.trust-repo-hooks
+  if [[ -z "$(git config --local --get-regexp '^script-helpers\.' 2>/dev/null || true)" ]]; then
+    git config --local --remove-section script-helpers 2>/dev/null || true
+  fi
+  echo "[setup-hooks] Hooks removed from this repository."
+  exit 0
+fi
 
-git config core.hooksPath "$hooks_dir"
-# This clone opted in: if the machine-wide hooks ever run here (no local
-# core.hooksPath), they may chain to this repository's committed hooks.
+# What git ran here before, when this script did not set it: a local
+# core.hooksPath, a global one, or hooks in .git/hooks. Pointing core.hooksPath
+# at our hooks alone would silently stop those, so they are chained instead.
+foreign=""
+if [[ "$cur_local" == "$repo_hooks" ]]; then
+  foreign="(chained before)"
+elif [[ -n "$cur_local" ]]; then
+  ours "$cur_local" || foreign="$cur_local"
+elif [[ -n "$cur_global" && "$cur_global" != "$global_hooks" ]]; then
+  foreign="global core.hooksPath $cur_global"
+elif [[ "$cur_global" == "$global_hooks" && -s "$backup_file" && "$(cat "$backup_file")" != "(unset)" ]]; then
+  # --global is ours; the hooks it chains to (saved when it was installed) are not.
+  foreign="global core.hooksPath before --global: $(cat "$backup_file")"
+elif native_hooks; then
+  foreign="$common_dir/hooks"
+fi
+
+if [[ -z "$foreign" && -n "$hooks_dir" ]]; then
+  # Nothing to keep: point git straight at this repository's hooks.
+  hooks_dir_abs="$repo_root/$hooks_dir"
+  while IFS= read -r -d '' hook; do
+    chmod +x "$hook"
+  done < <(find "$hooks_dir_abs" -maxdepth 1 -type f -print0)
+  git config core.hooksPath "$hooks_dir"
+  # This clone opted in: if the machine-wide hooks ever run here (no local
+  # core.hooksPath), they may chain to this repository's committed hooks.
+  git config --local script-helpers.trust-repo-hooks true
+  echo "[setup-hooks] core.hooksPath = $hooks_dir"
+  echo "[setup-hooks] Done. Hooks active for this repo, security checks included."
+  exit 0
+fi
+
+if [[ ! -f "$src_root/scripts/global-hooks/dispatch.sh" || ! -f "$src_root/scripts/security_hooks.sh" ]]; then
+  if [[ -z "$hooks_dir" ]]; then
+    echo "[setup-hooks] ERROR: No hooks directory found. Looked for pre-commit and pre-push in:" >&2
+    echo "  .githooks/" >&2
+    echo "  ${script_dir_logical}/git-hooks/  (next to this script)" >&2
+    echo "  scripts/script-helpers/scripts/git-hooks/" >&2
+    echo "  scripts/git-hooks/" >&2
+    exit 1
+  fi
+  echo "[setup-hooks] ERROR: this repository already runs hooks ($foreign), and this copy of" >&2
+  echo "  script-helpers ($src_root) has no dispatch.sh to chain them; nothing changed." >&2
+  echo "  Run setup-hooks.sh from a full script-helpers checkout or release." >&2
+  exit 2
+fi
+
+# Chain: our checks (the configured owners' repositories only), then this
+# repository's committed hooks, then what git ran before. Everything written is
+# untracked: the hook copy outside the repository, and keys in .git/config.
+install_hook_copy "$repo_hooks_dir" --local || exit 1
+if [[ "$cur_local" != "$repo_hooks" ]]; then
+  if [[ -n "$cur_local" ]] && ! ours "$cur_local"; then
+    git config --local script-helpers.previous-hooksPath "$cur_local"
+  else
+    unset_local script-helpers.previous-hooksPath
+  fi
+fi
+if [[ -n "$hooks_dir" ]]; then
+  git config --local script-helpers.hooks-target "$hooks_dir"
+else
+  unset_local script-helpers.hooks-target
+fi
+git config --local core.hooksPath "$repo_hooks"
 git config --local script-helpers.trust-repo-hooks true
-echo "[setup-hooks] core.hooksPath = $hooks_dir"
-echo "[setup-hooks] Done. Hooks active for this repo, security checks included"
-echo "[setup-hooks] (they run in every repository set up this way, whoever owns it)."
+echo "[setup-hooks] core.hooksPath = $repo_hooks"
+echo "[setup-hooks] Chained, in order: security checks (configured owners only)${hooks_dir:+, then $hooks_dir}, then what ran before: $foreign"
+echo "[setup-hooks] Undo: setup-hooks.sh --uninstall (restores the previous value)."

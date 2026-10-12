@@ -229,7 +229,10 @@ bash "$SETUP" --claude --uninstall >/dev/null 2>&1
 fake_claude 2.1.200
 
 # 10. Bad combinations.
-[[ "$(run --uninstall)" == 2 ]] && ok "--uninstall alone -> exit 2" || error "--uninstall alone accepted"
+# --uninstall alone is the per-repository undo; outside a repository it refuses.
+rc="$(run --uninstall)"
+[[ "$rc" != 0 ]] && grep -q 'inside a Git worktree' "$tmp/out" && ok "--uninstall alone outside a repository -> refused" \
+  || error "--uninstall alone outside a repository: rc=$rc"
 [[ "$(run --claude --managed)" == 2 ]] && ok "--claude --managed -> exit 2" || error "--claude --managed accepted"
 
 # 11. --managed: refused without write access, written with it.

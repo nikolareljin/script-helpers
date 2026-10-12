@@ -13,6 +13,16 @@
   `ollama_project_compose_files` (a stop includes the override).
   Closes https://github.com/nikolareljin/script-helpers/issues/161.
 
+- **`setup-hooks.sh` per repository keeps the hooks that already ran, and
+  `--claude-repo`.** A repository with a local `core.hooksPath` from another
+  tool (husky, an employer's), a global one, or hooks in `.git/hooks` used to
+  lose them on setup. Now the old value is saved in `.git/config` and chained
+  after the checks and the committed hooks, for every git hook name;
+  `--uninstall` restores it. `--claude-repo` puts the Claude Code hook in
+  `.claude/settings.local.json`, listed in `.git/info/exclude`. Only untracked
+  files change. Also: `check_private_names.sh --names` with one value checked
+  nothing and exited 0.
+
 - **`setup-hooks.sh --claude`, `--all`, `--doctor`, `--managed`, and
   `setup-hooks.ps1`: the Claude Code hook on Linux, macOS and Windows.** Copies
   the hook to the user data folder and merges one entry into `settings.json`

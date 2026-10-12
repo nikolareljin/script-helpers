@@ -75,6 +75,9 @@ jobs:
       - name: Setup tests under Git Bash
         shell: bash
         run: bash tests/setup_claude_hook_test.sh
+      - name: Per-repository setup keeps earlier hooks, under Git Bash
+        shell: bash
+        run: bash tests/setup_hooks_chain_test.sh
       - name: Hook destination and latency tests under Git Bash
         shell: bash
         run: bash tests/claude_hook_destinations_test.sh
