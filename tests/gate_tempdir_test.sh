@@ -27,21 +27,30 @@ mkdir -p "$HOME"
 export SENSITIVE_MACHINE_IDS_FILE="$tmp/no-machine-ids" PRIVATE_NAMES_AUTO_REFRESH=false
 unset SCRIPT_HELPERS_OWNERS SECURITY_GATE_ALLOW_UNCHECKED SENSITIVE_ALLOW_UNCHECKED PRIVATE_NAMES_FILE
 
-bad_tmp="$tmp/does-not-exist"
+# A mktemp that always fails. A missing TMPDIR is not enough: BSD mktemp
+# (macOS) falls back to its own directory and succeeds.
+shim="$tmp/shim"; mkdir -p "$shim"
+printf '#!/bin/sh\nexit 1\n' > "$shim/mktemp"; chmod +x "$shim/mktemp"
+no_tmp_path="$shim:$PATH"
+
+# A single --names value is checked: read once dropped a last line without a newline.
+rc=0; printf 'see zorblatt-core\n' | bash "$ROOT_DIR/scripts/check_private_names.sh" --stdin --names zorblatt-core >"$tmp/out" 2>&1 || rc=$?
+if [[ "$rc" -eq 1 ]]; then ok "check_private_names finds a single --names value"
+else error "check_private_names --names zorblatt-core: rc=$rc, want 1"; sed 's/^/    /' "$tmp/out" >&2; fi
 
 # check_private_names.sh: text that names the private repo, no temp dir.
-rc=0; printf 'see zorblatt-core\n' | TMPDIR="$bad_tmp" bash "$ROOT_DIR/scripts/check_private_names.sh" --stdin --names zorblatt-core >"$tmp/out" 2>&1 || rc=$?
+rc=0; printf 'see zorblatt-core\n' | PATH="$no_tmp_path" bash "$ROOT_DIR/scripts/check_private_names.sh" --stdin --names zorblatt-core >"$tmp/out" 2>&1 || rc=$?
 if [[ "$rc" -eq 2 ]] && grep -q 'private temp directory' "$tmp/out"; then ok "check_private_names refuses (2) without a temp dir"
 else error "check_private_names without a temp dir: rc=$rc, want 2"; sed 's/^/    /' "$tmp/out" >&2; fi
 
-rc=0; printf 'hello\n' | TMPDIR="$bad_tmp" bash "$ROOT_DIR/scripts/check_sensitive.sh" --stdin >"$tmp/out" 2>&1 || rc=$?
+rc=0; printf 'hello\n' | PATH="$no_tmp_path" bash "$ROOT_DIR/scripts/check_sensitive.sh" --stdin >"$tmp/out" 2>&1 || rc=$?
 if [[ "$rc" -eq 2 ]] && grep -q 'private temp directory' "$tmp/out"; then ok "check_sensitive refuses (2) without a temp dir"
 else error "check_sensitive without a temp dir: rc=$rc, want 2"; sed 's/^/    /' "$tmp/out" >&2; fi
 
 # pre-push: an empty refs path would read no refs and skip every check.
 repo="$tmp/repo"; git init -q "$repo"
 rc=0; (cd "$repo" && printf 'refs/heads/x %s refs/heads/x %s\n' "$(printf 'a%.0s' {1..40})" "$(printf '0%.0s' {1..40})" \
-  | TMPDIR="$bad_tmp" bash "$ROOT_DIR/scripts/git-hooks/pre-push" origin https://example.invalid/r.git) >"$tmp/out" 2>&1 || rc=$?
+  | PATH="$no_tmp_path" bash "$ROOT_DIR/scripts/git-hooks/pre-push" origin https://example.invalid/r.git) >"$tmp/out" 2>&1 || rc=$?
 if [[ "$rc" -ne 0 ]] && grep -q 'private temp directory' "$tmp/out"; then ok "pre-push refuses without a temp dir"
 else error "pre-push without a temp dir: rc=$rc, want non-zero"; sed 's/^/    /' "$tmp/out" >&2; fi
 

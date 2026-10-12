@@ -168,10 +168,16 @@ qualified="$work/qualified"
 # as evidence that the text is clean.
 declare_from_names() {
   # --names is for tests and one-off use; every name is treated as unambiguous.
-  printf '%s' "$1" | tr ',' '\n' | while IFS= read -r n; do
+  # The trailing newline matters: read drops a last line without one, which
+  # left a single --names value unchecked and the run reporting clean.
+  printf '%s\n' "$1" | tr ',' '\n' | while IFS= read -r n; do
     n="$(printf '%s' "$n" | tr -d '[:space:]')"
     [[ -n "$n" ]] && printf '%s\n' "$n"
   done > "$hard"
+  if [[ ! -s "$hard" ]]; then
+    log_error "--names gave no names; an empty list cannot be told from clean text."
+    exit 2
+  fi
 }
 
 list_age_days() {
