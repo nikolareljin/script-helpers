@@ -31,12 +31,19 @@ install_dir="$(cd "$base/.." && pwd)"
 self_wrapper="$install_dir/hooks/$hook"
 
 stdin_file=""
-cleanup() { [[ -n "$stdin_file" ]] && rm -f "$stdin_file" "$stdin_file".*; }
+stdin_dir=""
+cleanup() { [[ -n "$stdin_dir" ]] && rm -rf "$stdin_dir"; }
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then cleanup; fi' EXIT
 case "$hook" in
   pre-push|post-rewrite|reference-transaction|pre-receive|post-receive|proc-receive)
-    stdin_file="$(mktemp)" || exit 1
-    cat > "$stdin_file"
+    # A private per-run directory (mktemp -d, mode 700), never a bare file in TMPDIR.
+    stdin_dir="$(mktemp -d 2>/dev/null)" && [[ -n "$stdin_dir" && -d "$stdin_dir" && ! -L "$stdin_dir" ]] || {
+      echo "[script-helpers] global hooks: could not create a private temp directory; refused." >&2
+      exit 1
+    }
+    chmod 700 "$stdin_dir" 2>/dev/null || true
+    stdin_file="$stdin_dir/stdin"
+    cat > "$stdin_file" || exit 1
     ;;
 esac
 

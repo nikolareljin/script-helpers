@@ -122,8 +122,40 @@ rc="$(run --status)"
 [[ "$rc" == 0 ]] && grep -q 'claude hook (user)' "$tmp/out" && grep -q 'owners    ok' "$tmp/out" \
   && ok "--status shows the hook and the prerequisites" || error "--status: $(cat "$tmp/out")"
 rc="$(run --doctor)"
-[[ "$rc" == 0 ]] && grep -q 'ok .*must be refused.*exit 2' "$tmp/out" && grep -q 'ok .*must pass.*exit 0' "$tmp/out" \
-  && ok "--doctor: both probes behave, with timings" || error "--doctor: rc=$rc $(cat "$tmp/out")"
+[[ "$rc" == 0 ]] && grep -q 'ok .*private name from your list.*exit 2' "$tmp/out" \
+  && grep -q 'ok .*personal identifier.*exit 2' "$tmp/out" \
+  && grep -q 'ok .*--no-verify.*exit 2' "$tmp/out" && grep -q 'ok .*must pass.*exit 0' "$tmp/out" \
+  && ok "--doctor: all four probes behave, with timings" || error "--doctor: rc=$rc $(cat "$tmp/out")"
+grep -q 'zzqsecretbox' "$tmp/out" && error "--doctor printed the private name it probed with"
+# Without gitleaks every command in scope is refused as "could not check":
+# the harmless probe fails and the hook's reason is shown.
+rc="$(GITLEAKS_BIN="$tmp/no-gitleaks" run --doctor)"
+[[ "$rc" == 1 ]] && grep -q 'FAIL .*must pass.*exit 2 (want 0)' "$tmp/out" && grep -q 'hook: .*gitleaks is not installed' "$tmp/out" \
+  && ok "--doctor: no gitleaks is a failure, with the hook's reason" || error "--doctor no gitleaks: rc=$rc $(cat "$tmp/out")"
+# Refused for the wrong reason: a name check that cannot run ("no list")
+# refuses the name probe too, and ls passes (the prefilter skips it). Exit 2
+# alone would read as a working gate.
+gate_copy="$data_dir/script-helpers/claude-hooks/scripts/check_private_names.sh"
+mv "$gate_copy" "$gate_copy.real"
+printf '#!/usr/bin/env bash\ncat >/dev/null; echo "No private-name list at: x" >&2; exit 2\n' > "$gate_copy"
+rc="$(run --doctor)"
+[[ "$rc" == 1 ]] && grep -q 'FAIL .*private name from your list.*refused, but for another reason' "$tmp/out" \
+  && grep -q 'hook: .*NOT checked' "$tmp/out" && grep -q 'ok .*must pass' "$tmp/out" \
+  && ok "--doctor: a refusal for another reason is a failure" || error "--doctor wrong reason: rc=$rc $(cat "$tmp/out")"
+mv "$gate_copy.real" "$gate_copy"
+# A name check that never fires: the hook still refuses --no-verify, but the
+# name probe must fail.
+mv "$gate_copy" "$gate_copy.real"; printf '#!/usr/bin/env bash\ncat >/dev/null; exit 0\n' > "$gate_copy"
+rc="$(run --doctor)"
+[[ "$rc" == 1 ]] && grep -q 'FAIL .*private name from your list.*exit 0 (want 2)' "$tmp/out" \
+  && ok "--doctor: a name check that never fires is a failure" || error "--doctor dead name check: rc=$rc $(cat "$tmp/out")"
+mv "$gate_copy.real" "$gate_copy"
+# No usable name in the list: said so, not a pass.
+mv "$XDG_CONFIG_HOME/script-helpers/private-names.tsv" "$tmp/names.off"
+rc="$(run --doctor)"
+[[ "$rc" == 1 ]] && grep -q 'no usable private name' "$tmp/out" && grep -q 'names     MISSING' "$tmp/out" \
+  && ok "--doctor: no name list is reported as missing, and fails" || error "--doctor no list: rc=$rc $(cat "$tmp/out")"
+mv "$tmp/names.off" "$XDG_CONFIG_HOME/script-helpers/private-names.tsv"
 # A hook copy that went missing fails open; the doctor must say so.
 mv "$hook_copy" "$hook_copy.gone"
 rc="$(run --doctor)"
@@ -206,6 +238,30 @@ rc="$(run --managed)"
 rc="$(run --managed --uninstall)"
 [[ "$rc" == 0 && "$(ours_count "$SCRIPT_HELPERS_MANAGED_SETTINGS")" == 0 && ! -e "$tmp/managed/script-helpers" ]] \
   && ok "--managed --uninstall removes it" || error "--managed --uninstall: rc=$rc $(cat "$tmp/out")"
+
+# 12. merge_settings.py edge cases, called directly.
+MERGE="$root_dir/scripts/claude-hooks/merge_settings.py"
+ms_dir="$tmp/ms"; mkdir -p "$ms_dir"
+"$PY" "$(native "$MERGE")" uninstall "$(native "$ms_dir/none.json")" >/dev/null 2>&1
+[[ ! -e "$ms_dir/none.json" ]] && ok "uninstall with no settings.json creates none" || error "uninstall created $(cat "$ms_dir/none.json")"
+printf '{"a":1}' > "$ms_dir/compact.json"
+"$PY" "$(native "$MERGE")" uninstall "$(native "$ms_dir/compact.json")" >/dev/null 2>&1
+[[ "$(cat "$ms_dir/compact.json")" == '{"a":1}' ]] && ! ls "$ms_dir"/compact.json.bak-* >/dev/null 2>&1 \
+  && ok "uninstall with nothing of ours leaves the file byte for byte" || error "uninstall rewrote: $(cat "$ms_dir/compact.json")"
+printf '{"a":1}\n' > "$ms_dir/orig.json"; chmod 600 "$ms_dir/orig.json"
+"$PY" "$(native "$MERGE")" install "$(native "$ms_dir/orig.json")" 'bash /x/pretooluse_private_names.sh' >/dev/null 2>&1
+"$PY" "$(native "$MERGE")" uninstall "$(native "$ms_dir/orig.json")" >/dev/null 2>&1
+n_bak="$(find "$ms_dir" -name 'orig.json.bak-*' | wc -l | tr -d ' ')"
+[[ "$n_bak" == 2 ]] && grep -lx '{"a":1}' "$ms_dir"/orig.json.bak-* >/dev/null \
+  && ok "two changes in one second keep two backups, the original among them" || error "backups: $n_bak"
+if [[ "$ON_WINDOWS" != true ]]; then
+  bad_mode="$(find "$ms_dir" -name 'orig.json.bak-*' ! -perm 600 | head -1)"
+  [[ -z "$bad_mode" ]] && ok "backups keep the settings file's mode (600)" || error "backup mode: $(ls -l "$bad_mode")"
+  printf '{"a":1}\n' > "$ms_dir/real.json"; ln -s real.json "$ms_dir/link.json"
+  "$PY" "$MERGE" install "$ms_dir/link.json" 'bash /x/pretooluse_private_names.sh' >/dev/null 2>&1
+  [[ -L "$ms_dir/link.json" ]] && grep -q pretooluse_private_names "$ms_dir/real.json" \
+    && ok "a symlinked settings.json stays a symlink; its target is updated" || error "symlink replaced: $(ls -l "$ms_dir")"
+fi
 
 if [[ $failures -gt 0 ]]; then
   note "$failures failure(s)"

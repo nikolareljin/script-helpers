@@ -184,8 +184,11 @@ the saved value (or unsets it) and removes the copy.
 ### Claude Code
 
 Scope: the hook checks a command only when the session's repository (the
-payload `cwd`) has its origin on github.com under a configured owner;
-anywhere else (another owner, no repository, no usable `cwd`, no owners) it
+payload `cwd`) has its origin on github.com under a configured owner. The
+origin is read as git uses it (`git remote get-url origin`, so
+`url.<base>.insteadOf` aliases apply) and judged as the git hooks judge a URL:
+one that does not parse but names an owner as a path segment
+(`ssh://github.com/<owner>/x`, port 443) is in scope. Anywhere else (another owner, no repository, no usable `cwd`, no owners) it
 exits 0 and does nothing. The command is not read to widen or narrow that, so
 a command run from elsewhere that acts on an owner's repository (`cd`, `-C`,
 `-R`, `gh api`, `curl`, a path) is out of scope by the owner's decision; that
@@ -253,8 +256,8 @@ nothing, and a run from a newer checkout updates the installed copy.
 | Python 3 (`python3`, or `python` on Windows) | parses the hook payload and merges `settings.json` | `python3 --version` |
 | Git for Windows (Windows only) | Claude Code runs hooks through Git Bash | `git --version` in PowerShell |
 | owners | only their github.com repositories are checked | `git config --global script-helpers.owners` |
-| gitleaks | secret scan; without it publishing in your repositories is refused | `setup-hooks.sh --install-gitleaks` installs the pinned build |
-| private-name list (optional) | `~/.config/script-helpers/private-names.tsv` | `refresh_private_names.sh` |
+| gitleaks | secret scan; without it every command in your repositories is refused as "could not check" | `setup-hooks.sh --install-gitleaks` installs the pinned build |
+| private-name list | `~/.config/script-helpers/private-names.tsv`; without it every command in your repositories is refused as "could not check" | `refresh_private_names.sh` |
 
 ### Linux and macOS
 
@@ -312,8 +315,13 @@ restores the saved global `core.hooksPath`.
 ### Troubleshooting
 
 - `--status` shows what is installed and the prerequisites; `--doctor` also
-  runs a refused and an allowed command through the installed hook and prints
-  the time each took.
+  runs four probes through the installed hook, from a throwaway repository
+  under the first owner, and prints the time each took: a private name from
+  your list, an SSN-shaped number and a push that skips the hooks must each be
+  refused for that reason, with the deny decision on stdout; `ls` must pass.
+  A refusal for another reason (no name list, no gitleaks, a crash) is a
+  failure, and the hook's own first lines are shown. The probed name is never
+  printed.
 - Without `"onFailure": "block"` (Claude Code older than 2.1.295), a hook
   that times out, or exits with anything but 0 or 2, lets the command run;
   `--status` and `--doctor` warn about it. Update Claude Code and run

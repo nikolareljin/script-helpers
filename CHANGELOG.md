@@ -23,7 +23,12 @@
   command (a hit now takes about 250 ms instead of 14 s); it fails closed when its name list cannot be read,
   keeps its temp files in a private directory, and prints a deny decision on
   stdout as well as exit 2. See docs/security-gates.md, "Set it up on a
-  machine".
+  machine". `--doctor` probes a private name from your list, an SSN-shaped
+  number, a hook-skipping push and `ls`, and fails a refusal that came for
+  another reason (no name list, no gitleaks). `check_private_names.sh`,
+  `check_sensitive.sh`, the `pre-push` hook and the global hook dispatcher keep
+  scratch files in one `mktemp -d` per run and refuse when it cannot be made
+  (`check_private_names.sh` used to pass over an empty list).
 - **Pushes refuse credentials, personal identifiers and PII.** New
   `scripts/check_sensitive.sh` checks the added lines and messages of the
   commits being pushed (also `--staged`, `--file`, `--stdin`): gitleaks for

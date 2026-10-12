@@ -259,18 +259,20 @@ sec_foxguard_push() {
     echo "[pre-push] foxguard not installed; static-analysis warnings skipped (install: docs/security-gates.md)."
     return 0
   fi
-  local list
-  list="$(mktemp)" || return 0
+  local list ldir
+  ldir="$(mktemp -d 2>/dev/null)" && [[ -n "$ldir" && -d "$ldir" && ! -L "$ldir" ]] || return 0
+  chmod 700 "$ldir" 2>/dev/null || true
+  list="$ldir/files"
   while IFS= read -r revs; do
     # shellcheck disable=SC2086
     git log --name-only --format= --diff-filter=ACMR $revs 2>/dev/null
   done < <(sec_revs "$refs" "$remote") | sort -u | while IFS= read -r f; do
     [[ -f "$f" ]] && printf '%s\n' "$f"
   done > "$list"
-  if [[ ! -s "$list" ]]; then rm -f "$list"; return 0; fi
+  if [[ ! -s "$list" ]]; then rm -rf "$ldir"; return 0; fi
   local files=()
   while IFS= read -r f; do files+=("$f"); done < "$list"
-  rm -f "$list"
+  rm -rf "$ldir"
   # shellcheck disable=SC2086  # FOXGUARD_CMD may carry arguments
   out="$($cmd "${files[@]}" 2>&1)" || rc=$?
   n="$(printf '%s\n' "$out" | LC_ALL=C grep -c '[^[:space:]]' || true)"

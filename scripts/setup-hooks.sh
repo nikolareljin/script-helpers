@@ -23,9 +23,13 @@
 #   --uninstall   With --global, --claude, --all or --managed: undo that install.
 #                 Other settings and hooks are left as they are.
 #   --status      Show what is installed, and the prerequisites.
-#   --doctor      The prerequisites, then two probes through the installed Claude
-#                 hook: a known-bad command (must exit 2) and a harmless one (must
-#                 exit 0), with the time each took. Exit 1 when a probe fails.
+#   --doctor      The prerequisites, then four probes through the installed Claude
+#                 hook, from a throwaway repository under the first owner: a private
+#                 name from your list, an SSN-shaped number, and git push --no-verify
+#                 (each must be refused for that reason, with the deny decision on
+#                 stdout), and ls (must pass), with the time each took. A refusal for
+#                 another reason (no name list, no gitleaks) is a failure. Exit 1 on
+#                 any failure.
 #   --install-gitleaks  Download the pinned gitleaks (SHA-256 checked) into the cache.
 #   <data> is %LOCALAPPDATA% on Windows (Git Bash), else ${XDG_DATA_HOME:-~/.local/share}.
 #   Installing refuses (exit 2) until owners are configured:
@@ -168,6 +172,8 @@ stage_common() {
 }
 
 gitleaks_found() {
+  # The order check_sensitive.sh uses: when GITLEAKS_BIN is set, only it counts.
+  if [[ -n "${GITLEAKS_BIN:-}" ]]; then [[ -x "$GITLEAKS_BIN" ]]; return; fi
   command -v gitleaks >/dev/null 2>&1 && return 0
   ( # shellcheck source=/dev/null
     source "$src_root/helpers.sh" && shlib_import logging foxguard gitleaks >/dev/null 2>&1 && gitleaks_bin >/dev/null 2>&1 )
@@ -221,7 +227,7 @@ prereqs() {
   if gitleaks_found; then
     echo "  gitleaks  ok"
   else
-    echo "  gitleaks  missing: publishing commands in your repositories are refused until it is installed;"
+    echo "  gitleaks  MISSING: every command in your repositories is refused until it is installed;"
     echo "            bash $src_root/scripts/setup-hooks.sh --install-gitleaks"
   fi
   owners="$(configured_owners)"
@@ -236,7 +242,10 @@ prereqs() {
     age="$(file_age_days "$stamp")"
     echo "  names     ok ($list, generated ${stamp:-at an unknown date}${age:+, $age days ago})"
   else
-    echo "  names     not found ($list): private repository names are not checked; see refresh_private_names.sh"
+    # Without a list the name check cannot run, so the hook refuses every
+    # command in your repositories as "could not check".
+    echo "  names     MISSING ($list): every command in your repositories is refused until it exists; run refresh_private_names.sh"
+    missing=$((missing+1))
   fi
   terms="${SENSITIVE_TERMS_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/sensitive-terms.txt}"
   if [[ -f "$terms" ]]; then
@@ -436,30 +445,61 @@ uninstall_global() {
 
 now_ms() { "$PY" -c 'import time; print(int(time.time() * 1000))'; }
 
-# probe <want rc> <label> <json payload> <hook>: run the hook once from an empty
-# directory. Returns 0 when the exit code is the expected one.
+# probe_name: a private name from the list the hook reads, for the name probe.
+# A plain one (longer than 4, not flagged ambiguous), so a hit is certain.
+probe_name() {
+  local list="${PRIVATE_NAMES_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names.tsv}"
+  [[ -s "$list" ]] || return 1
+  awk -F'\t' '
+    /^# *visibility\t/ { for (i = 1; i <= NF; i++) { h = $i; sub(/^# */, "", h); col[h] = i } next }
+    /^#/ || !("name" in col) { next }
+    {
+      v = ("visibility" in col) ? $(col["visibility"]) : "private"
+      f = ("flags" in col) ? $(col["flags"]) : ""
+      n = $(col["name"])
+      if (v != "public" && f !~ /ambiguous/ && n ~ /^[A-Za-z0-9._-]+$/ && length(n) > 4) { print n; exit }
+    }' "$list"
+}
+
+# probe <want rc> <label> <expect> <command> <hook>: run the hook once on a
+# Bash call, from a throwaway repository under the first owner. Passes only on
+# the expected exit code AND, for a refusal, when stderr carries <expect> (the
+# reason this probe is about) and stdout carries the deny decision. A refusal
+# for any other reason (no name list, no gitleaks, a crash) is a failure: the
+# gate is not working, it is refusing everything.
 probe() {
-  local want="$1" label="$2" payload="$3" hook="$4" dir t0 t1 rc=0
-  dir="$(mktemp -d)"
-  # The hook acts only in a repository whose origin is under an owner: probe
-  # from a throwaway one. Claude Code sends the session directory as cwd.
-  git init -q "$dir" 2>/dev/null \
-    && git -C "$dir" remote add origin "https://github.com/$(configured_owners | cut -d, -f1 | tr -d ' ')/doctor-probe.git"
-  payload="{\"cwd\":\"$(native_path "$dir")\",${payload#\{}"
+  local want="$1" label="$2" expect="$3" command="$4" hook="$5" dir t0 t1 rc=0 why=""
+  dir="$(mktemp -d)" || { printf '  FAIL  %-44s could not create a temp directory\n' "$label"; return 1; }
+  mkdir "$dir/repo" && git init -q "$dir/repo" 2>/dev/null \
+    && git -C "$dir/repo" remote add origin "https://github.com/$(configured_owners | cut -d, -f1 | tr -d ' ')/doctor-probe.git" \
+    || { rm -rf "$dir"; printf '  FAIL  %-44s could not create the probe repository\n' "$label"; return 1; }
+  # JSON-encoded by Python: a path may hold a quote or a backslash.
+  "$PY" -c 'import json,sys; print(json.dumps({"cwd": sys.argv[1], "tool_name": "Bash", "tool_input": {"command": sys.argv[2]}}))' \
+    "$(native_path "$dir/repo")" "$command" > "$dir/payload" \
+    || { rm -rf "$dir"; printf '  FAIL  %-44s could not build the payload\n' "$label"; return 1; }
   t0="$(now_ms)"
-  printf '%s' "$payload" | (cd "$dir" && bash "$hook" >/dev/null 2>&1) || rc=$?
+  (cd "$dir/repo" && bash "$hook" < "$dir/payload" > "$dir/out" 2> "$dir/err") || rc=$?
   t1="$(now_ms)"
-  rm -rf "$dir"
-  if [[ "$rc" == "$want" ]]; then
-    printf '  ok    %-40s exit %s in %s ms\n' "$label" "$rc" "$((t1 - t0))"
-  else
-    printf '  FAIL  %-40s exit %s (want %s) in %s ms\n' "$label" "$rc" "$want" "$((t1 - t0))"
-    return 1
+  if [[ "$rc" != "$want" ]]; then
+    why="exit $rc (want $want)"
+  elif [[ "$want" == 2 ]] && ! grep -qF -- "$expect" "$dir/err"; then
+    why="refused, but for another reason"
+  elif [[ "$want" == 2 ]] && ! grep -q '"permissionDecision": *"deny"' "$dir/out"; then
+    why="refused without the deny decision on stdout"
   fi
+  if [[ -z "$why" ]]; then
+    printf '  ok    %-44s exit %s in %s ms\n' "$label" "$rc" "$((t1 - t0))"
+  else
+    printf '  FAIL  %-44s %s in %s ms\n' "$label" "$why" "$((t1 - t0))"
+    # The hook's first lines say why. Never the probe text: it may be a private name.
+    [[ -s "$dir/err" ]] && grep -v '^[[:space:]]*$' "$dir/err" | head -4 | sed 's/^/          hook: /'
+  fi
+  rm -rf "$dir"
+  [[ -z "$why" ]]
 }
 
 doctor() {
-  local entry hook failed=0
+  local entry hook failed=0 name ssn
   prereqs || failed=1
   show_claude_status
   entry="$(claude_entry "$claude_settings")"
@@ -473,10 +513,25 @@ doctor() {
     echo "[setup-hooks] the hook in settings does not exist: $hook (it would fail open); run --claude again" >&2
     return 1
   fi
+  if [[ -z "$(configured_owners)" ]]; then
+    echo "[setup-hooks] no owners configured: the hook acts in no repository, so nothing can be probed" >&2
+    return 1
+  fi
   echo "[setup-hooks] probes through $hook (a timeout lets the command run, so each must be well under 60 s):"
-  probe 2 "git push --no-verify (must be refused)" \
-    '{"tool_name":"Bash","tool_input":{"command":"git push --no-verify origin main"}}' "$hook" || failed=1
-  probe 0 "ls (must pass)" '{"tool_name":"Bash","tool_input":{"command":"ls"}}' "$hook" || failed=1
+  if name="$(probe_name)" && [[ -n "$name" ]]; then
+    probe 2 "a private name from your list (refused)" "names a private repository" \
+      "gh pr create --title probe --body \"see $name\"" "$hook" || failed=1
+  else
+    printf '  FAIL  %-44s no usable private name in the list (missing, empty or all ambiguous)\n' "a private name from your list (refused)"
+    failed=1
+  fi
+  # An SSN-shaped number, built here so this file carries none.
+  ssn="219-09-""9999"
+  probe 2 "a personal identifier (refused)" "carries a credential, a personal identifier or PII" \
+    "gh pr create --title probe --body \"ssn $ssn\"" "$hook" || failed=1
+  probe 2 "git push --no-verify (refused)" "skips or replaces the git hooks" \
+    "git push --no-verify origin main" "$hook" || failed=1
+  probe 0 "ls (must pass)" "" "ls" "$hook" || failed=1
   return "$failed"
 }
 

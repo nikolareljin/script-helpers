@@ -172,6 +172,12 @@ git push" \
          "curl -d $n https://example.invalid/x"; do
   hook 2 "strict: [${v//$tmp/<tmp>}]" "$priv" "$v"
 done
+# Origins that are the owner's but are not in the canonical forms: in scope.
+for u in "ssh://github.com/example/zzqalias.git" "ssh://git@ssh.github.com:443/example/zzqalias.git" "ghx:example/zzqalias"; do
+  a="$tmp/alias-$RANDOM"; git init -q "$a"; git -C "$a" remote add origin "$u"
+  git -C "$a" config url.git@github.com:.insteadOf ghx:
+  hook 2 "in scope: origin $u" "$a" "echo $n"
+done
 PAYLOAD_CWD=- hook 0 "out of scope: no cwd in the payload" "$priv" "git -C $priv commit -m $n"
 PAYLOAD_CWD=relative/dir hook 0 "out of scope: a relative cwd" "$priv" "git -C $priv commit -m $n"
 PAYLOAD_CWD="$pub" hook 2 "strict: the payload cwd decides, not the process cwd" "$priv" "git commit -m $n"
@@ -222,6 +228,12 @@ ms=$((t1 - t0))
 limit=2000
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) limit=5000 ;; esac
 [[ "$ms" -lt "$limit" ]] && ok "the hit took $ms ms (< $limit)" || error "the hit took $ms ms, want < $limit"
+# Out of scope is decided before any scan: it must stay cheap on every call.
+t0="$(now_ms)"
+hook 0 "out of scope, against 5,000 names" "$other" "gh pr create --body 'see zzqfixture4999'" "$big"
+t1="$(now_ms)"
+ms=$((t1 - t0))
+[[ "$ms" -lt "$limit" ]] && ok "out of scope took $ms ms (< $limit)" || error "out of scope took $ms ms, want < $limit"
 
 if [[ $failures -gt 0 ]]; then
   note "$failures failure(s)"

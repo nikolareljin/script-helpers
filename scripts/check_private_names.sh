@@ -138,7 +138,14 @@ if [[ -n "$REPO" ]]; then
   cd "$REPO" || { log_error "No such directory: $REPO"; exit 2; }
 fi
 
-work="$(mktemp -d)"
+# One private directory per run (mktemp -d, mode 700, random name); every
+# scratch file lives in it. Refuse when it cannot be made: an empty $work would
+# write to /hard, /entries ... and the scan would pass over an empty list.
+work="$(mktemp -d 2>/dev/null)" && [[ -n "$work" && -d "$work" && ! -L "$work" ]] || {
+  log_error "could not create a private temp directory (TMPDIR=${TMPDIR:-unset}); NOT checked."
+  exit 2
+}
+chmod 700 "$work" 2>/dev/null || true
 # Guarded: a subshell inherits an EXIT trap, and bash runs it there when the
 # subshell is signalled -- so this could tear down the caller's stack, or
 # delete a directory, while the run is still using it. ${BASHPID-$$} rather

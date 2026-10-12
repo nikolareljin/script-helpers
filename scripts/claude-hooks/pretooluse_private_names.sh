@@ -144,9 +144,9 @@ on_exit() {
 # shellcheck disable=SC2154  # _rc is assigned inside the trap string
 trap '_rc=$?; if [[ ${BASHPID-$$} == "$$" ]]; then on_exit "$_rc"; fi' EXIT
 cat > "$payload_file"
-# The session directory is the payload's cwd field: the owner-scope lookups
-# below (sensitive data only) read the remotes there. When it is missing,
-# relative or cannot be entered, cwd_ok stays false and no scope skip happens.
+# The session directory is the payload's cwd field: the scope decision below
+# reads its origin. When it is missing, relative or cannot be entered, cwd_ok
+# stays false and the call is out of scope (exit 0).
 cwd_ok=false
 payload_cwd=""
 if [[ "$HAVE_PY" == true ]]; then
@@ -183,9 +183,12 @@ else
     owners="$(scope_owners 2>/dev/null)" || exit 2
     [[ -n "$owners" ]] || exit 1
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 1
-    origin="$(git config --get remote.origin.url 2>/dev/null)" || exit 1
-    o="$(scope_owner_of "$origin")" || exit 1
-    case ",$owners," in *",$o,"*) exit 0 ;; esac
+    # get-url applies url.<base>.insteadOf, as git does when it pushes: an
+    # alias such as gh:<owner>/x is the owner's repository. scope_in_scope
+    # fails closed like the git hooks: an origin that does not parse but names
+    # an owner as a path segment (ssh://github.com/<owner>/x, port 443) is in.
+    origin="$(git remote get-url origin 2>/dev/null)" || exit 1
+    scope_in_scope "$owners" "$origin" && exit 0
     exit 1
   ) || session_scope=$?
 fi

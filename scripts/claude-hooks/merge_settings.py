@@ -105,6 +105,17 @@ def ours(data):
     return found
 
 
+def backup_name(path):
+    """A backup path that does not exist yet: two runs in one second keep both."""
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    name = "{}.bak-{}".format(path, stamp)
+    n = 1
+    while os.path.lexists(name):
+        name = "{}.bak-{}.{}".format(path, stamp, n)
+        n += 1
+    return name
+
+
 def save(path, data, raw, bom, newline):
     text = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     if newline != "\n":
@@ -112,22 +123,33 @@ def save(path, data, raw, bom, newline):
     body = (b"\xef\xbb\xbf" if bom else b"") + text.encode("utf-8")
     if raw == body:
         return False
-    folder = os.path.dirname(os.path.abspath(path))
+    # Write through a symlink (a dotfiles checkout), never replace it with a file.
+    target = os.path.realpath(path)
+    folder = os.path.dirname(target)
+    tmp = None
     try:
         if not os.path.isdir(folder):
             os.makedirs(folder)
         if raw is not None:
-            stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-            shutil.copyfile(path, "{}.bak-{}".format(path, stamp))
+            # Created with the original's mode (settings may hold tokens), and
+            # O_EXCL: never through a file or link that is already there.
+            bfd = os.open(backup_name(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                          os.stat(target).st_mode & 0o777)
+            with os.fdopen(bfd, "wb") as dst, open(target, "rb") as src:
+                shutil.copyfileobj(src, dst)
         fd, tmp = tempfile.mkstemp(prefix=".settings.", dir=folder)
         with os.fdopen(fd, "wb") as fh:
             fh.write(body)
         if raw is not None:
-            shutil.copymode(path, tmp)
-        os.replace(tmp, path)
+            shutil.copymode(target, tmp)
+        os.replace(tmp, target)
+        tmp = None
     except OSError as exc:
         sys.stderr.write("[merge_settings] could not write {}: {}\n".format(path, exc))
         sys.exit(4)
+    finally:
+        if tmp is not None and os.path.exists(tmp):
+            os.remove(tmp)
     return True
 
 
@@ -156,7 +178,11 @@ def main(argv):
         if ours(data) == [want] and {"matcher": "Bash", "hooks": [want]} in data["hooks"]["PreToolUse"]:
             print("unchanged {}".format(path))
             return 0
-    strip_ours(data)
+    removed = strip_ours(data)
+    if action == "uninstall" and not removed:
+        # Nothing of ours: the file is left byte for byte (no reformat, no new file).
+        print("unchanged {}".format(path))
+        return 0
     if action == "install":
         hooks = data.get("hooks")
         if not isinstance(hooks, dict):
