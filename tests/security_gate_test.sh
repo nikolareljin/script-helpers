@@ -32,6 +32,10 @@ export HOME="$tmp/home"
 mkdir -p "$HOME"
 cd "$tmp" || exit 1
 export XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME="$HOME/.cache" XDG_DATA_HOME="$HOME/.local/share"
+# On Windows (Git Bash) setup-hooks.sh keeps its copies under %LOCALAPPDATA%.
+export LOCALAPPDATA="$XDG_DATA_HOME"
+# native <path>: the form git stores a path in (C:/... under Git for Windows).
+native() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s\n' "$1"; fi; }
 export GIT_CONFIG_GLOBAL="$HOME/.gitconfig" GIT_CONFIG_NOSYSTEM=1
 unset SCRIPT_HELPERS_OWNERS SENSITIVE_ALLOW SENSITIVE_TERMS_FILE SCRIPT_HELPERS_SECURITY_DIR FOXGUARD_CMD GITLEAKS_BIN SECURITY_GATE_ALLOW_UNCHECKED SENSITIVE_ALLOW_UNCHECKED PRIVATE_NAMES_FILE
 : > "$tmp/no-machine-ids"
@@ -336,16 +340,16 @@ chmod +x "$tmp/earlier-hooks/pre-commit"
 git config --global core.hooksPath "$tmp/earlier-hooks"
 bash "$SETUP" --global >"$tmp/out" 2>&1
 expect "--global refuses without owners" 2 "$?"
-[[ "$(git config --global core.hooksPath)" == "$tmp/earlier-hooks" ]] && ok "and changes nothing" || error "hooksPath changed without owners"
+[[ "$(git config --global core.hooksPath)" == "$(native "$tmp/earlier-hooks")" ]] && ok "and changes nothing" || error "hooksPath changed without owners"
 
 git config --global script-helpers.owners "example-owner,Second-Org"
 bash "$SETUP" --global >"$tmp/out" 2>&1
 expect "--global installs once owners are set" 0 "$?"
-grep -q "current global core.hooksPath: $tmp/earlier-hooks" "$tmp/out" || error "the previous value was not shown"
-[[ "$(git config --global core.hooksPath)" == "$gdir/hooks" ]] && ok "global core.hooksPath points at the install" || error "hooksPath: $(git config --global core.hooksPath)"
+grep -qF "current global core.hooksPath: $(native "$tmp/earlier-hooks")" "$tmp/out" || error "the previous value was not shown"
+[[ "$(git config --global core.hooksPath)" == "$(native "$gdir/hooks")" ]] && ok "global core.hooksPath points at the install" || error "hooksPath: $(git config --global core.hooksPath)"
 [[ -f "$gdir/scripts/check_sensitive.sh" && -f "$gdir/lib/logging.sh" ]] && ok "the install carries its own check scripts" || error "check scripts not copied"
 bash "$SETUP" --global >/dev/null 2>&1
-[[ "$(cat "$gdir/previous-hooksPath")" == "$tmp/earlier-hooks" ]] && ok "a second --global keeps the original backup" || error "backup overwritten: $(cat "$gdir/previous-hooksPath")"
+[[ "$(cat "$gdir/previous-hooksPath")" == "$(native "$tmp/earlier-hooks")" ]] && ok "a second --global keeps the original backup" || error "backup overwritten: $(cat "$gdir/previous-hooksPath")"
 bash "$SETUP" --status >"$tmp/out" 2>&1
 grep -q "installed at $gdir" "$tmp/out" && ok "--status reports the install" || error "--status: $(cat "$tmp/out")"
 
@@ -413,7 +417,7 @@ grep -q "no owners set" "$tmp/out" && ok "with a one-line notice" || error "no n
 git config --global script-helpers.owners example-owner
 bash "$SETUP" --global --uninstall >"$tmp/out" 2>&1
 expect "--global --uninstall" 0 "$?"
-[[ "$(git config --global core.hooksPath)" == "$tmp/earlier-hooks" ]] && ok "restores the previous global value" || error "not restored: $(git config --global core.hooksPath || echo unset)"
+[[ "$(git config --global core.hooksPath)" == "$(native "$tmp/earlier-hooks")" ]] && ok "restores the previous global value" || error "not restored: $(git config --global core.hooksPath || echo unset)"
 [[ ! -d "$gdir/hooks" ]] && ok "and removes the install" || error "install left behind"
 git config --global --unset core.hooksPath
 bash "$SETUP" --global >/dev/null 2>&1
@@ -700,6 +704,10 @@ EOF"
   expect "fail-closed: non-UTF-8 input is scanned raw" 2 "$?"
   hook_rc 0 "fail-closed: an empty command runs nothing and passes" ""
   hook_rc 2 "fail-closed: a very long command is scanned to its end" "echo $(printf 'x%.0s' $(seq 1 20000)) mail $real_email"
+  # A PATH without python, made of symlinks. Where ln -s copies (Git Bash
+  # without symlink support) that would copy every program on PATH: skipped.
+  ln -s "$tmp" "$tmp/link-probe" 2>/dev/null
+  if [[ -L "$tmp/link-probe" ]]; then
   mkdir -p "$tmp/nopy"
   for d in $(printf '%s' "$PATH" | tr ':' ' '); do
     for f in "$d"/*; do
@@ -716,6 +724,9 @@ EOF"
   printf '{"tool_name":"Bash","tool_input":{"command":"ls -la"}}' \
     | PATH="$tmp/nopy" PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
   expect "without python3 a clean ordinary command passes" 0 "$?"
+  else
+    echo "[security_gate_test] SKIP: ln -s makes no symlink here; the no-python cases are not checked"
+  fi
   hook_cmd "Claude hook: an agent's sensitive:allow is ignored" "gh pr create -R example-owner/x --body 'mail $real_email sensitive:allow'"
   # Scope follows where the command runs, not only the session's directory.
   other="$tmp/other-org-clone"; new_repo "$other"
