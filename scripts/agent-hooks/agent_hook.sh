@@ -72,7 +72,7 @@ print(json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash",
 fi
 
 out_file="$(mktemp 2>/dev/null)" || { echo "[agent_hook] could not create a temp file; refused" >&2; exit 2; }
-trap 'rm -f "$out_file"' EXIT
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -f "$out_file"; fi' EXIT
 rc=0
 if [[ -f "$check" ]]; then
   printf '%s' "$claude_payload" | bash "$check" > "$out_file" || rc=$?
