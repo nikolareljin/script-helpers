@@ -8,14 +8,19 @@
   Codex `PreToolUse`, Gemini `BeforeTool`, Copilot CLI `preToolUse`, Cursor
   `beforeShellExecution`. `scripts/agent-hooks/agent_hook.sh` translates each
   payload for the Claude hook and answers with exit 2 and the agent's own deny
-  JSON; a check that cannot run refuses. Same rules as `--claude-repo`: only
-  untracked files change, other hooks stay, uninstall removes only what it
-  made. `--status --porcelain` adds `agents=`. Ran for real with Codex 0.162.
+  JSON; a check that cannot run, or a payload that is empty or not a JSON
+  object, is refused. Same rules as `--claude-repo`: only untracked files
+  change, other hooks stay, uninstall removes only what it made. On Windows the
+  command names Git Bash's `bash.exe` by full path and Copilot also gets the
+  `powershell` command it runs there. `--status` lists the agent hooks and
+  `--status --porcelain` adds `agents=`. Ran for real with Codex 0.162.
 
 - **Hooks survive a takeover.** When another tool rewrites or removes
   `core.hooksPath` after the per-repository setup (husky on `npm install`), our
   hooks stopped with no sign. `setup-hooks.sh --status --porcelain` reports it
-  (`taken_over=yes`) and `--repair` chains again: the new tool's hooks and ours
+  (`taken_over=yes`; also `claude_repo`, read from the settings file, and
+  `global` where the `--global` hooks run), `--status` warns, and `--repair`
+  chains again: the new tool's hooks and ours
   both run, and `--uninstall` restores the new tool's value. The setup now
   records `script-helpers.mode` and `expected-hooksPath`; a 0.49.0 setup is read
   from the keys it wrote. `tests/hooks_coexistence_test.sh` covers each rule:
