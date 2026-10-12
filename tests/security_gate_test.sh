@@ -584,6 +584,16 @@ if command -v python3 >/dev/null 2>&1; then
   hook_cmd "Claude hook: gh release --notes is read"      "gh release create v1 -R example-owner/x --notes 'mail $real_email'"
   hook_cmd "Claude hook: git commit -n is --no-verify"     "git commit -n -m 'msg'"
   hook_cmd "Claude hook: git commit -an is --no-verify"    "git commit -an -m 'msg'"
+  # git takes any unambiguous prefix of a long option.
+  hook_cmd "Claude hook: --no-verif is --no-verify"         "git commit --no-verif -m 'msg'"
+  hook_cmd "Claude hook: --no-ver on push is --no-verify"   "git push --no-ver origin main"
+  # Other git config sources drop the global core.hooksPath.
+  hook_cmd "Claude hook: GIT_CONFIG_GLOBAL= is refused"     "GIT_CONFIG_GLOBAL=/dev/null git push"
+  hook_cmd "Claude hook: GIT_CONFIG_NOSYSTEM is refused"    "GIT_CONFIG_NOSYSTEM=1 git push"
+  hook_cmd "Claude hook: -c include.path is refused"        "git -c include.path=/tmp/x push"
+  # A body read by command substitution is scanned like --body-file.
+  hook_cmd "Claude hook: --body \"\$(cat file)\" is read"   "gh pr create -R example-owner/x --body \"\$(cat $tmp/field-body.md)\""
+  hook_cmd "Claude hook: --body \"\$(<file)\" is read"      "gh pr create -R example-owner/x --body \"\$(<$tmp/field-body.md)\""
   python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.argv[1]}}))' "git commit -m -n -mrun" \
     | PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
   # The whole-command pass errs closed: a bare -n after commit is refused.

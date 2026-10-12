@@ -123,9 +123,12 @@ run_hook() {
   fi
 }
 
+# is_abs <path>: absolute, also as Git for Windows writes it (C:/x, C:\\x).
+is_abs() { case "$1" in /*|[A-Za-z]:[\\/]*) return 0 ;; esac; return 1; }
+
 top="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 common="$(git rev-parse --git-common-dir 2>/dev/null || true)"
-[[ -n "$common" && "$common" != /* ]] && common="$(pwd)/$common"
+[[ -n "$common" ]] && ! is_abs "$common" && common="$(pwd)/$common"
 
 # expand_hooks_path <value>: a core.hooksPath as git reads it: "~/" is the home
 # directory, a relative path is relative to the top of the work tree.
@@ -133,7 +136,7 @@ expand_hooks_path() {
   local v="$1"
   # shellcheck disable=SC2088  # a literal "~/" saved from git config
   case "$v" in "~/"*) v="${HOME:-}/${v#\~/}" ;; esac
-  [[ -n "$v" && "$v" != /* && -n "$top" ]] && v="$top/$v"
+  [[ -n "$v" && -n "$top" ]] && ! is_abs "$v" && v="$top/$v"
   printf '%s' "$v"
 }
 
@@ -193,7 +196,7 @@ if [[ "$in_scope" == true && -n "$top" ]] && \
    [[ "$(git config --local --bool --get script-helpers.trust-repo-hooks 2>/dev/null)" == true ]]; then
   trusted=true
 fi
-if [[ -n "$previous" && "$previous" != /* ]]; then
+if [[ -n "$previous" ]] && ! is_abs "$previous"; then
   if [[ "$trusted" == true ]]; then previous="$top/$previous"; else previous=""; fi
 fi
 

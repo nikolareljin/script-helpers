@@ -178,6 +178,12 @@ for u in "ssh://github.com/example/zzqalias.git" "ssh://git@ssh.github.com:443/e
   git -C "$a" config url.git@github.com:.insteadOf ghx:
   hook 2 "in scope: origin $u" "$a" "echo $n"
 done
+# Every remote counts, not only origin: an "upstream" alone, or an owner's push URL.
+u1="$tmp/upstream-only-$RANDOM"; git init -q "$u1"; git -C "$u1" remote add upstream git@github.com:example/zzqup.git
+hook 2 "in scope: only an upstream remote under the owner" "$u1" "echo $n"
+u2="$tmp/pushurl-$RANDOM"; git init -q "$u2"; git -C "$u2" remote add origin https://github.com/someone-else/x.git
+git -C "$u2" remote set-url --push origin git@github.com:example/zzqup.git
+hook 2 "in scope: the owner's push URL behind another fetch URL" "$u2" "echo $n"
 PAYLOAD_CWD=- hook 0 "out of scope: no cwd in the payload" "$priv" "git -C $priv commit -m $n"
 PAYLOAD_CWD=relative/dir hook 0 "out of scope: a relative cwd" "$priv" "git -C $priv commit -m $n"
 PAYLOAD_CWD="$pub" hook 2 "strict: the payload cwd decides, not the process cwd" "$priv" "git commit -m $n"

@@ -21,6 +21,8 @@ trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 # shellcheck disable=SC2046
 unset $(git rev-parse --local-env-vars 2>/dev/null) GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 export HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/.config" XDG_DATA_HOME="$tmp/home/.local/share"
+# On Windows (Git Bash) setup-hooks.sh keeps its copies under %LOCALAPPDATA%.
+export LOCALAPPDATA="$XDG_DATA_HOME"
 export GIT_CONFIG_GLOBAL="$tmp/home/.gitconfig" GIT_CONFIG_NOSYSTEM=1
 unset SCRIPT_HELPERS_OWNERS SCRIPT_HELPERS_HOOKS_HOME SCRIPT_HELPERS_REPO_HOOKS_HOME
 mkdir -p "$HOME"
@@ -29,6 +31,8 @@ mkdir -p "$HOME"
 cd "$tmp" || exit 1
 setup="$root_dir/scripts/setup-hooks.sh"
 repo_hooks="$XDG_DATA_HOME/script-helpers/repo-hooks/hooks"
+# native <path>: the form git stores a path in (C:/... under Git for Windows).
+native() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s\n' "$1"; fi; }
 
 # marker_hook <path> <name> [exit]: a hook that appends <name> to $tmp/ran.
 marker_hook() {
@@ -63,7 +67,7 @@ marker_hook "$r/.githooks/pre-commit" committed
 marker_hook "$r/.githooks/pre-push" committed-push
 marker_hook "$r/.git/hooks/pre-commit" theirs
 (cd "$r" && bash "$setup" >/dev/null 2>&1) || error "native: setup failed"
-[[ "$(git -C "$r" config --get core.hooksPath)" == "$repo_hooks" ]] && ok ".git/hooks present: chained through the per-repo copy" \
+[[ "$(git -C "$r" config --get core.hooksPath)" == "$(native "$repo_hooks")" ]] && ok ".git/hooks present: chained through the per-repo copy" \
   || error "native: core.hooksPath = '$(git -C "$r" config --get core.hooksPath)'"
 commit_in "$r"
 [[ "$(ran)" == "committed theirs" ]] && ok ".git/hooks/pre-commit still runs, after the committed one" || error "native: ran '$(ran)'"
@@ -108,7 +112,7 @@ git config --global core.hooksPath "$tmp/employer-hooks"
 (cd "$r" && bash "$setup" >/dev/null 2>&1) || error "global: setup failed"
 commit_in "$r"
 [[ "$(ran)" == "employer" ]] && ok "a global core.hooksPath keeps running" || error "global: ran '$(ran)'"
-[[ "$(git config --global --get core.hooksPath)" == "$tmp/employer-hooks" ]] && ok "the global value is not touched" \
+[[ "$(git config --global --get core.hooksPath)" == "$(native "$tmp/employer-hooks")" ]] && ok "the global value is not touched" \
   || error "global: global core.hooksPath changed"
 git config --global --unset core.hooksPath
 
@@ -119,9 +123,9 @@ printf '#!/usr/bin/env bash\ncat > "%s/pushed"\n' "$tmp" > "$r/.hooks/pre-push";
 git -C "$r" config core.hooksPath .hooks
 (cd "$r" && bash "$setup" >/dev/null 2>&1) || error "stdin: setup failed"
 line="refs/heads/main $(printf '1%.0s' {1..40}) refs/heads/main $(printf '0%.0s' {1..40})"
-(cd "$r" && printf '%s\n' "$line" | bash "$repo_hooks/pre-push" origin https://example.invalid/r.git >/dev/null 2>&1) || true
+(cd "$r" && printf '%s\n' "$line" | bash "$repo_hooks/pre-push" origin https://example.invalid/r.git >"$tmp/out" 2>&1) || true
 [[ "$(cat "$tmp/pushed" 2>/dev/null)" == "$line" ]] && ok "the earlier pre-push gets git's ref list on stdin" \
-  || error "stdin: got '$(cat "$tmp/pushed" 2>/dev/null)'"
+  || { error "stdin: got '$(cat "$tmp/pushed" 2>/dev/null)'"; sed 's/^/    /' "$tmp/out" >&2; }
 
 # 7. A core.hooksPath this script did not set is left alone by --uninstall.
 r="$(new_repo foreign-uninstall)"
@@ -160,13 +164,34 @@ marker_hook "$r/.githooks/pre-push" committed-push
 commit_in "$r"
 [[ "$(ran)" == "committed employer" ]] && ok "the hooks --global replaced run once, after the committed ones" || error "with-global-employer: ran '$(ran)'"
 bash "$setup" --global --uninstall >/dev/null 2>&1
-[[ "$(git config --global --get core.hooksPath)" == "$tmp/employer2" ]] || error "with-global: employer value not restored"
+[[ "$(git config --global --get core.hooksPath)" == "$(native "$tmp/employer2")" ]] || error "with-global: employer value not restored"
 git config --global --unset core.hooksPath
 unset SCRIPT_HELPERS_OWNERS
 
 # 10. --claude-repo next to a machine-wide mode is refused.
 rc=0; (cd "$r" && bash "$setup" --claude-repo --global >/dev/null 2>&1) || rc=$?
 [[ $rc -eq 2 ]] && ok "--claude-repo with --global is refused (2)" || error "claude-repo+global: rc=$rc"
+
+# 10b. The repository's own core.hooksPath (.githooks) survives setup and --uninstall.
+r="$(new_repo own-githooks)"
+marker_hook "$r/.githooks/pre-commit" committed
+marker_hook "$r/.githooks/pre-push" committed-push
+git -C "$r" config core.hooksPath .githooks
+(cd "$r" && bash "$setup" >/dev/null 2>&1 && bash "$setup" --uninstall >/dev/null 2>&1) || error "own-githooks: setup/uninstall failed"
+[[ "$(git -C "$r" config --get core.hooksPath)" == ".githooks" ]] && ok "the repository's own core.hooksPath survives --uninstall" \
+  || error "own-githooks: core.hooksPath = '$(git -C "$r" config --get core.hooksPath)'"
+
+# 10c. Committed hooks that are not executable: no tracked mode change, and they still run.
+r="$(new_repo not-exec)"
+mkdir -p "$r/.githooks"
+printf '#!/usr/bin/env bash\necho committed >> "%s/ran"\n' "$tmp" > "$r/.githooks/pre-commit"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$r/.githooks/pre-push"
+git -C "$r" add .githooks && git -C "$r" commit -q -m hooks --no-verify
+(cd "$r" && bash "$setup" >/dev/null 2>&1) || error "not-exec: setup failed"
+[[ -z "$(git -C "$r" status --porcelain)" ]] && ok "non-executable committed hooks: no tracked mode change" \
+  || error "not-exec: git status: $(git -C "$r" status --porcelain | tr '\n' ' ')"
+commit_in "$r"
+[[ "$(ran)" == "committed" ]] && ok "non-executable committed hooks still run" || error "not-exec: ran '$(ran)'"
 
 # 11-12. --claude-repo: the hook for this repository only, nothing git can see.
 if command -v python3 >/dev/null 2>&1; then
@@ -198,19 +223,42 @@ if command -v python3 >/dev/null 2>&1; then
     || error "claude-existing: in .claude: $(ls -A "$r/.claude" | tr '\n' ' ')"
   [[ -z "$(git -C "$r" status --porcelain --untracked-files=all | grep -v '^A  f$')" ]] && ok "existing file: git status shows nothing new" \
     || error "claude-existing: git status: $(git -C "$r" status --porcelain --untracked-files=all | tr '\n' ' ')"
+  # A refused install writes nothing, so a later uninstall never deletes the user's file.
+  r="$(new_repo claude-refused)"
+  exclude_before="$(cat "$r/.git/info/exclude" 2>/dev/null)"
+  rc=0; (cd "$r" && SCRIPT_HELPERS_OWNERS= bash "$setup" --claude-repo >/dev/null 2>&1) || rc=$?
+  [[ $rc -eq 2 && -z "$(git -C "$r" config --local --get script-helpers.claude-local-created)" && "$(cat "$r/.git/info/exclude" 2>/dev/null)" == "$exclude_before" ]] \
+    && ok "--claude-repo refused (no owners): nothing written" || error "claude-refused: rc=$rc or state written"
+  mkdir -p "$r/.claude"; printf '{"permissions": {}}\n' > "$r/.claude/settings.local.json"
+  (cd "$r" && bash "$setup" --claude-repo --uninstall >/dev/null 2>&1) || true
+  [[ -f "$r/.claude/settings.local.json" ]] && ok "uninstall after a refused install keeps the user's file" || error "claude-refused: user's file deleted"
+
+  # A user's own exclude line survives install and uninstall.
+  r="$(new_repo claude-user-exclude)"
+  printf '/.claude/settings.local.json*\n' >> "$r/.git/info/exclude"
+  exclude_before="$(cat "$r/.git/info/exclude")"
+  (cd "$r" && bash "$setup" --claude-repo >/dev/null 2>&1 && bash "$setup" --claude-repo --uninstall >/dev/null 2>&1) || error "claude-user-exclude: failed"
+  [[ "$(cat "$r/.git/info/exclude")" == "$exclude_before" ]] && ok "a user's own exclude line survives" \
+    || error "claude-user-exclude: exclude now: $(tr '\n' '|' < "$r/.git/info/exclude")"
+
   # A committed symlink must not redirect the write outside the repository.
-  r="$(new_repo claude-symlink)"
   mkdir -p "$tmp/outside-target"
-  ln -s "$tmp/outside-target" "$r/.claude"
-  rc=0; (cd "$r" && bash "$setup" --claude-repo >/dev/null 2>&1) || rc=$?
-  [[ $rc -eq 2 && ! -e "$tmp/outside-target/settings.local.json" ]] && ok "a symlinked .claude is refused (2), nothing written outside" \
-    || error "claude-symlink: rc=$rc, outside: $(ls -A "$tmp/outside-target" | tr '\n' ' ')"
-  r="$(new_repo claude-file-symlink)"
-  mkdir -p "$r/.claude"; : > "$tmp/outside-file.json"
-  ln -s "$tmp/outside-file.json" "$r/.claude/settings.local.json"
-  rc=0; (cd "$r" && bash "$setup" --claude-repo >/dev/null 2>&1) || rc=$?
-  [[ $rc -eq 2 && ! -s "$tmp/outside-file.json" ]] && ok "a symlinked settings.local.json is refused (2)" \
-    || error "claude-file-symlink: rc=$rc"
+  ln -s "$tmp/outside-target" "$tmp/link-probe" 2>/dev/null
+  if [[ -L "$tmp/link-probe" ]]; then
+    r="$(new_repo claude-symlink)"
+    ln -s "$tmp/outside-target" "$r/.claude"
+    rc=0; (cd "$r" && bash "$setup" --claude-repo >/dev/null 2>&1) || rc=$?
+    [[ $rc -eq 2 && ! -e "$tmp/outside-target/settings.local.json" ]] && ok "a symlinked .claude is refused (2), nothing written outside" \
+      || error "claude-symlink: rc=$rc, outside: $(ls -A "$tmp/outside-target" | tr '\n' ' ')"
+    r="$(new_repo claude-file-symlink)"
+    mkdir -p "$r/.claude"; : > "$tmp/outside-file.json"
+    ln -s "$tmp/outside-file.json" "$r/.claude/settings.local.json"
+    rc=0; (cd "$r" && bash "$setup" --claude-repo >/dev/null 2>&1) || rc=$?
+    [[ $rc -eq 2 && ! -s "$tmp/outside-file.json" ]] && ok "a symlinked settings.local.json is refused (2)" \
+      || error "claude-file-symlink: rc=$rc"
+  else
+    note "SKIP: ln -s makes no symlink here (Git Bash without symlink support); symlink cases not checked"
+  fi
   unset SCRIPT_HELPERS_OWNERS
 else
   note "SKIP: python3 not available, --claude-repo not checked"

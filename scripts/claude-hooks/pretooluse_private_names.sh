@@ -183,12 +183,16 @@ else
     owners="$(scope_owners 2>/dev/null)" || exit 2
     [[ -n "$owners" ]] || exit 1
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 1
-    # get-url applies url.<base>.insteadOf, as git does when it pushes: an
-    # alias such as gh:<owner>/x is the owner's repository. scope_in_scope
-    # fails closed like the git hooks: an origin that does not parse but names
-    # an owner as a path segment (ssh://github.com/<owner>/x, port 443) is in.
-    origin="$(git remote get-url origin 2>/dev/null)" || exit 1
-    scope_in_scope "$owners" "$origin" && exit 0
+    # Every fetch and push URL of every remote, as the git hooks read them
+    # (get-url applies url.<base>.insteadOf): a repository with only an
+    # "upstream", or an owner's push URL behind another fetch URL, is the
+    # owner's. scope_in_scope fails closed: a URL that does not parse but
+    # names an owner as a path segment (ssh://github.com/<owner>/x) is in.
+    urls="$(scope_repo_urls)" || exit 2
+    [[ -n "$urls" ]] || exit 1
+    set -f
+    # shellcheck disable=SC2086  # one URL per line, no spaces in a URL
+    scope_in_scope "$owners" $urls && exit 0
     exit 1
   ) || session_scope=$?
 fi
@@ -330,7 +334,8 @@ def skips_hooks(seg):
     low = [a.lower() for a in seg]
     if not (low[:1] == ["git"] and len(low) > 1 and low[1] in ("commit", "push")):
         return False
-    if "--no-verify" in low:
+    # git accepts any unambiguous prefix: --no-veri, --no-verif.
+    if any(a.startswith("--no-ver") for a in low):
         return True
     if low[1] != "commit":
         return False
@@ -568,11 +573,11 @@ names_check() {
   return 0
 }
 if [[ -s "$cmd_file" ]]; then
-    if grep -qiE -- '--no-verify|core\.hookspath|GIT_CONFIG_(COUNT|KEY|VALUE|PARAMETERS)' "$cmd_file" \
+    if grep -qiE -- '--no-ver|core\.hookspath|GIT_CONFIG_(COUNT|KEY|VALUE|PARAMETERS|GLOBAL|SYSTEM|NOSYSTEM)|GIT_CONFIG=|include\.path|includeif\.' "$cmd_file" \
        || grep -qE -- '(^|[^[:alnum:]_-])commit([[:space:]][^;&|]*)?[[:space:]]-[abeiopqsuvz]*n[a-zA-Z]*([[:space:]]|$)' "$cmd_file"; then
       rm -f "$cmd_file"
       echo "Refusing a command that skips or replaces the git hooks (--no-verify, git commit -n," >&2
-      echo "or a core.hooksPath override). If a hook is wrong, say which one and let the user decide." >&2
+      echo "a core.hooksPath override, or another git config source). If a hook is wrong, say which one and let the user decide." >&2
       exit 2
     fi
     broad_text="${payload_file}.text"
@@ -580,10 +585,10 @@ if [[ -s "$cmd_file" ]]; then
     cp "$cmd_file" "$broad_text" \
       || { reason="could not prepare the command text"; unchecked "Reading the command"; }
     while IFS= read -r f; do
-      f="${f#@}"; f="${f#\'}"; f="${f%\'}"; f="${f#\"}"; f="${f%\"}"
+      f="${f#@}"; f="${f#\'}"; f="${f%\'}"; f="${f#\"}"; f="${f%\"}"   # "$(<f)" and "$(cat f)": the ")" and quotes went in sed
       [[ -n "$f" && "$f" != "-" && -f "$f" && -r "$f" ]] && { printf '\n'; head -c 2000000 "$f"; } >> "$broad_text"   # a body is never that large; a log might be
-    done < <(grep -oE -- '(--body-file|--notes-file|--input|--file|-F)[= ]+[^;&|[:space:]]+|@[^;&|[:space:]]+|<[[:space:]]*[^<;&|[:space:]]+' "$cmd_file" \
-               | sed -E 's/^(--body-file|--notes-file|--input|--file|-F)[= ]+//; s/^<[[:space:]]*//; s/^[^=@]*=@?//')
+    done < <(grep -oE -- '(--body-file|--notes-file|--input|--file|-F)[= ]+[^;&|[:space:]]+|@[^;&|[:space:]]+|<[[:space:]]*[^<;&|[:space:]]+|\$\([[:space:]]*cat[[:space:]]+[^;&|)[:space:]]+' "$cmd_file" \
+               | sed -E 's/^\$\([[:space:]]*cat[[:space:]]+//; s/^(--body-file|--notes-file|--input|--file|-F)[= ]+//; s/^<[[:space:]]*//; s/^[^=@]*=@?//; s/[)"'"'"']+$//')
     rc=0
     names_check "$broad_text" || rc=$?
     if [[ "$rc" -eq 1 ]]; then
