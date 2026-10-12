@@ -170,6 +170,34 @@ printf 'x %s\n' "$real_email" > "$repo/staged.txt"; gc -C "$repo" add staged.txt
 expect "--staged blocks a staged email" 1 "$?"
 gc -C "$repo" rm -q --cached staged.txt; rm -f "$repo/staged.txt"
 
+# gitleaks sees the index git hands pre-commit: a plain commit passes
+# GIT_INDEX_FILE=.git/index (relative), -a and -- <path> a temporary index, a
+# linked worktree its own. Real commits, so each OS checks what its git sets.
+# The stand-in finds "idx.txt" only where gitleaks would look for it.
+printf '#!/usr/bin/env bash\nr=""; while [[ $# -gt 0 ]]; do [[ "$1" == --report-path ]] && r="$2"; shift; done\ngit diff --cached --name-only | grep -q idx.txt || exit 0\nprintf %%s "[{\\"RuleID\\": \\"x\\"}]" > "$r"; exit 1\n' > "$tmp/gl-index"; chmod +x "$tmp/gl-index"
+mkdir -p "$tmp/idx-hooks"
+printf '#!/usr/bin/env bash\nGITLEAKS_BIN="%s" exec bash "%s" --staged --no-machine\n' "$tmp/gl-index" "$CHECK" > "$tmp/idx-hooks/pre-commit"
+chmod +x "$tmp/idx-hooks/pre-commit"
+gi() { git -c user.name=Test -c user.email=test@example.com -c core.hooksPath="$tmp/idx-hooks" "$@"; }
+irepo="$tmp/idx-repo"; gc init -q "$irepo"; gc -C "$irepo" commit -q --allow-empty -m init
+printf 'one\n' > "$irepo/other.txt"; gc -C "$irepo" add other.txt
+gi -C "$irepo" commit -q -m clean >/dev/null 2>&1
+expect "real commit without the file: passes (the stand-in is not always failing)" 0 "$?"
+printf 'clean\n' > "$irepo/idx.txt"; gc -C "$irepo" add idx.txt
+gi -C "$irepo" commit -q -m plain >/dev/null 2>&1
+expect "real plain commit (relative GIT_INDEX_FILE): gitleaks sees the staged file" 1 "$?"
+gc -C "$irepo" commit -q -m seed idx.txt
+printf 'changed\n' > "$irepo/idx.txt"
+gi -C "$irepo" commit -q -a -m all >/dev/null 2>&1
+expect "real commit -a (temporary index): gitleaks sees the file" 1 "$?"
+gi -C "$irepo" commit -q -m path -- idx.txt >/dev/null 2>&1
+expect "real commit -- <path> (temporary index): gitleaks sees the file" 1 "$?"
+gc -C "$irepo" checkout -q -- idx.txt
+gc -C "$irepo" worktree add -q "$tmp/idx-wt" -b idx-wt
+printf 'wt\n' > "$tmp/idx-wt/idx.txt"; gc -C "$tmp/idx-wt" add idx.txt
+gi -C "$tmp/idx-wt" commit -q -m wt >/dev/null 2>&1
+expect "real commit in a linked worktree: gitleaks sees the file" 1 "$?"
+
 # gitleaks missing: could not check, exit 2.
 GITLEAKS_BIN="$tmp/none" bash "$CHECK" --file "$tmp/near.txt" >"$tmp/out" 2>&1
 expect "gitleaks missing -> exit 2" 2 "$?"

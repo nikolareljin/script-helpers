@@ -85,6 +85,11 @@
 
 ### Fixed
 
+- **The commit-time credential check found nothing.** git runs `pre-commit`
+  with `GIT_INDEX_FILE=.git/index`, relative; gitleaks runs in another
+  directory, saw no index and passed every commit. `check_sensitive.sh` now
+  makes that path absolute. The push-time check was not affected.
+
 - **The reach check asks from a container.** `ollama_endpoint_container_reach`
   asked the default bridge's gateway from the host. A forwarder on that bridge
   passed it while a container on the project's compose network timed out.
