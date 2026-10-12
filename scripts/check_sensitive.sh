@@ -279,6 +279,14 @@ if [[ "$LIST_IDS" == true ]]; then
 fi
 
 # ------------------------------------------------------------------- repo
+# git runs pre-commit with GIT_INDEX_FILE=.git/index, relative to the hook's
+# directory. gitleaks runs elsewhere (below), where that path names no index,
+# so it saw nothing staged and every commit passed. Make them absolute here.
+for _v in GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE; do
+  _p="${!_v:-}"
+  case "$_p" in ''|/*|[A-Za-z]:[\\/]*) ;; *) export "$_v=$PWD/$_p" ;; esac
+done
+unset _v _p
 if git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1; then
   TOP="$(git -C "$REPO" rev-parse --show-toplevel 2>/dev/null || (cd "$REPO" && pwd))"
   IN_REPO=true

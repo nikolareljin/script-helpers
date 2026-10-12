@@ -170,6 +170,15 @@ printf 'x %s\n' "$real_email" > "$repo/staged.txt"; gc -C "$repo" add staged.txt
 expect "--staged blocks a staged email" 1 "$?"
 gc -C "$repo" rm -q --cached staged.txt; rm -f "$repo/staged.txt"
 
+# gitleaks sees the index git hands a hook: GIT_INDEX_FILE=.git/index, relative.
+# The stand-in reports a finding only if the staged file is visible from where
+# it runs, as the real gitleaks reads it.
+printf '#!/usr/bin/env bash\nr=""; while [[ $# -gt 0 ]]; do [[ "$1" == --report-path ]] && r="$2"; shift; done\ngit diff --cached --name-only | grep -q idx.txt || exit 0\nprintf %s "[{\\"RuleID\\": \\"x\\"}]" > "$r"; exit 1\n' > "$tmp/gl-index"; chmod +x "$tmp/gl-index"
+printf 'clean\n' > "$repo/idx.txt"; gc -C "$repo" add idx.txt
+(cd "$repo" && GIT_INDEX_FILE=.git/index GITLEAKS_BIN="$tmp/gl-index" bash "$CHECK" --staged --no-machine >/dev/null 2>&1)
+expect "--staged under a hook's relative GIT_INDEX_FILE: gitleaks sees the staged file" 1 "$?"
+gc -C "$repo" rm -q --cached idx.txt; rm -f "$repo/idx.txt"
+
 # gitleaks missing: could not check, exit 2.
 GITLEAKS_BIN="$tmp/none" bash "$CHECK" --file "$tmp/near.txt" >"$tmp/out" 2>&1
 expect "gitleaks missing -> exit 2" 2 "$?"
