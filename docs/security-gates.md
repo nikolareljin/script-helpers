@@ -183,13 +183,17 @@ the saved value (or unsets it) and removes the copy.
 
 ### Claude Code
 
-`scripts/claude-hooks/pretooluse_private_names.sh` also runs
+Scope: the hook checks a command only when the session's repository (the
+payload `cwd`) has its origin on github.com under a configured owner;
+anywhere else (another owner, no repository, no usable `cwd`, no owners) it
+exits 0 and does nothing. The command is not read to widen or narrow that, so
+a command run from elsewhere that acts on an owner's repository (`cd`, `-C`,
+`-R`, `gh api`, `curl`, a path) is out of scope by the owner's decision; that
+repository's `pre-push` hook still covers its pushes.
+
+In scope, `scripts/claude-hooks/pretooluse_private_names.sh` also runs
 `check_sensitive.sh` on the text of a `gh pr create`, `gh issue comment`,
-`git commit -m` and the like, and refuses the tool call on a hit. With owners
-configured it skips another owner's repository only when it is certain: the
-payload `cwd` was entered, every remote there is another owner's, and the
-command has no `cd`, `-C`, `-R`, path separator, `~`, URL, `gh api`, `curl`,
-`wget`, `ssh` or `scp`. Anything uncertain is checked.
+`git commit -m` and the like, and refuses the tool call on a hit.
 It reads `-b`/`--body`, `--body-file`, `-t`, `-m`, `-F`, `gh api -f`/`-F`/
 `--raw-field` (and `key=@file`), `--notes`/`--notes-file`, attached short
 values (`-b'text'`), and sees the command behind `VAR=value`, `env` and git's
@@ -205,14 +209,9 @@ parser of shell commands always misses some shape bash runs (`bash -c`,
   file it names that can be read (`--body-file X`, `-F X`, `@X`, `< X`), goes
   through the private-name check and `check_sensitive.sh --no-machine
   --no-inline-allow`. Paths after `cd` and `-C` are left out of the text.
-  Private names are checked in every command, wherever it runs, including
-  inside the private repository itself: agents cite a private repository by
-  its code in command text, never by name. The one exception is a `gh`
-  command with a single `-R`/`--repo` target and no shell syntax (`;`, `&`,
-  `|`, `$`, backtick, `( )`, `< >`), which that repository's listing decides,
-  so a pull request into a private repository may name it. Private names do
-  not follow the owner scope. Sensitive data and credentials follow it, as
-  above.
+  In scope, private names are checked in every command, including one run
+  inside a private repository and a pull request into one: agents cite a
+  private repository by its code in command text, never by name.
 - refused outright: `--no-verify`, `git commit -n`, a `core.hooksPath`
   override (`-c`, `GIT_CONFIG_*`); a command that sets the gate's own
   overrides or configuration (`SECURITY_GATE_ALLOW_UNCHECKED=`,

@@ -405,7 +405,7 @@ if command -v python3 >/dev/null 2>&1; then
     local want="$1" desc="$2" cmd="$3" got
     printf '{"tool_name":"Bash","cwd":"%s","tool_input":{"command":%s}}' "$hook_repo" \
       "$(printf '%s' "$cmd" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')" \
-      | ( cd "$hook_repo" && PRIVATE_NAMES_FILE="$hook_list" GITLEAKS_BIN="$tmp/gitleaks-clean" \
+      | ( cd "$hook_repo" && SCRIPT_HELPERS_OWNERS=example PRIVATE_NAMES_FILE="$hook_list" GITLEAKS_BIN="$tmp/gitleaks-clean" \
           SENSITIVE_MACHINE_IDS_FILE="$tmp/no-machine-ids" SENSITIVE_TERMS_FILE="$tmp/no-terms" \
           bash "$agent_hook" >/dev/null 2>&1 )
     got=$?
@@ -438,7 +438,8 @@ if command -v python3 >/dev/null 2>&1; then
 mentions bluewidget"' 
   # A pull request *into* the private repository is exactly where its name
   # belongs. Blocking it would get the hook removed within a day.
-  agent 0 "the agent hook allows a pull request into the private repository itself" \
+  # -R is not read for scope: a private name is cited by code even there.
+  agent 2 "the agent hook checks a pull request into the private repository itself" \
           'gh pr create --repo example/bluewidget --body "bluewidget internals"'
 else
   note "SKIP: python3 unavailable, agent hook not exercised"

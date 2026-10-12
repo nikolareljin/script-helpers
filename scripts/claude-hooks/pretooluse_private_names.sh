@@ -22,18 +22,19 @@
 # the one actor they were written for. A human at a terminal is unaffected:
 # this hook only ever sees an agent's calls.
 #
+# SCOPE (owner decision): only the repository the session is in, from the
+# payload cwd. Its origin on github.com under a configured owner: every check
+# runs. Anything else exits 0 at once (another owner, no repository, no usable
+# cwd, no owners). A command acting on another repository is out of scope; that
+# repository's pre-push hook covers its pushes.
+#
 # EVERY WAY THIS HOOK ALLOWS A CALL (exit 0), and why each is safe:
+#   - out of scope, as above;
 #   - the whole-command pass found nothing: it reads every Bash call (any
 #     other tool: every string of its input), the raw payload when it is not
 #     valid JSON, not UTF-8, or python3 is missing, and the files it names;
 #   - after that pass, the parser found nothing it publishes (or the payload
 #     is unreadable and does not look like publishing);
-#   - sensitive data only (ADR-0063): the payload cwd was entered, its
-#     repository's remotes are all another owner's, and the command has no
-#     cd, -C, -R, path separator, ~, URL, gh api, curl, wget, ssh or scp
-#     (scope_skip_ok). Anything uncertain is in scope;
-#   - private names are checked in every command, except a gh command with no
-#     shell syntax whose single -R target is listed private;
 #   - a check could not run and the USER set SECURITY_GATE_ALLOW_UNCHECKED=1
 #     in this hook's own environment (a command that sets it is refused);
 #   - an empty command: nothing runs.
@@ -107,7 +108,6 @@ work_dir="$(mktemp -d 2>/dev/null)" && [[ -d "$work_dir" && ! -L "$work_dir" ]] 
 }
 chmod 700 "$work_dir" 2>/dev/null
 payload_file="$work_dir/payload"
-dest_file="$work_dir/dests"
 # Guarded: a subshell inherits an EXIT trap, and bash runs it there when the
 # subshell is signalled -- so this could tear down the caller's stack, or
 # delete a directory, while the run is still using it. ${BASHPID-$$} rather
@@ -156,10 +156,43 @@ try:
     print(c if isinstance(c, str) else "")
 except Exception:
     print("")' "$payload_file" 2>/dev/null)"
-  case "$payload_cwd" in
-    /*|[A-Za-z]:[/\\]*)
-      if [[ -d "$payload_cwd" ]] && cd "$payload_cwd" 2>/dev/null; then cwd_ok=true; fi ;;
-  esac
+fi
+if [[ -z "$payload_cwd" ]]; then
+  payload_cwd="$(LC_ALL=C sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$payload_file" | head -1)"
+fi
+case "$payload_cwd" in
+  /*|[A-Za-z]:[/\\]*)
+    if [[ -d "$payload_cwd" ]] && cd "$payload_cwd" 2>/dev/null; then cwd_ok=true; fi ;;
+esac
+
+# Scope, by the owner's decision: only the repository the session is in. When
+# its origin is on github.com under a configured owner, every check below
+# runs on the command. Anything else (another owner, no repository, no usable
+# cwd, no owners configured): exit 0 and nothing is done. The command is not
+# read to widen or narrow this: a push to another repository is that
+# repository's pre-push hook's business.
+SCOPE_LIB="${SCRIPT_DIR}/../owner_scope.sh"
+session_scope=0
+if [[ "$cwd_ok" != true ]]; then
+  session_scope=1
+elif [[ ! -f "$SCOPE_LIB" ]]; then
+  session_scope=2
+else
+  ( # shellcheck source=/dev/null
+    source "$SCOPE_LIB" || exit 2
+    owners="$(scope_owners 2>/dev/null)" || exit 2
+    [[ -n "$owners" ]] || exit 1
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 1
+    origin="$(git config --get remote.origin.url 2>/dev/null)" || exit 1
+    o="$(scope_owner_of "$origin")" || exit 1
+    case ",$owners," in *",$o,"*) exit 0 ;; esac
+    exit 1
+  ) || session_scope=$?
+fi
+[[ "$session_scope" -eq 1 ]] && exit 0
+if [[ "$session_scope" -ne 0 ]]; then
+  echo "The security gate could not tell whether this repository is in scope (owner_scope.sh missing or git config unreadable); refused." >&2
+  exit 2
 fi
 
 # One python pass: is this a publishing command, which repository is it aimed
@@ -444,7 +477,6 @@ fi
 #     directory, every cd <dir> and -C <dir>, and -R/--repo; any one of them an
 #     owner's, or a directory that cannot be entered: checked.
 SENSITIVE="${SCRIPT_DIR}/../check_sensitive.sh"
-SCOPE_LIB="${SCRIPT_DIR}/../owner_scope.sh"
 # Overrides count only from this hook's own environment, set by the user. A
 # command that sets one, or the gate's configuration, for what it runs is
 # refused: SECURITY_GATE_ALLOW_UNCHECKED=1 git push would switch off the git
@@ -519,48 +551,17 @@ else:
   cat "$cmd_file.plain" >> "$cmd_file"
   rm -f "$cmd_file.plain" "$cmd_file.code" "$cmd_file.codeplain"
 }
-# scope_skip_ok: an out-of-scope (other owner) verdict may skip the sensitive
-# checks only when the payload cwd was entered and the command cannot act
-# anywhere else: no cd/pushd/popd, -C, -R/--repo, path separator, ~, URL,
-# gh api, curl, wget, ssh or scp. Anything uncertain is in scope (checked).
-scope_skip_ok=false
-if [[ "$cwd_ok" == true ]] \
-   && ! grep -qE -- '(^|[^[:alnum:]_-])(cd|pushd|popd|curl|wget|ssh|scp|rsync|nc)([^[:alnum:]_-]|$)|(^|[[:space:]])(-C|-R|--repo|--git-dir|--work-tree)([[:space:]=]|$)|/|~|://|git@|gh[[:space:]]+api' "$cmd_file"; then
-  scope_skip_ok=true
-fi
-
-# Where private names are judged: everywhere, except one -R target of a gh
-# command with no shell syntax, which that repository decides (a pull request
-# into a private repository). cwd never relaxes the check.
-r_targets="$(grep -oE -- '(^|[[:space:]])(-R|--repo)[= ]+[^;&|[:space:]]+' "$cmd_file" | sed -E 's/^[[:space:]]*(-R|--repo)[= ]+//' | tr -d "'\"" | sort -u)"
-if grep -qE -- '(^|[;&|[:space:]])cd[[:space:]]|(^|[[:space:]])-C[[:space:]]' "$cmd_file"; then
-  printf 'any\n' > "$dest_file"
-elif [[ -n "$r_targets" && "$(printf '%s\n' "$r_targets" | wc -l | tr -d ' ')" == 1 ]] \
-     && grep -qE -- '^[[:space:]]*gh[[:space:]]' "$cmd_file" && ! grep -qE -- '[;&|`$()<>]' "$cmd_file"; then
-  printf 'repo\t%s\n' "$r_targets" > "$dest_file"
-else
-  printf 'any\n' > "$dest_file"
-fi
-
-# names_check <text file> [gate args]: the private-name check, once per
-# destination. 0: clean, or no public destination. 1: a hit. Else: could not
-# check. reason is set on 1 and above. The prefilter only skips text that
-# cannot match.
+# names_check <text file> [gate args]: the private-name check. 0: clean.
+# 1: a hit. Else: could not check. reason is set on 1 and above. The
+# prefilter only skips text that cannot match.
 names_check() {
-  local f="$1" kind val rc out
+  local f="$1" rc out pc=0
   shift
-  local pc=0
   private_name_candidate "$f" || pc=$?
   [[ "$pc" -eq 1 ]] && return 0      # no listed name in the text; awk failing (2+) runs the full check
   if [[ ! -f "$GATE" ]]; then reason="check_private_names.sh is missing next to this hook"; return 2; fi
-  while IFS="$(printf '\t')" read -r kind val; do
-    case "$kind" in
-      repo) out="$(bash "$GATE" --stdin --only-public --for-repo "$val" "$@" < "$f" 2>&1)"; rc=$? ;;
-      any)  out="$(bash "$GATE" --stdin "$@" < "$f" 2>&1)"; rc=$? ;;
-      *) continue ;;
-    esac
-    if [[ "$rc" -ne 0 ]]; then reason="$out"; return "$rc"; fi
-  done < "$dest_file"
+  out="$(bash "$GATE" --stdin "$@" < "$f" 2>&1)"; rc=$?
+  if [[ "$rc" -ne 0 ]]; then reason="$out"; return "$rc"; fi
   return 0
 }
 if [[ -s "$cmd_file" ]]; then
@@ -580,28 +581,6 @@ if [[ -s "$cmd_file" ]]; then
       [[ -n "$f" && "$f" != "-" && -f "$f" && -r "$f" ]] && { printf '\n'; head -c 2000000 "$f"; } >> "$broad_text"   # a body is never that large; a log might be
     done < <(grep -oE -- '(--body-file|--notes-file|--input|--file|-F)[= ]+[^;&|[:space:]]+|@[^;&|[:space:]]+|<[[:space:]]*[^<;&|[:space:]]+' "$cmd_file" \
                | sed -E 's/^(--body-file|--notes-file|--input|--file|-F)[= ]+//; s/^<[[:space:]]*//; s/^[^=@]*=@?//')
-    # Scope from every place the command could act on.
-    broad_in_scope=true
-    # shellcheck source=/dev/null
-    if [[ -f "$SCOPE_LIB" ]] && source "$SCOPE_LIB" && owners="$(scope_owners)" && [[ -n "$owners" ]]; then
-      urls=()
-      while IFS= read -r u; do urls+=("$u"); done < <(scope_repo_urls 2>/dev/null)
-      while IFS= read -r u; do urls+=("$u"); done < <(grep -oE -- '(-R|--repo)[= ]+[^;&|[:space:]]+' "$cmd_file" | sed -E 's/^(-R|--repo)[= ]+//' | tr -d "'\"")
-      while IFS= read -r d; do
-        d="$(printf '%s' "$d" | tr -d "'\"")"
-        # shellcheck disable=SC2088  # a literal "~" typed in the command
-        case "$d" in "~"|"~/"*) d="${HOME:-}${d#\~}" ;; esac
-        [[ -n "$d" ]] || continue
-        if ! (cd "$d" 2>/dev/null); then urls=(); broad_unknown=1; break; fi
-        while IFS= read -r u; do urls+=("$u"); done < <(cd "$d" && scope_repo_urls 2>/dev/null)
-      done < <(grep -oE -- '(^|[;&|[:space:]])cd[[:space:]]+[^;&|[:space:]]+|(^|[[:space:]])-C[[:space:]]+[^[:space:]]+' "$cmd_file" \
-                 | sed -E 's/^[;&|[:space:]]*(cd|-C)[[:space:]]+//')
-      if [[ -z "${broad_unknown:-}" && ${#urls[@]} -gt 0 ]]; then
-        if ! scope_in_scope "$owners" "${urls[@]}" && [[ "$scope_skip_ok" == true ]]; then broad_in_scope=false; fi
-      fi
-    fi
-    # Private names do not follow the owner scope: a -R value or a remote of
-    # another owner says nothing about where a private name may appear.
     rc=0
     names_check "$broad_text" || rc=$?
     if [[ "$rc" -eq 1 ]]; then
@@ -612,24 +591,22 @@ if [[ -s "$cmd_file" ]]; then
     elif [[ "$rc" -ne 0 ]]; then
       rm -f "$cmd_file" "$broad_text"; unchecked "The private-name check (exit $rc)"
     fi
-    if [[ "$broad_in_scope" == true ]]; then
-      if [[ -f "$SENSITIVE" ]]; then
-        # The whole command names local paths, so this machine's identifiers
-        # are left out here; the parsed text below is checked with them.
-        reason="$(bash "$SENSITIVE" --stdin --no-machine --no-inline-allow < "$broad_text" 2>&1)"
-        rc=$?
-        if [[ "$rc" -eq 1 ]]; then
-          { echo "This command carries a credential, a personal identifier or PII."
-            echo; printf '%s\n' "$reason"; echo
-            echo "Remove it. If this is a false positive, ask the user before allowing it."; } >&2
-          rm -f "$cmd_file" "$broad_text"; exit 2
-        elif [[ "$rc" -ne 0 ]]; then
-          rm -f "$cmd_file" "$broad_text"; unchecked "The sensitive-data check (exit $rc)"
-        fi
-      else
-        reason="check_sensitive.sh is missing next to this hook"
-        rm -f "$cmd_file" "$broad_text"; unchecked "The sensitive-data check"
+    if [[ -f "$SENSITIVE" ]]; then
+      # The whole command names local paths, so this machine's identifiers
+      # are left out here; the parsed text below is checked with them.
+      reason="$(bash "$SENSITIVE" --stdin --no-machine --no-inline-allow < "$broad_text" 2>&1)"
+      rc=$?
+      if [[ "$rc" -eq 1 ]]; then
+        { echo "This command carries a credential, a personal identifier or PII."
+          echo; printf '%s\n' "$reason"; echo
+          echo "Remove it. If this is a false positive, ask the user before allowing it."; } >&2
+        rm -f "$cmd_file" "$broad_text"; exit 2
+      elif [[ "$rc" -ne 0 ]]; then
+        rm -f "$cmd_file" "$broad_text"; unchecked "The sensitive-data check (exit $rc)"
       fi
+    else
+      reason="check_sensitive.sh is missing next to this hook"
+      rm -f "$cmd_file" "$broad_text"; unchecked "The sensitive-data check"
     fi
     rm -f "$broad_text"
 fi
@@ -648,10 +625,6 @@ if [[ "$parsed" == "VERDICT"$'\t'"bad-payload"* ]]; then
 fi
 
 verdict="$(printf '%s' "$parsed" | sed -n '1s/^VERDICT\t//p')"
-repo_line="$(printf '%s' "$parsed" | sed -n '2s/^REPO\t//p')"
-repo="${repo_line%%$'\t'*}"
-workdirs=""
-[[ "$repo_line" == *$'\t'* ]] && workdirs="${repo_line#*$'\t'}"
 text="$(printf '%s' "$parsed" | sed -n '4,$p')"
 
 if [[ "$verdict" == "no-verify" ]]; then
@@ -695,50 +668,14 @@ case "$rc" in
   *) unchecked "The private-name check (exit $rc)" ;;
 esac
 
-# Then credentials, personal identifiers and PII. Scoped like the global git
-# hooks (scripts/owner_scope.sh), failing closed: with no owners configured,
-# every destination; with owners, the -R target and every remote of this
-# directory, and anything that cannot be identified. An unparsed command is the
-# whole command line, which names local paths, so there this machine's
-# identifiers are left out (--no-machine); everything else is checked.
-if [[ ! -f "$SENSITIVE" || ! -f "$SCOPE_LIB" ]]; then
-  reason="check_sensitive.sh or owner_scope.sh is missing next to this hook"
+# Then credentials, personal identifiers and PII in the parsed text. An
+# unparsed command is the whole command line, which names local paths, so
+# there this machine's identifiers are left out (--no-machine).
+if [[ ! -f "$SENSITIVE" ]]; then
+  reason="check_sensitive.sh is missing next to this hook"
   unchecked "The sensitive-data check"
   exit 0
 fi
-# shellcheck source=/dev/null
-source "$SCOPE_LIB"
-in_scope=true
-if owners="$(scope_owners)" && [[ -n "$owners" ]]; then
-  # The -R target plus every remote here. Nothing to go on (no -R, no
-  # repository, or git failing with no -R): checked.
-  remote_urls="$(scope_repo_urls)" || remote_urls=""
-  # A command run elsewhere (`cd <dir> && ...`, `git -C <dir>`): that
-  # repository's remotes too. A directory that cannot be read is checked.
-  if [[ -n "$workdirs" ]]; then
-    while IFS= read -r d; do
-      [[ -n "$d" ]] || continue
-      # shellcheck disable=SC2088  # a literal "~" typed in the command
-      case "$d" in "~"|"~/"*) d="${HOME:-}${d#\~}" ;; esac
-      if ! (cd "$d" 2>/dev/null); then
-        repo=""; remote_urls=""; break        # nothing to go on: checked
-      fi
-      # Not a repository there: like here, only -R decides.
-      more="$(cd "$d" && git rev-parse --git-dir >/dev/null 2>&1 && scope_repo_urls)" || more=""
-      [[ -n "$more" ]] && remote_urls="$remote_urls"$'\n'"$more"
-    done <<EOF_DIRS
-$(printf '%s' "$workdirs" | tr '\037' '\n')
-EOF_DIRS
-  fi
-  if [[ -n "$repo$remote_urls" ]]; then
-    urls=("$repo")
-    while IFS= read -r u; do urls+=("$u"); done <<EOF_URLS
-$remote_urls
-EOF_URLS
-    if ! scope_in_scope "$owners" "${urls[@]}" && [[ "$scope_skip_ok" == true ]]; then in_scope=false; fi
-  fi
-fi
-[[ "$in_scope" == true ]] || exit 0
 
 # The agent wrote the text, so a sensitive:allow marker in it is not the user's.
 sens_args=(--stdin --no-inline-allow)

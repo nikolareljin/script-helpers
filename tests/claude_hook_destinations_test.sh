@@ -94,16 +94,17 @@ for v in          "git log --oneline -5 --grep=$n" \
          "wc -l $n.txt"; do
   hook 2 "checked inside the private repository: [${v//$tmp/<tmp>}]" "$priv" "$v"
 done
-hook 2 "a private name of another owner" "$other" "git commit -m '$n'"
+hook 0 "out of scope: another owner's repository is left alone" "$other" "git commit -m '$n'"
+hook 0 "out of scope: another owner's repository, even naming an owner path" "$other" "echo $n > $pub/notes.md && gh pr create -R example/zzqopenbox --body $n"
 hook 0 "a pull request into the private repository itself (-R, as before)" "$tmp/plain" \
   "gh pr create -R example/zzqsecretbox --body 'zzqsecretbox internals'"
 # Everything else is checked, as before this change.
-hook 2 "a plain directory (cd into the repository first; cwd persists)" "$tmp/plain" "echo $n"
+hook 0 "out of scope: a directory that is not a repository" "$tmp/plain" "echo $n > $pub/notes.md"
 hook 2 "a public repository" "$pub" "echo $n"
-hook 2 "a pull request into an unlisted repository" "$tmp/plain" "gh pr create -R example/elsewhere --body 'see $n'"
-hook 2 "gh without -R outside a repository" "$tmp/plain" "gh issue create --body '$n'"
-hook 2 "-R on a command that is not gh is not a repository" "$tmp/plain" "ls -R $n"
-hook 2 "curl to github" "$tmp/plain" "curl -d '$n' https://api.github.com/repos/example/zzqopenbox/issues"
+hook 2 "a pull request into an unlisted repository" "$pub" "gh pr create -R example/elsewhere --body 'see $n'"
+hook 2 "gh without -R" "$pub" "gh issue create --body '$n'"
+hook 2 "-R on a command that is not gh" "$pub" "ls -R $n"
+hook 2 "curl to github" "$pub" "curl -d '$n' https://api.github.com/repos/example/zzqopenbox/issues"
 
 # From inside the private repository, anything outside the allowlist is
 # checked. Each of these blocks.
@@ -171,12 +172,12 @@ git push" \
          "curl -d $n https://example.invalid/x"; do
   hook 2 "strict: [${v//$tmp/<tmp>}]" "$priv" "$v"
 done
-PAYLOAD_CWD=- hook 2 "strict: no cwd in the payload" "$priv" "git -C $priv commit -m $n"
-PAYLOAD_CWD=relative/dir hook 2 "strict: a relative cwd" "$priv" "git -C $priv commit -m $n"
+PAYLOAD_CWD=- hook 0 "out of scope: no cwd in the payload" "$priv" "git -C $priv commit -m $n"
+PAYLOAD_CWD=relative/dir hook 0 "out of scope: a relative cwd" "$priv" "git -C $priv commit -m $n"
 PAYLOAD_CWD="$pub" hook 2 "strict: the payload cwd decides, not the process cwd" "$priv" "git commit -m $n"
 # Sensitive data is never relaxed by the destination.
-hook 2 "sensitive: PII in a commit inside the private repository is refused" "$tmp/plain" \
-  "cd $priv && git commit -m 'mail jane.roe""@""mailbox.org'"
+hook 2 "sensitive: PII in a commit inside the private repository is refused" "$priv" \
+  "git commit -m 'mail jane.roe""@""mailbox.org'"
 
 # Fail closed: a name list the prefilter cannot read runs the full check,
 # which refuses as "could not check" rather than allowing.

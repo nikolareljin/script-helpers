@@ -482,7 +482,19 @@ SCRIPT_HELPERS_OWNERS=example-owner scope_owners 2>"$tmp/out" >/dev/null
 grep -q "owners from SCRIPT_HELPERS_OWNERS" "$tmp/out" && ok "an owners override from the environment is announced" || error "SCRIPT_HELPERS_OWNERS silent"
 
 # ------------------------------------------------- Claude Code PreToolUse hook
-CLAUDE_HOOK="$ROOT_DIR/scripts/claude-hooks/pretooluse_private_names.sh"
+REAL_CLAUDE_HOOK="$ROOT_DIR/scripts/claude-hooks/pretooluse_private_names.sh"
+# The hook acts only when the session's repository (payload cwd) has its
+# origin under an owner. Payloads here that carry no cwd run in such a
+# repository; a payload with its own cwd keeps it.
+owner_cwd="$tmp/owner-session"
+git init -q "$owner_cwd" && git -C "$owner_cwd" remote add origin git@github.com:example-owner/session.git
+CLAUDE_HOOK="$tmp/claude-hook-with-cwd.sh"
+# inject_cwd: add "cwd" to a payload that starts with { and has none.
+inject_cwd() { LC_ALL=C sed '1{/"cwd"/!s|^{|{"cwd":"'"$owner_cwd"'",|;}'; }
+cat > "$CLAUDE_HOOK" <<EOF_WRAP
+#!/usr/bin/env bash
+LC_ALL=C sed '1{/"cwd"/!s|^{|{"cwd":"$owner_cwd",|;}' | bash "$REAL_CLAUDE_HOOK"
+EOF_WRAP
 if command -v python3 >/dev/null 2>&1; then
   # Every call is scanned, so without gitleaks every call would be "could not
   # check". A stub that finds nothing keeps these cases about the hook; the
@@ -534,17 +546,21 @@ if command -v python3 >/dev/null 2>&1; then
     | bash "$CLAUDE_HOOK" >/dev/null 2>&1
   expect "Claude hook: every command is scanned, an unparsable one with an email too" 2 "$?"
   printf 'not json: gh pr create --body x' | bash "$CLAUDE_HOOK" >/dev/null 2>&1
-  expect "Claude hook: an invalid payload that publishes is blocked" 2 "$?"
+  # No cwd can be read from it, so the session repository is unknown: out of
+  # scope by the owner's rule.
+  expect "Claude hook: a payload with no readable cwd is out of scope" 0 "$?"
+  printf '{not json: gh pr create --body x' | bash "$CLAUDE_HOOK" >/dev/null 2>&1
+  expect "Claude hook: an invalid payload that publishes, in an owner repository, is blocked" 2 "$?"
   printf 'not json: ls -la' | bash "$CLAUDE_HOOK" >/dev/null 2>&1
   expect "Claude hook: an invalid payload that does not publish passes" 0 "$?"
   # A crash inside the hook must refuse (exit 2), never exit 1: Claude Code
   # runs the command on any exit other than 2.
   mkdir -p "$tmp/broken/claude-hooks"
-  cp "$CLAUDE_HOOK" "$tmp/broken/claude-hooks/"
+  cp "$REAL_CLAUDE_HOOK" "$tmp/broken/claude-hooks/"
   cp "$ROOT_DIR/scripts/check_private_names.sh" "$ROOT_DIR/scripts/check_sensitive.sh" "$tmp/broken/"
   cp -R "$ROOT_DIR/lib" "$ROOT_DIR/helpers.sh" "$tmp/" 2>/dev/null
   printf 'echo crashing >&2; exit 3\n' > "$tmp/broken/owner_scope.sh"
-  payload example-owner/x "a@example.com" | PRIVATE_NAMES_FILE="$tmp/names.tsv" bash "$tmp/broken/claude-hooks/pretooluse_private_names.sh" >"$tmp/out" 2>&1
+  payload example-owner/x "a@example.com" | inject_cwd | PRIVATE_NAMES_FILE="$tmp/names.tsv" bash "$tmp/broken/claude-hooks/pretooluse_private_names.sh" >"$tmp/out" 2>&1
   expect "Claude hook: a crash refuses with exit 2" 2 "$?"
   # Wrapped and attached forms still publish. A stub gitleaks keeps these
   # about the parsing, with or without a real one installed.
@@ -666,7 +682,9 @@ EOF"
     | PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
   expect "fail-closed: a Write tool payload is scanned too" 2 "$?"
   printf 'not json at all: mail %s' "$real_email" | PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
-  expect "fail-closed: invalid JSON is scanned raw" 2 "$?"
+  expect "out of scope: invalid JSON with no cwd" 0 "$?"
+  printf '{not json at all: mail %s' "$real_email" | PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
+  expect "fail-closed: invalid JSON in an owner repository is scanned raw" 2 "$?"
   printf '{"tool_name":"Bash","tool_input":{"command":"echo \xff\xfe mail %s"}}' "$real_email" \
     | PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1
   expect "fail-closed: non-UTF-8 input is scanned raw" 2 "$?"
@@ -707,7 +725,8 @@ EOF"
   printf '{"tool_name":"Bash","tool_input":{"command":"gh pr create --body \\"mail %s\\""}}' "$real_email" \
     | (cd "$other" && PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1)
   expect "Claude hook: another org's repository without a payload cwd is checked" 2 "$?"
-  # From another org's repository, anything that can act elsewhere is checked.
+  # Scope is the session's repository only: from another org's repository
+  # nothing is checked, whatever the command names (owner decision).
   for v in "gh pr create -R example-owner/x --body 'mail $real_email'" \
            "gh api repos/example-owner/x/issues -f body='mail $real_email'" \
            "curl -d 'mail $real_email' https://example.invalid/x" \
@@ -716,7 +735,7 @@ EOF"
            "echo 'mail $real_email' > ../owner-repo/notes.md"; do
     python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","cwd":sys.argv[2],"tool_input":{"command":sys.argv[1]}}))' "$v" "$other" \
       | (cd "$other" && PRIVATE_NAMES_FILE="$tmp/names.tsv" GITLEAKS_BIN="$tmp/gl-clean" bash "$CLAUDE_HOOK" >"$tmp/out" 2>&1)
-    expect "Claude hook: from another org's repository, [$v] is checked" 2 "$?"
+    expect "Claude hook: from another org's repository, [$v] is out of scope (owner decision)" 0 "$?"
   done
   unset PRIVATE_NAMES_FILE GITLEAKS_BIN
 else
