@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SCRIPT: setup-hooks.sh
 # DESCRIPTION: Configure git to use shared or repository-local hook scripts, and install the Claude Code security hook.
-# USAGE: bash scripts/setup-hooks.sh [--claude-repo|--global|--claude|--all|--managed] [--uninstall] | --repair | --status [--porcelain] | --doctor | --install-gitleaks
+# USAGE: bash scripts/setup-hooks.sh [--claude-repo|--agent-repo <list>|--global|--claude|--agent <list>|--all|--managed] [--uninstall] | --repair | --status [--porcelain] | --doctor | --install-gitleaks
 # PARAMETERS:
 #   (none)        Set up this repository. With no hooks running here yet, point its
 #                 core.hooksPath at the shared hooks. If hooks already run (a local or
@@ -22,6 +22,21 @@
 #                 .claude/settings.local.json, listed in .git/info/exclude so it is never
 #                 committed; backups go under .git/script-helpers/. With --uninstall:
 #                 remove it, and the file too when this script created it.
+#   --agent-repo <list>  The same check for other AI agents, this repository only.
+#                 <list>: codex, gemini, copilot, cursor, comma-separated, or all.
+#                 Writes our entry into the agent's project hook file, listed in
+#                 .git/info/exclude so it is never committed; other entries stay:
+#                   codex    .codex/hooks.json            (PreToolUse, matcher Bash)
+#                   gemini   .gemini/settings.json        (BeforeTool, run_shell_command)
+#                   copilot  .github/hooks/script-helpers.json (preToolUse, bash|powershell)
+#                   cursor   .cursor/hooks.json           (beforeShellExecution, failClosed)
+#                 Each runs scripts/agent-hooks/agent_hook.sh <agent> from a copy in
+#                 <data>/script-helpers/agent-repo-hooks. Codex and Gemini ask you to
+#                 trust a project hook before it runs (Codex: /hooks). With
+#                 --uninstall: remove our entry, and the file when this script made it.
+#   --agent <list>  The same for this user: ~/.codex/hooks.json, ~/.gemini/settings.json,
+#                 ${COPILOT_HOME:-~/.copilot}/hooks/script-helpers.json, ~/.cursor/hooks.json;
+#                 copy in <data>/script-helpers/agent-hooks.
 #   --all         --global and --claude.
 #   --managed     Install the Claude hook into the OS managed settings file instead,
 #                 which no user or project setting can turn off. Needs admin rights;
@@ -41,7 +56,8 @@
 #   --porcelain   With --status, in a repository: one line of tab-separated key=value
 #                 fields for scripts: mode (chained, direct, none), taken_over (yes,
 #                 no), core_hooksPath, expected, previous, target, claude_repo (yes,
-#                 no), global (yes when the --global hooks run here).
+#                 no), global (yes when the --global hooks run here), agents (the
+#                 other agents with our hook here, comma-separated).
 #   --doctor      The prerequisites, then four probes through the installed Claude
 #                 hook, from a throwaway repository under the first owner: a private
 #                 name from your list, an SSN-shaped number, and git push --no-verify
@@ -72,7 +88,7 @@
 set -euo pipefail
 
 GLOBAL=false; CLAUDE=false; CLAUDE_REPO=false; MANAGED=false; UNINSTALL=false; STATUS=false; DOCTOR=false; GITLEAKS=false
-REPAIR=false; PORCELAIN=false
+REPAIR=false; PORCELAIN=false; AGENT_REPO=""; AGENT_USER=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --global) GLOBAL=true ;;
@@ -84,6 +100,10 @@ while [[ $# -gt 0 ]]; do
     --status) STATUS=true ;;
     --porcelain) PORCELAIN=true ;;
     --repair) REPAIR=true ;;
+    --agent-repo|--agent)
+      [[ $# -ge 2 && -n "$2" && "$2" != -* ]] || { echo "[setup-hooks] $1 needs a list: codex,gemini,copilot,cursor or all" >&2; exit 2; }
+      [[ "$1" == --agent-repo ]] && AGENT_REPO="$2" || AGENT_USER="$2"
+      shift ;;
     --doctor) DOCTOR=true ;;
     --install-gitleaks) GITLEAKS=true ;;
     -h|--help) sed -n '2,/^# ------/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -93,6 +113,25 @@ while [[ $# -gt 0 ]]; do
 done
 if [[ "$CLAUDE_REPO" == true ]] && [[ "$GLOBAL" == true || "$CLAUDE" == true || "$MANAGED" == true ]]; then
   echo "[setup-hooks] --claude-repo is for this repository only; run it on its own, not with --global, --claude, --all or --managed" >&2; exit 2
+fi
+# agent_list <list>: the agents named, one per line; refuses an unknown name (exit 2).
+agent_list() {
+  local a out=""
+  [[ "$1" == all ]] && { printf '%s\n' codex gemini copilot cursor; return 0; }
+  for a in ${1//,/ }; do
+    case "$a" in codex|gemini|copilot|cursor) out="$out$a"$'\n' ;;
+      claude) echo "[setup-hooks] Claude Code has its own options: --claude-repo, --claude" >&2; exit 2 ;;
+      *) echo "[setup-hooks] unknown agent '$a': codex, gemini, copilot, cursor or all" >&2; exit 2 ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+AGENTS_REPO=""; AGENTS_USER=""
+if [[ -n "$AGENT_REPO" ]]; then AGENTS_REPO="$(agent_list "$AGENT_REPO")" || exit 2; fi
+if [[ -n "$AGENT_USER" ]]; then AGENTS_USER="$(agent_list "$AGENT_USER")" || exit 2; fi
+if [[ -n "$AGENT_REPO" || -n "$AGENT_USER" ]] && \
+   [[ "$GLOBAL" == true || "$CLAUDE" == true || "$MANAGED" == true || "$CLAUDE_REPO" == true || "$STATUS" == true || "$REPAIR" == true || ( -n "$AGENT_REPO" && -n "$AGENT_USER" ) ]]; then
+  echo "[setup-hooks] --agent-repo and --agent run on their own (with --uninstall at most)" >&2; exit 2
 fi
 if [[ "$PORCELAIN" == true && "$STATUS" != true ]]; then
   echo "[setup-hooks] --porcelain goes with --status" >&2; exit 2
@@ -147,6 +186,10 @@ fi
 managed_home="$(dirname "$managed_settings")/script-helpers"
 HOOK_REL="scripts/claude-hooks/pretooluse_private_names.sh"
 MERGE_REL="scripts/claude-hooks/merge_settings.py"
+AGENT_HOOK_REL="scripts/agent-hooks/agent_hook.sh"
+AGENT_MERGE_REL="scripts/agent-hooks/merge_agent_hooks.py"
+agent_user_home="$data_base/script-helpers/agent-hooks"
+agent_repo_home="$data_base/script-helpers/agent-repo-hooks"
 # Every hook git runs from core.hooksPath: with a global hooksPath set, git no
 # longer reads .git/hooks, so each one needs a wrapper that chains to it.
 GLOBAL_HOOK_NAMES="applypatch-msg pre-applypatch post-applypatch pre-commit pre-merge-commit prepare-commit-msg commit-msg post-commit pre-rebase post-checkout post-merge pre-push post-rewrite push-to-checkout pre-auto-gc sendemail-validate reference-transaction post-index-change"
@@ -168,7 +211,7 @@ require_owners() {
 # "python3" may be a store stub that does not run).
 PY=""
 for _c in python3 python; do
-  if command -v "$_c" >/dev/null 2>&1 && "$_c" -c 'import sys; sys.exit(sys.version_info[0] != 3)' >/dev/null 2>&1; then
+  if command -v "$_c" >/dev/null 2>&1 && "$_c" -I -c 'import sys; sys.exit(sys.version_info[0] != 3)' >/dev/null 2>&1; then
     PY="$_c"; break
   fi
 done
@@ -237,7 +280,7 @@ offer_gitleaks() {
 
 file_age_days() {  # <date YYYY-MM-DD>: days since then, or nothing
   [[ -n "$PY" ]] || return 0
-  "$PY" -c 'import datetime,sys
+  "$PY" -I -c 'import datetime,sys
 try:
     d = datetime.datetime.strptime(sys.argv[1], "%Y-%m-%d").date()
     print((datetime.date.today() - d).days)
@@ -251,7 +294,7 @@ prereqs() {
   echo "[setup-hooks] prerequisites:"
   printf '  bash      ok (%s)\n' "${BASH_VERSION:-?}"
   if [[ -n "$PY" ]]; then
-    printf '  python    ok (%s: %s)\n' "$PY" "$("$PY" --version 2>&1)"
+    printf '  python    ok (%s: %s)\n' "$PY" -I "$("$PY" --version 2>&1)"
   else
     echo "  python    MISSING: install Python 3 (python3, or python on Windows)"; missing=$((missing+1))
   fi
@@ -326,10 +369,100 @@ show_global_status() {
     local top_dir
     top_dir="$(git rev-parse --show-toplevel 2>/dev/null || true)"
     if [[ -n "$top_dir" && -f "$top_dir/.claude/settings.local.json" && -n "$PY" ]] && \
-       "$PY" "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$top_dir/.claude/settings.local.json")" >/dev/null 2>&1; then
+       "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$top_dir/.claude/settings.local.json")" >/dev/null 2>&1; then
       echo "[setup-hooks] this repository: Claude hook in .claude/settings.local.json"
     fi
+    local a agents=""
+    for a in codex gemini copilot cursor; do
+      [[ -n "$top_dir" && -f "$top_dir/$(agent_repo_rel "$a")" && -n "$PY" ]] && \
+        agent_merge status "$a" "$(native_path "$top_dir/$(agent_repo_rel "$a")")" >/dev/null 2>&1 && agents="$agents $a"
+    done
+    [[ -n "$agents" ]] && echo "[setup-hooks] this repository: agent hooks:$agents"
   fi
+}
+
+# ---- Other AI agents (--agent, --agent-repo) --------------------------------
+# agent_repo_rel <agent>: the agent's project hook file, relative to the top.
+agent_repo_rel() {
+  case "$1" in
+    codex) echo ".codex/hooks.json" ;; gemini) echo ".gemini/settings.json" ;;
+    copilot) echo ".github/hooks/script-helpers.json" ;; cursor) echo ".cursor/hooks.json" ;;
+  esac
+}
+# agent_user_file <agent>: the agent's hook file for this user.
+agent_user_file() {
+  case "$1" in
+    codex) echo "$(unix_path "${CODEX_HOME:-${HOME:-}/.codex}")/hooks.json" ;;
+    gemini) echo "${HOME:-}/.gemini/settings.json" ;;
+    copilot) echo "$(unix_path "${COPILOT_HOME:-${HOME:-}/.copilot}")/hooks/script-helpers.json" ;;
+    cursor) echo "${HOME:-}/.cursor/hooks.json" ;;
+  esac
+}
+agent_merge() { "$PY" -I "$(native_path "$src_root/$AGENT_MERGE_REL")" "$@"; }
+
+# require_agent_tools: what every agent install needs; refuses (exit 2) first.
+require_agent_tools() {
+  require_owners
+  [[ -n "$PY" ]] || { echo "[setup-hooks] ERROR: Python 3 is needed (python3, or python on Windows)." >&2; exit 2; }
+  if [[ "$ON_WINDOWS" == true ]] && ! command -v cygpath >/dev/null 2>&1; then
+    echo "[setup-hooks] ERROR: run this from Git Bash (Git for Windows); the agents run the hook there." >&2; exit 2
+  fi
+}
+
+# copy_agent_hooks <home>: the check, the Claude hook it wraps and the adapter.
+copy_agent_hooks() {
+  local home="$1" stage
+  stage="$(stage_common "$home")" || { echo "[setup-hooks] ERROR: could not stage $home" >&2; exit 1; }
+  mkdir -p "$stage/scripts/claude-hooks" "$stage/scripts/agent-hooks" \
+    && cp "$src_root/$HOOK_REL" "$stage/$HOOK_REL" && cp "$src_root/$MERGE_REL" "$stage/$MERGE_REL" \
+    && cp "$src_root/$AGENT_HOOK_REL" "$stage/$AGENT_HOOK_REL" && cp "$src_root/$AGENT_MERGE_REL" "$stage/$AGENT_MERGE_REL" \
+    || { rm -rf "$stage"; echo "[setup-hooks] ERROR: could not copy the agent hooks" >&2; exit 1; }
+  stage_and_swap "$home" "$stage"
+}
+# agent_command <home> <agent>: the command the agent runs. On Windows, Git
+# Bash's own bash.exe by full path: a bare "bash" there can be WSL's.
+agent_bash() {
+  if [[ "$ON_WINDOWS" == true ]]; then printf '"%s"' "$(native_path "$BASH")"; else printf 'bash'; fi
+}
+agent_command() { printf '%s "%s/%s" %s' "$(agent_bash)" "$(native_path "$1")" "$AGENT_HOOK_REL" "$2"; }
+
+install_agents_user() {
+  local a f rc
+  require_agent_tools
+  for a in $AGENTS_USER; do      # validate every file before anything is written
+    f="$(agent_user_file "$a")"
+    rc=0; [[ -f "$f" ]] && { agent_merge status "$a" "$(native_path "$f")" >/dev/null || rc=$?; }
+    [[ "$rc" -le 1 ]] || exit "$rc"
+  done
+  copy_agent_hooks "$agent_user_home"
+  for a in $AGENTS_USER; do
+    f="$(agent_user_file "$a")"
+    mkdir -p "$(dirname "$f")" || exit 1
+    rc=0; agent_merge install "$a" "$(native_path "$f")" "$(agent_command "$agent_user_home" "$a")" || rc=$?
+    [[ "$rc" -eq 0 ]] || exit "$rc"
+    echo "[setup-hooks] $a: hook set in $f"
+  done
+  echo "[setup-hooks] Codex and Gemini ask you to trust a new hook before it runs (Codex: /hooks)."
+}
+uninstall_agents_user() {
+  local a f rc left=false
+  for a in $AGENTS_USER; do
+    f="$(agent_user_file "$a")"
+    [[ -f "$f" ]] || continue
+    [[ -n "$PY" ]] || { echo "[setup-hooks] ERROR: Python 3 is needed to edit $f" >&2; exit 2; }
+    rc=0; agent_merge uninstall "$a" "$(native_path "$f")" || rc=$?
+    [[ "$rc" -eq 0 ]] || exit "$rc"
+  done
+  # The copy goes only when no agent's user file still runs it.
+  for a in codex gemini copilot cursor; do
+    f="$(agent_user_file "$a")"
+    [[ -f "$f" && -n "$PY" ]] && agent_merge status "$a" "$(native_path "$f")" >/dev/null 2>&1 && left=true
+  done
+  if [[ "$left" == false ]]; then
+    rm -rf "${agent_user_home:?}/scripts" "${agent_user_home:?}/lib" "${agent_user_home:?}/helpers.sh" "${agent_user_home:?}/VERSION"
+    rmdir "$agent_user_home" 2>/dev/null || true
+  fi
+  echo "[setup-hooks] agent hooks removed: $(echo $AGENTS_USER)"
 }
 
 # claude_supports_onfailure: 0 when the installed claude is 2.1.295 or newer,
@@ -340,7 +473,7 @@ claude_supports_onfailure() {
   command -v claude >/dev/null 2>&1 && [[ -n "$PY" ]] || return 1
   v="$(claude --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
   [[ -n "$v" ]] || return 1
-  "$PY" -c 'import sys
+  "$PY" -I -c 'import sys
 a = [int(x) for x in sys.argv[1].split(".")]; b = [int(x) for x in sys.argv[2].split(".")]
 sys.exit(0 if a >= b else 1)' "$v" "$ONFAILURE_MIN"
 }
@@ -348,14 +481,14 @@ sys.exit(0 if a >= b else 1)' "$v" "$ONFAILURE_MIN"
 # claude_onfailure <settings>: the onFailure value of our entry, or nothing.
 claude_onfailure() {
   [[ -n "$PY" && -f "$1" ]] || return 0
-  "$PY" "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$1")" 2>/dev/null \
+  "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$1")" 2>/dev/null \
     | sed -n 's/^onFailure=//p' | head -1 || true
 }
 
 # claude_entry <settings>: the hook command in that file, or nothing.
 claude_entry() {
   [[ -n "$PY" && -f "$1" ]] || return 0
-  "$PY" "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$1")" 2>/dev/null | head -1 || true
+  "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$1")" 2>/dev/null | head -1 || true
 }
 
 show_claude_status() {
@@ -390,7 +523,7 @@ install_claude() {
     exit 2
   fi
   # Validate first: nothing is copied for a settings file that cannot be merged.
-  "$PY" "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$settings")" >/dev/null || rc=$?
+  "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$settings")" >/dev/null || rc=$?
   [[ "$rc" -le 1 ]] || exit "$rc"
 
   stage="$(stage_common "$home")" || { echo "[setup-hooks] ERROR: could not stage $home" >&2; exit 1; }
@@ -405,7 +538,7 @@ install_claude() {
   onfailure=""
   if claude_supports_onfailure; then onfailure=block; fi
   rc=0
-  "$PY" "$(native_path "$home/$MERGE_REL")" install "$(native_path "$settings")" "$cmd" 60 $onfailure || rc=$?
+  "$PY" -I "$(native_path "$home/$MERGE_REL")" install "$(native_path "$settings")" "$cmd" 60 $onfailure || rc=$?
   [[ "$rc" -eq 0 ]] || exit "$rc"
   echo "[setup-hooks] PreToolUse hook (matcher Bash, timeout 60 s, shell bash${onfailure:+, onFailure block}): $cmd"
   if [[ -z "$onfailure" ]]; then
@@ -419,7 +552,7 @@ uninstall_claude() {
   local settings="$1" home="$2" rc=0
   if [[ -f "$settings" ]]; then
     [[ -n "$PY" ]] || { echo "[setup-hooks] ERROR: Python 3 is needed to edit $settings" >&2; exit 2; }
-    "$PY" "$(native_path "$src_root/$MERGE_REL")" uninstall "$(native_path "$settings")" || rc=$?
+    "$PY" -I "$(native_path "$src_root/$MERGE_REL")" uninstall "$(native_path "$settings")" || rc=$?
     [[ "$rc" -eq 0 ]] || exit "$rc"
   fi
   rm -rf "${home:?}/scripts" "${home:?}/lib" "${home:?}/helpers.sh" "${home:?}/VERSION"
@@ -503,7 +636,7 @@ uninstall_global() {
   echo "[setup-hooks] global hooks removed"
 }
 
-now_ms() { "$PY" -c 'import time; print(int(time.time() * 1000))'; }
+now_ms() { "$PY" -I -c 'import time; print(int(time.time() * 1000))'; }
 
 # probe_name: a private name from the list the hook reads, for the name probe.
 # Read as check_private_names.sh reads it: columns by the header, else the v1
@@ -540,7 +673,7 @@ probe() {
     && git -C "$dir/repo" remote add origin "https://github.com/$(configured_owners | cut -d, -f1 | tr -d ' ')/doctor-probe.git" \
     || { rm -rf "$dir"; printf '  FAIL  %-44s could not create the probe repository\n' "$label"; return 1; }
   # JSON-encoded by Python: a path may hold a quote or a backslash.
-  "$PY" -c 'import json,sys; print(json.dumps({"cwd": sys.argv[1], "tool_name": "Bash", "tool_input": {"command": sys.argv[2]}}))' \
+  "$PY" -I -c 'import json,sys; print(json.dumps({"cwd": sys.argv[1], "tool_name": "Bash", "tool_input": {"command": sys.argv[2]}}))' \
     "$(native_path "$dir/repo")" "$command" > "$dir/payload" \
     || { rm -rf "$dir"; printf '  FAIL  %-44s could not build the payload\n' "$label"; return 1; }
   t0="$(now_ms)"
@@ -610,6 +743,10 @@ if [[ "$STATUS" == true && "$PORCELAIN" != true ]]; then
   show_global_status
   show_claude_status
   prereqs || true
+  exit 0
+fi
+if [[ -n "$AGENTS_USER" ]]; then
+  if [[ "$UNINSTALL" == true ]]; then uninstall_agents_user; else install_agents_user; fi
   exit 0
 fi
 if [[ "$GLOBAL" == true || "$CLAUDE" == true || "$MANAGED" == true ]]; then
@@ -760,16 +897,22 @@ if [[ "$STATUS" == true && "$PORCELAIN" == true ]]; then
   # exclude marker is written.
   claude_repo=no
   if [[ -f "$repo_root/.claude/settings.local.json" && -n "$PY" ]] && \
-     "$PY" "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$repo_root/.claude/settings.local.json")" >/dev/null 2>&1; then
+     "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$repo_root/.claude/settings.local.json")" >/dev/null 2>&1; then
     claude_repo=yes
   fi
   # The machine-wide hooks run here when no local core.hooksPath overrides them.
   global=no
   [[ -n "$cur_global" && "$cur_global" == "$global_hooks" && -z "$cur_local" ]] && global=yes
-  printf 'mode=%s\ttaken_over=%s\tcore_hooksPath=%s\texpected=%s\tprevious=%s\ttarget=%s\tclaude_repo=%s\tglobal=%s\n' \
+  # The other agents whose project hook file holds our entry.
+  agents=""
+  for a in codex gemini copilot cursor; do
+    f="$repo_root/$(agent_repo_rel "$a")"
+    [[ -f "$f" && -n "$PY" ]] && agent_merge status "$a" "$(native_path "$f")" >/dev/null 2>&1 && agents="${agents:+$agents,}$a"
+  done
+  printf 'mode=%s\ttaken_over=%s\tcore_hooksPath=%s\texpected=%s\tprevious=%s\ttarget=%s\tclaude_repo=%s\tglobal=%s\tagents=%s\n' \
     "$setup_mode" "$taken_over" "$cur_local" "$setup_expected" \
     "$(git config --local --get script-helpers.previous-hooksPath 2>/dev/null || true)" \
-    "$(git config --local --get script-helpers.hooks-target 2>/dev/null || true)" "$claude_repo" "$global"
+    "$(git config --local --get script-helpers.hooks-target 2>/dev/null || true)" "$claude_repo" "$global" "$agents"
   exit 0
 fi
 if [[ "$REPAIR" == true ]]; then
@@ -790,6 +933,134 @@ if [[ "$REPAIR" == true ]]; then
     # The value we set is gone: forget it, so the new one is read as foreign below.
     unset_local script-helpers.set-hooksPath
   fi
+fi
+
+# ---- Other AI agents, this repository only (--agent-repo) -------------------
+# The same rules as --claude-repo: the file is listed in .git/info/exclude
+# before it is written, backups go under .git/script-helpers/<agent>-backups,
+# and uninstall removes the file only when this script created it.
+agent_exclude_mark() { echo "# script-helpers setup-hooks.sh --agent-repo $1"; }
+
+# What this script created is recorded per worktree, in the worktree's own git
+# directory: .git/config and .git/info/exclude are shared by every linked
+# worktree, so a marker there let an uninstall in one worktree forget, or
+# un-exclude, the file another worktree still has. A key from 0.49.0 in
+# .git/config is still read, and cleared only from the main worktree.
+wt_state="$(git rev-parse --absolute-git-dir 2>/dev/null)/script-helpers"
+in_main_worktree() { [[ "$(git rev-parse --absolute-git-dir)" == "$(cd "$common_dir" && pwd -P)" || "$(git rev-parse --absolute-git-dir)" == "$common_dir" ]]; }
+mark_set() { mkdir -p "$wt_state" && printf '%s\n' "$2" > "$wt_state/$1"; }
+mark_get() {
+  if [[ -f "$wt_state/$1" ]]; then cat "$wt_state/$1"
+  elif in_main_worktree; then git config --local --get "script-helpers.$1" 2>/dev/null || true
+  fi
+}
+mark_clear() {
+  rm -f "$wt_state/$1"
+  in_main_worktree && unset_local "script-helpers.$1"
+  rmdir "$wt_state" 2>/dev/null || true
+}
+# other_worktree_has <rel> <status command...>: 0 when another worktree of this
+# repository still has the file with our entry, so its exclude line stays.
+other_worktree_has() {
+  local rel="$1" wt; shift
+  while IFS= read -r wt; do
+    wt="${wt#worktree }"
+    [[ "$(cd "$wt" 2>/dev/null && pwd -P)" == "$repo_root" ]] && continue
+    [[ -f "$wt/$rel" ]] && "$@" "$(native_path "$wt/$rel")" >/dev/null 2>&1 && return 0
+  done < <(git worktree list --porcelain 2>/dev/null | grep '^worktree ')
+  return 1
+}
+
+# remove_exclude <mark> <line>: only the marker and the line right after it.
+remove_exclude() {
+  local f="$common_dir/info/exclude"
+  [[ -f "$f" ]] && grep -qxF "$1" "$f" || return 0
+  awk -v m="$1" -v l="$2" '
+    skip { skip = 0; if ($0 == l) next }
+    $0 == m { skip = 1; next }
+    { print }' "$f" > "$f.tmp" && mv -f "$f.tmp" "$f"
+}
+move_agent_backups() {
+  local b dest="$common_dir/script-helpers/$1-backups"
+  for b in "$2".bak-*; do
+    [[ -f "$b" ]] || continue
+    mkdir -p "$dest" && mv -f "$b" "$dest/" || return 1
+  done
+}
+
+if [[ -n "$AGENTS_REPO" ]]; then
+  for a in $AGENTS_REPO; do
+    rel="$(agent_repo_rel "$a")"
+    # A committed symlink anywhere on the path would send the write outside the
+    # repository; a tracked file is the project's, not ours to change.
+    d="$repo_root"; part=""
+    for part in ${rel//\// }; do
+      d="$d/$part"
+      if [[ -L "$d" ]]; then echo "[setup-hooks] ERROR: $a: ${d#"$repo_root"/} is a symlink; nothing changed." >&2; exit 2; fi
+    done
+    if git ls-files --error-unmatch -- "$rel" >/dev/null 2>&1; then
+      echo "[setup-hooks] ERROR: $a: $rel is tracked by git; nothing changed." >&2; exit 2
+    fi
+  done
+  if [[ "$UNINSTALL" == true ]]; then
+    for a in $AGENTS_REPO; do
+      rel="$(agent_repo_rel "$a")"; f="$repo_root/$rel"
+      if [[ -f "$f" ]]; then
+        [[ -n "$PY" ]] || { echo "[setup-hooks] ERROR: Python 3 is needed to edit $f" >&2; exit 2; }
+        rc=0; agent_merge uninstall "$a" "$(native_path "$f")" || rc=$?
+        [[ "$rc" -eq 0 ]] || exit "$rc"
+        move_agent_backups "$a" "$f" || exit 1
+        if [[ "$(mark_get "$a-local-created")" == true ]] && \
+           "$PY" -I -c 'import json,sys
+d = json.load(open(sys.argv[1]))
+sys.exit(0 if all(not v for k, v in d.items() if k != "version") else 1)' "$(native_path "$f")" 2>/dev/null; then
+          rm -f "$f"
+          # Up to the first directory this script made, each only when empty.
+          top_made="$(mark_get "$a-created-dir")"
+          if [[ -n "$top_made" ]]; then
+            d="$(dirname "$f")"
+            while [[ "$d" == "$repo_root/$top_made"* ]]; do rmdir "$d" 2>/dev/null || break; d="$(dirname "$d")"; done
+          fi
+        fi
+      fi
+      mark_clear "$a-local-created"
+      mark_clear "$a-created-dir"
+      other_worktree_has "$rel" agent_merge status "$a" || remove_exclude "$(agent_exclude_mark "$a")" "/$rel*"
+      echo "[setup-hooks] $a: hook removed from this repository."
+    done
+    if [[ -z "$(git config --local --get-regexp '^script-helpers\.' 2>/dev/null || true)" ]]; then
+      git config --local --remove-section script-helpers 2>/dev/null || true
+    fi
+    exit 0
+  fi
+  # Everything that can refuse runs before anything is written.
+  require_agent_tools
+  for a in $AGENTS_REPO; do
+    f="$repo_root/$(agent_repo_rel "$a")"
+    rc=0; [[ -f "$f" ]] && { agent_merge status "$a" "$(native_path "$f")" >/dev/null || rc=$?; }
+    [[ "$rc" -le 1 ]] || exit "$rc"
+  done
+  copy_agent_hooks "$agent_repo_home"
+  for a in $AGENTS_REPO; do
+    rel="$(agent_repo_rel "$a")"; f="$repo_root/$rel"
+    existed=false; [[ -e "$f" ]] && existed=true
+    if ! git check-ignore -q --no-index -- "$rel" 2>/dev/null && ! grep -qxF "$(agent_exclude_mark "$a")" "$common_dir/info/exclude" 2>/dev/null; then
+      mkdir -p "$common_dir/info" && printf '%s\n%s\n' "$(agent_exclude_mark "$a")" "/$rel*" >> "$common_dir/info/exclude" || exit 1
+    fi
+    # The first directory on the path that does not exist yet: uninstall removes
+    # it again (when empty), and nothing above it.
+    made="$(dirname "$f")"; first_made=""
+    while [[ "$made" != "$repo_root" && ! -d "$made" ]]; do first_made="$made"; made="$(dirname "$made")"; done
+    mkdir -p "$(dirname "$f")" || exit 1
+    [[ -n "$first_made" ]] && mark_set "$a-created-dir" "${first_made#"$repo_root"/}"
+    rc=0; agent_merge install "$a" "$(native_path "$f")" "$(agent_command "$agent_repo_home" "$a")" || rc=$?
+    [[ "$rc" -eq 0 ]] || exit "$rc"
+    move_agent_backups "$a" "$f" || exit 1
+    [[ "$existed" == true ]] || mark_set "$a-local-created" true
+    echo "[setup-hooks] $a: hook set for this repository only: $rel (in .git/info/exclude)."
+  done
+  echo "[setup-hooks] Codex and Gemini ask you to trust a new project hook before it runs (Codex: /hooks)."
+  exit 0
 fi
 
 # ---- Claude Code hook, this repository only (--claude-repo) ----------------
@@ -822,21 +1093,23 @@ if [[ "$CLAUDE_REPO" == true ]]; then
   if [[ "$UNINSTALL" == true ]]; then
     if [[ -f "$claude_local" ]]; then
       [[ -n "$PY" ]] || { echo "[setup-hooks] ERROR: Python 3 is needed to edit $claude_local" >&2; exit 2; }
-      rc=0; "$PY" "$(native_path "$src_root/$MERGE_REL")" uninstall "$(native_path "$claude_local")" || rc=$?
+      rc=0; "$PY" -I "$(native_path "$src_root/$MERGE_REL")" uninstall "$(native_path "$claude_local")" || rc=$?
       [[ "$rc" -eq 0 ]] || exit "$rc"
       move_claude_backups || exit 1
       # A file this script created and that now holds nothing is removed again.
-      if [[ "$(git config --local --get script-helpers.claude-local-created 2>/dev/null)" == true ]] && \
-         "$PY" -c 'import json,sys
+      if [[ "$(mark_get claude-local-created)" == true ]] && \
+         "$PY" -I -c 'import json,sys
 d = json.load(open(sys.argv[1]))
 sys.exit(0 if all(not v for v in d.values()) else 1)' "$(native_path "$claude_local")" 2>/dev/null; then
         rm -f "$claude_local"
         rmdir "$repo_root/.claude" 2>/dev/null || true
       fi
     fi
-    unset_local script-helpers.claude-local-created
+    mark_clear claude-local-created
     # Only the marker and the line right after it: a line the user added stays.
-    if [[ -f "$exclude_file" ]] && grep -qxF "$EXCLUDE_MARK" "$exclude_file"; then
+    # Kept while another worktree still has its own file with our entry.
+    if [[ -f "$exclude_file" ]] && grep -qxF "$EXCLUDE_MARK" "$exclude_file" && \
+       ! other_worktree_has .claude/settings.local.json "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status; then
       awk -v m="$EXCLUDE_MARK" -v l="$EXCLUDE_LINE" '
         skip { skip = 0; if ($0 == l) next }
         $0 == m { skip = 1; next }
@@ -852,7 +1125,7 @@ sys.exit(0 if all(not v for v in d.values()) else 1)' "$(native_path "$claude_lo
   require_owners
   [[ -n "$PY" ]] || { echo "[setup-hooks] ERROR: Python 3 is needed (python3, or python on Windows)." >&2; exit 2; }
   if [[ -f "$claude_local" ]]; then
-    rc=0; "$PY" "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$claude_local")" >/dev/null || rc=$?
+    rc=0; "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$claude_local")" >/dev/null || rc=$?
     [[ "$rc" -le 1 ]] || exit "$rc"
   fi
   existed=false; [[ -e "$claude_local" ]] && existed=true
@@ -864,7 +1137,7 @@ sys.exit(0 if all(not v for v in d.values()) else 1)' "$(native_path "$claude_lo
   install_claude "$claude_local" "$claude_repo_home"
   move_claude_backups || exit 1
   # Recorded only after a successful install: uninstall removes the file only then.
-  [[ "$existed" == true ]] || git config --local script-helpers.claude-local-created true
+  [[ "$existed" == true ]] || mark_set claude-local-created true
   echo "[setup-hooks] Claude hook set for this repository only: $claude_local (in .git/info/exclude)."
   exit 0
 fi

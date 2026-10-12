@@ -196,7 +196,7 @@ date_to_epoch() {
   # BSD and GNU date disagree here and the portability suite forbids `date -d`.
   # Python is already required by the generator and is present everywhere this
   # runs; falling back to "unknown age" is correct when it is not.
-  python3 -c 'import datetime,sys; print(int(datetime.datetime.strptime(sys.argv[1], "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc).timestamp()))' "$1" 2>/dev/null
+  python3 -I -c 'import datetime,sys; print(int(datetime.datetime.strptime(sys.argv[1], "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc).timestamp()))' "$1" 2>/dev/null
 }
 
 if [[ -n "$NAMES" ]]; then

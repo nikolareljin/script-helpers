@@ -2,6 +2,16 @@
 
 ### Added
 
+- **The security check for Codex, Gemini, Copilot CLI and Cursor.**
+  `setup-hooks.sh --agent-repo <list|all>` (this repository) and
+  `--agent <list|all>` (this user) add our entry to each agent's hook file:
+  Codex `PreToolUse`, Gemini `BeforeTool`, Copilot CLI `preToolUse`, Cursor
+  `beforeShellExecution`. `scripts/agent-hooks/agent_hook.sh` translates each
+  payload for the Claude hook and answers with exit 2 and the agent's own deny
+  JSON; a check that cannot run refuses. Same rules as `--claude-repo`: only
+  untracked files change, other hooks stay, uninstall removes only what it
+  made. `--status --porcelain` adds `agents=`. Ran for real with Codex 0.162.
+
 - **Hooks survive a takeover.** When another tool rewrites or removes
   `core.hooksPath` after the per-repository setup (husky on `npm install`), our
   hooks stopped with no sign. `setup-hooks.sh --status --porcelain` reports it
@@ -11,6 +21,22 @@
   from the keys it wrote. `tests/hooks_coexistence_test.sh` covers each rule:
   an employer's hooks keep running, ours run too, hooks added later run, a
   takeover is repaired, uninstall leaves `.git/config` as it was.
+
+### Fixed
+
+- **A module in the project ran inside the security hooks.** The Claude hook
+  (0.49.0), the new agent adapter, `check_private_names.sh`,
+  `refresh_private_names.sh` and `setup-hooks.sh` ran `python3 -c` from the
+  project directory, so a `json.py` committed to a cloned repository ran on
+  `import json` inside the check. Every Python call there is now isolated
+  (`-I`): no current directory on the path, no `PYTHON*` variables.
+- **Linked worktrees: an uninstall in one broke another.** `--claude-repo`
+  (0.49.0) and `--agent-repo` recorded "this script created the file" in
+  `.git/config` and removed the `.git/info/exclude` line on uninstall; both
+  are shared by every worktree, so removing the hook in one worktree left the
+  main one's file unexcluded and never removed. The marker now lives in each
+  worktree's own git directory, and the exclude line stays while another
+  worktree still has its file.
 
 ## 2026-10-12 — v0.49.0
 
