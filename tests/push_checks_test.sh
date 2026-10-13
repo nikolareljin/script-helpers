@@ -196,6 +196,9 @@ if command -v shellcheck >/dev/null 2>&1; then
   commit "sc" warn.sh $'#!/usr/bin/env bash\nx=$1\nrm -rf $x/*\n'
   expect "a shellcheck warning is refused" 1 "shellcheck"
   reset_main
+  commit "lib" lib/helpers.sh $'# sourced, no shebang\nhelper() { echo "$1"; }\n'
+  expect "a sourced library without a shebang passes shellcheck" 0 ""
+  reset_main
 else
   note "SKIP: shellcheck not installed"
 fi
@@ -376,6 +379,30 @@ fi
 commit "dash" -x.sh $'#!/usr/bin/env bash\nif then\n'
 expect "a file named like an option is checked, not read as one" 1 "syntax error"
 reset_main
+# Nothing is written: not to TMPDIR, not to the repository. A push of a branch
+# that is not checked out, with files of every kind and an uncommitted edit.
+g checkout -q -b nowrite origin/main
+commit "kinds" s.sh $'#!/usr/bin/env bash\necho s\n' p.py $'x = 1\n' d.json '{"a": 1}' \
+  y.yml $'a: 1\n' .github/workflows/w.yml $'on: push\njobs: {}\n' notes.txt "plain"
+nw="$(git rev-parse HEAD)"
+g checkout -q main
+printf 'uncommitted\n' > base.sh
+# TMPDIR read-only: a temp file or directory, made and removed again, fails here.
+mkdir -p "$tmp/emptytmp" && chmod 555 "$tmp/emptytmp"
+if ( : > "$tmp/emptytmp/probe" ) 2>/dev/null; then
+  note "SKIP: chmod does not stop writes here (Windows or root); TMPDIR not checked"
+  rm -f "$tmp/emptytmp/probe"
+fi
+before="$(git status --porcelain=v1 --ignored | LC_ALL=C sort)"
+out="$(TMPDIR="$tmp/emptytmp" run_checks "refs/heads/nowrite $nw refs/heads/nowrite $zeroes")"; rc=$?
+after="$(git status --porcelain=v1 --ignored | LC_ALL=C sort)"
+[[ $rc -eq 0 && -z "$(ls -A "$tmp/emptytmp")" ]] && ok "push_checks writes nothing to TMPDIR (read-only, and the run passed)" \
+  || error "push_checks needed TMPDIR: exit $rc: $(grep -E 'REFUSED|refused' <<<"$out" | head -3)"
+chmod 755 "$tmp/emptytmp"
+[[ "$before" == "$after" ]] && ok "and nothing to the repository" \
+  || error "the repository changed: $(diff <(printf '%s\n' "$before") <(printf '%s\n' "$after"))"
+git checkout -q -- base.sh; g branch -q -D nowrite
+
 # --- the hook: checks run, tests do not
 export SECURITY_GATE_ALLOW_UNCHECKED=1 PRIVATE_NAMES_AUTO_REFRESH=false
 export PRIVATE_NAMES_FILE=/nonexistent/private-names.tsv

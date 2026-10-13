@@ -12,6 +12,10 @@
 # the files the push adds or changes. Every check runs to the end; a large push
 # takes longer. Tests are not run here: `make test` or `./dev test`.
 #
+# Writes nothing: lists live in variables, and each file goes from git (or the
+# work tree, when that holds the pushed content) to its tool through a pipe.
+# No here-string or heredoc either: bash before 5.1 backs those with temp files.
+#
 # Hygiene (always):
 #   - conflict markers (<<<<<<< or >>>>>>> at the start of a line)
 #   - files over script-helpers.max-file-mb (default 5) MB
@@ -35,12 +39,14 @@
 # files, one per line, in CHANGED_FILES.
 
 PC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PC_NL=$'\n'
+PC_EMDASH=$'\xe2\x80\x94'
 
 pc_say()  { printf '[pre-push] %s\n' "$*"; }
 pc_find() { printf '[pre-push] REFUSED (%s): %s\n' "$1" "$2" >&2; PC_FINDINGS=$((PC_FINDINGS + 1)); }
 
 # pc_python: a working Python 3, or return 1 (Windows has a python3 stub that
-# only opens the store).
+# only opens the store). Probed from /, never from the repository.
 pc_python() {
   local p
   for p in python3 python; do
@@ -49,6 +55,10 @@ pc_python() {
   done
   return 1
 }
+
+# pc_py <python> <code> [args]: run Python code from /, so a json.py or yaml.py
+# committed to the repository is never imported; -B writes no bytecode.
+pc_py() { local py="$1" code="$2"; shift 2; ( cd / && "$py" -B -c "$code" "$@" ); }
 
 # pc_repo_code_ok: 0 when this file lives inside the repository being pushed,
 # so the hook is the repository's own code already. An install outside it (the
@@ -68,125 +78,105 @@ pc_repo_code_ok() {
   [[ -n "$super" && "$(cd "$super" && pwd -P)" == "$top" ]]
 }
 
-# pc_abs <path>: the path from /, for tools run outside the repository.
-pc_abs() { case "$1" in /*) printf '%s' "$1" ;; *) printf '%s/%s' "$(pwd -P)" "$1" ;; esac; }
-
 # pc_allowed <path>: 0 when .script-helpers-push-allow (at the pushed tip) lists it.
 pc_allowed() {
   local pat
-  [[ -s "$PC_TMP/allow" ]] || return 1
+  [[ -n "$PC_ALLOW" ]] || return 1
   while IFS= read -r pat; do
     pat="${pat%%#*}"; pat="${pat#"${pat%%[![:space:]]*}"}"; pat="${pat%"${pat##*[![:space:]]}"}"
     [[ -n "$pat" ]] || continue
     # shellcheck disable=SC2053  # the pattern is a glob on purpose
     [[ "$1" == $pat || "${1##*/}" == $pat ]] && return 0
-  done < "$PC_TMP/allow"
+  done < <(printf '%s\n' "$PC_ALLOW")
   return 1
 }
 
-# pc_prepare <refs> <remote>: $PC_TMP/files, one "<tip><TAB><path><TAB><check-path>"
-# per changed blob. <check-path> is the file in the work tree when it holds the
-# pushed content, else a copy under $PC_TMP/t/<tip>/.
+# pc_cat <tip> <path> <src>: the pushed content of a file, on stdout. <src> is
+# "wt" when the work tree holds exactly that content, else "git".
+pc_cat() {
+  if [[ "$3" == wt ]]; then cat -- "./$2"; else git cat-file blob "$1:$2"; fi
+}
+
+# pc_prepare <refs> <remote>: sets PC_FILES, one "<tip><TAB><path><TAB><size><TAB><src>"
+# line per changed regular file. Links and submodules are left out.
 pc_prepare() {
-  local head tip path dest size type
+  local head dirty changed types tip path size type src
+  PC_FILES=""
   head="$(git rev-parse -q --verify HEAD 2>/dev/null || true)"
-  git diff --no-ext-diff --name-only -z HEAD 2>/dev/null | tr '\0' '\n' > "$PC_TMP/dirty" || true
+  dirty="$PC_NL$(git diff --no-ext-diff --name-only -z HEAD 2>/dev/null | tr '\0' '\n')$PC_NL"
   # Could not list them is not "nothing changed": refuse rather than pass.
-  sec_changed_files "$1" "${2:-}" > "$PC_TMP/changed" \
-    || { pc_find hygiene "could not list the files this push changes"; : > "$PC_TMP/changed"; }
-  : > "$PC_TMP/files"; : > "$PC_TMP/sizes"
-  [[ -s "$PC_TMP/changed" ]] || return 0
-  sed "s/$(printf '\t')/:/" "$PC_TMP/changed" | git cat-file --batch-check='%(objectsize) %(objecttype)' > "$PC_TMP/types" 2>/dev/null
+  changed="$(sec_changed_files "$1" "${2:-}")" || { pc_find hygiene "could not list the files this push changes"; return 0; }
+  [[ -n "$changed" ]] || return 0
+  types="$(printf '%s\n' "$changed" | awk -F'\t' '{ print $1 ":" $2 }' \
+    | git cat-file --batch-check='%(objectsize) %(objecttype)' 2>/dev/null)"
   while IFS=$'\t' read -r tip path && IFS=' ' read -r size type <&3; do
     [[ "$type" == blob ]] || continue      # a submodule commit has no content here
-    # A crafted tree can name ../ or an absolute path; never write outside $PC_TMP.
-    case "/$path/" in */../*|*/./*|//*) continue ;; esac
-    if [[ "$tip" == "$head" && -L "$path" ]] && ! LC_ALL=C grep -qxF -- "$path" "$PC_TMP/dirty"; then
-      continue                             # a link: the push sends its target's name, not the file
-    elif [[ "$tip" == "$head" && -f "$path" ]] && ! LC_ALL=C grep -qxF -- "$path" "$PC_TMP/dirty"; then
-      dest="./$path"                       # never read as an option: -x.sh
-    else
-      git ls-tree "$tip" -- "$path" 2>/dev/null | LC_ALL=C grep -q '^120000 ' && continue
-      dest="$PC_TMP/t/$tip/$path"
-      mkdir -p "$(dirname "$dest")" && git cat-file blob "$tip:$path" > "$dest" 2>/dev/null || continue
+    case "$dirty" in *"$PC_NL$path$PC_NL"*) src=git ;; *) src=wt ;; esac
+    [[ "$tip" == "$head" ]] || src=git
+    if [[ "$src" == wt ]]; then
+      [[ -L "$path" ]] && continue         # a link: the push sends its target's name
+      [[ -f "$path" ]] || src=git
     fi
-    printf '%s\t%s\t%s\n' "$tip" "$path" "$dest" >> "$PC_TMP/files"
-    printf '%s\t%s\n' "$size" "$path" >> "$PC_TMP/sizes"
-  done < "$PC_TMP/changed" 3< "$PC_TMP/types"
-  # Extracted copies get the repository's lint configs, so they lint as in place.
-  for tip in $(cut -f1 "$PC_TMP/files" | LC_ALL=C sort -u); do
-    [[ -d "$PC_TMP/t/$tip" ]] || continue
-    for path in .shellcheckrc pyproject.toml ruff.toml .ruff.toml rustfmt.toml .rustfmt.toml; do
-      git cat-file -e "$tip:$path" 2>/dev/null && [[ ! -e "$PC_TMP/t/$tip/$path" ]] \
-        && git cat-file blob "$tip:$path" > "$PC_TMP/t/$tip/$path" 2>/dev/null
-    done
-  done
+    if [[ "$src" == git ]]; then
+      git ls-tree "$tip" -- "$path" 2>/dev/null | LC_ALL=C grep -q '^120000 ' && continue
+    fi
+    PC_FILES="$PC_FILES$tip	$path	$size	$src$PC_NL"
+  done < <(printf '%s\n' "$changed") 3< <(printf '%s\n' "$types")
   return 0
 }
 
-# pc_show <text>: tool output with the copies' directory removed from paths.
-# Literal string removal in awk, the paths read from the environment: a path in
-# a sed script is code (GNU sed's s///e runs a command), and a directory can be
-# named anything.
-pc_show() {
-  printf '%s\n' "$1" | PCS_TMP="$PC_TMP/t/" PCS_TOP="$(pwd -P)/" awk '
-    BEGIN { t = ENVIRON["PCS_TMP"]; r = ENVIRON["PCS_TOP"] }
-    {
-      out = ""; line = $0
-      while ((i = index(line, t)) > 0) {          # <tmp>/t/<commit>/ -> ""
-        rest = substr(line, i + length(t)); j = index(rest, "/")
-        out = out substr(line, 1, i - 1); line = (j > 0) ? substr(rest, j + 1) : rest
-      }
-      line = out line; out = ""
-      while ((i = index(line, r)) > 0) { out = out substr(line, 1, i - 1); line = substr(line, i + length(r)) }
-      line = out line
-      if (line ~ /[^[:space:]]/) print line
-    }'
+# pc_named <path> <text>: tool output for one file read from stdin, with the
+# placeholder names tools give stdin replaced by the path (plain bash string
+# replacement: a path is data, never a sed or awk program).
+pc_named() {
+  local out="$2"
+  out="${out//<standard input>/$1}"
+  out="${out//bash: line /$1: line }"
+  out="${out//In - line /In $1 line }"
+  printf '%s' "$out"
 }
 
 # --------------------------------------------------------------- hygiene
 pc_hygiene() {
-  local refs="$1" remote="${2:-}" url="${3:-}" max_mb max tip path dest size hits lref lsha rref rsha v top revs out
+  local refs="$1" remote="${2:-}" url="${3:-}" max_mb max tip path size src hits lref lsha rref rsha v top revs out
   max_mb="$(git config --get script-helpers.max-file-mb 2>/dev/null || true)"
   [[ "$max_mb" =~ ^[0-9]+$ ]] || max_mb=5
   max=$((max_mb * 1024 * 1024))
-  while IFS=$'\t' read -r size path; do
-    pc_allowed "$path" && continue
-    [[ "$size" -gt "$max" ]] && pc_find hygiene "$path is $((size / 1024 / 1024)) MB, over $max_mb MB (git config script-helpers.max-file-mb, or list it in .script-helpers-push-allow)"
-  done < "$PC_TMP/sizes"
-  while IFS=$'\t' read -r tip path dest; do
+  while IFS=$'\t' read -r tip path size src; do
+    [[ -n "$path" ]] || continue
     if ! pc_allowed "$path"; then
+      [[ "$size" -gt "$max" ]] && pc_find hygiene "$path is $((size / 1024 / 1024)) MB, over $max_mb MB (git config script-helpers.max-file-mb, or list it in .script-helpers-push-allow)"
       case "${path##*/}" in
         .env.example|.env.sample|.env.template|.env.dist|*.pub) ;;
         .env|.env.*|*.pem|*.key|id_rsa|id_rsa.*|id_dsa|id_ecdsa|id_ecdsa.*|id_ed25519|id_ed25519.*|*.p12|*.pfx|*.jks|*.keystore|.netrc|_netrc|.pypirc|*.tfstate|*.tfstate.backup|*.kdbx)
           pc_find hygiene "$path looks like a secret file (list it in .script-helpers-push-allow if it is not)" ;;
       esac
     fi
-    hits="$(LC_ALL=C grep -I -n -E '^(<{7}|>{7})( |$)' -- "$dest" 2>/dev/null | head -3 | cut -d: -f1 | tr '\n' ' ' || true)"
+    hits="$(pc_cat "$tip" "$path" "$src" 2>/dev/null | LC_ALL=C grep -I -n -E '^(<{7}|>{7})( |$)' | head -3 | cut -d: -f1 | tr '\n' ' ' || true)"
     [[ -n "$hits" ]] && pc_find hygiene "$path has merge conflict markers (line ${hits% })"
-  done < "$PC_TMP/files"
+  done < <(printf '%s' "$PC_FILES")
 
-  # Commit messages. Each starts with a line of a NUL-free marker and the hash
-  # (%x01): a message line cannot fake it, so the right commit is named.
-  local ai=false ascii=false
+  # Commit messages. Each starts with a marker line (\x01 and the hash): a
+  # message line cannot fake it, so the right commit is named.
+  local ai=false ascii=false msgs what
   pc_ai_scope "$url" && ai=true
   [[ "$(git config --get --type=bool script-helpers.ascii-commits 2>/dev/null || true)" == true ]] && ascii=true
   if [[ "$ai" == true || "$ascii" == true ]]; then
-    while IFS= read -r revs; do
-      # shellcheck disable=SC2086
-      git log --format='%x01%h%n%B' $revs 2>/dev/null
-    done < <(sec_revs "$refs" "$remote") | LC_ALL=C awk -v ai="$ai" -v ascii="$ascii" '
-      /^\001/ { c = substr($0, 2); next }
-      { l = tolower($0) }
-      ai == "true" && (l ~ /(co-authored-by|signed-off-by):.*(claude|anthropic|copilot|chatgpt|openai|gemini|cursor|codex|aider|devin|windsurf|codeium)/ ||
-                       l ~ /generated (with|by).*(claude|copilot|chatgpt|gemini|cursor|codex|aider|devin|windsurf|codeium)/) { print "ai " c }
-      ascii == "true" && /[^\001-\177]/ { print "ascii " c }' | LC_ALL=C sort -u > "$PC_TMP/msgs"
+    msgs="$(while IFS= read -r revs; do
+        # shellcheck disable=SC2086
+        git log --format='%x01%h%n%B' $revs 2>/dev/null
+      done < <(sec_revs "$refs" "$remote") | LC_ALL=C awk -v ai="$ai" -v ascii="$ascii" '
+        /^\001/ { c = substr($0, 2); next }
+        { l = tolower($0) }
+        ai == "true" && (l ~ /(co-authored-by|signed-off-by):.*(claude|anthropic|copilot|chatgpt|openai|gemini|cursor|codex|aider|devin|windsurf|codeium)/ ||
+                         l ~ /generated (with|by).*(claude|copilot|chatgpt|gemini|cursor|codex|aider|devin|windsurf|codeium)/) { print "ai " c }
+        ascii == "true" && /[^\001-\177]/ { print "ascii " c }' | LC_ALL=C sort -u)"
     while read -r what v; do
       case "$what" in
         ai)    pc_find hygiene "commit $v names an AI tool in a trailer or a \"Generated with\" line (git commit --amend, or git rebase to reword it)" ;;
         ascii) pc_find hygiene "commit $v has non-ASCII characters in its message (script-helpers.ascii-commits; em-dashes, curly quotes, ...)" ;;
       esac
-    done < "$PC_TMP/msgs"
+    done < <(printf '%s\n' "$msgs")
   fi
 
   # release/X.Y.Z: the release heading and VERSION at the pushed tip.
@@ -197,17 +187,16 @@ pc_hygiene() {
     [[ "$v" != "$rref" && "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
     # Only where the repository keeps dated release headings ("## YYYY-MM-DD ...");
     # another changelog style is not this check's to judge.
-    mkdir -p "$PC_TMP/rel" && git cat-file blob "$lsha:CHANGELOG.md" > "$PC_TMP/rel/CHANGELOG.md" 2>/dev/null || continue
-    grep -qE '^##[[:space:]]+[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]' "$PC_TMP/rel/CHANGELOG.md" || continue
-    if [[ -f "$PC_DIR/../lib/changelog.sh" ]]; then
-      out="$( cd "$PC_DIR/.." && source ./lib/logging.sh 2>/dev/null && source ./lib/changelog.sh && changelog_check_header "$PC_TMP/rel/CHANGELOG.md" 2>&1 )" \
-        || pc_find hygiene "release/$v CHANGELOG heading: $(printf '%s' "$out" | tr -d '\033' | sed 's/\[[0-9;]*m//g' | tr '\n' ' ')"
-    fi
-    top="$(grep -m1 -E '^##[[:space:]]+[0-9]{4}-' "$PC_TMP/rel/CHANGELOG.md" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
-    [[ "$top" == "$v" ]] || pc_find hygiene "release/$v: the newest CHANGELOG release is '${top:-none}', not $v"
+    top="$(git cat-file blob "$lsha:CHANGELOG.md" 2>/dev/null | grep -m1 -E '^##[[:space:]]+[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]' || true)"
+    [[ -n "$top" ]] || continue
+    # The format ci-helpers reads release notes from: "## YYYY-MM-DD <em-dash> vX.Y.Z".
+    [[ "$top" =~ ^##[[:space:]]+[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+${PC_EMDASH}[[:space:]]+v?[0-9]+\.[0-9]+\.[0-9]+ ]] \
+      || pc_find hygiene "release/$v CHANGELOG heading needs an em-dash: '## YYYY-MM-DD <em-dash> v$v', found '$top'"
+    out="$(printf '%s' "$top" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+    [[ "$out" == "$v" ]] || pc_find hygiene "release/$v: the newest CHANGELOG release is '${out:-none}', not $v"
     if git cat-file -e "$lsha:VERSION" 2>/dev/null; then
-      top="$(git cat-file blob "$lsha:VERSION" | tr -d '[:space:]' | sed 's/^v//')"
-      [[ "$top" == "$v" ]] || pc_find hygiene "release/$v: VERSION says '$top'"
+      out="$(git cat-file blob "$lsha:VERSION" | tr -d '[:space:]')"; out="${out#v}"
+      [[ "$out" == "$v" ]] || pc_find hygiene "release/$v: VERSION says '$out'"
     fi
   done < "$refs"
 }
@@ -227,138 +216,18 @@ pc_ai_scope() {
 # ------------------------------------------------------------------ lint
 pc_missing() { pc_say "lint: $1 not installed; $2 not checked."; }
 
-pc_lint() {
-  local tip path dest py out f mk="" sh=() pyf=() js=() gof=() rs=() wf=() json=() yml=() ps=() extracted=0
-  for f in Makefile makefile GNUmakefile; do [[ -f "$f" ]] && { mk="$f"; break; }; done
-  if [[ -n "$mk" ]] && grep -qE '^lint-changed[[:space:]]*:' "$mk"; then
-    if ! pc_repo_code_ok; then
-      pc_say "lint: make lint-changed not run: this hook is installed outside the repository, and runs none of its code."
-    else
-      pc_say "lint: make lint-changed"
-      CHANGED_FILES="$(cut -f2 "$PC_TMP/files")" make lint-changed >&2 \
-        || pc_find lint "make lint-changed failed"
-      return 0
-    fi
-  fi
-  while IFS=$'\t' read -r tip path dest; do
-    [[ "$dest" == "$PC_TMP"/* ]] && extracted=1
-    case "$path" in
-      .github/workflows/*.yml|.github/workflows/*.yaml) wf+=("$dest"); yml+=("$dest") ;;
-      *.sh|*.bash) sh+=("$dest") ;;
-      *.py) pyf+=("$dest") ;;
-      *.js|*.jsx|*.ts|*.tsx|*.mjs|*.cjs) [[ "$dest" == "./$path" ]] && js+=("$dest") ;;
-      *.go) gof+=("$dest") ;;
-      *.rs) rs+=("$dest") ;;
-      *.jsonc|tsconfig*.json|jsconfig*.json|*/tsconfig*.json|*/jsconfig*.json|.vscode/*|*/.vscode/*|*devcontainer.json|.eslintrc.json|*/.eslintrc.json|tslint.json) ;;
-      *.json) json+=("$dest") ;;
-      *.yml|*.yaml) yml+=("$dest") ;;
-      *.ps1|*.psm1) ps+=("$dest") ;;
-      *) [[ "${path##*/}" == *.* ]] && continue
-         head -n1 "$dest" 2>/dev/null | grep -qE '^#!.*[/ ](ba)?sh([[:space:]]|$)' && sh+=("$dest") ;;
-    esac
-  done < "$PC_TMP/files"
-
-  if [[ ${#sh[@]} -gt 0 ]]; then
-    for f in "${sh[@]}"; do
-      out="$(bash -n "$f" 2>&1)" || pc_find lint "$(pc_show "$out")"
-    done
-    if command -v shellcheck >/dev/null 2>&1; then
-      out="$(shellcheck -S warning -- "${sh[@]}" 2>&1)" || pc_find lint "shellcheck:
-$(pc_show "$out")"
-    else
-      pc_missing shellcheck "${#sh[@]} shell file(s)"
-    fi
-  fi
-
-  if [[ ${#pyf[@]} -gt 0 ]]; then
-    if command -v ruff >/dev/null 2>&1; then
-      local sel=()
-      [[ -f pyproject.toml ]] && grep -q '^\[tool\.ruff' pyproject.toml || [[ -f ruff.toml || -f .ruff.toml ]] \
-        || sel=(--select 'E9,F63,F7,F82')
-      out="$(ruff check --quiet --no-cache --force-exclude "${sel[@]+"${sel[@]}"}" -- "${pyf[@]}" 2>&1)" || pc_find lint "ruff:
-$(pc_show "$out")"
-    elif py="$(pc_python)"; then
-      for f in "${!pyf[@]}"; do pyf[$f]="$(pc_abs "${pyf[$f]}")"; done
-      out="$(cd "$PC_TMP" && "$py" - "${pyf[@]}" 2>&1 <<'PY'
-import ast, sys
-bad = 0
-for f in sys.argv[1:]:
-    try:
-        ast.parse(open(f, 'rb').read(), f)
-    except SyntaxError as e:
-        print("%s:%s: %s" % (f, e.lineno, e.msg)); bad = 1
-sys.exit(bad)
-PY
-)" || pc_find lint "python syntax:
-$(pc_show "$out")"
-    else
-      pc_missing "ruff or python" "${#pyf[@]} python file(s)"
-    fi
-  fi
-
-  if [[ ${#js[@]} -gt 0 ]]; then
-    local has_cfg=false
-    for f in eslint.config.* .eslintrc*; do [[ -e "$f" ]] && { has_cfg=true; break; }; done
-    if [[ -x node_modules/.bin/eslint && "$has_cfg" == true ]] && ! pc_repo_code_ok; then
-      pc_say "lint: eslint not run: it and its config are the repository's code, and this hook is installed outside it."
-    elif [[ -x node_modules/.bin/eslint && "$has_cfg" == true ]]; then
-      out="$(node_modules/.bin/eslint -- "${js[@]}" 2>&1)" || pc_find lint "eslint:
-$(pc_show "$out")"
-    fi
-  fi
-  [[ "$extracted" == 1 ]] && grep -qE '\.(js|jsx|ts|tsx|mjs|cjs)$' <(cut -f2 "$PC_TMP/files") \
-    && pc_say "lint: eslint runs only on the checked-out branch's files."
-
-  if [[ ${#gof[@]} -gt 0 ]]; then
-    if command -v gofmt >/dev/null 2>&1; then
-      out="$(gofmt -l -e -- "${gof[@]}" 2>&1)"
-      [[ -z "$out" ]] || pc_find lint "gofmt (run gofmt -w):
-$(pc_show "$out")"
-    else
-      pc_missing gofmt "${#gof[@]} go file(s)"
-    fi
-  fi
-
-  if [[ ${#rs[@]} -gt 0 && ( -f rustfmt.toml || -f .rustfmt.toml ) ]]; then
-    if command -v rustfmt >/dev/null 2>&1; then
-      out="$(rustfmt --check -- "${rs[@]}" 2>&1)" || pc_find lint "rustfmt --check:
-$(pc_show "$out")"
-    else
-      pc_missing rustfmt "${#rs[@]} rust file(s)"
-    fi
-  fi
-
-  if [[ ${#wf[@]} -gt 0 ]]; then
-    if command -v actionlint >/dev/null 2>&1; then
-      out="$(actionlint -no-color -- "${wf[@]}" 2>&1)" || pc_find lint "actionlint:
-$(pc_show "$out")"
-    else
-      pc_missing actionlint "${#wf[@]} workflow file(s)"
-    fi
-  fi
-
-  if [[ ${#json[@]} -gt 0 || ${#yml[@]} -gt 0 ]] && ! py="$(pc_python)"; then
-    pc_missing python "$(( ${#json[@]} + ${#yml[@]} )) JSON/YAML file(s)"
-  elif [[ ${#json[@]} -gt 0 || ${#yml[@]} -gt 0 ]]; then
-    for f in "${!json[@]}"; do json[$f]="$(pc_abs "${json[$f]}")"; done
-    for f in "${!yml[@]}"; do yml[$f]="$(pc_abs "${yml[$f]}")"; done
-    if [[ ${#json[@]} -gt 0 ]]; then
-      out="$(cd "$PC_TMP" && "$py" - "${json[@]}" 2>&1 <<'PY'
-import json, sys
-bad = 0
-for f in sys.argv[1:]:
-    try:
-        json.load(open(f, encoding='utf-8-sig'))
-    except Exception as e:
-        print("%s: %s" % (f, e)); bad = 1
-sys.exit(bad)
-PY
-)" || pc_find lint "json:
-$(pc_show "$out")"
-    fi
-    if [[ ${#yml[@]} -gt 0 ]]; then
-      out="$(cd "$PC_TMP" && "$py" - "${yml[@]}" 2>&1 <<'PY'
-import re, sys
+# Python, run from / with the file on stdin. Exit 3 = a module is missing.
+PC_PY_SYNTAX='import ast, sys
+try:
+    ast.parse(sys.stdin.buffer.read(), sys.argv[1])
+except SyntaxError as e:
+    print("%s:%s: %s" % (sys.argv[1], e.lineno, e.msg)); sys.exit(1)'
+PC_PY_JSON='import json, sys
+try:
+    json.loads(sys.stdin.buffer.read().decode("utf-8-sig"))
+except Exception as e:
+    print("%s: %s" % (sys.argv[1], e)); sys.exit(1)'
+PC_PY_YAML='import re, sys
 try:
     import yaml
 except ImportError:
@@ -366,58 +235,164 @@ except ImportError:
 class L(yaml.SafeLoader):
     pass
 # Custom tags (!Ref, !reference) are valid YAML; only the structure is checked.
-L.add_multi_constructor('', lambda loader, suffix, node: None)
-bad = 0
-for f in sys.argv[1:]:
-    text = open(f, encoding='utf-8-sig').read()
-    if re.search(r'(?<!\$)\{\{|\{%', text):
-        continue   # a template (Helm, Jinja), not YAML until rendered; ${{ }} is not one
-    try:
-        list(yaml.load_all(text, Loader=L))
-    except yaml.YAMLError as e:
-        print("%s: %s" % (f, str(e).replace('\n', ' '))); bad = 1
-sys.exit(bad)
-PY
-)"
-      case $? in
-        0) ;;
-        3) pc_missing PyYAML "${#yml[@]} YAML file(s)" ;;
-        *) pc_find lint "yaml:
-$(pc_show "$out")" ;;
-      esac
+L.add_multi_constructor("", lambda loader, suffix, node: None)
+text = sys.stdin.buffer.read().decode("utf-8-sig")
+# A template (Helm, Jinja) is not YAML until rendered; ${{ }} is not one.
+if re.search(r"(?<!\$)\{\{|\{%", text):
+    sys.exit(0)
+try:
+    list(yaml.load_all(text, Loader=L))
+except yaml.YAMLError as e:
+    print("%s: %s" % (sys.argv[1], str(e).replace("\n", " "))); sys.exit(1)'
+
+pc_lint() {
+  local tip path size src out f mk="" py="" kind rc any_js_git=0 sel=()
+  local n_sh=0 n_py=0 n_go=0 n_rs=0 n_wf=0 n_data=0 js=()
+  for f in Makefile makefile GNUmakefile; do [[ -f "$f" ]] && { mk="$f"; break; }; done
+  if [[ -n "$mk" ]] && grep -qE '^lint-changed[[:space:]]*:' "$mk"; then
+    if ! pc_repo_code_ok; then
+      pc_say "lint: make lint-changed not run: this hook is installed outside the repository, and runs none of its code."
+    else
+      pc_say "lint: make lint-changed"
+      CHANGED_FILES="$(printf '%s' "$PC_FILES" | cut -f2)" make lint-changed >&2 \
+        || pc_find lint "make lint-changed failed"
+      return 0
     fi
   fi
+  py="$(pc_python || true)"
+  local have_sc=false have_ruff=false have_gofmt=false have_rustfmt=false have_al=false have_pwsh=false rust_cfg=false
+  command -v shellcheck >/dev/null 2>&1 && have_sc=true
+  command -v ruff >/dev/null 2>&1 && have_ruff=true
+  command -v gofmt >/dev/null 2>&1 && have_gofmt=true
+  command -v rustfmt >/dev/null 2>&1 && have_rustfmt=true
+  command -v actionlint >/dev/null 2>&1 && have_al=true
+  command -v pwsh >/dev/null 2>&1 && have_pwsh=true
+  [[ -f rustfmt.toml || -f .rustfmt.toml ]] && rust_cfg=true
+  [[ -f pyproject.toml ]] && grep -q '^\[tool\.ruff' pyproject.toml || [[ -f ruff.toml || -f .ruff.toml ]] \
+    || sel=(--select 'E9,F63,F7,F82')
 
-  if [[ ${#ps[@]} -gt 0 ]] && command -v pwsh >/dev/null 2>&1; then
-    for f in "${ps[@]}"; do
-      out="$(pwsh -NoProfile -NonInteractive -Command '$t=$null; $e=$null; [void][System.Management.Automation.Language.Parser]::ParseFile($args[0],[ref]$t,[ref]$e); $e | ForEach-Object { "{0}:{1}: {2}" -f $args[0],$_.Extent.StartLineNumber,$_.Message }; exit [int]($e.Count -gt 0)' "$f" 2>&1)" \
-        || pc_find lint "powershell:
-$(pc_show "$out")"
-    done
+  while IFS=$'\t' read -r tip path size src; do
+    [[ -n "$path" ]] || continue
+    case "$path" in
+      .github/workflows/*.yml|.github/workflows/*.yaml) kind="workflow" ;;
+      *.sh|*.bash) kind="sh" ;;
+      *.py) kind="py" ;;
+      *.js|*.jsx|*.ts|*.tsx|*.mjs|*.cjs) kind="js" ;;
+      *.go) kind="go" ;;
+      *.rs) kind="rs" ;;
+      *.jsonc|tsconfig*.json|jsconfig*.json|*/tsconfig*.json|*/jsconfig*.json|.vscode/*|*/.vscode/*|*devcontainer.json|.eslintrc.json|*/.eslintrc.json|tslint.json) kind="none" ;;
+      *.json) kind="json" ;;
+      *.yml|*.yaml) kind="yaml" ;;
+      *.ps1|*.psm1) kind="ps" ;;
+      *) kind="none"
+         if [[ "${path##*/}" != *.* ]] && pc_cat "$tip" "$path" "$src" 2>/dev/null | head -n1 \
+              | grep -qE '^#!.*[/ ](ba)?sh([[:space:]]|$)'; then kind="sh"; fi ;;
+    esac
+    case "$kind" in
+      sh)
+        n_sh=$((n_sh + 1))
+        out="$(pc_cat "$tip" "$path" "$src" | bash -n 2>&1)" || pc_find lint "$(pc_named "$path" "$out")"
+        if [[ "$have_sc" == true ]]; then
+          # No shebang (a sourced library): bash, as bash -n above reads it;
+          # otherwise shellcheck refuses with SC2148 for any such file.
+          local scsh=()
+          pc_cat "$tip" "$path" "$src" | head -n1 | grep -q '^#!' || scsh=(--shell=bash)
+          out="$(pc_cat "$tip" "$path" "$src" | shellcheck -S warning "${scsh[@]+"${scsh[@]}"}" - 2>&1)" || pc_find lint "shellcheck:$PC_NL$(pc_named "$path" "$out")"
+        fi ;;
+      py)
+        n_py=$((n_py + 1))
+        if [[ "$have_ruff" == true ]]; then
+          out="$(pc_cat "$tip" "$path" "$src" | ruff check --quiet --no-cache --force-exclude "${sel[@]+"${sel[@]}"}" --stdin-filename "$path" - 2>&1)" \
+            || pc_find lint "ruff:$PC_NL$out"
+        elif [[ -n "$py" ]]; then
+          out="$(pc_cat "$tip" "$path" "$src" | pc_py "$py" "$PC_PY_SYNTAX" "$path" 2>&1)" || pc_find lint "python syntax: $out"
+        fi ;;
+      js)
+        if [[ "$src" == wt ]]; then js+=("./$path"); else any_js_git=1; fi ;;
+      go)
+        n_go=$((n_go + 1))
+        if [[ "$have_gofmt" == true ]]; then
+          out="$(pc_cat "$tip" "$path" "$src" | gofmt -l -e 2>&1)"
+          [[ -z "$out" ]] || pc_find lint "gofmt (run gofmt -w): $(pc_named "$path" "$out")"
+        fi ;;
+      rs)
+        if [[ "$rust_cfg" == true ]]; then
+          n_rs=$((n_rs + 1))
+          if [[ "$have_rustfmt" == true ]]; then
+            out="$(pc_cat "$tip" "$path" "$src" | rustfmt --check 2>&1)" || pc_find lint "rustfmt --check: $path:$PC_NL$(pc_named "$path" "$out")"
+          fi
+        fi ;;
+      workflow)
+        n_wf=$((n_wf + 1))
+        if [[ "$have_al" == true ]]; then
+          out="$(pc_cat "$tip" "$path" "$src" | actionlint -no-color -stdin-filename "$path" - 2>&1)" || pc_find lint "actionlint:$PC_NL$out"
+        fi
+        kind="yaml" ;;
+      json)
+        n_data=$((n_data + 1))
+        if [[ -n "$py" ]]; then
+          out="$(pc_cat "$tip" "$path" "$src" | pc_py "$py" "$PC_PY_JSON" "$path" 2>&1)" || pc_find lint "json: $out"
+        fi ;;
+      ps)
+        if [[ "$have_pwsh" == true ]]; then
+          out="$(pc_cat "$tip" "$path" "$src" | pwsh -NoProfile -NonInteractive -Command '$t=$null; $e=$null; [void][System.Management.Automation.Language.Parser]::ParseInput([Console]::In.ReadToEnd(),[ref]$t,[ref]$e); $e | ForEach-Object { "{0}:{1}: {2}" -f $args[0],$_.Extent.StartLineNumber,$_.Message }; exit [int]($e.Count -gt 0)' "$path" 2>&1)" \
+            || pc_find lint "powershell: $out"
+        fi ;;
+    esac
+    if [[ "$kind" == yaml ]]; then
+      n_data=$((n_data + 1))
+      if [[ -n "$py" ]]; then
+        out="$(pc_cat "$tip" "$path" "$src" | pc_py "$py" "$PC_PY_YAML" "$path" 2>&1)"; rc=$?
+        case "$rc" in
+          0) ;;
+          3) PC_NO_YAML=$((PC_NO_YAML + 1)) ;;
+          *) pc_find lint "yaml: $out" ;;
+        esac
+      fi
+    fi
+  done < <(printf '%s' "$PC_FILES")
+
+  [[ "$n_sh" -gt 0 && "$have_sc" != true ]] && pc_missing shellcheck "$n_sh shell file(s)"
+  [[ "$n_py" -gt 0 && "$have_ruff" != true && -z "$py" ]] && pc_missing "ruff or python" "$n_py python file(s)"
+  [[ "$n_go" -gt 0 && "$have_gofmt" != true ]] && pc_missing gofmt "$n_go go file(s)"
+  [[ "$n_rs" -gt 0 && "$have_rustfmt" != true ]] && pc_missing rustfmt "$n_rs rust file(s)"
+  [[ "$n_wf" -gt 0 && "$have_al" != true ]] && pc_missing actionlint "$n_wf workflow file(s)"
+  [[ "$n_data" -gt 0 && -z "$py" ]] && pc_missing python "$n_data JSON/YAML file(s)"
+  [[ "${PC_NO_YAML:-0}" -gt 0 ]] && pc_missing PyYAML "$PC_NO_YAML YAML file(s)"
+
+  # eslint reads files and its JS config from the work tree: the checked-out
+  # branch's files only, and only from the repository's own copy of this hook.
+  if [[ ${#js[@]} -gt 0 ]]; then
+    local has_cfg=false
+    for f in eslint.config.* .eslintrc*; do [[ -e "$f" ]] && { has_cfg=true; break; }; done
+    if [[ -x node_modules/.bin/eslint && "$has_cfg" == true ]]; then
+      if ! pc_repo_code_ok; then
+        pc_say "lint: eslint not run: it and its config are the repository's code, and this hook is installed outside it."
+      else
+        out="$(node_modules/.bin/eslint -- "${js[@]}" 2>&1)" || pc_find lint "eslint:$PC_NL$out"
+      fi
+    fi
   fi
+  [[ "$any_js_git" == 1 ]] && pc_say "lint: eslint runs only on the checked-out branch's files."
   return 0
 }
 
 # push_checks <refs-file> <remote-name> [<url>]: 0 = clean, 1 = refused.
 push_checks() {
-  local refs="$1" remote="${2:-}" url="${3:-}" t0 tip
-  PC_FINDINGS=0
+  local refs="$1" remote="${2:-}" url="${3:-}" t0 tip n
+  PC_FINDINGS=0; PC_NO_YAML=0; PC_ALLOW=""
   declare -F sec_changed_files >/dev/null || source "$PC_DIR/security_hooks.sh" || return 1
-  PC_TMP="$(mktemp -d 2>/dev/null)" && [[ -n "$PC_TMP" && -d "$PC_TMP" && ! -L "$PC_TMP" ]] || {
-    echo "[pre-push] could not create a private temp directory; refused." >&2; return 1; }
-  chmod 700 "$PC_TMP" 2>/dev/null || true
   t0=$SECONDS
   pc_prepare "$refs" "$remote"
-  : > "$PC_TMP/allow"
-  for tip in $(cut -f1 "$PC_TMP/files" | LC_ALL=C sort -u); do
-    git cat-file blob "$tip:.script-helpers-push-allow" >> "$PC_TMP/allow" 2>/dev/null || true
+  for tip in $(printf '%s' "$PC_FILES" | cut -f1 | LC_ALL=C sort -u); do
+    PC_ALLOW="$PC_ALLOW$(git cat-file blob "$tip:.script-helpers-push-allow" 2>/dev/null || true)$PC_NL"
   done
   pc_hygiene "$refs" "$remote" "$url"
-  pc_say "hygiene: $(wc -l < "$PC_TMP/files" | tr -d ' ') changed file(s) checked ($((SECONDS - t0)) s)"
+  n="$(printf '%s' "$PC_FILES" | grep -c . || true)"
+  pc_say "hygiene: ${n:-0} changed file(s) checked ($((SECONDS - t0)) s)"
   t0=$SECONDS
   pc_lint
   pc_say "lint: done ($((SECONDS - t0)) s)"
-  rm -rf "$PC_TMP"
   if [[ "$PC_FINDINGS" -gt 0 ]]; then
     echo "[pre-push] push refused: $PC_FINDINGS finding(s) above. Fix them, commit, and push again." >&2
     return 1

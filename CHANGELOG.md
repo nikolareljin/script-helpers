@@ -11,7 +11,8 @@
   commit messages with `script-helpers.ascii-commits`) and lint of the
   changed files (`bash -n`, shellcheck, ruff, eslint, gofmt, rustfmt, actionlint,
   JSON, YAML, PowerShell; each only when installed), reading the pushed
-  commits, not the work tree (`scripts/push_checks.sh`). The global dispatcher
+  commits, not the work tree, and writing nothing to disk, not even a temporary
+  file (`scripts/push_checks.sh`). The global dispatcher
   runs the same checks. Every check runs to the end. The full suite is
   `make test` or `./dev test`; the old test stage is `scripts/run_repo_tests.sh`.
   `PRE_PUSH_SKIP_TESTS` is no longer needed and is ignored.
