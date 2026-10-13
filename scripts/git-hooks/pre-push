@@ -5,7 +5,16 @@
 #              or from a submodule: bash scripts/script-helpers/scripts/setup-hooks.sh
 #
 # Skip with: git push --no-verify  (discouraged; use only for docs-only pushes)
+#
+# git connects to the remote before this hook runs and keeps the connection open,
+# idle, until it passes. Over SSH a long test run can be cut off by the server
+# (push exits 141, "Connection to <host> closed by remote host"). The hook says so
+# before the checks start when no SSH keepalive is set; set one to fix it:
+#   ~/.ssh/config:  Host github.com
+#                     ServerAliveInterval 20
 set -euo pipefail
+
+_push_url="${2:-}"   # git passes the remote name and URL
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$repo_root"
@@ -381,6 +390,48 @@ _drop_git_hook_env() {
   unset $names
 }
 _drop_git_hook_env
+
+# The host of an SSH remote URL (ssh://[user@]host[:port]/path or the scp form
+# [user@]host:path), else nothing: HTTPS remotes are not affected.
+_ssh_host_of() {
+  local url="$1" rest
+  case "$url" in
+    ssh://*|git+ssh://*|ssh+git://*) rest="${url#*://}"; rest="${rest#*@}"; rest="${rest%%/*}"; echo "${rest%%:*}" ;;
+    *://*|/*|./*|../*) ;;
+    *:*) rest="${url%%:*}"; echo "${rest#*@}" ;;
+  esac
+}
+
+# A keepalive in GIT_SSH_COMMAND, core.sshCommand or the ssh config for host $1.
+_ssh_keepalive_set() {
+  local v
+  [[ "${GIT_SSH_COMMAND:-} $(git config --get core.sshCommand 2>/dev/null || true)" == *[Ss]erver[Aa]live[Ii]nterval* ]] && return 0
+  v="$(ssh -G "$1" 2>/dev/null | awk '$1 == "serveraliveinterval" { print $2; exit }')"
+  [[ -n "$v" && "$v" != 0 ]]
+}
+
+# Said before the checks, when it can still help: once they run long the
+# connection is already gone, and the push fails after they pass.
+_note_ssh_idle_timeout() {
+  local host
+  [[ "${PRE_PUSH_SKIP_TESTS:-}" != "1" ]] || return 0
+  host="$(_ssh_host_of "$_push_url")"
+  [[ -n "$host" ]] && command -v ssh >/dev/null 2>&1 || return 0
+  _ssh_keepalive_set "$host" && return 0
+  # Yellow on a terminal so it stands out among the check output; plain in CI,
+  # with NO_COLOR, or when stderr is not a terminal (a log file).
+  local on="" off=""
+  if [[ -t 2 && -z "${CI:-}" && -z "${NO_COLOR:-}" && "${TERM:-dumb}" != dumb ]]; then
+    on=$'\033[1;33m'; off=$'\033[0m'
+  fi
+  {
+    printf '%s[pre-push] The push waits for these checks with its SSH connection to %s idle; a long run\n' "$on" "$host"
+    printf '[pre-push] can be cut off (exit 141, "closed by remote host"). Keep it alive, in ~/.ssh/config:\n'
+    printf '[pre-push]   Host %s\n' "$host"
+    printf '[pre-push]     ServerAliveInterval 20%s\n' "$off"
+  } >&2
+}
+_note_ssh_idle_timeout
 
 _preflight_rc=0
 run_preflight || _preflight_rc=$?

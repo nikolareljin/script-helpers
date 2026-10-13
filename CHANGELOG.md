@@ -2,6 +2,16 @@
 
 ### Fixed
 
+- **pre-push says when an SSH push can be cut off.** git holds the push's
+  connection open, idle, while pre-push runs the tests; GitHub closes it during
+  a long run and the push exits 141 after the checks passed. Before the checks,
+  for an SSH remote with no keepalive (ssh config, `GIT_SSH_COMMAND`,
+  `core.sshCommand`), the hook prints the fix (`ServerAliveInterval 20` for that
+  host), in yellow on a terminal and plain in CI, with `NO_COLOR` or in a log.
+  `setup-hooks.sh --status` lists the keepalive; `--help` and `docs/usage.md`
+  explain it.
+- `setup-hooks.sh --status` inside a repository with no agent hooks stopped with
+  exit 1 before the prerequisites (0.50.0).
 - **A repository's own hooks no longer replace the security checks.** When a
   repository shipped hooks (`.githooks/`, or an older vendored script-helpers),
   `setup-hooks.sh` pointed git straight at them (`mode=direct`), so a clone was

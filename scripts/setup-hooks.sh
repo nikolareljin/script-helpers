@@ -88,6 +88,10 @@
 #   The shared pre-push hands over to .githooks/pre-push when a repository has
 #   one (for example the protected-refs guard), so a repository with only
 #   .githooks/pre-push gets the shared hooks and still runs its own.
+#   The pre-push hook runs this repository's tests while git holds the push's
+#   connection open. Over SSH, set a keepalive (ServerAliveInterval 20 for
+#   github.com in ~/.ssh/config) or a long run is cut off (exit 141); the hook
+#   and --status say so when none is set.
 # EXIT_CODES:
 #   0 done; 1 failed (or a --doctor probe failed); 2 refused (no owners, no
 #   Python 3, no write access, bad arguments); 3 settings.json is not valid JSON
@@ -334,6 +338,16 @@ prereqs() {
     echo "  names     MISSING ($list): every command in your repositories is refused until it exists; run refresh_private_names.sh"
     missing=$((missing+1))
   fi
+  # Not a refusal: without a keepalive a push whose pre-push checks run long is
+  # cut off by GitHub (exit 141) after they pass.
+  if command -v ssh >/dev/null 2>&1; then
+    if [[ "$(ssh -G github.com 2>/dev/null | awk '$1 == "serveraliveinterval" { print $2; exit }')" =~ ^[1-9] ]]; then
+      echo "  ssh       ok (keepalive set for github.com)"
+    else
+      echo "  ssh       WARN: no keepalive for github.com; a push with long pre-push checks can be cut off"
+      echo "            (exit 141). In ~/.ssh/config: Host github.com / ServerAliveInterval 20"
+    fi
+  fi
   terms="${SENSITIVE_TERMS_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/sensitive-terms.txt}"
   if [[ -f "$terms" ]]; then
     perms="$(ls -ld "$terms" | cut -c5-10)"
@@ -385,7 +399,9 @@ show_global_status() {
       [[ -n "$top_dir" && -f "$top_dir/$(agent_repo_rel "$a")" && -n "$PY" ]] && \
         agent_merge status "$a" "$(native_path "$top_dir/$(agent_repo_rel "$a")")" >/dev/null 2>&1 && agents="$agents $a"
     done
-    [[ -n "$agents" ]] && echo "[setup-hooks] this repository: agent hooks:$agents"
+    # An if, not `&&`: as the last command a false test made the function, and
+    # under set -e the whole --status, exit 1 before the prerequisites.
+    if [[ -n "$agents" ]]; then echo "[setup-hooks] this repository: agent hooks:$agents"; fi
   fi
 }
 

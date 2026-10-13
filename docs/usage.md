@@ -534,6 +534,19 @@ present (same-file recursion guard included), so a repository whose `.githooks/`
 holds only `pre-push`, such as a protected-refs guard, gets the shared hooks and
 still runs its own.
 
+`pre-push` runs while git holds the push's connection open, idle. Over SSH a
+long test run can be cut off by the server: the push exits 141 with
+`Connection to github.com closed by remote host`, after the checks passed. The
+hook prints a note before the checks when no keepalive is set, and
+`setup-hooks.sh --status` lists it. The fix, in `~/.ssh/config`:
+
+```
+Host github.com
+  ServerAliveInterval 20
+```
+
+or once: `GIT_SSH_COMMAND="ssh -o ServerAliveInterval=20" git push`.
+
 The same hooks also refuse credentials, personal identifiers and PII, and
 print foxguard warnings; see [Security gates in the git hooks](security-gates.md),
 including the machine-wide install (`setup-hooks.sh --global`).
