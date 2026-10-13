@@ -75,6 +75,10 @@ if [[ "${PRE_PUSH_SKIP_TESTS:-}" != "1" && -f "$_hook_dir/../ssh_keepalive.sh" ]
   # shellcheck source=/dev/null
   source "$_hook_dir/../ssh_keepalive.sh" && ssh_keepalive_note "$_push_url" "[pre-push]"
 fi
+# The once-per-push marker is for this hook's own note (the dispatcher may have
+# shown it already); the repository's tests must not inherit it, or a test of
+# the note itself sees it suppressed and fails the push.
+unset SCRIPT_HELPERS_SSH_NOTE_SHOWN
 _security_lib=""
 for _candidate in "$_hook_dir/../security_hooks.sh" "${SCRIPT_HELPERS_SECURITY_DIR:-/nonexistent}/security_hooks.sh"; do
   [[ -f "$_candidate" ]] && { _security_lib="$_candidate"; break; }

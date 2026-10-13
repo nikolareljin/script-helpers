@@ -11,7 +11,9 @@
   `git config core.sshCommand` for one, `GIT_SSH_COMMAND` for one push), once per
   push, in yellow on a terminal and plain in CI, with `NO_COLOR` or in a log.
   `setup-hooks.sh --status` lists the keepalive; `--help` and `docs/usage.md`
-  explain it (`scripts/ssh_keepalive.sh`).
+  explain it (`scripts/ssh_keepalive.sh`). Not shown for HTTPS or local remotes
+  (Windows drive paths included), with a non-OpenSSH client (`GIT_SSH`), or to
+  the tests the push runs.
 - `setup-hooks.sh --status` inside a repository with no agent hooks stopped with
   exit 1 before the prerequisites (0.50.0).
 - **A repository's own hooks no longer replace the security checks.** When a

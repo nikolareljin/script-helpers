@@ -17,7 +17,7 @@ export SECURITY_GATE_ALLOW_UNCHECKED=1 PRIVATE_NAMES_AUTO_REFRESH=false
 export PRIVATE_NAMES_FILE=/nonexistent/private-names.tsv
 # A keepalive in the caller's environment (a push run with one) or global git
 # config would hide the note: the test sets up its own.
-unset GIT_SSH_COMMAND GIT_SSH
+unset GIT_SSH_COMMAND GIT_SSH SCRIPT_HELPERS_SSH_NOTE_SHOWN
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 failures=0
 note()  { echo "[pre_push_ssh_note_test] $*"; }
@@ -87,6 +87,32 @@ else
   note "skip: no util-linux script for a terminal"
 fi
 
+# The host as git reads the URL: drive-letter paths, paths with a colon after a
+# slash, IPv6 in brackets, and a host that would read as an ssh option.
+source "$ROOT_DIR/scripts/ssh_keepalive.sh"
+host_is() {   # <url> <expected host, empty for none>
+  local got; got="$(ssh_host_of "$1")"
+  [[ "$got" == "$2" ]] && ok "host of $1: '${2}'" || error "host of $1: '$got', expected '$2'"
+}
+host_is 'git@github.com:me/x.git' github.com
+host_is 'ssh://git@ssh.github.com:443/me/x.git' ssh.github.com
+host_is 'ssh://host.example/x' host.example
+host_is 'C:/repo' ''
+host_is 'C:\repo' ''
+host_is 'C:' ''
+host_is './a:b' ''
+host_is 'dir/sub:x' ''
+host_is 'ssh://[::1]:22/x' '::1'
+host_is 'git@[::1]:x' '::1'
+host_is '-oProxyCommand=touch /tmp/x:y' ''
+host_is 'https://github.com/me/x.git' ''
+silent "GIT_SSH (non-OpenSSH client): no note" "git@github.com:me/x.git" "GIT_SSH=/usr/bin/plink"
+# Remotes with no SSH host: the push still succeeds (the hook runs under set -e).
+for url in https://github.com/me/x.git /srv/git/x.git 'C:/repo'; do
+  out="$(run "$url")"; rc=$?
+  [[ "$rc" -eq 0 && "$out" == *"All checks passed"* ]] && ok "push to $url still succeeds" || error "push to $url: rc=$rc"
+done
+
 # The note lists every way to keep the connection alive.
 out="$(run git@github.com:me/x.git)"
 for want in "add to ~/.ssh/config" 'git config core.sshCommand "ssh -o ServerAliveInterval=20"' \
@@ -121,6 +147,15 @@ if [[ -x "$wrapper" ]]; then
 else
   error "chained: no installed pre-push wrapper at $wrapper"
 fi
+
+# The tests a push runs must not inherit the once-per-push marker: in a push
+# with no keepalive the note is shown, and a test of the note run by that push
+# would see it suppressed and refuse the push.
+printf 'test:\n\t@[ -z "$$SCRIPT_HELPERS_SSH_NOTE_SHOWN" ] || { echo leaked; exit 1; }\n' > "$repo/Makefile"
+out="$(run git@github.com:me/x.git)"; rc=$?
+[[ "$rc" -eq 0 && "$out" == *"The push waits"* && "$out" != *leaked* ]] && ok "the repository's tests do not inherit the note marker" \
+  || error "the note marker leaked into the tests (rc=$rc)"
+printf 'test:\n\t@exit 0\n' > "$repo/Makefile"
 
 # setup-hooks.sh --status lists the keepalive with the prerequisites. In a
 # repository with no agent hooks it used to stop with exit 1 before them.

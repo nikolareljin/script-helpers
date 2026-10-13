@@ -15,23 +15,41 @@
 # HTTPS or local remotes, and not when a keepalive is already set.
 
 # ssh_host_of <url>: the host of an SSH remote URL (ssh://[user@]host[:port]/path
-# or the scp form [user@]host:path), else nothing.
+# or the scp form [user@]host:path, IPv6 in brackets included), else nothing.
+# As git reads it: a drive letter (C:/repo, C:\repo) is a local path, and a
+# colon after a slash is a path, not the scp form.
 ssh_host_of() {
-  local url="$1" rest
+  local url="$1" rest host
   case "$url" in
-    ssh://*|git+ssh://*|ssh+git://*) rest="${url#*://}"; rest="${rest#*@}"; rest="${rest%%/*}"; echo "${rest%%:*}" ;;
-    *://*|/*|./*|../*) ;;
-    *:*) rest="${url%%:*}"; echo "${rest#*@}" ;;
+    ssh://*|git+ssh://*|ssh+git://*) rest="${url#*://}"; rest="${rest%%/*}"; rest="${rest##*@}" ;;
+    *://*|/*|./*|../*|[A-Za-z]:|[A-Za-z]:[/\\]*) return 0 ;;
+    *:*) rest="${url%%:*}"
+         [[ "$rest" != */* ]] || return 0
+         rest="${rest##*@}"
+         [[ "$rest" != \[* ]] || rest="${url#*@}"   # [::1]:path keeps its colons
+         ;;
+    *) return 0 ;;
   esac
+  if [[ "$rest" == \[* ]]; then
+    host="${rest#\[}"; host="${host%%]*}"
+  else
+    host="${rest%%:*}"
+  fi
+  # A host that would read as an ssh option is not a host.
+  [[ -n "$host" && "$host" != -* ]] && echo "$host"
+  return 0   # no host is an answer, not a failure: callers may run under set -e
 }
 
 # ssh_keepalive_set <host>: 0 when a keepalive is set in GIT_SSH_COMMAND,
 # core.sshCommand, or the ssh config for that host (ssh -G reads it, aliases
-# and Match blocks included, without connecting).
+# and Match blocks included, without connecting). A non-OpenSSH client
+# (GIT_SSH, e.g. plink) has its own settings this cannot read: counted as set,
+# so its users are not told to change a file their client ignores.
 ssh_keepalive_set() {
   local v
+  [[ -z "${GIT_SSH:-}" ]] || return 0
   [[ "${GIT_SSH_COMMAND:-} $(git config --get core.sshCommand 2>/dev/null || true)" == *[Ss]erver[Aa]live[Ii]nterval* ]] && return 0
-  v="$(ssh -G "$1" 2>/dev/null | awk '$1 == "serveraliveinterval" { print $2; exit }')"
+  v="$(ssh -G -- "$1" 2>/dev/null | awk '$1 == "serveraliveinterval" { print $2; exit }')"
   [[ -n "$v" && "$v" != 0 ]]
 }
 
