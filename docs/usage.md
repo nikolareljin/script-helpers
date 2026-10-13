@@ -512,7 +512,9 @@ PLAYWRIGHT_BROWSERS=chromium ./dev e2e
 Git hook setup and local test runners
 -------------------------------------
 
-Install the shared git hooks from your repository root. The command differs
+[Git hooks](git-hooks.md) is the guide: what runs on commit and push, setup,
+settings. The details of the installer follow. Install the shared git hooks from
+your repository root. The command differs
 depending on whether you are working inside the script-helpers repo itself or
 in a consuming repo that vendors it as a submodule:
 
@@ -543,55 +545,8 @@ present (same-file recursion guard included), so a repository whose `.githooks/`
 holds only `pre-push`, such as a protected-refs guard, gets the shared hooks and
 still runs its own.
 
-#### What a push checks
-
-`pre-push` blocks on what must not leave the machine and runs no tests. Every
-check runs to the end; a first or very large push takes longer.
-
-| Group | Checks (only the files and commits the push sends) |
-|---|---|
-| security | private repository names, credentials (gitleaks), personal identifiers and PII; foxguard as warnings |
-| hygiene | conflict markers (`<<<<<<<` or `>>>>>>>` at a line start); files over `script-helpers.max-file-mb` (default 5) MB; secret-looking names (`.env`, `*.pem`, `*.key`, `id_rsa`, `*.p12`, ...); on `release/X.Y.Z`, the CHANGELOG release heading and `VERSION`; in the configured owners' repositories, commit trailers or `Generated with` lines naming an AI tool; with `git config script-helpers.ascii-commits true`, commit messages in plain ASCII |
-| lint | `bash -n` and `shellcheck -S warning`; `ruff` (the repository's config, else only fatal rules) or a Python syntax parse; the repository's `eslint` when installed in `node_modules`; `gofmt -l -e`; `rustfmt --check` when the repository has a rustfmt config; `actionlint` for workflows; JSON and YAML parse; PowerShell parse |
-
-It checks the content being pushed, not the work tree, so an uncommitted edit
-cannot hide a problem or cause one. A symbolic link is not linted: the push
-sends the link, not the file it points at. The checks write nothing, not even a
-temporary file: each file goes from git to its tool through a pipe. In a
-chained setup they run once: the global hooks mark the push they checked, and
-the repository's own script-helpers pre-push skips them for that same push. A lint tool that is not installed is named
-and skipped; `setup-hooks.sh --status` lists them. Exceptions:
-
-- `.script-helpers-push-allow` (in the repository, one glob per line, `#`
-  comments) exempts paths from the name and size checks.
-- `git config script-helpers.ai-trailers allow` turns the trailer check off for
-  one repository.
-- A Makefile target `lint-changed` replaces the lint group; it gets the changed
-  files, one per line, in `CHANGED_FILES`.
-- `lint-changed` and the repository's `eslint` are the repository's own code, so
-  they run only when the hook is too (script-helpers vendored and tracked). The
-  chained and global installs run none of it.
-
-Tests run when you ask: `make test`, `./dev test`, or
-`scripts/run_repo_tests.sh` (the runner the hook used to call: preflight
-`--quick` when present, else the stack's own runner).
-
-`pre-push` runs while git holds the push's connection open, idle. Over SSH a
-long run (a first or very large push) can be cut off by the server: the push exits 141 with
-`Connection to github.com closed by remote host`, after the checks passed. The
-hook prints a note before the checks when no keepalive is set (yellow on a
-terminal, plain in CI), and `setup-hooks.sh --status` lists it. Ways to keep the
-connection alive, from widest to narrowest:
-
-| Scope | Set it with |
-|---|---|
-| every repository | `~/.ssh/config`: `Host github.com` then `  ServerAliveInterval 20` |
-| one repository | `git config core.sshCommand "ssh -o ServerAliveInterval=20"` |
-| one push | `GIT_SSH_COMMAND="ssh -o ServerAliveInterval=20" git push` |
-
-`ServerAliveInterval 20` sends a keepalive every 20 seconds; with the default
-`ServerAliveCountMax 3` the connection still ends if the server stops answering.
-An HTTPS remote is not affected: git makes a new request after the hook.
+What a push checks, the settings and exceptions, and long pushes over SSH are
+on [Git hooks](git-hooks.md).
 
 The same hooks also refuse credentials, personal identifiers and PII, and
 print foxguard warnings; see [Security gates in the git hooks](security-gates.md),

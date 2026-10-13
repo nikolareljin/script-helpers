@@ -1,5 +1,11 @@
 ## Unreleased
 
+### Added
+
+- **Git hooks guide** (`docs/git-hooks.md`, on the site under Getting started):
+  what runs on commit and push, setup and its options, what a push checks,
+  settings and exceptions, long pushes over SSH. `usage.md` points there.
+
 ### Changed
 
 - **A push runs no tests, and blocks on fast checks of what it sends.** The

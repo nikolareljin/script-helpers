@@ -142,6 +142,7 @@ nav:
   - Getting started:
       - Installation: installation.md
       - Usage: usage.md
+      - Git hooks: git-hooks.md
       - Security gates in the git hooks: security-gates.md
       - CI default versions: ci_defaults.md
       - Packaging: packaging.md

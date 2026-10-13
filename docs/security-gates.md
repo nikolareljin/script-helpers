@@ -16,7 +16,7 @@ files (`scripts/push_checks.sh`), then the repository's own `.githooks/pre-push`
 (which still gets the ref lines). No tests run on push: `make test` or
 `./dev test`. A repository hook cannot skip the checks: it runs after them. The
 security steps live in `scripts/security_hooks.sh`; hygiene and lint are listed
-in [What a push checks](usage.md#what-a-push-checks).
+in [What a push checks](git-hooks.md#what-a-push-checks).
 
 ## check_sensitive.sh
 

@@ -149,6 +149,21 @@ Quick start
     supported, but it is not a fast-forward, so it must be asked for explicitly — see below.
   - Source as shown above.
 
+Git hooks
+---------
+
+Hooks that stop secrets, private repository names and broken files before they
+leave your machine. A push checks only what it sends, usually in seconds; tests
+run when you ask (`make test`, `./dev test`).
+
+```bash
+git config --global script-helpers.owners <user-or-org>   # once per machine
+bash scripts/script-helpers/scripts/setup-hooks.sh        # in each repository
+```
+
+What runs on commit and push, the options and settings:
+[docs/git-hooks.md](docs/git-hooks.md).
+
 Pinning the production branch
 -----------------------------
 
