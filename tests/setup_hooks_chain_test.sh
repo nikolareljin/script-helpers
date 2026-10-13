@@ -148,6 +148,15 @@ else
   error "pushtests: rc=$rc, suite ran $(grep -c SUITE-RAN "$tmp/out") time(s)"; sed 's/^/    /' "$tmp/out" >&2
 fi
 
+rc=0
+(cd "$r" && printf '%s\n' "$line" | SCRIPT_HELPERS_OWNERS=acme \
+  bash "$repo_hooks/pre-push" origin git@github.com:other/r.git >"$tmp/out" 2>&1) || rc=$?
+if grep -q 'not one of script-helpers.owners; tests not run' "$tmp/out" && ! grep -q SUITE-RAN "$tmp/out"; then
+  ok "outside the owners' repositories, push-tests is reported as not run"
+else
+  error "pushtests outside scope: rc=$rc"; sed 's/^/    /' "$tmp/out" >&2
+fi
+
 # 7. A core.hooksPath this script did not set is left alone by --uninstall.
 r="$(new_repo foreign-uninstall)"
 git -C "$r" config core.hooksPath .other

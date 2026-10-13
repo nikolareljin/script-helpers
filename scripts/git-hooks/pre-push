@@ -112,12 +112,16 @@ fi
 # this very push (the hash of these ref lines; any other value is ignored).
 _push_hash="$(git hash-object --stdin < "$_push_refs" 2>/dev/null || true)"
 if [[ -n "$_push_hash" && "${SCRIPT_HELPERS_PUSH_CHECKED:-}" == "$_push_hash" ]]; then
-  echo "[pre-push] hygiene and lint: already run for this push by the global hooks."
+  echo "[pre-push] hygiene, lint (and opted-in tests): already run for this push by the global hooks."
 elif [[ -n "$_security_lib" && -f "$(dirname "$_security_lib")/push_checks.sh" ]]; then
   # shellcheck source=/dev/null
   source "$(dirname "$_security_lib")/push_checks.sh"
   push_checks "$_push_refs" "${1:-}" "${2:-}" || exit 1
   push_tests || exit 1
+elif [[ ! "$(git config --get script-helpers.push-tests 2>/dev/null || true)" =~ ^(|off|false)$ ]]; then
+  # Opted in, but the runner is not here: refuse rather than skip the tests.
+  echo "[pre-push] REFUSED: script-helpers.push-tests is set, but push_checks.sh is not next to this hook; reinstall the hooks." >&2
+  exit 1
 fi
 unset SCRIPT_HELPERS_PUSH_CHECKED
 
