@@ -937,21 +937,25 @@ if [[ "$REPAIR" == true ]]; then
   if [[ "$setup_mode" == none ]]; then
     echo "[setup-hooks] not set up in this repository; run setup-hooks.sh first" >&2; exit 1
   fi
-  if [[ "$taken_over" == no && "$unscanned" == yes ]]; then
-    echo "[setup-hooks] $setup_expected runs without the current security checks; chaining them in front."
-  elif [[ "$taken_over" == no ]]; then
+  if [[ "$taken_over" == no && "$unscanned" == no ]]; then
     echo "[setup-hooks] nothing to repair: core.hooksPath is still ${cur_local:-(unset)}"; exit 0
   fi
-  [[ "$taken_over" == no ]] || echo "[setup-hooks] core.hooksPath was changed to '${cur_local:-(unset)}' after the setup here; chaining again."
-  if [[ "$setup_mode" == chained ]] && set_by_us "$cur_local"; then
-    # Another copy of these hooks (an older vendored setup-hooks.sh run again):
-    # not a new tool, so the chain stays as it was, the saved previous included.
-    cur_local="$repo_hooks"
+  if [[ "$taken_over" == no ]]; then
+    # The value is still the one we set: the install below chains it as ours,
+    # so --uninstall later leaves what was there before the first setup.
+    echo "[setup-hooks] $setup_expected runs without the current security checks; chaining them in front."
   else
-    old_prev="$(git config --local --get script-helpers.previous-hooksPath 2>/dev/null || true)"
-    [[ -n "$old_prev" ]] && git config --local script-helpers.previous-hooksPath-history "$old_prev"
-    # The value we set is gone: forget it, so the new one is read as foreign below.
-    unset_local script-helpers.set-hooksPath
+    echo "[setup-hooks] core.hooksPath was changed to '${cur_local:-(unset)}' after the setup here; chaining again."
+    if [[ "$setup_mode" == chained ]] && set_by_us "$cur_local"; then
+      # Another copy of these hooks (an older vendored setup-hooks.sh run again):
+      # not a new tool, so the chain stays as it was, the saved previous included.
+      cur_local="$repo_hooks"
+    else
+      old_prev="$(git config --local --get script-helpers.previous-hooksPath 2>/dev/null || true)"
+      [[ -n "$old_prev" ]] && git config --local script-helpers.previous-hooksPath-history "$old_prev"
+      # The value we set is gone: forget it, so the new one is read as foreign below.
+      unset_local script-helpers.set-hooksPath
+    fi
   fi
 fi
 

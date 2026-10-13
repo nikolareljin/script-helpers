@@ -167,6 +167,24 @@ clean_commit "$r" && [[ "$(ran)" == "old-vendored" ]] && ok "the old vendored ho
 (cd "$r" && bash "$setup" --uninstall >/dev/null 2>&1)
 [[ -z "$(git -C "$r" config --get core.hooksPath)" ]] && ok "uninstall after that: nothing set, as before the first setup" || error "old-direct: uninstall left '$(git -C "$r" config --get core.hooksPath)'"
 
+# The same for a direct setup at .githooks that this script set: after --repair
+# and --uninstall nothing is left, as before the first setup (rule 4).
+r="$(new_repo old-direct-githooks)"
+marker_hook "$r/.githooks/pre-commit" committed
+marker_hook "$r/.githooks/pre-push" committed-push
+git -C "$r" config core.hooksPath .githooks
+git -C "$r" config script-helpers.set-hooksPath .githooks
+git -C "$r" config script-helpers.mode direct
+git -C "$r" config script-helpers.expected-hooksPath .githooks
+git -C "$r" config script-helpers.trust-repo-hooks true
+[[ "$(field "$r" unscanned)" == yes ]] && ok "old direct .githooks setup: unscanned=yes" || error "old-direct-githooks: '$(state "$r")'"
+(cd "$r" && bash "$setup" --repair >/dev/null 2>&1) || error "old-direct-githooks: repair failed"
+[[ "$(field "$r" mode)" == chained && "$(field "$r" target)" == .githooks && -z "$(field "$r" previous)" ]] \
+  && ok "--repair: .githooks the target, nothing previous" || error "old-direct-githooks: '$(state "$r")'"
+clean_commit "$r" && [[ "$(ran)" == "committed" ]] && ok "the .githooks hook runs once" || error "old-direct-githooks: ran '$(ran)'"
+(cd "$r" && bash "$setup" --uninstall >/dev/null 2>&1)
+[[ -z "$(git -C "$r" config --get core.hooksPath)" ]] && ok "uninstall: nothing set, as before the first setup" || error "old-direct-githooks: uninstall left '$(git -C "$r" config --get core.hooksPath)'"
+
 # An older vendored copy of these hooks run again is not a new tool: --repair
 # keeps the chain, the employer's value included.
 r="$(new_repo vendored-rerun)"
