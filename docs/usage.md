@@ -140,6 +140,14 @@ Bundled CLIs
   Each prints what it allowed, so an override is never silent. `git push --no-verify`
   remains git's own escape. Run `scripts/check_private_names.sh --help` for details.
 
+  The machine's list starts from `config/private-names-allow`: ordinary English
+  words that show up in code and docs everywhere (`windows`, `repository`,
+  `code`, `writing`, ...), never a repository name. It is copied to
+  `<config>/script-helpers/private-names-allow` when that file is missing or holds
+  no terms; a list you wrote, or emptied on purpose with only comments, is left
+  alone. Add your own words there, one per line; `#` starts a comment. A word that
+  is ordinary English for everyone belongs in the shipped file, by pull request.
+
 - `scripts/refresh_private_names.sh` — builds that list from every account the
   token can see: you, plus your organizations.
 
@@ -533,6 +541,25 @@ matching repo-local `.githooks/pre-commit` or `.githooks/pre-push` when one is
 present (same-file recursion guard included), so a repository whose `.githooks/`
 holds only `pre-push`, such as a protected-refs guard, gets the shared hooks and
 still runs its own.
+
+`pre-push` runs while git holds the push's connection open, idle. Over SSH a
+long test run can be cut off by the server: the push exits 141 with
+`Connection to github.com closed by remote host`, after the checks passed. The
+hook prints a note before the checks when no keepalive is set (yellow on a
+terminal, plain in CI), and `setup-hooks.sh --status` lists it. Ways to keep the
+connection alive, from widest to narrowest:
+
+| Scope | Set it with |
+|---|---|
+| every repository | `~/.ssh/config`: `Host github.com` then `  ServerAliveInterval 20` |
+| one repository | `git config core.sshCommand "ssh -o ServerAliveInterval=20"` |
+| one push | `GIT_SSH_COMMAND="ssh -o ServerAliveInterval=20" git push` |
+
+`ServerAliveInterval 20` sends a keepalive every 20 seconds; with the default
+`ServerAliveCountMax 3` the connection still ends if the server stops answering.
+An HTTPS remote is not affected: git makes a new request after the hook. As a
+last resort, `PRE_PUSH_SKIP_TESTS=1 git push` skips only the tests; every other
+check still runs.
 
 The same hooks also refuse credentials, personal identifiers and PII, and
 print foxguard warnings; see [Security gates in the git hooks](security-gates.md),

@@ -628,6 +628,82 @@ else
   error "no HOME exits ${rc}: ${out##*$'\n'}"
 fi
 
+# The shipped default allow list (config/private-names-allow): ordinary English
+# words, copied to a machine's list when that list is missing or holds no terms.
+# "windows" is both a word in the default list and a test name here.
+seedlist="$tmp/seed-names.tsv"
+{ cat "$list"; printf 'private\ttestns\twindows\tR-444\t\n'; } > "$seedlist"
+seed_home="$tmp/seed-home"
+got="$(printf 'built for windows' | HOME="$seed_home" XDG_CONFIG_HOME="$seed_home/.config" \
+  bash "$GATE" --stdin --list "$seedlist" >/dev/null 2>&1; echo $?)"
+seeded="$seed_home/.config/script-helpers/private-names-allow"
+[[ -f "$seeded" ]] && grep -qx 'windows' "$seeded" && ok "a machine with no allow list is seeded from the default" \
+                  || error "no allow list was seeded at $seeded"
+[[ "$got" == 0 ]] && ok "a default-list word is not checked as a name" || error "a default-list word was refused: exit $got"
+got="$(printf 'about bluewidget' | HOME="$seed_home" XDG_CONFIG_HOME="$seed_home/.config" \
+  bash "$GATE" --stdin --list "$seedlist" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 1 ]] && ok "the default list does not allow a real name" || error "a name was allowed by the default list: exit $got"
+
+# A list someone wrote is never replaced, and its comments are not terms.
+own_home="$tmp/own-home"
+mkdir -p "$own_home/.config/script-helpers"
+printf '# my words\nbeacon   # a recurring word here\n' > "$own_home/.config/script-helpers/private-names-allow"
+got="$(printf 'see the beacon; built for windows' | HOME="$own_home" XDG_CONFIG_HOME="$own_home/.config" \
+  bash "$GATE" --stdin --list "$seedlist" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 1 ]] && ok "an existing allow list is used as it is, not extended with the default" \
+                  || error "an existing allow list was replaced or extended: exit $got"
+grep -qx 'windows' "$own_home/.config/script-helpers/private-names-allow" \
+  && error "the default was written over an existing list" || ok "an existing allow list is left untouched"
+got="$(printf 'see the beacon' | HOME="$own_home" XDG_CONFIG_HOME="$own_home/.config" \
+  bash "$GATE" --stdin --list "$seedlist" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 0 ]] && ok "a term followed by a comment is still allowed" || error "a commented term was not allowed: exit $got"
+
+# Emptied on purpose (comments only): left empty, not seeded again.
+empty_home="$tmp/empty-home"
+mkdir -p "$empty_home/.config/script-helpers"
+printf '# nothing allowed on this machine\n' > "$empty_home/.config/script-helpers/private-names-allow"
+got="$(printf 'built for windows' | HOME="$empty_home" XDG_CONFIG_HOME="$empty_home/.config" \
+  bash "$GATE" --stdin --list "$seedlist" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 1 ]] && ok "an allow list emptied on purpose is not seeded again" || error "an emptied allow list was reseeded: exit $got"
+
+# A config directory that cannot be written: nothing is seeded, the default
+# still applies to this run, and no temporary file is left behind.
+ro_home="$tmp/ro-home"
+mkdir -p "$ro_home/.config/script-helpers" && chmod 555 "$ro_home/.config/script-helpers"
+if ( : > "$ro_home/.config/script-helpers/probe" ) 2>/dev/null; then
+  note "SKIP: chmod does not stop writes here (Windows or root)"
+else
+  got="$(printf 'built for windows' | HOME="$ro_home" XDG_CONFIG_HOME="$ro_home/.config" \
+    bash "$GATE" --stdin --list "$seedlist" >/dev/null 2>&1; echo $?)"
+  [[ "$got" == 0 ]] && ok "an unwritable config still gets the default for this run" || error "unwritable config: default not applied, exit $got"
+  [[ -z "$(ls -A "$ro_home/.config/script-helpers")" ]] && ok "nothing is left in an unwritable config" \
+    || error "files left in an unwritable config: $(ls -A "$ro_home/.config/script-helpers")"
+fi
+chmod 755 "$ro_home/.config/script-helpers"
+
+# The default file holds only dictionary words: lower case letters, one per line.
+default="$(dirname "$GATE")/../config/private-names-allow"
+bad="$(grep -v '^#' "$default" | grep -v '^$' | grep -cv '^[a-z]\{2,\}$')"
+[[ "$bad" == 0 ]] && ok "the default allow list is plain words only" || error "$bad line(s) in the default allow list are not plain words"
+
+# An installed hook copy carries the default, and keeps it across a reinstall:
+# the copy's gate seeds a new machine's list as the checkout's does.
+inst_home="$tmp/inst-home"; inst_repo="$tmp/inst-repo"
+mkdir -p "$inst_home" "$inst_repo/.employer"
+git -C "$inst_repo" init -q && git -C "$inst_repo" config core.hooksPath .employer
+for pass in install reinstall; do
+  ( cd "$inst_repo" && HOME="$inst_home" XDG_CONFIG_HOME="$inst_home/.config" \
+      bash "$ROOT_DIR/scripts/setup-hooks.sh" ) >/dev/null 2>&1 || error "setup-hooks.sh ($pass) failed"
+  copy="$(find "$inst_home" -path '*/scripts/check_private_names.sh' | head -1)"
+  [[ -n "$copy" && -f "$(dirname "$copy")/../config/private-names-allow" ]] \
+    && ok "the installed copy carries the default allow list ($pass)" \
+    || error "the installed copy has no default allow list ($pass)"
+done
+rm -rf "$inst_home/.config"
+got="$(printf 'built for windows' | HOME="$inst_home" XDG_CONFIG_HOME="$inst_home/.config" \
+  bash "$copy" --stdin --list "$seedlist" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 0 ]] && ok "the installed copy seeds a machine's allow list" || error "the installed copy did not seed: exit $got"
+
 if (( failures )); then
   note "$failures check(s) failed."
   exit 1

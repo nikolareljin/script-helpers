@@ -90,6 +90,13 @@ EOF_URLS
   fi
 fi
 
+# The SSH keepalive note, before the checks and the repository's own pre-push
+# (which may run a long test suite): shown once per push, for SSH remotes only.
+if [[ "$hook" == pre-push && -f "$base/ssh_keepalive.sh" ]] && grep -qv '^[^ ]* 0* ' "$stdin_file" 2>/dev/null; then
+  # shellcheck source=/dev/null
+  source "$base/ssh_keepalive.sh" && ssh_keepalive_note "${2:-}" "[script-helpers]"
+fi
+
 if [[ "$in_scope" == true ]]; then
   top="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
   case "$hook" in

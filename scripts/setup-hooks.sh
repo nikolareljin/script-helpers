@@ -88,6 +88,12 @@
 #   The shared pre-push hands over to .githooks/pre-push when a repository has
 #   one (for example the protected-refs guard), so a repository with only
 #   .githooks/pre-push gets the shared hooks and still runs its own.
+#   The pre-push hook runs this repository's tests while git holds the push's
+#   connection open. Over SSH a long run is cut off (exit 141) unless a
+#   keepalive is set: ~/.ssh/config "Host github.com" + "ServerAliveInterval 20"
+#   (every repository), git config core.sshCommand "ssh -o ServerAliveInterval=20"
+#   (one repository), or GIT_SSH_COMMAND="ssh -o ServerAliveInterval=20" git push
+#   (one push). HTTPS remotes are not affected. The hook and --status say so.
 # EXIT_CODES:
 #   0 done; 1 failed (or a --doctor probe failed); 2 refused (no owners, no
 #   Python 3, no write access, bad arguments); 3 settings.json is not valid JSON
@@ -233,14 +239,14 @@ version_stamp() {
 # install must never be what runs.
 stage_and_swap() {
   local dest="$1" stage="$2" name
-  rm -rf "$dest/scripts.old" "$dest/hooks.old" "$dest/lib.old"
-  for name in scripts hooks lib; do
+  rm -rf "$dest/scripts.old" "$dest/hooks.old" "$dest/lib.old" "$dest/config.old"
+  for name in scripts hooks lib config; do
     [[ -e "$stage/$name" ]] || continue
     [[ -e "$dest/$name" ]] && mv "$dest/$name" "$dest/$name.old"
     mv "$stage/$name" "$dest/$name"
   done
   mv -f "$stage/helpers.sh" "$dest/helpers.sh"; mv -f "$stage/VERSION" "$dest/VERSION"
-  rm -rf "$stage" "$dest/scripts.old" "$dest/hooks.old" "$dest/lib.old"
+  rm -rf "$stage" "$dest/scripts.old" "$dest/hooks.old" "$dest/lib.old" "$dest/config.old"
 }
 
 # stage_common <dest>: a new stage directory with helpers.sh, lib/ and the check
@@ -251,7 +257,11 @@ stage_common() {
   stage="$(mktemp -d "$1/.stage.XXXXXX")" || return 1
   mkdir -p "$stage/scripts" || return 1
   cp "$src_root/helpers.sh" "$stage/" && cp -R "$src_root/lib" "$stage/lib" || { rm -rf "$stage"; return 1; }
-  for name in owner_scope.sh check_sensitive.sh check_private_names.sh refresh_private_names.sh; do
+  # The default allow list check_private_names.sh seeds a machine's list from.
+  if [[ -f "$src_root/config/private-names-allow" ]]; then
+    mkdir -p "$stage/config" && cp "$src_root/config/private-names-allow" "$stage/config/" || { rm -rf "$stage"; return 1; }
+  fi
+  for name in owner_scope.sh check_sensitive.sh check_private_names.sh refresh_private_names.sh ssh_keepalive.sh; do
     cp "$src_root/scripts/$name" "$stage/scripts/$name" || { rm -rf "$stage"; return 1; }
   done
   version_stamp > "$stage/VERSION"
@@ -334,6 +344,16 @@ prereqs() {
     echo "  names     MISSING ($list): every command in your repositories is refused until it exists; run refresh_private_names.sh"
     missing=$((missing+1))
   fi
+  # Not a refusal: without a keepalive a push whose pre-push checks run long is
+  # cut off by GitHub (exit 141) after they pass.
+  if command -v ssh >/dev/null 2>&1; then
+    if [[ "$(ssh -G github.com 2>/dev/null | awk '$1 == "serveraliveinterval" { print $2; exit }')" =~ ^[1-9] ]]; then
+      echo "  ssh       ok (keepalive set for github.com)"
+    else
+      echo "  ssh       WARN: no keepalive for github.com; a push with long pre-push checks can be cut off"
+      echo "            (exit 141). In ~/.ssh/config: Host github.com / ServerAliveInterval 20"
+    fi
+  fi
   terms="${SENSITIVE_TERMS_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/sensitive-terms.txt}"
   if [[ -f "$terms" ]]; then
     perms="$(ls -ld "$terms" | cut -c5-10)"
@@ -385,7 +405,9 @@ show_global_status() {
       [[ -n "$top_dir" && -f "$top_dir/$(agent_repo_rel "$a")" && -n "$PY" ]] && \
         agent_merge status "$a" "$(native_path "$top_dir/$(agent_repo_rel "$a")")" >/dev/null 2>&1 && agents="$agents $a"
     done
-    [[ -n "$agents" ]] && echo "[setup-hooks] this repository: agent hooks:$agents"
+    # An if, not `&&`: as the last command a false test made the function, and
+    # under set -e the whole --status, exit 1 before the prerequisites.
+    if [[ -n "$agents" ]]; then echo "[setup-hooks] this repository: agent hooks:$agents"; fi
   fi
 }
 
@@ -467,7 +489,7 @@ uninstall_agents_user() {
     [[ -f "$f" && -n "$PY" ]] && agent_merge status "$a" "$(native_path "$f")" >/dev/null 2>&1 && left=true
   done
   if [[ "$left" == false ]]; then
-    rm -rf "${agent_user_home:?}/scripts" "${agent_user_home:?}/lib" "${agent_user_home:?}/helpers.sh" "${agent_user_home:?}/VERSION"
+    rm -rf "${agent_user_home:?}/scripts" "${agent_user_home:?}/lib" "${agent_user_home:?}/config" "${agent_user_home:?}/helpers.sh" "${agent_user_home:?}/VERSION"
     rmdir "$agent_user_home" 2>/dev/null || true
   fi
   echo "[setup-hooks] agent hooks removed: $(echo $AGENTS_USER)"
@@ -563,7 +585,7 @@ uninstall_claude() {
     "$PY" -I "$(native_path "$src_root/$MERGE_REL")" uninstall "$(native_path "$settings")" || rc=$?
     [[ "$rc" -eq 0 ]] || exit "$rc"
   fi
-  rm -rf "${home:?}/scripts" "${home:?}/lib" "${home:?}/helpers.sh" "${home:?}/VERSION"
+  rm -rf "${home:?}/scripts" "${home:?}/lib" "${home:?}/config" "${home:?}/helpers.sh" "${home:?}/VERSION"
   rmdir "$home" 2>/dev/null || true
   echo "[setup-hooks] claude hook removed from $settings and $home"
 }
@@ -639,7 +661,7 @@ uninstall_global() {
       echo "[setup-hooks] global core.hooksPath restored to $prev"
     fi
   fi
-  rm -rf "${global_dir:?}/hooks" "${global_dir:?}/scripts" "${global_dir:?}/lib" "${global_dir:?}/helpers.sh" "${global_dir:?}/VERSION" "$backup_file"
+  rm -rf "${global_dir:?}/hooks" "${global_dir:?}/scripts" "${global_dir:?}/lib" "${global_dir:?}/config" "${global_dir:?}/helpers.sh" "${global_dir:?}/VERSION" "$backup_file"
   rmdir "$global_dir" 2>/dev/null || true
   echo "[setup-hooks] global hooks removed"
 }
