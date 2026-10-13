@@ -58,7 +58,7 @@ expect() {
 # commit <message> <file> <content> [more file/content pairs]: one new commit.
 commit() {
   local msg="$1"; shift
-  while [[ $# -ge 2 ]]; do mkdir -p "$(dirname "$1")"; printf '%s' "$2" > "$1"; g add -- "$1"; shift 2; done
+  while [[ $# -ge 2 ]]; do mkdir -p -- "$(dirname -- "$1")"; printf '%s' "$2" > "$1"; g add -- "$1"; shift 2; done
   g commit -qm "$msg"
 }
 reset_main() { g reset -q --hard origin/main; git clean -qfdx; }
@@ -326,6 +326,10 @@ else
   note "SKIP: this git would not build a tree naming .."
 fi
 
+# A path is data: a file named like an option is a file.
+commit "dash" -x.sh $'#!/usr/bin/env bash\nif then\n'
+expect "a file named like an option is checked, not read as one" 1 "syntax error"
+reset_main
 # --- the hook: checks run, tests do not
 export SECURITY_GATE_ALLOW_UNCHECKED=1 PRIVATE_NAMES_AUTO_REFRESH=false
 export PRIVATE_NAMES_FILE=/nonexistent/private-names.tsv

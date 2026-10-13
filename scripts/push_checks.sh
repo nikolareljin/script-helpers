@@ -98,7 +98,7 @@ pc_prepare() {
     # A crafted tree can name ../ or an absolute path; never write outside $PC_TMP.
     case "/$path/" in */../*|*/./*|//*) continue ;; esac
     if [[ "$tip" == "$head" && -f "$path" ]] && ! LC_ALL=C grep -qxF -- "$path" "$PC_TMP/dirty"; then
-      dest="$path"
+      dest="./$path"                       # never read as an option: -x.sh
     else
       dest="$PC_TMP/t/$tip/$path"
       mkdir -p "$(dirname "$dest")" && git cat-file blob "$tip:$path" > "$dest" 2>/dev/null || continue
@@ -118,7 +118,24 @@ pc_prepare() {
 }
 
 # pc_show <text>: tool output with the copies' directory removed from paths.
-pc_show() { printf '%s\n' "$1" | sed -e "s|$PC_TMP/t/[0-9a-f]*/||g" -e "s|$(pwd -P)/||g" -e '/^[[:space:]]*$/d'; }
+# Literal string removal in awk, the paths read from the environment: a path in
+# a sed script is code (GNU sed's s///e runs a command), and a directory can be
+# named anything.
+pc_show() {
+  printf '%s\n' "$1" | PCS_TMP="$PC_TMP/t/" PCS_TOP="$(pwd -P)/" awk '
+    BEGIN { t = ENVIRON["PCS_TMP"]; r = ENVIRON["PCS_TOP"] }
+    {
+      out = ""; line = $0
+      while ((i = index(line, t)) > 0) {          # <tmp>/t/<commit>/ -> ""
+        rest = substr(line, i + length(t)); j = index(rest, "/")
+        out = out substr(line, 1, i - 1); line = (j > 0) ? substr(rest, j + 1) : rest
+      }
+      line = out line; out = ""
+      while ((i = index(line, r)) > 0) { out = out substr(line, 1, i - 1); line = substr(line, i + length(r)) }
+      line = out line
+      if (line ~ /[^[:space:]]/) print line
+    }'
+}
 
 # --------------------------------------------------------------- hygiene
 pc_hygiene() {
@@ -216,7 +233,7 @@ pc_lint() {
       .github/workflows/*.yml|.github/workflows/*.yaml) wf+=("$dest"); yml+=("$dest") ;;
       *.sh|*.bash) sh+=("$dest") ;;
       *.py) pyf+=("$dest") ;;
-      *.js|*.jsx|*.ts|*.tsx|*.mjs|*.cjs) [[ "$dest" == "$path" ]] && js+=("$dest") ;;
+      *.js|*.jsx|*.ts|*.tsx|*.mjs|*.cjs) [[ "$dest" == "./$path" ]] && js+=("$dest") ;;
       *.go) gof+=("$dest") ;;
       *.rs) rs+=("$dest") ;;
       *.jsonc|tsconfig*.json|jsconfig*.json|*/tsconfig*.json|*/jsconfig*.json|.vscode/*|*/.vscode/*|*devcontainer.json|.eslintrc.json|*/.eslintrc.json|tslint.json) ;;
