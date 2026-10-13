@@ -417,6 +417,44 @@ if [[ $rc -eq 0 ]] && grep -q 'Tests are not run on push' <<<"$out" && ! grep -q
 else
   error "pre-push and tests: exit $rc: $(tail -3 <<<"$out")"
 fi
+# Opt-in: script-helpers.push-tests quick runs the quick tests and blocks.
+git config script-helpers.push-tests quick
+out="$(hook)"; rc=$?
+[[ $rc -eq 1 ]] && grep -q SUITE-RAN <<<"$out" && grep -q 'tests failed' <<<"$out" \
+  && ok "push-tests quick: a failing make test refuses the push" \
+  || error "push-tests quick did not refuse a failing suite: exit $rc: $(tail -3 <<<"$out")"
+commit "suite ok" Makefile $'test:\n\t@echo SUITE-RAN; exit 0\n'
+out="$(hook)"; rc=$?
+[[ $rc -eq 0 ]] && grep -q SUITE-RAN <<<"$out" && grep -q 'tests: passed' <<<"$out" \
+  && ok "push-tests quick: a passing suite lets the push through" \
+  || error "push-tests quick with a passing suite: exit $rc: $(tail -3 <<<"$out")"
+git config script-helpers.push-tests qiuck
+out="$(hook)"; rc=$?
+[[ $rc -eq 1 ]] && grep -q "use quick or off" <<<"$out" && ! grep -q SUITE-RAN <<<"$out" \
+  && ok "push-tests with an unknown value refuses instead of running nothing" \
+  || error "push-tests typo: exit $rc: $(tail -3 <<<"$out")"
+git config script-helpers.push-tests off
+out="$(hook)"; rc=$?
+[[ $rc -eq 0 ]] && ! grep -q SUITE-RAN <<<"$out" && ok "push-tests off runs no tests" \
+  || error "push-tests off: exit $rc"
+# Opted in, but push_checks.sh is missing beside the hook: refused; off is not.
+mkdir -p "$tmp/bare-hook" && cp "$HOOK" "$tmp/bare-hook/pre-push"
+for v in quick off; do
+  git config script-helpers.push-tests "$v"
+  out="$(printf 'refs/heads/main %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$(git rev-parse origin/main)" \
+    | bash "$tmp/bare-hook/pre-push" origin "$tmp/origin.git" 2>&1)"; rc=$?
+  if [[ $v == quick ]]; then
+    [[ $rc -eq 1 ]] && grep -q 'push_checks.sh is not next to this hook' <<<"$out" \
+      && ok "push-tests quick with no runner beside the hook refuses" \
+      || error "push-tests quick, no runner: exit $rc: $(tail -2 <<<"$out")"
+  else
+    ! grep -q 'push_checks.sh is not next to this hook' <<<"$out" \
+      && ok "push-tests off with no runner beside the hook is not refused for it" \
+      || error "push-tests off, no runner: refused"
+  fi
+done
+git config --unset script-helpers.push-tests
+commit "suite" Makefile $'test:\n\t@echo SUITE-RAN; exit 1\n'
 commit "conflict" c.txt "$lt HEAD
 "
 out="$(hook)"; rc=$?

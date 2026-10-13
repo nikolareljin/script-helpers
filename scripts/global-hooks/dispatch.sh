@@ -112,7 +112,7 @@ if [[ "$in_scope" == true ]]; then
         # Hygiene and lint of what the push changes, as the bundled pre-push does.
         if [[ -f "$base/push_checks.sh" ]]; then
           # shellcheck source=/dev/null
-          (cd "$top" && source "$base/push_checks.sh" && push_checks "$stdin_file" "${1:-}" "${2:-}") || exit 1
+          (cd "$top" && source "$base/push_checks.sh" && push_checks "$stdin_file" "${1:-}" "${2:-}" && push_tests) || exit 1
           # A chained script-helpers pre-push skips the same checks for this
           # same push (the hash of its ref lines), instead of running them twice.
           SCRIPT_HELPERS_PUSH_CHECKED="$(git hash-object --stdin < "$stdin_file" 2>/dev/null || true)"
@@ -126,6 +126,13 @@ if [[ "$in_scope" == true ]]; then
       (cd "$top" && sec_commit_msg "$msg") || exit 1
       ;;
   esac
+fi
+
+# An opt-in the global hooks will not act on is said, not dropped: outside the
+# owners' repositories they run none of their checks, tests included.
+if [[ "$hook" == pre-push && "$in_scope" != true ]] && \
+   [[ -n "$(git config --get script-helpers.push-tests 2>/dev/null || true)" ]]; then
+  echo "[script-helpers] script-helpers.push-tests is set, but this repository is not one of script-helpers.owners; tests not run." >&2
 fi
 
 # ------------------------------------------------------------- chaining
