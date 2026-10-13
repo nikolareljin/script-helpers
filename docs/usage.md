@@ -140,6 +140,14 @@ Bundled CLIs
   Each prints what it allowed, so an override is never silent. `git push --no-verify`
   remains git's own escape. Run `scripts/check_private_names.sh --help` for details.
 
+  The machine's list starts from `config/private-names-allow`: ordinary English
+  words that show up in code and docs everywhere (`windows`, `repository`,
+  `code`, `writing`, ...), never a repository name. It is copied to
+  `<config>/script-helpers/private-names-allow` when that file is missing or holds
+  no terms; a list you wrote, or emptied on purpose with only comments, is left
+  alone. Add your own words there, one per line; `#` starts a comment. A word that
+  is ordinary English for everyone belongs in the shipped file, by pull request.
+
 - `scripts/refresh_private_names.sh` — builds that list from every account the
   token can see: you, plus your organizations.
 

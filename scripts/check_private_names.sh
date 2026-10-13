@@ -72,7 +72,11 @@
 #                                     it can never be committed anywhere); read
 #                                     from every worktree of the repository
 #   <cache>/private-names-allow       the same, for every repository on this
-#                                     machine, beside the name list
+#                                     machine, beside the name list. Seeded,
+#                                     when missing or holding no terms, from
+#                                     config/private-names-allow: ordinary
+#                                     English words only, never a repository
+#                                     name. Add your own words to this file.
 #   git push --no-verify              git's own escape, for a human
 #
 # Allowed terms are echoed, so an override is visible in the output rather than
@@ -448,6 +452,18 @@ fi
 # re-appeased that often is a gate someone eventually removes. It lives in the
 # cache directory, never in a tree.
 machine_allow="${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names-allow"
+# A machine with no list of its own starts from the shipped one: ordinary words
+# that appear in code and docs everywhere (config/private-names-allow, beside
+# this script's copy). Only when the file is missing or holds no terms, so a
+# list someone wrote, or emptied on purpose with a comment, is never replaced.
+default_allow="$SCRIPT_DIR/../config/private-names-allow"
+if [[ -f "$default_allow" ]] && ! grep -qv '^[[:space:]]*\(#.*\)\{0,1\}$' "$machine_allow" 2>/dev/null; then
+  if [[ ! -s "$machine_allow" ]] || ! grep -q '#' "$machine_allow" 2>/dev/null; then
+    mkdir -p "$(dirname "$machine_allow")" 2>/dev/null \
+      && cp "$default_allow" "$machine_allow" 2>/dev/null \
+      && log_info "allow list started at $machine_allow from the shipped default; add your own words there"
+  fi
+fi
 if [[ -f "$machine_allow" ]]; then
   cat "$machine_allow" >> "$allowed"
   echo >> "$allowed"
@@ -455,7 +471,7 @@ fi
 # Blank lines are stripped before any use: a pattern file containing an empty
 # line makes grep match every line of input, which would turn either list into
 # "everything is a hit" or, worse, silently allow everything.
-sed 's/[[:space:]]//g' "$allowed" | grep -v '^$' > "$allowed.clean" 2>/dev/null
+sed -e 's/#.*//' -e 's/[[:space:]]//g' "$allowed" | grep -v '^$' > "$allowed.clean" 2>/dev/null
 mv "$allowed.clean" "$allowed"
 
 drop_allowed() {  # drop_allowed <names-file>

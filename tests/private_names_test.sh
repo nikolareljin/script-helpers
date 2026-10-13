@@ -628,6 +628,49 @@ else
   error "no HOME exits ${rc}: ${out##*$'\n'}"
 fi
 
+# The shipped default allow list (config/private-names-allow): ordinary English
+# words, copied to a machine's list when that list is missing or holds no terms.
+# "windows" is both a word in the default list and a test name here.
+seedlist="$tmp/seed-names.tsv"
+{ cat "$list"; printf 'private\ttestns\twindows\tR-444\t\n'; } > "$seedlist"
+seed_home="$tmp/seed-home"
+got="$(printf 'built for windows' | HOME="$seed_home" XDG_CONFIG_HOME="$seed_home/.config" \
+  bash "$GATE" --stdin --list "$seedlist" >/dev/null 2>&1; echo $?)"
+seeded="$seed_home/.config/script-helpers/private-names-allow"
+[[ -f "$seeded" ]] && grep -qx 'windows' "$seeded" && ok "a machine with no allow list is seeded from the default" \
+                  || error "no allow list was seeded at $seeded"
+[[ "$got" == 0 ]] && ok "a default-list word is not checked as a name" || error "a default-list word was refused: exit $got"
+got="$(printf 'about bluewidget' | HOME="$seed_home" XDG_CONFIG_HOME="$seed_home/.config" \
+  bash "$GATE" --stdin --list "$seedlist" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 1 ]] && ok "the default list does not allow a real name" || error "a name was allowed by the default list: exit $got"
+
+# A list someone wrote is never replaced, and its comments are not terms.
+own_home="$tmp/own-home"
+mkdir -p "$own_home/.config/script-helpers"
+printf '# my words\nbeacon   # a recurring word here\n' > "$own_home/.config/script-helpers/private-names-allow"
+got="$(printf 'see the beacon; built for windows' | HOME="$own_home" XDG_CONFIG_HOME="$own_home/.config" \
+  bash "$GATE" --stdin --list "$seedlist" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 1 ]] && ok "an existing allow list is used as it is, not extended with the default" \
+                  || error "an existing allow list was replaced or extended: exit $got"
+grep -qx 'windows' "$own_home/.config/script-helpers/private-names-allow" \
+  && error "the default was written over an existing list" || ok "an existing allow list is left untouched"
+got="$(printf 'see the beacon' | HOME="$own_home" XDG_CONFIG_HOME="$own_home/.config" \
+  bash "$GATE" --stdin --list "$seedlist" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 0 ]] && ok "a term followed by a comment is still allowed" || error "a commented term was not allowed: exit $got"
+
+# Emptied on purpose (comments only): left empty, not seeded again.
+empty_home="$tmp/empty-home"
+mkdir -p "$empty_home/.config/script-helpers"
+printf '# nothing allowed on this machine\n' > "$empty_home/.config/script-helpers/private-names-allow"
+got="$(printf 'built for windows' | HOME="$empty_home" XDG_CONFIG_HOME="$empty_home/.config" \
+  bash "$GATE" --stdin --list "$seedlist" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 1 ]] && ok "an allow list emptied on purpose is not seeded again" || error "an emptied allow list was reseeded: exit $got"
+
+# The default file holds only dictionary words: lower case letters, one per line.
+default="$(dirname "$GATE")/../config/private-names-allow"
+bad="$(grep -v '^#' "$default" | grep -v '^$' | grep -cv '^[a-z]\{2,\}$')"
+[[ "$bad" == 0 ]] && ok "the default allow list is plain words only" || error "$bad line(s) in the default allow list are not plain words"
+
 if (( failures )); then
   note "$failures check(s) failed."
   exit 1

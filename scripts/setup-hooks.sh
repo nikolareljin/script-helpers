@@ -251,6 +251,10 @@ stage_common() {
   stage="$(mktemp -d "$1/.stage.XXXXXX")" || return 1
   mkdir -p "$stage/scripts" || return 1
   cp "$src_root/helpers.sh" "$stage/" && cp -R "$src_root/lib" "$stage/lib" || { rm -rf "$stage"; return 1; }
+  # The default allow list check_private_names.sh seeds a machine's list from.
+  if [[ -f "$src_root/config/private-names-allow" ]]; then
+    mkdir -p "$stage/config" && cp "$src_root/config/private-names-allow" "$stage/config/" || { rm -rf "$stage"; return 1; }
+  fi
   for name in owner_scope.sh check_sensitive.sh check_private_names.sh refresh_private_names.sh; do
     cp "$src_root/scripts/$name" "$stage/scripts/$name" || { rm -rf "$stage"; return 1; }
   done

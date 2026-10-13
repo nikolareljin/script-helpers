@@ -1,5 +1,15 @@
 ## Unreleased
 
+### Added
+
+- **A default allow list of ordinary English words.** `config/private-names-allow`
+  holds words that appear in code and docs everywhere (`windows`, `repository`,
+  `code`, `writing`, ...), never a repository name. `check_private_names.sh`
+  copies it to `<config>/script-helpers/private-names-allow` when that file is
+  missing or holds no terms, so a fresh machine does not refuse everyday words;
+  a list someone wrote, or emptied on purpose, is left alone. Allow lists accept
+  `#` comments. Installed hook copies carry the default.
+
 ### Fixed
 
 - **A repository's own hooks no longer replace the security checks.** When a
