@@ -15,6 +15,28 @@ it sends; tests run when you ask for them.
 Tests do not run on commit or push. Run them with `make test` or `./dev test`
 (or `scripts/run_repo_tests.sh` in a repository with neither).
 
+### Tests on push, for repositories with no CI test gate
+
+A repository whose tests run nowhere else (no pull request workflow, for
+example a private one that keeps Actions minutes down) can make the push run
+its quick tests and refuse on a failure:
+
+```bash
+git config script-helpers.push-tests quick   # in that repository
+git config script-helpers.push-tests off     # back to no tests on push
+```
+
+`quick` runs `scripts/run_repo_tests.sh` after the other push checks: the
+`preflight.sh --quick` from the vendored script-helpers when it has one (the
+checks the repository's CI runs), otherwise the stack's quick
+test runner (PHP, Node, Python, Go, Gradle, Rust, Flutter), `make test`, bats
+or `tests/*_test.sh`. The push then takes as long as those tests.
+
+- Any value other than `quick` or `off` refuses the push, so a typo does not
+  turn the tests off.
+- With the global hooks, the setting works only in the repositories of
+  `script-helpers.owners`; anywhere else the push says the tests were not run.
+
 ## Set up
 
 Configure whose repositories are checked, once per machine. Installing refuses
@@ -79,6 +101,7 @@ How it reads files:
 | `.script-helpers-push-allow` | in the repository: one glob per line (`#` comments) exempt from the name and size checks |
 | `git config script-helpers.ai-trailers allow` | no AI-trailer check in this repository |
 | `git config script-helpers.ascii-commits true` | commit messages must be plain ASCII |
+| `git config script-helpers.push-tests quick` | the push runs the quick tests and refuses on a failure ([above](#tests-on-push-for-repositories-with-no-ci-test-gate)) |
 | a Makefile target `lint-changed` | replaces the lint group; gets the changed files, one per line, in `CHANGED_FILES` |
 
 `lint-changed` and the repository's `eslint` are the repository's own code, so
