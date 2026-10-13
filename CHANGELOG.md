@@ -1,3 +1,22 @@
+## Unreleased
+
+### Changed
+
+- **A push runs no tests, and blocks on fast checks of what it sends.** The
+  test stage made a push take about 9 minutes (529 s here), and over SSH the
+  idle connection was cut (exit 141). `pre-push` now blocks on security (as
+  before), hygiene (conflict markers, files over 5 MB, secret-looking file
+  names, the release CHANGELOG heading and VERSION on `release/X.Y.Z`, AI
+  attribution trailers in the configured owners' repositories, and plain-ASCII
+  commit messages with `script-helpers.ascii-commits`) and lint of the
+  changed files (`bash -n`, shellcheck, ruff, eslint, gofmt, rustfmt, actionlint,
+  JSON, YAML, PowerShell; each only when installed), reading the pushed
+  commits, not the work tree, and writing nothing to disk, not even a temporary
+  file (`scripts/push_checks.sh`). The global dispatcher
+  runs the same checks. Every check runs to the end. The full suite is
+  `make test` or `./dev test`; the old test stage is `scripts/run_repo_tests.sh`.
+  `PRE_PUSH_SKIP_TESTS` is no longer needed and is ignored.
+
 ## 2026-10-13 — v0.51.0
 
 ### Added

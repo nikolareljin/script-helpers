@@ -88,8 +88,10 @@
 #   The shared pre-push hands over to .githooks/pre-push when a repository has
 #   one (for example the protected-refs guard), so a repository with only
 #   .githooks/pre-push gets the shared hooks and still runs its own.
-#   The pre-push hook runs this repository's tests while git holds the push's
-#   connection open. Over SSH a long run is cut off (exit 141) unless a
+#   The pre-push hook blocks on security, hygiene and lint of the changed files
+#   (scripts/push_checks.sh); it runs no tests (make test or ./dev test). git
+#   holds the push's connection open meanwhile. Over SSH a long run (a first or
+#   very large push) is cut off (exit 141) unless a
 #   keepalive is set: ~/.ssh/config "Host github.com" + "ServerAliveInterval 20"
 #   (every repository), git config core.sshCommand "ssh -o ServerAliveInterval=20"
 #   (one repository), or GIT_SSH_COMMAND="ssh -o ServerAliveInterval=20" git push
@@ -261,7 +263,7 @@ stage_common() {
   if [[ -f "$src_root/config/private-names-allow" ]]; then
     mkdir -p "$stage/config" && cp "$src_root/config/private-names-allow" "$stage/config/" || { rm -rf "$stage"; return 1; }
   fi
-  for name in owner_scope.sh check_sensitive.sh check_private_names.sh refresh_private_names.sh ssh_keepalive.sh; do
+  for name in owner_scope.sh check_sensitive.sh check_private_names.sh refresh_private_names.sh ssh_keepalive.sh push_checks.sh; do
     cp "$src_root/scripts/$name" "$stage/scripts/$name" || { rm -rf "$stage"; return 1; }
   done
   version_stamp > "$stage/VERSION"
@@ -354,6 +356,12 @@ prereqs() {
       echo "            (exit 141). In ~/.ssh/config: Host github.com / ServerAliveInterval 20"
     fi
   fi
+  # Not required: push_checks.sh lints a file type only when its tool is here.
+  local t have="" lack=""
+  for t in shellcheck ruff actionlint gofmt pwsh; do
+    if command -v "$t" >/dev/null 2>&1; then have="$have $t"; else lack="$lack $t"; fi
+  done
+  echo "  lint      on push:${have:- none}${lack:+; not installed (those files are not linted):$lack}"
   terms="${SENSITIVE_TERMS_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/sensitive-terms.txt}"
   if [[ -f "$terms" ]]; then
     perms="$(ls -ld "$terms" | cut -c5-10)"

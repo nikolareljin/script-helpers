@@ -129,6 +129,39 @@ sec_revs() {
   done < "$1"
 }
 
+# sec_changed_files <refs-file> <remote-name>: "<commit><TAB><path>" for every
+# file a pushed ref adds or changes and still has at its tip, once per pair.
+# <commit> is that ref's pushed tip, so a caller reads the content being pushed
+# (git show <commit>:<path>), not the work tree. -z: git would otherwise quote a
+# path with non-ASCII characters; a path holding a tab or newline is skipped.
+# One git log and one cat-file per pushed ref, however many commits and files:
+# naming each path once per commit and checking each with its own process took
+# 5 s for a 363-file first push here.
+# Writes nothing: the list is a variable, and pipes carry the rest.
+sec_changed_files() {
+  local revs tip f t list
+  while IFS= read -r revs; do
+    case "$revs" in
+      *..*) tip="${revs##*..}" ;;
+      *)    tip="${revs%% *}" ;;
+    esac
+    # shellcheck disable=SC2086
+    list="$(git log -z --name-only --format= --diff-filter=ACMR $revs 2>/dev/null \
+      | while IFS= read -r -d '' f; do
+          f="${f#$'\n'}"
+          [[ -n "$f" && "$f" != *$'\t'* && "$f" != *$'\n'* ]] && printf '%s\n' "$f"
+        done | LC_ALL=C sort -u)"
+    [[ -n "$list" ]] || continue
+    # One answer line per question, in order; "<name> missing" for a path the
+    # tip no longer has (deleted by a later commit of the push).
+    printf '%s\n' "$list" | while IFS= read -r f; do printf '%s:%s\n' "$tip" "$f"; done \
+      | git cat-file --batch-check='%(objecttype)' 2>/dev/null \
+      | paste - <(printf '%s\n' "$list") | while IFS=$'\t' read -r t f; do
+          [[ "$t" == blob || "$t" == commit ]] && printf '%s\t%s\n' "$tip" "$f"
+        done
+  done < <(sec_revs "$1" "${2:-}") | LC_ALL=C sort -u
+}
+
 # sec_tag_messages <refs-file>: the message of every annotated tag the push
 # sends (each level of a tag of a tag), without its signature. 1 = unreadable.
 sec_tag_messages() {
@@ -254,25 +287,17 @@ sec_foxguard_cmd() {
 # Measured 2026-09-29: its shell taint rules flagged 93 lines of this library,
 # none exploitable, so as a gate it would fail correct code.
 sec_foxguard_push() {
-  local refs="$1" remote="${2:-}" cmd revs f out rc=0 n shown=0 max="${FOXGUARD_MAX_LINES:-40}"
+  local refs="$1" remote="${2:-}" cmd f out rc=0 n shown=0 max="${FOXGUARD_MAX_LINES:-40}"
   if ! cmd="$(sec_foxguard_cmd)"; then
     echo "[pre-push] foxguard not installed; static-analysis warnings skipped (install: docs/security-gates.md)."
     return 0
   fi
-  local list ldir
-  ldir="$(mktemp -d 2>/dev/null)" && [[ -n "$ldir" && -d "$ldir" && ! -L "$ldir" ]] || return 0
-  chmod 700 "$ldir" 2>/dev/null || true
-  list="$ldir/files"
-  while IFS= read -r revs; do
-    # shellcheck disable=SC2086
-    git log --name-only --format= --diff-filter=ACMR $revs 2>/dev/null
-  done < <(sec_revs "$refs" "$remote") | sort -u | while IFS= read -r f; do
-    [[ -f "$f" ]] && printf '%s\n' "$f"
-  done > "$list"
-  if [[ ! -s "$list" ]]; then rm -rf "$ldir"; return 0; fi
+  # The changed files that exist here, in an array: nothing written to disk.
   local files=()
-  while IFS= read -r f; do files+=("$f"); done < "$list"
-  rm -rf "$ldir"
+  while IFS= read -r f; do
+    [[ -f "$f" ]] && files+=("$f")
+  done < <(sec_changed_files "$refs" "$remote" | cut -f2- | LC_ALL=C sort -u)
+  [[ ${#files[@]} -gt 0 ]] || return 0
   # shellcheck disable=SC2086  # FOXGUARD_CMD may carry arguments
   out="$($cmd "${files[@]}" 2>&1)" || rc=$?
   n="$(printf '%s\n' "$out" | LC_ALL=C grep -c '[^[:space:]]' || true)"
@@ -284,7 +309,7 @@ sec_foxguard_push() {
       [[ -n "${f//[[:space:]]/}" ]] || continue
       shown=$((shown + 1))
       [[ "$shown" -le "$max" ]] && printf '[pre-push] WARNING (foxguard): %s\n' "$f"
-    done <<< "$out"
+    done < <(printf '%s\n' "$out")
     [[ "$shown" -gt "$max" ]] && echo "[pre-push] WARNING (foxguard): ... $((shown - max)) more line(s); run foxguard on the files to see them."
     echo "[pre-push] foxguard findings are warnings; the push is not blocked by them."
   fi

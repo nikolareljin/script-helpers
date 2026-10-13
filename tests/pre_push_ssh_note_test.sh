@@ -65,7 +65,6 @@ silent "keepalive in the ssh config: no note" "git@github.com:me/x.git" FAKE_ALI
 silent "keepalive in GIT_SSH_COMMAND: no note" "git@github.com:me/x.git" "GIT_SSH_COMMAND=ssh -o ServerAliveInterval=15"
 silent "HTTPS remote: no note" "https://github.com/me/x.git"
 silent "local path remote: no note" "/srv/git/x.git"
-silent "tests skipped on purpose: no note" "git@github.com:me/x.git" PRE_PUSH_SKIP_TESTS=1
 out="$(run git@github.com:me/x.git)"; rc=$?
 [[ "$rc" -eq 0 ]] && grep -q "All checks passed" <<<"$out" && ok "the note does not change the result" || error "push result changed: rc=$rc"
 
@@ -148,14 +147,15 @@ else
   error "chained: no installed pre-push wrapper at $wrapper"
 fi
 
-# The tests a push runs must not inherit the once-per-push marker: in a push
-# with no keepalive the note is shown, and a test of the note run by that push
-# would see it suppressed and refuse the push.
-printf 'test:\n\t@[ -z "$$SCRIPT_HELPERS_SSH_NOTE_SHOWN" ] || { echo leaked; exit 1; }\n' > "$repo/Makefile"
+# A repository's own pre-push must not inherit the once-per-push marker: in a
+# push with no keepalive the note is shown, and a test of the note run from
+# that hook would see it suppressed and refuse the push.
+mkdir -p "$repo/.githooks"
+printf '#!/usr/bin/env bash\n[ -z "${SCRIPT_HELPERS_SSH_NOTE_SHOWN:-}" ] || { echo leaked; exit 1; }\n' > "$repo/.githooks/pre-push"
 out="$(run git@github.com:me/x.git)"; rc=$?
-[[ "$rc" -eq 0 && "$out" == *"The push waits"* && "$out" != *leaked* ]] && ok "the repository's tests do not inherit the note marker" \
-  || error "the note marker leaked into the tests (rc=$rc)"
-printf 'test:\n\t@exit 0\n' > "$repo/Makefile"
+[[ "$rc" -eq 0 && "$out" == *"The push waits"* && "$out" != *leaked* ]] && ok "the repository's own pre-push does not inherit the note marker" \
+  || error "the note marker leaked into the repository's pre-push (rc=$rc)"
+rm -rf "$repo/.githooks"
 
 # setup-hooks.sh --status lists the keepalive with the prerequisites. In a
 # repository with no agent hooks it used to stop with exit 1 before them.
