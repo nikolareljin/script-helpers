@@ -671,6 +671,24 @@ default="$(dirname "$GATE")/../config/private-names-allow"
 bad="$(grep -v '^#' "$default" | grep -v '^$' | grep -cv '^[a-z]\{2,\}$')"
 [[ "$bad" == 0 ]] && ok "the default allow list is plain words only" || error "$bad line(s) in the default allow list are not plain words"
 
+# An installed hook copy carries the default, and keeps it across a reinstall:
+# the copy's gate seeds a new machine's list as the checkout's does.
+inst_home="$tmp/inst-home"; inst_repo="$tmp/inst-repo"
+mkdir -p "$inst_home" "$inst_repo/.employer"
+git -C "$inst_repo" init -q && git -C "$inst_repo" config core.hooksPath .employer
+for pass in install reinstall; do
+  ( cd "$inst_repo" && HOME="$inst_home" XDG_CONFIG_HOME="$inst_home/.config" \
+      bash "$ROOT_DIR/scripts/setup-hooks.sh" ) >/dev/null 2>&1 || error "setup-hooks.sh ($pass) failed"
+  copy="$(find "$inst_home" -path '*/scripts/check_private_names.sh' | head -1)"
+  [[ -n "$copy" && -f "$(dirname "$copy")/../config/private-names-allow" ]] \
+    && ok "the installed copy carries the default allow list ($pass)" \
+    || error "the installed copy has no default allow list ($pass)"
+done
+rm -rf "$inst_home/.config"
+got="$(printf 'built for windows' | HOME="$inst_home" XDG_CONFIG_HOME="$inst_home/.config" \
+  bash "$copy" --stdin --list "$seedlist" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 0 ]] && ok "the installed copy seeds a machine's allow list" || error "the installed copy did not seed: exit $got"
+
 if (( failures )); then
   note "$failures check(s) failed."
   exit 1

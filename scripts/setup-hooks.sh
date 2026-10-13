@@ -239,14 +239,14 @@ version_stamp() {
 # install must never be what runs.
 stage_and_swap() {
   local dest="$1" stage="$2" name
-  rm -rf "$dest/scripts.old" "$dest/hooks.old" "$dest/lib.old"
-  for name in scripts hooks lib; do
+  rm -rf "$dest/scripts.old" "$dest/hooks.old" "$dest/lib.old" "$dest/config.old"
+  for name in scripts hooks lib config; do
     [[ -e "$stage/$name" ]] || continue
     [[ -e "$dest/$name" ]] && mv "$dest/$name" "$dest/$name.old"
     mv "$stage/$name" "$dest/$name"
   done
   mv -f "$stage/helpers.sh" "$dest/helpers.sh"; mv -f "$stage/VERSION" "$dest/VERSION"
-  rm -rf "$stage" "$dest/scripts.old" "$dest/hooks.old" "$dest/lib.old"
+  rm -rf "$stage" "$dest/scripts.old" "$dest/hooks.old" "$dest/lib.old" "$dest/config.old"
 }
 
 # stage_common <dest>: a new stage directory with helpers.sh, lib/ and the check
@@ -489,7 +489,7 @@ uninstall_agents_user() {
     [[ -f "$f" && -n "$PY" ]] && agent_merge status "$a" "$(native_path "$f")" >/dev/null 2>&1 && left=true
   done
   if [[ "$left" == false ]]; then
-    rm -rf "${agent_user_home:?}/scripts" "${agent_user_home:?}/lib" "${agent_user_home:?}/helpers.sh" "${agent_user_home:?}/VERSION"
+    rm -rf "${agent_user_home:?}/scripts" "${agent_user_home:?}/lib" "${agent_user_home:?}/config" "${agent_user_home:?}/helpers.sh" "${agent_user_home:?}/VERSION"
     rmdir "$agent_user_home" 2>/dev/null || true
   fi
   echo "[setup-hooks] agent hooks removed: $(echo $AGENTS_USER)"
@@ -585,7 +585,7 @@ uninstall_claude() {
     "$PY" -I "$(native_path "$src_root/$MERGE_REL")" uninstall "$(native_path "$settings")" || rc=$?
     [[ "$rc" -eq 0 ]] || exit "$rc"
   fi
-  rm -rf "${home:?}/scripts" "${home:?}/lib" "${home:?}/helpers.sh" "${home:?}/VERSION"
+  rm -rf "${home:?}/scripts" "${home:?}/lib" "${home:?}/config" "${home:?}/helpers.sh" "${home:?}/VERSION"
   rmdir "$home" 2>/dev/null || true
   echo "[setup-hooks] claude hook removed from $settings and $home"
 }
@@ -661,7 +661,7 @@ uninstall_global() {
       echo "[setup-hooks] global core.hooksPath restored to $prev"
     fi
   fi
-  rm -rf "${global_dir:?}/hooks" "${global_dir:?}/scripts" "${global_dir:?}/lib" "${global_dir:?}/helpers.sh" "${global_dir:?}/VERSION" "$backup_file"
+  rm -rf "${global_dir:?}/hooks" "${global_dir:?}/scripts" "${global_dir:?}/lib" "${global_dir:?}/config" "${global_dir:?}/helpers.sh" "${global_dir:?}/VERSION" "$backup_file"
   rmdir "$global_dir" 2>/dev/null || true
   echo "[setup-hooks] global hooks removed"
 }
