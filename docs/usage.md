@@ -564,6 +564,9 @@ and skipped; `setup-hooks.sh --status` lists them. Exceptions:
   one repository.
 - A Makefile target `lint-changed` replaces the lint group; it gets the changed
   files, one per line, in `CHANGED_FILES`.
+- `lint-changed` and the repository's `eslint` are the repository's own code, so
+  they run only when the hook is too (script-helpers vendored and tracked). The
+  chained and global installs run none of it.
 
 Tests run when you ask: `make test`, `./dev test`, or
 `scripts/run_repo_tests.sh` (the runner the hook used to call: preflight
