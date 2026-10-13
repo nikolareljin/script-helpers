@@ -15,6 +15,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOOK="$ROOT_DIR/scripts/git-hooks/pre-push"
 export SECURITY_GATE_ALLOW_UNCHECKED=1 PRIVATE_NAMES_AUTO_REFRESH=false
 export PRIVATE_NAMES_FILE=/nonexistent/private-names.tsv
+# A keepalive in the caller's environment (a push run with one) or global git
+# config would hide the note: the test sets up its own.
+unset GIT_SSH_COMMAND GIT_SSH
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 failures=0
 note()  { echo "[pre_push_ssh_note_test] $*"; }
 ok()    { note "PASS: $*"; }
