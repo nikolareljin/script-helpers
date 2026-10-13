@@ -118,10 +118,15 @@ elif [[ -n "$_security_lib" && -f "$(dirname "$_security_lib")/push_checks.sh" ]
   source "$(dirname "$_security_lib")/push_checks.sh"
   push_checks "$_push_refs" "${1:-}" "${2:-}" || exit 1
   push_tests || exit 1
-elif [[ ! "$(git config --get script-helpers.push-tests 2>/dev/null || true)" =~ ^(|off|false)$ ]]; then
+else
   # Opted in, but the runner is not here: refuse rather than skip the tests.
-  echo "[pre-push] REFUSED: script-helpers.push-tests is set, but push_checks.sh is not next to this hook; reinstall the hooks." >&2
-  exit 1
+  # (case, not =~: bash 3.2's regex has no empty alternative.)
+  case "$(git config --get script-helpers.push-tests 2>/dev/null || true)" in
+    ""|off|false) ;;
+    *)
+      echo "[pre-push] REFUSED: script-helpers.push-tests is set, but push_checks.sh is not next to this hook; reinstall the hooks." >&2
+      exit 1 ;;
+  esac
 fi
 unset SCRIPT_HELPERS_PUSH_CHECKED
 
