@@ -417,6 +417,28 @@ if [[ $rc -eq 0 ]] && grep -q 'Tests are not run on push' <<<"$out" && ! grep -q
 else
   error "pre-push and tests: exit $rc: $(tail -3 <<<"$out")"
 fi
+# Opt-in: script-helpers.push-tests quick runs the quick tests and blocks.
+git config script-helpers.push-tests quick
+out="$(hook)"; rc=$?
+[[ $rc -eq 1 ]] && grep -q SUITE-RAN <<<"$out" && grep -q 'tests failed' <<<"$out" \
+  && ok "push-tests quick: a failing make test refuses the push" \
+  || error "push-tests quick did not refuse a failing suite: exit $rc: $(tail -3 <<<"$out")"
+commit "suite ok" Makefile $'test:\n\t@echo SUITE-RAN; exit 0\n'
+out="$(hook)"; rc=$?
+[[ $rc -eq 0 ]] && grep -q SUITE-RAN <<<"$out" && grep -q 'tests: passed' <<<"$out" \
+  && ok "push-tests quick: a passing suite lets the push through" \
+  || error "push-tests quick with a passing suite: exit $rc: $(tail -3 <<<"$out")"
+git config script-helpers.push-tests qiuck
+out="$(hook)"; rc=$?
+[[ $rc -eq 1 ]] && grep -q "use quick or off" <<<"$out" && ! grep -q SUITE-RAN <<<"$out" \
+  && ok "push-tests with an unknown value refuses instead of running nothing" \
+  || error "push-tests typo: exit $rc: $(tail -3 <<<"$out")"
+git config script-helpers.push-tests off
+out="$(hook)"; rc=$?
+[[ $rc -eq 0 ]] && ! grep -q SUITE-RAN <<<"$out" && ok "push-tests off runs no tests" \
+  || error "push-tests off: exit $rc"
+git config --unset script-helpers.push-tests
+commit "suite" Makefile $'test:\n\t@echo SUITE-RAN; exit 1\n'
 commit "conflict" c.txt "$lt HEAD
 "
 out="$(hook)"; rc=$?

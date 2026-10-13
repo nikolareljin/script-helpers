@@ -117,6 +117,7 @@ elif [[ -n "$_security_lib" && -f "$(dirname "$_security_lib")/push_checks.sh" ]
   # shellcheck source=/dev/null
   source "$(dirname "$_security_lib")/push_checks.sh"
   push_checks "$_push_refs" "${1:-}" "${2:-}" || exit 1
+  push_tests || exit 1
 fi
 unset SCRIPT_HELPERS_PUSH_CHECKED
 
@@ -132,4 +133,8 @@ fi
 if [[ -n "${PRE_PUSH_SKIP_TESTS:-}" ]]; then
   echo "[pre-push] PRE_PUSH_SKIP_TESTS is no longer needed: a push runs no tests."
 fi
-echo "[pre-push] All checks passed. Tests are not run on push: make test or ./dev test."
+if [[ "$(git config --get script-helpers.push-tests 2>/dev/null || true)" == quick ]]; then
+  echo "[pre-push] All checks passed."
+else
+  echo "[pre-push] All checks passed. Tests are not run on push: make test or ./dev test."
+fi
