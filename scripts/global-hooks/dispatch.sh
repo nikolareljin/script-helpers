@@ -91,7 +91,7 @@ EOF_URLS
 fi
 
 # The SSH keepalive note, before the checks and the repository's own pre-push
-# (which may run a long test suite): shown once per push, for SSH remotes only.
+# (a first or large push can take a while): once per push, SSH remotes only.
 if [[ "$hook" == pre-push && -f "$base/ssh_keepalive.sh" ]] && grep -qv '^[^ ]* 0* ' "$stdin_file" 2>/dev/null; then
   # shellcheck source=/dev/null
   source "$base/ssh_keepalive.sh" && ssh_keepalive_note "${2:-}" "[script-helpers]"
@@ -109,6 +109,11 @@ if [[ "$in_scope" == true ]]; then
       done < "$stdin_file"
       if [[ "$deletions_only" == false ]]; then
         (cd "$top" && sec_pre_push "$stdin_file" "${1:-}" "${2:-}") || exit 1
+        # Hygiene and lint of what the push changes, as the bundled pre-push does.
+        if [[ -f "$base/push_checks.sh" ]]; then
+          # shellcheck source=/dev/null
+          (cd "$top" && source "$base/push_checks.sh" && push_checks "$stdin_file" "${1:-}" "${2:-}") || exit 1
+        fi
       fi
       ;;
     pre-commit) (cd "$top" && sec_pre_commit) || exit 1 ;;

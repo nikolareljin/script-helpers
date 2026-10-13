@@ -417,7 +417,7 @@ requirements file; bandit leaves `.venv`, `venv`, `node_modules`, `build` and
 `dist` out; `npm audit` needs a lockfile. An audit that could not run (a missing
 tool, no manifest, no lockfile) is a `SKIP` line with the reason, never a
 `PASS`. No stack is needed. `--docker` runs the tools from the pinned images.
-The `--quick` pre-push run leaves the audits out (pip-audit goes to the network
+The `--quick` run (`./dev test`) leaves the audits out (pip-audit goes to the network
 for each project, about 15 s) and says so in one `SKIP  dependency audits` line.
 
 It fails (exit 1) on findings, through `ci_security.sh --fail-on-findings`, and
@@ -429,9 +429,10 @@ found after the file is deleted, because it is still in the history; rotate it.
 reads the whole repository's history, from the repository top, so its
 `.gitleaks.toml` and `.gitleaksignore` apply.
 
-A full `./dev preflight` and the pre-push hook split the step in two. The
-`secret scan` (gitleaks, git mode) blocks: a committed secret fails the run and
-refuses the push. It reads only the commits no remote has yet
+A full `./dev preflight` and the `--quick` run split the step in two. The
+`secret scan` (gitleaks, git mode) blocks: a committed secret fails the run.
+(The pre-push hook scans the pushed commits itself; see
+[Security gates in the git hooks](security-gates.md).) It reads only the commits no remote has yet
 (`--gitleaks-log-opts "HEAD --branches --tags --not --remotes"`), which is what a push
 can send, from any branch; a test fixture flagged in history that is already
 pushed does not block. `./dev scan` still reads the whole history. A blocked
@@ -542,8 +543,34 @@ present (same-file recursion guard included), so a repository whose `.githooks/`
 holds only `pre-push`, such as a protected-refs guard, gets the shared hooks and
 still runs its own.
 
+#### What a push checks
+
+`pre-push` blocks on what must not leave the machine and runs no tests. Every
+check runs to the end; a first or very large push takes longer.
+
+| Group | Checks (only the files and commits the push sends) |
+|---|---|
+| security | private repository names, credentials (gitleaks), personal identifiers and PII; foxguard as warnings |
+| hygiene | conflict markers (`<<<<<<<` or `>>>>>>>` at a line start); files over `script-helpers.max-file-mb` (default 5) MB; secret-looking names (`.env`, `*.pem`, `*.key`, `id_rsa`, `*.p12`, ...); on `release/X.Y.Z`, the CHANGELOG release heading and `VERSION`; in the configured owners' repositories, commit trailers or `Generated with` lines naming an AI tool |
+| lint | `bash -n` and `shellcheck -S warning`; `ruff` (the repository's config, else only fatal rules) or a Python syntax parse; the repository's `eslint` when installed in `node_modules`; `gofmt -l -e`; `rustfmt --check` when the repository has a rustfmt config; `actionlint` for workflows; JSON and YAML parse; PowerShell parse |
+
+It checks the content being pushed, not the work tree, so an uncommitted edit
+cannot hide a problem or cause one. A lint tool that is not installed is named
+and skipped; `setup-hooks.sh --status` lists them. Exceptions:
+
+- `.script-helpers-push-allow` (in the repository, one glob per line, `#`
+  comments) exempts paths from the name and size checks.
+- `git config script-helpers.ai-trailers allow` turns the trailer check off for
+  one repository.
+- A Makefile target `lint-changed` replaces the lint group; it gets the changed
+  files, one per line, in `CHANGED_FILES`.
+
+Tests run when you ask: `make test`, `./dev test`, or
+`scripts/run_repo_tests.sh` (the runner the hook used to call: preflight
+`--quick` when present, else the stack's own runner).
+
 `pre-push` runs while git holds the push's connection open, idle. Over SSH a
-long test run can be cut off by the server: the push exits 141 with
+long run (a first or very large push) can be cut off by the server: the push exits 141 with
 `Connection to github.com closed by remote host`, after the checks passed. The
 hook prints a note before the checks when no keepalive is set (yellow on a
 terminal, plain in CI), and `setup-hooks.sh --status` lists it. Ways to keep the
@@ -557,9 +584,7 @@ connection alive, from widest to narrowest:
 
 `ServerAliveInterval 20` sends a keepalive every 20 seconds; with the default
 `ServerAliveCountMax 3` the connection still ends if the server stops answering.
-An HTTPS remote is not affected: git makes a new request after the hook. As a
-last resort, `PRE_PUSH_SKIP_TESTS=1 git push` skips only the tests; every other
-check still runs.
+An HTTPS remote is not affected: git makes a new request after the hook.
 
 The same hooks also refuse credentials, personal identifiers and PII, and
 print foxguard warnings; see [Security gates in the git hooks](security-gates.md),
@@ -594,11 +619,6 @@ hook only ever sees an agent's calls. Wire it up with:
 "hooks": { "PreToolUse": [ { "matcher": "Bash", "hooks": [ { "type": "command",
   "command": "bash <path>/script-helpers/scripts/claude-hooks/pretooluse_private_names.sh" } ] } ] }
 ```
-
-`PRE_PUSH_SKIP_TESTS=1 git push` skips the test step and nothing else. It exists
-so that a repository whose suite needs services -- a `make test` that talks to
-docker -- does not leave `git push --no-verify` as the only way through, since
-that skips the private-name check as well.
 
 ### Indexing
 
@@ -699,11 +719,10 @@ The PHP runner targets PHP/Laravel projects: it runs `composer install`
 runner is found, the script exits non-zero so callers do not treat "no runner"
 as a passing suite. Set `SKIP_PHP_TESTS=1` for a style-only run that skips the
 (often DB-backed) test suite — handy for a pre-push on a machine without a
-local database. In the `pre-push` hook, `composer.json` is authoritative: a
-repo that has it runs the PHP suite rather than falling through to the Node
-runner, even when a `package.json` is also present for Vite. If PHP or Composer
-is not installed, the hook prints a message and skips the PHP checks (the push
-still proceeds).
+local database. In `scripts/run_repo_tests.sh`, `composer.json` is
+authoritative: a repo that has it runs the PHP suite rather than falling through
+to the Node runner, even when a `package.json` is also present for Vite. If PHP
+or Composer is not installed, it prints a message and skips the PHP checks.
 
 Release branch checks
 ---------------------

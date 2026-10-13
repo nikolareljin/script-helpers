@@ -129,6 +129,28 @@ sec_revs() {
   done < "$1"
 }
 
+# sec_changed_files <refs-file> <remote-name>: "<commit><TAB><path>" for every
+# file a pushed ref adds or changes and still has at its tip, once per pair.
+# <commit> is that ref's pushed tip, so a caller reads the content being pushed
+# (git show <commit>:<path>), not the work tree. -z: git would otherwise quote a
+# path with non-ASCII characters; a path holding a tab or newline is skipped.
+sec_changed_files() {
+  local revs tip f
+  while IFS= read -r revs; do
+    case "$revs" in
+      *..*) tip="${revs##*..}" ;;
+      *)    tip="${revs%% *}" ;;
+    esac
+    # shellcheck disable=SC2086
+    git log -z --name-only --format= --diff-filter=ACMR $revs 2>/dev/null \
+      | while IFS= read -r -d '' f; do
+          f="${f#$'\n'}"
+          [[ -n "$f" && "$f" != *$'\t'* && "$f" != *$'\n'* ]] || continue
+          git cat-file -e "$tip:$f" 2>/dev/null && printf '%s\t%s\n' "$tip" "$f"
+        done
+  done < <(sec_revs "$1" "${2:-}") | LC_ALL=C sort -u
+}
+
 # sec_tag_messages <refs-file>: the message of every annotated tag the push
 # sends (each level of a tag of a tag), without its signature. 1 = unreadable.
 sec_tag_messages() {
@@ -254,7 +276,7 @@ sec_foxguard_cmd() {
 # Measured 2026-09-29: its shell taint rules flagged 93 lines of this library,
 # none exploitable, so as a gate it would fail correct code.
 sec_foxguard_push() {
-  local refs="$1" remote="${2:-}" cmd revs f out rc=0 n shown=0 max="${FOXGUARD_MAX_LINES:-40}"
+  local refs="$1" remote="${2:-}" cmd f out rc=0 n shown=0 max="${FOXGUARD_MAX_LINES:-40}"
   if ! cmd="$(sec_foxguard_cmd)"; then
     echo "[pre-push] foxguard not installed; static-analysis warnings skipped (install: docs/security-gates.md)."
     return 0
@@ -263,10 +285,7 @@ sec_foxguard_push() {
   ldir="$(mktemp -d 2>/dev/null)" && [[ -n "$ldir" && -d "$ldir" && ! -L "$ldir" ]] || return 0
   chmod 700 "$ldir" 2>/dev/null || true
   list="$ldir/files"
-  while IFS= read -r revs; do
-    # shellcheck disable=SC2086
-    git log --name-only --format= --diff-filter=ACMR $revs 2>/dev/null
-  done < <(sec_revs "$refs" "$remote") | sort -u | while IFS= read -r f; do
+  sec_changed_files "$refs" "$remote" | cut -f2- | LC_ALL=C sort -u | while IFS= read -r f; do
     [[ -f "$f" ]] && printf '%s\n' "$f"
   done > "$list"
   if [[ ! -s "$list" ]]; then rm -rf "$ldir"; return 0; fi

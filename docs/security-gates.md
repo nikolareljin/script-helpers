@@ -11,9 +11,12 @@ report a fourth:
 | foxguard static analysis of the changed files | `pre-push` | warning only |
 
 Order in `pre-push`: deletions-only shortcut, private names, credentials,
-personal identifiers and PII, foxguard, then the repository's own `.githooks/pre-push` (which still gets the
-ref lines), then the tests. A repository hook cannot skip the checks: it runs
-after them. The steps live in `scripts/security_hooks.sh`.
+personal identifiers and PII, foxguard, then hygiene and lint of the changed
+files (`scripts/push_checks.sh`), then the repository's own `.githooks/pre-push`
+(which still gets the ref lines). No tests run on push: `make test` or
+`./dev test`. A repository hook cannot skip the checks: it runs after them. The
+security steps live in `scripts/security_hooks.sh`; hygiene and lint are listed
+in [What a push checks](usage.md#what-a-push-checks).
 
 ## check_sensitive.sh
 
