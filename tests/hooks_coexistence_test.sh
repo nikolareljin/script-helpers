@@ -132,21 +132,78 @@ ours_refuse "$r" && ok "after --repair our check runs again" || error "takeover:
 [[ -z "$(git -C "$r" config --local --get-regexp '^script-helpers\.' 2>/dev/null)" ]] && ok "uninstall removes every script-helpers key" \
   || error "takeover: keys left: $(git -C "$r" config --local --get-regexp '^script-helpers\.' | tr '\n' ' ')"
 
-# Rule 3d: a direct setup (the repository's own .githooks) taken over: --repair
-# chains the new tool, then the committed hooks.
+# Rule 3d: the repository's own .githooks, taken over: --repair chains the new
+# tool, the committed hooks staying the target.
 r="$(new_repo direct-takeover)"
 marker_hook "$r/.githooks/pre-commit" committed
 marker_hook "$r/.githooks/pre-push" committed-push
 (cd "$r" && bash "$setup" >/dev/null 2>&1) || error "direct-takeover: setup failed"
-[[ "$(field "$r" mode)" == direct && "$(field "$r" expected)" == .githooks ]] && ok "direct setup: mode=direct, expected .githooks" \
+[[ "$(field "$r" mode)" == chained && "$(field "$r" target)" == .githooks ]] && ok ".githooks: chained after the security checks, the target" \
   || error "direct-takeover: '$(state "$r")'"
 marker_hook "$r/.husky/pre-commit" husky
 git -C "$r" config core.hooksPath .husky
-[[ "$(field "$r" taken_over)" == yes ]] && ok "direct setup taken over: reported" || error "direct-takeover: '$(state "$r")'"
+[[ "$(field "$r" taken_over)" == yes ]] && ok ".githooks setup taken over: reported" || error "direct-takeover: '$(state "$r")'"
 (cd "$r" && bash "$setup" --repair >/dev/null 2>&1) || error "direct-takeover: repair failed"
 [[ "$(field "$r" mode)" == chained && "$(field "$r" previous)" == .husky && "$(field "$r" target)" == .githooks ]] \
   && ok "--repair: chained; committed hooks the target, .husky the previous" || error "direct-takeover: '$(state "$r")'"
 clean_commit "$r" && [[ "$(ran)" == "committed husky" ]] && ok "after --repair both the committed hook and husky run" || error "direct-takeover: ran '$(ran)'"
+
+# A direct setup from before this release: core.hooksPath at an older vendored
+# copy's hooks, which lack the current checks. Reported unscanned=yes; --repair
+# chains the current checks in front and keeps those hooks as the target.
+r="$(new_repo old-direct)"
+marker_hook "$r/scripts/script-helpers/scripts/git-hooks/pre-commit" old-vendored
+marker_hook "$r/scripts/script-helpers/scripts/git-hooks/pre-push" old-vendored-push
+git -C "$r" config core.hooksPath scripts/script-helpers/scripts/git-hooks
+git -C "$r" config script-helpers.set-hooksPath scripts/script-helpers/scripts/git-hooks
+git -C "$r" config script-helpers.mode direct
+git -C "$r" config script-helpers.expected-hooksPath scripts/script-helpers/scripts/git-hooks
+git -C "$r" config script-helpers.trust-repo-hooks true
+[[ "$(field "$r" unscanned)" == yes && "$(field "$r" taken_over)" == no ]] && ok "old direct setup: unscanned=yes" || error "old-direct: '$(state "$r")'"
+(cd "$r" && bash "$setup" --repair >/dev/null 2>&1) || error "old-direct: repair failed"
+[[ "$(field "$r" mode)" == chained && "$(field "$r" target)" == scripts/script-helpers/scripts/git-hooks && "$(field "$r" unscanned)" == no && -z "$(field "$r" previous)" ]] \
+  && ok "--repair: chained, the old hooks the target, nothing previous" || error "old-direct: '$(state "$r")'"
+clean_commit "$r" && [[ "$(ran)" == "old-vendored" ]] && ok "the old vendored hook still runs, once" || error "old-direct: ran '$(ran)'"
+(cd "$r" && bash "$setup" --uninstall >/dev/null 2>&1)
+[[ -z "$(git -C "$r" config --get core.hooksPath)" ]] && ok "uninstall after that: nothing set, as before the first setup" || error "old-direct: uninstall left '$(git -C "$r" config --get core.hooksPath)'"
+
+# The same for a direct setup at .githooks that this script set: after --repair
+# and --uninstall nothing is left, as before the first setup (rule 4).
+r="$(new_repo old-direct-githooks)"
+marker_hook "$r/.githooks/pre-commit" committed
+marker_hook "$r/.githooks/pre-push" committed-push
+git -C "$r" config core.hooksPath .githooks
+git -C "$r" config script-helpers.set-hooksPath .githooks
+git -C "$r" config script-helpers.mode direct
+git -C "$r" config script-helpers.expected-hooksPath .githooks
+git -C "$r" config script-helpers.trust-repo-hooks true
+[[ "$(field "$r" unscanned)" == yes ]] && ok "old direct .githooks setup: unscanned=yes" || error "old-direct-githooks: '$(state "$r")'"
+(cd "$r" && bash "$setup" --repair >/dev/null 2>&1) || error "old-direct-githooks: repair failed"
+[[ "$(field "$r" mode)" == chained && "$(field "$r" target)" == .githooks && -z "$(field "$r" previous)" ]] \
+  && ok "--repair: .githooks the target, nothing previous" || error "old-direct-githooks: '$(state "$r")'"
+clean_commit "$r" && [[ "$(ran)" == "committed" ]] && ok "the .githooks hook runs once" || error "old-direct-githooks: ran '$(ran)'"
+(cd "$r" && bash "$setup" --uninstall >/dev/null 2>&1)
+[[ -z "$(git -C "$r" config --get core.hooksPath)" ]] && ok "uninstall: nothing set, as before the first setup" || error "old-direct-githooks: uninstall left '$(git -C "$r" config --get core.hooksPath)'"
+
+# An old direct .githooks setup that husky then took over: taken_over and
+# unscanned at once. --repair chains husky as the previous value and .githooks
+# as the target, each run once; --uninstall restores husky's value.
+r="$(new_repo old-direct-taken)"
+marker_hook "$r/.githooks/pre-commit" committed
+marker_hook "$r/.githooks/pre-push" committed-push
+marker_hook "$r/.husky/pre-commit" husky
+git -C "$r" config script-helpers.set-hooksPath .githooks
+git -C "$r" config script-helpers.mode direct
+git -C "$r" config script-helpers.expected-hooksPath .githooks
+git -C "$r" config script-helpers.trust-repo-hooks true
+git -C "$r" config core.hooksPath .husky
+[[ "$(field "$r" taken_over)" == yes && "$(field "$r" unscanned)" == yes ]] && ok "old direct, taken over: both reported" || error "old-direct-taken: '$(state "$r")'"
+(cd "$r" && bash "$setup" --repair >/dev/null 2>&1) || error "old-direct-taken: repair failed"
+[[ "$(field "$r" previous)" == .husky && "$(field "$r" target)" == .githooks && "$(field "$r" unscanned)" == no ]] \
+  && ok "--repair: .husky previous, .githooks target" || error "old-direct-taken: '$(state "$r")'"
+clean_commit "$r" && [[ "$(ran)" == "committed husky" ]] && ok "both run, once each" || error "old-direct-taken: ran '$(ran)'"
+(cd "$r" && bash "$setup" --uninstall >/dev/null 2>&1)
+[[ "$(git -C "$r" config --get core.hooksPath)" == .husky ]] && ok "uninstall: husky's value restored" || error "old-direct-taken: uninstall left '$(git -C "$r" config --get core.hooksPath)'"
 
 # An older vendored copy of these hooks run again is not a new tool: --repair
 # keeps the chain, the employer's value included.

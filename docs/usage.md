@@ -524,7 +524,11 @@ The installer picks the hook directory in this order:
    runs from a subdirectory included;
 3. `scripts/script-helpers/scripts/git-hooks`, then `scripts/git-hooks`.
 
-It stores a repo-relative path in `core.hooksPath`. Shared hooks still defer to a
+Only the hooks bundled with the `setup-hooks.sh` that runs (2.) are set in
+`core.hooksPath` directly. `.githooks/` or another vendored copy (1., 3.) runs
+chained after the current security checks, so an old vendored copy cannot
+leave a clone without them. Otherwise it stores a repo-relative path in
+`core.hooksPath`. Shared hooks still defer to a
 matching repo-local `.githooks/pre-commit` or `.githooks/pre-push` when one is
 present (same-file recursion guard included), so a repository whose `.githooks/`
 holds only `pre-push`, such as a protected-refs guard, gets the shared hooks and

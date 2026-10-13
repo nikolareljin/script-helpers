@@ -53,13 +53,16 @@ commit_in() { : > "$tmp/ran"; git -C "$1" commit -q --allow-empty -m "msg $RANDO
 ran() { tr '\n' ' ' < "$tmp/ran" | sed 's/ $//'; }
 local_config() { git -C "$1" config --local --list | grep -vE '^(user\.|core\.(repositoryformatversion|filemode|bare|logallrefupdates))' | sort; }
 
-# 1. Nothing running yet, committed .githooks: core.hooksPath points straight at it (unchanged behaviour).
+# 1. Nothing running yet, committed .githooks: chained after the current security
+#    checks, with .githooks as the target (it is not this copy's own hooks).
 r="$(new_repo direct)"
 marker_hook "$r/.githooks/pre-commit" committed
 marker_hook "$r/.githooks/pre-push" committed-push
 (cd "$r" && bash "$setup" >/dev/null 2>&1) || error "direct: setup failed"
-[[ "$(git -C "$r" config --get core.hooksPath)" == ".githooks" ]] && ok "no earlier hooks: core.hooksPath = .githooks" \
-  || error "direct: core.hooksPath = '$(git -C "$r" config --get core.hooksPath)'"
+[[ "$(git -C "$r" config --get script-helpers.mode)" == chained && "$(git -C "$r" config --get script-helpers.hooks-target)" == .githooks ]] \
+  && ok "no earlier hooks: chained, .githooks the target" \
+  || error "direct: mode=$(git -C "$r" config --get script-helpers.mode) target=$(git -C "$r" config --get script-helpers.hooks-target)"
+commit_in "$r"; [[ "$(ran)" == "committed" ]] && ok "the committed .githooks hook still runs" || error "direct: ran '$(ran)'"
 
 # 2. .git/hooks/pre-commit exists: it keeps running, after the committed hook.
 r="$(new_repo native)"
@@ -151,8 +154,9 @@ marker_hook "$r/.githooks/pre-commit" committed
 marker_hook "$r/.githooks/pre-push" committed-push
 bash "$setup" --global >/dev/null 2>&1 || error "with-global: --global failed"
 (cd "$r" && bash "$setup" >/dev/null 2>&1) || error "with-global: setup failed"
-[[ "$(git -C "$r" config --get core.hooksPath)" == ".githooks" ]] && ok "our own --global is not an earlier hook: direct mode" \
-  || error "with-global: core.hooksPath = '$(git -C "$r" config --get core.hooksPath)'"
+[[ "$(git -C "$r" config --get script-helpers.hooks-target)" == .githooks && -z "$(git -C "$r" config --get script-helpers.previous-hooksPath)" ]] \
+  && ok "our own --global is not an earlier hook: .githooks the target, nothing previous" \
+  || error "with-global: target=$(git -C "$r" config --get script-helpers.hooks-target) previous=$(git -C "$r" config --get script-helpers.previous-hooksPath)"
 bash "$setup" --global --uninstall >/dev/null 2>&1
 marker_hook "$tmp/employer2/pre-commit" employer
 git config --global core.hooksPath "$tmp/employer2"

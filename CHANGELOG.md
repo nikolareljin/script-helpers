@@ -1,3 +1,17 @@
+## Unreleased
+
+### Fixed
+
+- **A repository's own hooks no longer replace the security checks.** When a
+  repository shipped hooks (`.githooks/`, or an older vendored script-helpers),
+  `setup-hooks.sh` pointed git straight at them (`mode=direct`), so a clone was
+  only as safe as that copy: one vendoring 0.22.0 committed a GitHub token. Only
+  this copy's own bundled hooks are now used directly; any other hooks directory
+  runs chained after the current checks, as its target, and still runs once.
+  A clone set up that way before reports `unscanned=yes` in
+  `--status --porcelain`, and `--repair` chains it.
+- `--status` printed `-I` in place of the Python version.
+
 ## 2026-10-12 — v0.50.0
 
 ### Added

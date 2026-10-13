@@ -144,7 +144,8 @@ Hooks that already run here keep running:
 
 | Before setup | After setup |
 |---|---|
-| no hooks, committed `.githooks/` or vendored script-helpers hooks | `core.hooksPath` points straight at them, as before (chained instead when they are not executable, so no tracked file mode changes) |
+| no hooks, and the hooks bundled with the `setup-hooks.sh` that runs | `core.hooksPath` points straight at them |
+| committed `.githooks/`, or another (older) vendored script-helpers | chained: the current checks first, then those hooks as the target. A clone set up directly at them before reports `unscanned=yes`; `--repair` chains it |
 | executable hooks in `.git/hooks` | chained |
 | a local `core.hooksPath` from another tool (husky, an employer's tooling) | saved as `script-helpers.previous-hooksPath`, chained |
 | a global `core.hooksPath` (an employer's, or `--global`) | chained; the global value is not touched |
