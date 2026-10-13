@@ -20,8 +20,10 @@
 #   - in a repository of the configured owners (script-helpers.owners): commit
 #     trailers or "Generated with" lines naming an AI tool
 #     (git config script-helpers.ai-trailers allow turns that off for a repo)
+#   - with git config script-helpers.ascii-commits true: commit messages in
+#     plain ASCII (no em-dashes, curly quotes, ...)
 # .script-helpers-push-allow (one glob per line, # comments) exempts paths from
-# the name and size checks.
+# the name and size checks. Symbolic links are not linted: a push sends the link.
 #
 # Lint (each tool only when installed; a missing one is named, not fatal):
 #   shell: bash -n, shellcheck -S warning      python: ruff (repo config, else
@@ -97,9 +99,12 @@ pc_prepare() {
     [[ "$type" == blob ]] || continue      # a submodule commit has no content here
     # A crafted tree can name ../ or an absolute path; never write outside $PC_TMP.
     case "/$path/" in */../*|*/./*|//*) continue ;; esac
-    if [[ "$tip" == "$head" && -f "$path" ]] && ! LC_ALL=C grep -qxF -- "$path" "$PC_TMP/dirty"; then
+    if [[ "$tip" == "$head" && -L "$path" ]] && ! LC_ALL=C grep -qxF -- "$path" "$PC_TMP/dirty"; then
+      continue                             # a link: the push sends its target's name, not the file
+    elif [[ "$tip" == "$head" && -f "$path" ]] && ! LC_ALL=C grep -qxF -- "$path" "$PC_TMP/dirty"; then
       dest="./$path"                       # never read as an option: -x.sh
     else
+      git ls-tree "$tip" -- "$path" 2>/dev/null | LC_ALL=C grep -q '^120000 ' && continue
       dest="$PC_TMP/t/$tip/$path"
       mkdir -p "$(dirname "$dest")" && git cat-file blob "$tip:$path" > "$dest" 2>/dev/null || continue
     fi
@@ -151,7 +156,7 @@ pc_hygiene() {
     if ! pc_allowed "$path"; then
       case "${path##*/}" in
         .env.example|.env.sample|.env.template|.env.dist|*.pub) ;;
-        .env|.env.*|*.pem|*.key|id_rsa|id_rsa.*|id_dsa|id_ecdsa|id_ecdsa.*|id_ed25519|id_ed25519.*|*.p12|*.pfx|*.jks|*.keystore)
+        .env|.env.*|*.pem|*.key|id_rsa|id_rsa.*|id_dsa|id_ecdsa|id_ecdsa.*|id_ed25519|id_ed25519.*|*.p12|*.pfx|*.jks|*.keystore|.netrc|_netrc|.pypirc|*.tfstate|*.tfstate.backup|*.kdbx)
           pc_find hygiene "$path looks like a secret file (list it in .script-helpers-push-allow if it is not)" ;;
       esac
     fi
@@ -159,21 +164,27 @@ pc_hygiene() {
     [[ -n "$hits" ]] && pc_find hygiene "$path has merge conflict markers (line ${hits% })"
   done < "$PC_TMP/files"
 
-  # Commit messages: AI attribution, in the owners' repositories only.
-  if pc_ai_scope "$url"; then
+  # Commit messages. Each starts with a line of a NUL-free marker and the hash
+  # (%x01): a message line cannot fake it, so the right commit is named.
+  local ai=false ascii=false
+  pc_ai_scope "$url" && ai=true
+  [[ "$(git config --get --type=bool script-helpers.ascii-commits 2>/dev/null || true)" == true ]] && ascii=true
+  if [[ "$ai" == true || "$ascii" == true ]]; then
     while IFS= read -r revs; do
       # shellcheck disable=SC2086
-      git log --format='%h %B' $revs 2>/dev/null | awk '
-        /^[0-9a-f]+ / && NF { c = $1 }
-        { l = tolower($0) }
-        l ~ /(co-authored-by|signed-off-by):.*(claude|anthropic|copilot|chatgpt|openai|gemini|cursor|codex)/ ||
-        l ~ /generated (with|by).*(claude|copilot|chatgpt|gemini|cursor|codex)/ { print c }' | LC_ALL=C sort -u
-    done < <(sec_revs "$refs" "$remote") | while IFS= read -r v; do
-      printf '%s\n' "$v"
-    done > "$PC_TMP/ai"
-    while IFS= read -r v; do
-      pc_find hygiene "commit $v names an AI tool in a trailer or a \"Generated with\" line (git commit --amend, or git rebase to reword it)"
-    done < "$PC_TMP/ai"
+      git log --format='%x01%h%n%B' $revs 2>/dev/null
+    done < <(sec_revs "$refs" "$remote") | LC_ALL=C awk -v ai="$ai" -v ascii="$ascii" '
+      /^\001/ { c = substr($0, 2); next }
+      { l = tolower($0) }
+      ai == "true" && (l ~ /(co-authored-by|signed-off-by):.*(claude|anthropic|copilot|chatgpt|openai|gemini|cursor|codex|aider|devin|windsurf|codeium)/ ||
+                       l ~ /generated (with|by).*(claude|copilot|chatgpt|gemini|cursor|codex|aider|devin|windsurf|codeium)/) { print "ai " c }
+      ascii == "true" && /[^\001-\177]/ { print "ascii " c }' | LC_ALL=C sort -u > "$PC_TMP/msgs"
+    while read -r what v; do
+      case "$what" in
+        ai)    pc_find hygiene "commit $v names an AI tool in a trailer or a \"Generated with\" line (git commit --amend, or git rebase to reword it)" ;;
+        ascii) pc_find hygiene "commit $v has non-ASCII characters in its message (script-helpers.ascii-commits; em-dashes, curly quotes, ...)" ;;
+      esac
+    done < "$PC_TMP/msgs"
   fi
 
   # release/X.Y.Z: the release heading and VERSION at the pushed tip.
@@ -221,10 +232,10 @@ pc_lint() {
     if ! pc_repo_code_ok; then
       pc_say "lint: make lint-changed not run: this hook is installed outside the repository, and runs none of its code."
     else
-    pc_say "lint: make lint-changed"
-    CHANGED_FILES="$(cut -f2 "$PC_TMP/files")" make lint-changed >&2 \
-      || pc_find lint "make lint-changed failed"
-    return 0
+      pc_say "lint: make lint-changed"
+      CHANGED_FILES="$(cut -f2 "$PC_TMP/files")" make lint-changed >&2 \
+        || pc_find lint "make lint-changed failed"
+      return 0
     fi
   fi
   while IFS=$'\t' read -r tip path dest; do
@@ -240,8 +251,8 @@ pc_lint() {
       *.json) json+=("$dest") ;;
       *.yml|*.yaml) yml+=("$dest") ;;
       *.ps1|*.psm1) ps+=("$dest") ;;
-      */*.*|*.*) ;;
-      *) head -n1 "$dest" 2>/dev/null | grep -qE '^#!.*[/ ](ba)?sh([[:space:]]|$)' && sh+=("$dest") ;;
+      *) [[ "${path##*/}" == *.* ]] && continue
+         head -n1 "$dest" 2>/dev/null | grep -qE '^#!.*[/ ](ba)?sh([[:space:]]|$)' && sh+=("$dest") ;;
     esac
   done < "$PC_TMP/files"
 
@@ -324,7 +335,9 @@ $(pc_show "$out")"
     fi
   fi
 
-  if [[ ${#json[@]} -gt 0 || ${#yml[@]} -gt 0 ]] && py="$(pc_python)"; then
+  if [[ ${#json[@]} -gt 0 || ${#yml[@]} -gt 0 ]] && ! py="$(pc_python)"; then
+    pc_missing python "$(( ${#json[@]} + ${#yml[@]} )) JSON/YAML file(s)"
+  elif [[ ${#json[@]} -gt 0 || ${#yml[@]} -gt 0 ]]; then
     for f in "${!json[@]}"; do json[$f]="$(pc_abs "${json[$f]}")"; done
     for f in "${!yml[@]}"; do yml[$f]="$(pc_abs "${yml[$f]}")"; done
     if [[ ${#json[@]} -gt 0 ]]; then
@@ -347,7 +360,7 @@ import re, sys
 try:
     import yaml
 except ImportError:
-    sys.exit(0)
+    sys.exit(3)
 class L(yaml.SafeLoader):
     pass
 # Custom tags (!Ref, !reference) are valid YAML; only the structure is checked.
@@ -363,8 +376,13 @@ for f in sys.argv[1:]:
         print("%s: %s" % (f, str(e).replace('\n', ' '))); bad = 1
 sys.exit(bad)
 PY
-)" || pc_find lint "yaml:
-$(pc_show "$out")"
+)"
+      case $? in
+        0) ;;
+        3) pc_missing PyYAML "${#yml[@]} YAML file(s)" ;;
+        *) pc_find lint "yaml:
+$(pc_show "$out")" ;;
+      esac
     fi
   fi
 

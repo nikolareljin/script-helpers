@@ -551,11 +551,12 @@ check runs to the end; a first or very large push takes longer.
 | Group | Checks (only the files and commits the push sends) |
 |---|---|
 | security | private repository names, credentials (gitleaks), personal identifiers and PII; foxguard as warnings |
-| hygiene | conflict markers (`<<<<<<<` or `>>>>>>>` at a line start); files over `script-helpers.max-file-mb` (default 5) MB; secret-looking names (`.env`, `*.pem`, `*.key`, `id_rsa`, `*.p12`, ...); on `release/X.Y.Z`, the CHANGELOG release heading and `VERSION`; in the configured owners' repositories, commit trailers or `Generated with` lines naming an AI tool |
+| hygiene | conflict markers (`<<<<<<<` or `>>>>>>>` at a line start); files over `script-helpers.max-file-mb` (default 5) MB; secret-looking names (`.env`, `*.pem`, `*.key`, `id_rsa`, `*.p12`, ...); on `release/X.Y.Z`, the CHANGELOG release heading and `VERSION`; in the configured owners' repositories, commit trailers or `Generated with` lines naming an AI tool; with `git config script-helpers.ascii-commits true`, commit messages in plain ASCII |
 | lint | `bash -n` and `shellcheck -S warning`; `ruff` (the repository's config, else only fatal rules) or a Python syntax parse; the repository's `eslint` when installed in `node_modules`; `gofmt -l -e`; `rustfmt --check` when the repository has a rustfmt config; `actionlint` for workflows; JSON and YAML parse; PowerShell parse |
 
 It checks the content being pushed, not the work tree, so an uncommitted edit
-cannot hide a problem or cause one. A lint tool that is not installed is named
+cannot hide a problem or cause one. A symbolic link is not linted: the push
+sends the link, not the file it points at. A lint tool that is not installed is named
 and skipped; `setup-hooks.sh --status` lists them. Exceptions:
 
 - `.script-helpers-push-allow` (in the repository, one glob per line, `#`

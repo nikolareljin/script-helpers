@@ -110,11 +110,38 @@ commit "feat: x
 Co-Authored-By: Claude <noreply@anthropic.com>" x.txt "x"
 expect "an AI trailer is refused in an owner's repository" 1 "names an AI tool" "" "git@github.com:testowner/x.git"
 expect "and allowed in another owner's repository" 0 "" "" "git@github.com:someone/x.git"
+out="$(run_checks "" "git@github.com:testowner/x.git")"
+grep -q "commit $(git rev-parse --short HEAD) names an AI tool" <<<"$out" \
+  && ok "and the finding names that commit" || error "wrong commit named: $(grep 'AI tool' <<<"$out")"
+g reset -q --hard origin/main
+commit "feat: y
+
+abc123 is the issue this fixes
+
+Co-Authored-By: Claude <noreply@anthropic.com>" y.txt "y"
+out="$(run_checks "" "git@github.com:testowner/x.git")"
+grep -q "commit $(git rev-parse --short HEAD) names an AI tool" <<<"$out" \
+  && ok "a message line that starts with a hex word does not change the commit named" \
+  || error "a hex-looking message line was taken for the commit: $(grep 'AI tool' <<<"$out")"
 g config script-helpers.ai-trailers allow
 expect "and allowed where the repository turned it off" 0 "" "" "git@github.com:testowner/x.git"
 g config --unset script-helpers.ai-trailers
 : > "$GIT_CONFIG_GLOBAL"
 expect "and not checked with no owners configured" 0 "" "" "git@github.com:testowner/x.git"
+reset_main
+
+# Plain ASCII commit messages, where a repository asks for them.
+commit "fix: a $(printf '\342\200\224') b" z.txt "z"
+expect "a non-ASCII message passes by default" 0 ""
+g config script-helpers.ascii-commits true
+expect "and is refused with script-helpers.ascii-commits" 1 "non-ASCII characters in its message"
+g reset -q --hard origin/main
+commit "fix: plain" z.txt "z"
+expect "a plain ASCII message passes it" 0 ""
+g config --unset script-helpers.ascii-commits
+reset_main
+commit "tf" infra/terraform.tfstate "{}"
+expect "a Terraform state file is refused" 1 "terraform.tfstate looks like a secret file"
 reset_main
 
 # --- release branches
@@ -152,6 +179,19 @@ reset_main
 commit "shebang only" tool $'#!/bin/sh\nif then\n'
 expect "an extensionless shell script is found by its shebang" 1 "tool"
 reset_main
+commit "dotted dir" v1.2/tool $'#!/usr/bin/env bash\nif then\n'
+expect "and in a directory with a dot in its name" 1 "v1.2/tool"
+reset_main
+# A link is pushed as its target's name; the file it points at is not pushed.
+printf '#!/usr/bin/env bash\nif then\n' > "$tmp/outside.sh"
+ln -s "$tmp/outside.sh" link.sh && g add link.sh && g commit -qm link
+expect "a symbolic link is not linted through to its target" 0 ""
+# From a commit the link's blob is its target's name; named "if then" it would
+# fail bash -n if it were linted as a file.
+ln -s 'if then' link2.sh && g add link2.sh && g commit -qm link2
+g checkout -q -b linkbranch && g checkout -q main && g reset -q --hard origin/main
+expect "nor when the link is read from a commit" 0 "" "refs/heads/linkbranch $(git rev-parse linkbranch) refs/heads/linkbranch $(git rev-parse origin/main)"
+g reset -q --hard origin/main; g branch -q -D linkbranch
 if command -v shellcheck >/dev/null 2>&1; then
   commit "sc" warn.sh $'#!/usr/bin/env bash\nx=$1\nrm -rf $x/*\n'
   expect "a shellcheck warning is refused" 1 "shellcheck"
@@ -231,6 +271,12 @@ if [[ "$py_ok" == true ]]; then
   if "$p" -c 'import yaml' 2>/dev/null; then
     commit "yaml" bad.yml $'a: [1, 2\nb: 3\n'
     expect "invalid YAML is refused" 1 "bad.yml"
+    reset_main
+    mkdir -p "$tmp/noyaml" && printf 'raise ImportError("no yaml here")\n' > "$tmp/noyaml/yaml.py"
+    commit "yaml" bad.yml $'a: [1, 2\nb: 3\n'
+    out="$(PYTHONPATH="$tmp/noyaml" run_checks)"; rc=$?
+    [[ $rc -eq 0 ]] && grep -q 'PyYAML not installed' <<<"$out" && ok "without PyYAML, YAML is named as not checked" \
+      || error "without PyYAML: exit $rc: $(grep -iE 'yaml|REFUSED' <<<"$out" | head -3)"
     reset_main
     commit "tags" cfn.yml $'Resources:\n  B:\n    Value: !Ref Thing\n'
     expect "YAML with custom tags passes" 0 ""

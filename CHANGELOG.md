@@ -7,7 +7,8 @@
   idle connection was cut (exit 141). `pre-push` now blocks on security (as
   before), hygiene (conflict markers, files over 5 MB, secret-looking file
   names, the release CHANGELOG heading and VERSION on `release/X.Y.Z`, AI
-  attribution trailers in the configured owners' repositories) and lint of the
+  attribution trailers in the configured owners' repositories, and plain-ASCII
+  commit messages with `script-helpers.ascii-commits`) and lint of the
   changed files (`bash -n`, shellcheck, ruff, eslint, gofmt, rustfmt, actionlint,
   JSON, YAML, PowerShell; each only when installed), reading the pushed
   commits, not the work tree (`scripts/push_checks.sh`). The global dispatcher
