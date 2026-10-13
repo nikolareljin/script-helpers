@@ -42,11 +42,32 @@ pc_find() { printf '[pre-push] REFUSED (%s): %s\n' "$1" "$2" >&2; PC_FINDINGS=$(
 pc_python() {
   local p
   for p in python3 python; do
-    command -v "$p" >/dev/null 2>&1 && "$p" -c 'import sys; sys.exit(sys.version_info[0] != 3)' 2>/dev/null \
+    command -v "$p" >/dev/null 2>&1 && ( cd / && "$p" -c 'import sys; sys.exit(sys.version_info[0] != 3)' ) 2>/dev/null \
       && { printf '%s' "$p"; return 0; }
   done
   return 1
 }
+
+# pc_repo_code_ok: 0 when this file lives inside the repository being pushed,
+# so the hook is the repository's own code already. An install outside it (the
+# chained setup, the global dispatcher) never runs code the repository supplies:
+# a `lint-changed` target, node_modules/.bin/eslint and its JS config.
+# Inside is not enough: a repository whose work tree is $HOME contains the
+# installed copy too. This file must be tracked, by the repository or by a
+# submodule of it (script-helpers vendored).
+pc_repo_code_ok() {
+  local top own super
+  top="$(pwd -P)"
+  case "$(cd "$PC_DIR" && pwd -P)/" in "$top"/*) ;; *) return 1 ;; esac
+  git -C "$PC_DIR" ls-files --error-unmatch -- push_checks.sh >/dev/null 2>&1 || return 1
+  own="$(cd "$(git -C "$PC_DIR" rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null && pwd -P)" || return 1
+  [[ "$own" == "$top" ]] && return 0
+  super="$(git -C "$own" rev-parse --show-superproject-working-tree 2>/dev/null)"
+  [[ -n "$super" && "$(cd "$super" && pwd -P)" == "$top" ]]
+}
+
+# pc_abs <path>: the path from /, for tools run outside the repository.
+pc_abs() { case "$1" in /*) printf '%s' "$1" ;; *) printf '%s/%s' "$(pwd -P)" "$1" ;; esac; }
 
 # pc_allowed <path>: 0 when .script-helpers-push-allow (at the pushed tip) lists it.
 pc_allowed() {
@@ -74,6 +95,8 @@ pc_prepare() {
   sed "s/$(printf '\t')/:/" "$PC_TMP/changed" | git cat-file --batch-check='%(objectsize) %(objecttype)' > "$PC_TMP/types" 2>/dev/null
   while IFS=$'\t' read -r tip path && IFS=' ' read -r size type <&3; do
     [[ "$type" == blob ]] || continue      # a submodule commit has no content here
+    # A crafted tree can name ../ or an absolute path; never write outside $PC_TMP.
+    case "/$path/" in */../*|*/./*|//*) continue ;; esac
     if [[ "$tip" == "$head" && -f "$path" ]] && ! LC_ALL=C grep -qxF -- "$path" "$PC_TMP/dirty"; then
       dest="$path"
     else
@@ -95,7 +118,7 @@ pc_prepare() {
 }
 
 # pc_show <text>: tool output with the copies' directory removed from paths.
-pc_show() { printf '%s\n' "$1" | sed -e "s|$PC_TMP/t/[0-9a-f]*/||g" -e '/^[[:space:]]*$/d'; }
+pc_show() { printf '%s\n' "$1" | sed -e "s|$PC_TMP/t/[0-9a-f]*/||g" -e "s|$(pwd -P)/||g" -e '/^[[:space:]]*$/d'; }
 
 # --------------------------------------------------------------- hygiene
 pc_hygiene() {
@@ -178,10 +201,14 @@ pc_lint() {
   local tip path dest py out f mk="" sh=() pyf=() js=() gof=() rs=() wf=() json=() yml=() ps=() extracted=0
   for f in Makefile makefile GNUmakefile; do [[ -f "$f" ]] && { mk="$f"; break; }; done
   if [[ -n "$mk" ]] && grep -qE '^lint-changed[[:space:]]*:' "$mk"; then
+    if ! pc_repo_code_ok; then
+      pc_say "lint: make lint-changed not run: this hook is installed outside the repository, and runs none of its code."
+    else
     pc_say "lint: make lint-changed"
     CHANGED_FILES="$(cut -f2 "$PC_TMP/files")" make lint-changed >&2 \
       || pc_find lint "make lint-changed failed"
     return 0
+    fi
   fi
   while IFS=$'\t' read -r tip path dest; do
     [[ "$dest" == "$PC_TMP"/* ]] && extracted=1
@@ -221,7 +248,8 @@ $(pc_show "$out")"
       out="$(ruff check --quiet --no-cache --force-exclude "${sel[@]+"${sel[@]}"}" -- "${pyf[@]}" 2>&1)" || pc_find lint "ruff:
 $(pc_show "$out")"
     elif py="$(pc_python)"; then
-      out="$("$py" - "${pyf[@]}" 2>&1 <<'PY'
+      for f in "${!pyf[@]}"; do pyf[$f]="$(pc_abs "${pyf[$f]}")"; done
+      out="$(cd "$PC_TMP" && "$py" - "${pyf[@]}" 2>&1 <<'PY'
 import ast, sys
 bad = 0
 for f in sys.argv[1:]:
@@ -241,7 +269,9 @@ $(pc_show "$out")"
   if [[ ${#js[@]} -gt 0 ]]; then
     local has_cfg=false
     for f in eslint.config.* .eslintrc*; do [[ -e "$f" ]] && { has_cfg=true; break; }; done
-    if [[ -x node_modules/.bin/eslint && "$has_cfg" == true ]]; then
+    if [[ -x node_modules/.bin/eslint && "$has_cfg" == true ]] && ! pc_repo_code_ok; then
+      pc_say "lint: eslint not run: it and its config are the repository's code, and this hook is installed outside it."
+    elif [[ -x node_modules/.bin/eslint && "$has_cfg" == true ]]; then
       out="$(node_modules/.bin/eslint -- "${js[@]}" 2>&1)" || pc_find lint "eslint:
 $(pc_show "$out")"
     fi
@@ -278,8 +308,10 @@ $(pc_show "$out")"
   fi
 
   if [[ ${#json[@]} -gt 0 || ${#yml[@]} -gt 0 ]] && py="$(pc_python)"; then
+    for f in "${!json[@]}"; do json[$f]="$(pc_abs "${json[$f]}")"; done
+    for f in "${!yml[@]}"; do yml[$f]="$(pc_abs "${yml[$f]}")"; done
     if [[ ${#json[@]} -gt 0 ]]; then
-      out="$("$py" - "${json[@]}" 2>&1 <<'PY'
+      out="$(cd "$PC_TMP" && "$py" - "${json[@]}" 2>&1 <<'PY'
 import json, sys
 bad = 0
 for f in sys.argv[1:]:
@@ -293,7 +325,7 @@ PY
 $(pc_show "$out")"
     fi
     if [[ ${#yml[@]} -gt 0 ]]; then
-      out="$("$py" - "${yml[@]}" 2>&1 <<'PY'
+      out="$(cd "$PC_TMP" && "$py" - "${yml[@]}" 2>&1 <<'PY'
 import re, sys
 try:
     import yaml

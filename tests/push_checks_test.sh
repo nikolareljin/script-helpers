@@ -275,6 +275,57 @@ expect "20 changed shell files pass" 0 "20 changed file(s)"
   || error "20 files took $((SECONDS - start)) s"
 reset_main
 
+# --- the repository's code runs only when the hook is the repository's own
+lc="lint-changed:"$'\n\t'"@touch \"$tmp/lint-ran\""$'\n'
+commit "lint target" Makefile "$lc" x.sh $'#!/usr/bin/env bash\necho x\n'
+rm -f "$tmp/lint-ran"
+out="$(run_checks)"
+[[ ! -e "$tmp/lint-ran" ]] && grep -q 'lint-changed not run' <<<"$out" \
+  && ok "an install outside the repository runs no lint-changed target" \
+  || error "an outside install ran the repository's make target"
+# Inside the work tree but untracked (a repository whose work tree is \$HOME).
+mkdir -p tools && cp "$ROOT_DIR/scripts/push_checks.sh" "$ROOT_DIR/scripts/security_hooks.sh" "$ROOT_DIR/scripts/owner_scope.sh" tools/
+printf 'refs/heads/main %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$(git rev-parse origin/main)" > "$tmp/refs"
+rm -f "$tmp/lint-ran"
+( source tools/push_checks.sh && push_checks "$tmp/refs" origin "$tmp/origin.git" ) >/dev/null 2>&1
+[[ ! -e "$tmp/lint-ran" ]] && ok "an untracked copy inside the work tree is not trusted" \
+  || error "an untracked copy inside the work tree ran the repository's make target"
+# Tracked by the repository: its own hook, so its own target runs.
+g add tools && g commit -qm "vendored checks"
+printf 'refs/heads/main %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$(git rev-parse origin/main)" > "$tmp/refs"
+rm -f "$tmp/lint-ran"
+out="$( source tools/push_checks.sh && push_checks "$tmp/refs" origin "$tmp/origin.git" 2>&1 )"
+[[ -e "$tmp/lint-ran" ]] && ok "a copy the repository tracks runs its lint-changed target" \
+  || error "the repository's own copy did not run lint-changed: $(grep -E 'lint|REFUSED' <<<"$out" | head -3)"
+reset_main
+
+# A committed json.py must not be imported by the JSON check.
+if [[ "$py_ok" == true ]]; then
+  commit "shadow" json.py "open('$tmp/shadowed', 'w').write('x')
+" bad.json '{"a": 1,}'
+  rm -f "$tmp/shadowed"
+  expect "invalid JSON is refused with a json.py in the repository" 1 "bad.json"
+  [[ ! -e "$tmp/shadowed" ]] && ok "and the repository's json.py was not imported" \
+    || error "the JSON check imported the repository's json.py"
+  reset_main
+fi
+
+# A crafted tree naming ../ must not make the check write outside its directory.
+blob="$(printf 'x\n' | git hash-object -w --stdin)"
+sub="$(printf '100644 blob %s\tescaped.sh\n' "$blob" | git mktree)"
+evil="$(printf '040000 tree %s\t..\n' "$sub" | git hash-object -t tree -w --literally --stdin 2>/dev/null || true)"
+if [[ -n "$evil" ]] && evil_c="$(g commit-tree "$evil" -p "$(git rev-parse HEAD)" -m evil 2>/dev/null)"; then
+  rm -f "$tmp"/escaped.sh
+  run_checks "refs/heads/evil $evil_c refs/heads/evil $zeroes" >/dev/null 2>&1
+  if find "$tmp" -maxdepth 3 -name escaped.sh -newer "$tmp/refs" -not -path "*/.git/*" | grep -q .; then
+    error "a ../ path in a crafted tree was written outside the check's directory"
+  else
+    ok "a ../ path in a crafted tree is not written outside the check's directory"
+  fi
+else
+  note "SKIP: this git would not build a tree naming .."
+fi
+
 # --- the hook: checks run, tests do not
 export SECURITY_GATE_ALLOW_UNCHECKED=1 PRIVATE_NAMES_AUTO_REFRESH=false
 export PRIVATE_NAMES_FILE=/nonexistent/private-names.tsv
