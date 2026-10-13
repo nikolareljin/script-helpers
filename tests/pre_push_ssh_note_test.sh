@@ -25,7 +25,7 @@ trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 mkdir -p "$tmp/bin"
 cat > "$tmp/bin/ssh" <<'EOF'
-#!/bin/sh
+#!/usr/bin/env sh
 [ "$1" = "-G" ] && { echo "hostname $2"; echo "serveraliveinterval ${FAKE_ALIVE:-0}"; exit 0; }
 exit 1
 EOF
