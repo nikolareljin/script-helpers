@@ -91,7 +91,9 @@ pc_prepare() {
   local head tip path dest size type
   head="$(git rev-parse -q --verify HEAD 2>/dev/null || true)"
   git diff --no-ext-diff --name-only -z HEAD 2>/dev/null | tr '\0' '\n' > "$PC_TMP/dirty" || true
-  sec_changed_files "$1" "${2:-}" > "$PC_TMP/changed"
+  # Could not list them is not "nothing changed": refuse rather than pass.
+  sec_changed_files "$1" "${2:-}" > "$PC_TMP/changed" \
+    || { pc_find hygiene "could not list the files this push changes"; : > "$PC_TMP/changed"; }
   : > "$PC_TMP/files"; : > "$PC_TMP/sizes"
   [[ -s "$PC_TMP/changed" ]] || return 0
   sed "s/$(printf '\t')/:/" "$PC_TMP/changed" | git cat-file --batch-check='%(objectsize) %(objecttype)' > "$PC_TMP/types" 2>/dev/null

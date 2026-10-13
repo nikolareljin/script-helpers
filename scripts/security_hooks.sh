@@ -134,8 +134,15 @@ sec_revs() {
 # <commit> is that ref's pushed tip, so a caller reads the content being pushed
 # (git show <commit>:<path>), not the work tree. -z: git would otherwise quote a
 # path with non-ASCII characters; a path holding a tab or newline is skipped.
+# One git log and one cat-file per pushed ref, however many commits and files:
+# naming each path once per commit and checking each with its own process took
+# 5 s for a 363-file first push here.
 sec_changed_files() {
-  local revs tip f
+  local revs tip f t dir list
+  # A private directory (mktemp -d, mode 700), like every gate here.
+  dir="$(mktemp -d 2>/dev/null)" && [[ -n "$dir" && -d "$dir" && ! -L "$dir" ]] || return 1
+  chmod 700 "$dir" 2>/dev/null || true
+  list="$dir/paths"
   while IFS= read -r revs; do
     case "$revs" in
       *..*) tip="${revs##*..}" ;;
@@ -145,10 +152,18 @@ sec_changed_files() {
     git log -z --name-only --format= --diff-filter=ACMR $revs 2>/dev/null \
       | while IFS= read -r -d '' f; do
           f="${f#$'\n'}"
-          [[ -n "$f" && "$f" != *$'\t'* && "$f" != *$'\n'* ]] || continue
-          git cat-file -e "$tip:$f" 2>/dev/null && printf '%s\t%s\n' "$tip" "$f"
+          [[ -n "$f" && "$f" != *$'\t'* && "$f" != *$'\n'* ]] && printf '%s\n' "$f"
+        done | LC_ALL=C sort -u > "$list"
+    [[ -s "$list" ]] || continue
+    # One answer line per question, in order; "<name> missing" for a path the
+    # tip no longer has (deleted by a later commit of the push).
+    while IFS= read -r f; do printf '%s:%s\n' "$tip" "$f"; done < "$list" \
+      | git cat-file --batch-check='%(objecttype)' 2>/dev/null \
+      | paste - "$list" | while IFS=$'\t' read -r t f; do
+          [[ "$t" == blob || "$t" == commit ]] && printf '%s\t%s\n' "$tip" "$f"
         done
   done < <(sec_revs "$1" "${2:-}") | LC_ALL=C sort -u
+  rm -rf "$dir"
 }
 
 # sec_tag_messages <refs-file>: the message of every annotated tag the push
