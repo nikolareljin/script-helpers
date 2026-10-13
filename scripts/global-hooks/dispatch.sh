@@ -113,6 +113,10 @@ if [[ "$in_scope" == true ]]; then
         if [[ -f "$base/push_checks.sh" ]]; then
           # shellcheck source=/dev/null
           (cd "$top" && source "$base/push_checks.sh" && push_checks "$stdin_file" "${1:-}" "${2:-}") || exit 1
+          # A chained script-helpers pre-push skips the same checks for this
+          # same push (the hash of its ref lines), instead of running them twice.
+          SCRIPT_HELPERS_PUSH_CHECKED="$(git hash-object --stdin < "$stdin_file" 2>/dev/null || true)"
+          export SCRIPT_HELPERS_PUSH_CHECKED
         fi
       fi
       ;;

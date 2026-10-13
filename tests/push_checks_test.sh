@@ -422,7 +422,24 @@ commit "conflict" c.txt "$lt HEAD
 out="$(hook)"; rc=$?
 [[ $rc -eq 1 ]] && grep -q 'merge conflict markers' <<<"$out" && ok "pre-push refuses on a push check" \
   || error "pre-push did not refuse a conflict marker: exit $rc"
+# Run once: the dispatcher marks the push it checked with the hash of its ref
+# lines; only that exact value skips them here.
+line="refs/heads/main $(git rev-parse HEAD) refs/heads/main $(git rev-parse origin/main)"
+mark="$(printf '%s\n' "$line" | git hash-object --stdin)"
+out="$(printf '%s\n' "$line" | SCRIPT_HELPERS_PUSH_CHECKED="$mark" bash "$HOOK" origin "$tmp/origin.git" 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && grep -q 'already run for this push' <<<"$out" && ok "checks the dispatcher ran for this push are not run twice" \
+  || error "the dispatcher's mark was not honoured: exit $rc"
+out="$(printf '%s\n' "$line" | SCRIPT_HELPERS_PUSH_CHECKED=1 bash "$HOOK" origin "$tmp/origin.git" 2>&1)"; rc=$?
+[[ $rc -eq 1 ]] && ok "any other mark value is ignored and the checks run" \
+  || error "a stale or made-up mark skipped the checks: exit $rc"
 reset_main
+
+# The bytes pushed, not the work tree: with core.autocrlf a clean script is
+# checked out with CRLF, which bash -n reads as broken.
+commit "lf" crlf.sh $'#!/usr/bin/env bash\nif true; then\n  echo ok\nfi\n'
+git config core.autocrlf true && rm crlf.sh && git checkout -- crlf.sh
+expect "a script checked out with CRLF is checked as pushed (LF)" 0 ""
+git config --unset core.autocrlf; reset_main
 
 if [[ $failures -gt 0 ]]; then
   echo "[push_checks_test] FAILED ($failures)" >&2

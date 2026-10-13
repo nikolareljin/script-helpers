@@ -557,7 +557,9 @@ check runs to the end; a first or very large push takes longer.
 It checks the content being pushed, not the work tree, so an uncommitted edit
 cannot hide a problem or cause one. A symbolic link is not linted: the push
 sends the link, not the file it points at. The checks write nothing, not even a
-temporary file: each file goes from git to its tool through a pipe. A lint tool that is not installed is named
+temporary file: each file goes from git to its tool through a pipe. In a
+chained setup they run once: the global hooks mark the push they checked, and
+the repository's own script-helpers pre-push skips them for that same push. A lint tool that is not installed is named
 and skipped; `setup-hooks.sh --status` lists them. Exceptions:
 
 - `.script-helpers-push-allow` (in the repository, one glob per line, `#`

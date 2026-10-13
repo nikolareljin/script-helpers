@@ -107,12 +107,18 @@ else
   fi
 fi
 
-# Hygiene and lint of what the push changes (scripts/push_checks.sh).
-if [[ -n "$_security_lib" && -f "$(dirname "$_security_lib")/push_checks.sh" ]]; then
+# Hygiene and lint of what the push changes (scripts/push_checks.sh). Not
+# twice: the global dispatcher, when it chains to this hook, has run them for
+# this very push (the hash of these ref lines; any other value is ignored).
+_push_hash="$(git hash-object --stdin < "$_push_refs" 2>/dev/null || true)"
+if [[ -n "$_push_hash" && "${SCRIPT_HELPERS_PUSH_CHECKED:-}" == "$_push_hash" ]]; then
+  echo "[pre-push] hygiene and lint: already run for this push by the global hooks."
+elif [[ -n "$_security_lib" && -f "$(dirname "$_security_lib")/push_checks.sh" ]]; then
   # shellcheck source=/dev/null
   source "$(dirname "$_security_lib")/push_checks.sh"
   push_checks "$_push_refs" "${1:-}" "${2:-}" || exit 1
 fi
+unset SCRIPT_HELPERS_PUSH_CHECKED
 
 # A repo-local pre-push hook runs last, after every check above. It gets the
 # ref lines git gave this hook, and its exit is the push's.

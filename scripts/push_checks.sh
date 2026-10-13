@@ -91,16 +91,17 @@ pc_allowed() {
   return 1
 }
 
-# pc_cat <tip> <path> <src>: the pushed content of a file, on stdout. <src> is
-# "wt" when the work tree holds exactly that content, else "git".
-pc_cat() {
-  if [[ "$3" == wt ]]; then cat -- "./$2"; else git cat-file blob "$1:$2"; fi
-}
+# pc_cat <tip> <path>: the pushed content of a file, on stdout, from git: the
+# bytes the push sends. Not the work tree, even when git calls it clean: with
+# core.autocrlf a script checked out with CRLF reads as broken to bash -n.
+pc_cat() { git cat-file blob "$1:$2"; }
 
 # pc_prepare <refs> <remote>: sets PC_FILES, one "<tip><TAB><path><TAB><size><TAB><src>"
-# line per changed regular file. Links and submodules are left out.
+# line per changed regular file. Links and submodules are left out. <src> is
+# "wt" when the checked-out work tree holds that file unchanged: only eslint,
+# which reads files and its config from the work tree, uses it.
 pc_prepare() {
-  local head dirty changed types tip path size type src
+  local head dirty changed types links t f tip path size type src
   PC_FILES=""
   head="$(git rev-parse -q --verify HEAD 2>/dev/null || true)"
   dirty="$PC_NL$(git diff --no-ext-diff --name-only -z HEAD 2>/dev/null | tr '\0' '\n')$PC_NL"
@@ -109,16 +110,20 @@ pc_prepare() {
   [[ -n "$changed" ]] || return 0
   types="$(printf '%s\n' "$changed" | awk -F'\t' '{ print $1 ":" $2 }' \
     | git cat-file --batch-check='%(objectsize) %(objecttype)' 2>/dev/null)"
+  # Links (mode 120000) at each tip, one ls-tree per pushed ref.
+  links="$PC_NL"
+  for t in $(printf '%s\n' "$changed" | cut -f1 | LC_ALL=C sort -u); do
+    links="$links$(git ls-tree -r -z --full-tree "$t" 2>/dev/null \
+      | while IFS= read -r -d '' f; do
+          [[ "$f" == 120000\ * ]] && printf '%s\t%s\n' "$t" "${f#*$'\t'}"
+        done)$PC_NL"
+  done
   while IFS=$'\t' read -r tip path && IFS=' ' read -r size type <&3; do
     [[ "$type" == blob ]] || continue      # a submodule commit has no content here
-    case "$dirty" in *"$PC_NL$path$PC_NL"*) src=git ;; *) src=wt ;; esac
-    [[ "$tip" == "$head" ]] || src=git
-    if [[ "$src" == wt ]]; then
-      [[ -L "$path" ]] && continue         # a link: the push sends its target's name
-      [[ -f "$path" ]] || src=git
-    fi
-    if [[ "$src" == git ]]; then
-      git ls-tree "$tip" -- "$path" 2>/dev/null | LC_ALL=C grep -q '^120000 ' && continue
+    case "$links" in *"$PC_NL$tip	$path$PC_NL"*) continue ;; esac   # the push sends a link
+    src=git
+    if [[ "$tip" == "$head" && -f "$path" && ! -L "$path" ]]; then
+      case "$dirty" in *"$PC_NL$path$PC_NL"*) ;; *) src=wt ;; esac
     fi
     PC_FILES="$PC_FILES$tip	$path	$size	$src$PC_NL"
   done < <(printf '%s\n' "$changed") 3< <(printf '%s\n' "$types")
@@ -152,7 +157,7 @@ pc_hygiene() {
           pc_find hygiene "$path looks like a secret file (list it in .script-helpers-push-allow if it is not)" ;;
       esac
     fi
-    hits="$(pc_cat "$tip" "$path" "$src" 2>/dev/null | LC_ALL=C grep -I -n -E '^(<{7}|>{7})( |$)' | head -3 | cut -d: -f1 | tr '\n' ' ' || true)"
+    hits="$(pc_cat "$tip" "$path" 2>/dev/null | LC_ALL=C grep -I -n -E '^(<{7}|>{7})( |$)' | head -3 | cut -d: -f1 | tr '\n' ' ' || true)"
     [[ -n "$hits" ]] && pc_find hygiene "$path has merge conflict markers (line ${hits% })"
   done < <(printf '%s' "$PC_FILES")
 
@@ -285,64 +290,64 @@ pc_lint() {
       *.yml|*.yaml) kind="yaml" ;;
       *.ps1|*.psm1) kind="ps" ;;
       *) kind="none"
-         if [[ "${path##*/}" != *.* ]] && pc_cat "$tip" "$path" "$src" 2>/dev/null | head -n1 \
+         if [[ "${path##*/}" != *.* ]] && pc_cat "$tip" "$path" 2>/dev/null | head -n1 \
               | grep -qE '^#!.*[/ ](ba)?sh([[:space:]]|$)'; then kind="sh"; fi ;;
     esac
     case "$kind" in
       sh)
         n_sh=$((n_sh + 1))
-        out="$(pc_cat "$tip" "$path" "$src" | bash -n 2>&1)" || pc_find lint "$(pc_named "$path" "$out")"
+        out="$(pc_cat "$tip" "$path" | bash -n 2>&1)" || pc_find lint "$(pc_named "$path" "$out")"
         if [[ "$have_sc" == true ]]; then
           # No shebang (a sourced library): bash, as bash -n above reads it;
           # otherwise shellcheck refuses with SC2148 for any such file.
           local scsh=()
-          pc_cat "$tip" "$path" "$src" | head -n1 | grep -q '^#!' || scsh=(--shell=bash)
-          out="$(pc_cat "$tip" "$path" "$src" | shellcheck -S warning "${scsh[@]+"${scsh[@]}"}" - 2>&1)" || pc_find lint "shellcheck:$PC_NL$(pc_named "$path" "$out")"
+          pc_cat "$tip" "$path" | head -n1 | grep -q '^#!' || scsh=(--shell=bash)
+          out="$(pc_cat "$tip" "$path" | shellcheck -S warning "${scsh[@]+"${scsh[@]}"}" - 2>&1)" || pc_find lint "shellcheck:$PC_NL$(pc_named "$path" "$out")"
         fi ;;
       py)
         n_py=$((n_py + 1))
         if [[ "$have_ruff" == true ]]; then
-          out="$(pc_cat "$tip" "$path" "$src" | ruff check --quiet --no-cache --force-exclude "${sel[@]+"${sel[@]}"}" --stdin-filename "$path" - 2>&1)" \
+          out="$(pc_cat "$tip" "$path" | ruff check --quiet --no-cache --force-exclude "${sel[@]+"${sel[@]}"}" --stdin-filename "$path" - 2>&1)" \
             || pc_find lint "ruff:$PC_NL$out"
         elif [[ -n "$py" ]]; then
-          out="$(pc_cat "$tip" "$path" "$src" | pc_py "$py" "$PC_PY_SYNTAX" "$path" 2>&1)" || pc_find lint "python syntax: $out"
+          out="$(pc_cat "$tip" "$path" | pc_py "$py" "$PC_PY_SYNTAX" "$path" 2>&1)" || pc_find lint "python syntax: $out"
         fi ;;
       js)
         if [[ "$src" == wt ]]; then js+=("./$path"); else any_js_git=1; fi ;;
       go)
         n_go=$((n_go + 1))
         if [[ "$have_gofmt" == true ]]; then
-          out="$(pc_cat "$tip" "$path" "$src" | gofmt -l -e 2>&1)"
+          out="$(pc_cat "$tip" "$path" | gofmt -l -e 2>&1)"
           [[ -z "$out" ]] || pc_find lint "gofmt (run gofmt -w): $(pc_named "$path" "$out")"
         fi ;;
       rs)
         if [[ "$rust_cfg" == true ]]; then
           n_rs=$((n_rs + 1))
           if [[ "$have_rustfmt" == true ]]; then
-            out="$(pc_cat "$tip" "$path" "$src" | rustfmt --check 2>&1)" || pc_find lint "rustfmt --check: $path:$PC_NL$(pc_named "$path" "$out")"
+            out="$(pc_cat "$tip" "$path" | rustfmt --check 2>&1)" || pc_find lint "rustfmt --check: $path:$PC_NL$(pc_named "$path" "$out")"
           fi
         fi ;;
       workflow)
         n_wf=$((n_wf + 1))
         if [[ "$have_al" == true ]]; then
-          out="$(pc_cat "$tip" "$path" "$src" | actionlint -no-color -stdin-filename "$path" - 2>&1)" || pc_find lint "actionlint:$PC_NL$out"
+          out="$(pc_cat "$tip" "$path" | actionlint -no-color -stdin-filename "$path" - 2>&1)" || pc_find lint "actionlint:$PC_NL$out"
         fi
         kind="yaml" ;;
       json)
         n_data=$((n_data + 1))
         if [[ -n "$py" ]]; then
-          out="$(pc_cat "$tip" "$path" "$src" | pc_py "$py" "$PC_PY_JSON" "$path" 2>&1)" || pc_find lint "json: $out"
+          out="$(pc_cat "$tip" "$path" | pc_py "$py" "$PC_PY_JSON" "$path" 2>&1)" || pc_find lint "json: $out"
         fi ;;
       ps)
         if [[ "$have_pwsh" == true ]]; then
-          out="$(pc_cat "$tip" "$path" "$src" | pwsh -NoProfile -NonInteractive -Command '$t=$null; $e=$null; [void][System.Management.Automation.Language.Parser]::ParseInput([Console]::In.ReadToEnd(),[ref]$t,[ref]$e); $e | ForEach-Object { "{0}:{1}: {2}" -f $args[0],$_.Extent.StartLineNumber,$_.Message }; exit [int]($e.Count -gt 0)' "$path" 2>&1)" \
+          out="$(pc_cat "$tip" "$path" | pwsh -NoProfile -NonInteractive -Command '$t=$null; $e=$null; [void][System.Management.Automation.Language.Parser]::ParseInput([Console]::In.ReadToEnd(),[ref]$t,[ref]$e); $e | ForEach-Object { "{0}:{1}: {2}" -f $args[0],$_.Extent.StartLineNumber,$_.Message }; exit [int]($e.Count -gt 0)' "$path" 2>&1)" \
             || pc_find lint "powershell: $out"
         fi ;;
     esac
     if [[ "$kind" == yaml ]]; then
       n_data=$((n_data + 1))
       if [[ -n "$py" ]]; then
-        out="$(pc_cat "$tip" "$path" "$src" | pc_py "$py" "$PC_PY_YAML" "$path" 2>&1)"; rc=$?
+        out="$(pc_cat "$tip" "$path" | pc_py "$py" "$PC_PY_YAML" "$path" 2>&1)"; rc=$?
         case "$rc" in
           0) ;;
           3) PC_NO_YAML=$((PC_NO_YAML + 1)) ;;
