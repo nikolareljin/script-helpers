@@ -51,13 +51,18 @@
 #                 the setup here (husky does on npm install), chain again: the new
 #                 value becomes the previous one, so its hooks and ours both run. The
 #                 value it replaced is kept as script-helpers.previous-hooksPath-history.
+#                 Also chains a direct setup that runs the repository's own hooks
+#                 without the current security checks (unscanned=yes below).
 #                 Nothing to repair: exit 0. Not set up here: exit 1.
 #   --status      Show what is installed, and the prerequisites.
 #   --porcelain   With --status, in a repository: one line of tab-separated key=value
 #                 fields for scripts: mode (chained, direct, none), taken_over (yes,
 #                 no), core_hooksPath, expected, previous, target, claude_repo (yes,
 #                 no), global (yes when the --global hooks run here), agents (the
-#                 other agents with our hook here, comma-separated).
+#                 other agents with our hook here, comma-separated), unscanned (yes when
+#                 a direct setup points at hooks other than this copy's own, such as
+#                 an older vendored script-helpers or .githooks, so the current
+#                 security checks do not run; --repair chains them).
 #   --doctor      The prerequisites, then four probes through the installed Claude
 #                 hook, from a throwaway repository under the first owner: a private
 #                 name from your list, an SSN-shaped number, and git push --no-verify
@@ -77,6 +82,9 @@
 #        script-helpers, wherever it is vendored (scripts/script-helpers,
 #        vendor/script-helpers, ...) or script-helpers' own scripts/git-hooks
 #     3. scripts/script-helpers/scripts/git-hooks/, then scripts/git-hooks/
+#   Only this copy's own bundled hooks are used directly. Any other hooks
+#   directory (.githooks, an older vendored script-helpers) runs chained after
+#   the current security checks, so a clone is never only as safe as its copy.
 #   The shared pre-push hands over to .githooks/pre-push when a repository has
 #   one (for example the protected-refs guard), so a repository with only
 #   .githooks/pre-push gets the shared hooks and still runs its own.
@@ -294,7 +302,7 @@ prereqs() {
   echo "[setup-hooks] prerequisites:"
   printf '  bash      ok (%s)\n' "${BASH_VERSION:-?}"
   if [[ -n "$PY" ]]; then
-    printf '  python    ok (%s: %s)\n' "$PY" -I "$("$PY" --version 2>&1)"
+    printf '  python    ok (%s: %s)\n' "$PY" "$("$PY" --version 2>&1)"
   else
     echo "  python    MISSING: install Python 3 (python3, or python on Windows)"; missing=$((missing+1))
   fi
@@ -858,7 +866,15 @@ unset_local() { git config --local --unset "$1" 2>/dev/null || true; }
 # core.hooksPath it set. A setup from 0.49.0 recorded neither; it is read from
 # the keys it did write. taken_over: the value is no longer the one we set
 # (another tool replaced or removed it), so our hooks no longer run.
-setup_mode=""; setup_expected=""; taken_over=no
+setup_mode=""; setup_expected=""; taken_over=no; unscanned=no
+# direct_allowed <hooks dir>: pointing git straight at the repository's hooks
+# keeps the current security checks only when those hooks are this copy's own.
+# Without a dispatcher to chain through, direct is the only way.
+have_dispatch=false
+[[ -f "$src_root/scripts/global-hooks/dispatch.sh" && -f "$src_root/scripts/security_hooks.sh" ]] && have_dispatch=true
+direct_allowed() {
+  [[ "$have_dispatch" != true ]] || [[ -n "$1" && "$1" == "$(bundled_hooks)" ]]
+}
 read_setup_state() {
   setup_mode="$(git config --local --get script-helpers.mode 2>/dev/null || true)"
   setup_expected="$(git config --local --get script-helpers.expected-hooksPath 2>/dev/null || true)"
@@ -883,6 +899,8 @@ read_setup_state() {
   fi
   taken_over=no
   if [[ "$setup_mode" != none && "$cur_local" != "$setup_expected" ]]; then taken_over=yes; fi
+  unscanned=no
+  if [[ "$setup_mode" == direct ]] && ! direct_allowed "$setup_expected"; then unscanned=yes; fi
 }
 
 # record_setup <mode> <value>: what this run set, for --status and --repair.
@@ -909,20 +927,22 @@ if [[ "$STATUS" == true && "$PORCELAIN" == true ]]; then
     f="$repo_root/$(agent_repo_rel "$a")"
     [[ -f "$f" && -n "$PY" ]] && agent_merge status "$a" "$(native_path "$f")" >/dev/null 2>&1 && agents="${agents:+$agents,}$a"
   done
-  printf 'mode=%s\ttaken_over=%s\tcore_hooksPath=%s\texpected=%s\tprevious=%s\ttarget=%s\tclaude_repo=%s\tglobal=%s\tagents=%s\n' \
+  printf 'mode=%s\ttaken_over=%s\tcore_hooksPath=%s\texpected=%s\tprevious=%s\ttarget=%s\tclaude_repo=%s\tglobal=%s\tagents=%s\tunscanned=%s\n' \
     "$setup_mode" "$taken_over" "$cur_local" "$setup_expected" \
     "$(git config --local --get script-helpers.previous-hooksPath 2>/dev/null || true)" \
-    "$(git config --local --get script-helpers.hooks-target 2>/dev/null || true)" "$claude_repo" "$global" "$agents"
+    "$(git config --local --get script-helpers.hooks-target 2>/dev/null || true)" "$claude_repo" "$global" "$agents" "$unscanned"
   exit 0
 fi
 if [[ "$REPAIR" == true ]]; then
   if [[ "$setup_mode" == none ]]; then
     echo "[setup-hooks] not set up in this repository; run setup-hooks.sh first" >&2; exit 1
   fi
-  if [[ "$taken_over" == no ]]; then
+  if [[ "$taken_over" == no && "$unscanned" == yes ]]; then
+    echo "[setup-hooks] $setup_expected runs without the current security checks; chaining them in front."
+  elif [[ "$taken_over" == no ]]; then
     echo "[setup-hooks] nothing to repair: core.hooksPath is still ${cur_local:-(unset)}"; exit 0
   fi
-  echo "[setup-hooks] core.hooksPath was changed to '${cur_local:-(unset)}' after the setup here; chaining again."
+  [[ "$taken_over" == no ]] || echo "[setup-hooks] core.hooksPath was changed to '${cur_local:-(unset)}' after the setup here; chaining again."
   if [[ "$setup_mode" == chained ]] && set_by_us "$cur_local"; then
     # Another copy of these hooks (an older vendored setup-hooks.sh run again):
     # not a new tool, so the chain stays as it was, the saved previous included.
@@ -1189,10 +1209,8 @@ elif native_hooks; then
   foreign="$common_dir/hooks"
 fi
 
-have_dispatch=false
-[[ -f "$src_root/scripts/global-hooks/dispatch.sh" && -f "$src_root/scripts/security_hooks.sh" ]] && have_dispatch=true
 direct=false
-if [[ -z "$foreign" && -n "$hooks_dir" ]]; then
+if [[ -z "$foreign" && -n "$hooks_dir" ]] && direct_allowed "$hooks_dir"; then
   if hooks_executable; then
     direct=true
   elif [[ "$have_dispatch" != true ]]; then
