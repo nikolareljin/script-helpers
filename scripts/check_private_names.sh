@@ -459,9 +459,17 @@ machine_allow="${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-name
 default_allow="$SCRIPT_DIR/../config/private-names-allow"
 if [[ -f "$default_allow" ]] && ! grep -qv '^[[:space:]]*\(#.*\)\{0,1\}$' "$machine_allow" 2>/dev/null; then
   if [[ ! -s "$machine_allow" ]] || ! grep -q '#' "$machine_allow" 2>/dev/null; then
-    mkdir -p "$(dirname "$machine_allow")" 2>/dev/null \
-      && cp "$default_allow" "$machine_allow" 2>/dev/null \
-      && log_info "allow list started at $machine_allow from the shipped default; add your own words there"
+    # Written beside it and renamed: a second gate starting now reads the whole
+    # list or none. Unwritable (read-only or no HOME): the default still applies.
+    if mkdir -p "$(dirname "$machine_allow")" 2>/dev/null \
+      && cp "$default_allow" "$machine_allow.$$" 2>/dev/null \
+      && mv -f "$machine_allow.$$" "$machine_allow" 2>/dev/null; then
+      log_info "allow list started at $machine_allow from the shipped default; add your own words there"
+    else
+      rm -f "$machine_allow.$$" 2>/dev/null
+      cat "$default_allow" >> "$allowed"
+      echo >> "$allowed"
+    fi
   fi
 fi
 if [[ -f "$machine_allow" ]]; then

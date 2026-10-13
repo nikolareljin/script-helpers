@@ -666,6 +666,21 @@ got="$(printf 'built for windows' | HOME="$empty_home" XDG_CONFIG_HOME="$empty_h
   bash "$GATE" --stdin --list "$seedlist" >/dev/null 2>&1; echo $?)"
 [[ "$got" == 1 ]] && ok "an allow list emptied on purpose is not seeded again" || error "an emptied allow list was reseeded: exit $got"
 
+# A config directory that cannot be written: nothing is seeded, the default
+# still applies to this run, and no temporary file is left behind.
+ro_home="$tmp/ro-home"
+mkdir -p "$ro_home/.config/script-helpers" && chmod 555 "$ro_home/.config/script-helpers"
+if ( : > "$ro_home/.config/script-helpers/probe" ) 2>/dev/null; then
+  note "SKIP: chmod does not stop writes here (Windows or root)"
+else
+  got="$(printf 'built for windows' | HOME="$ro_home" XDG_CONFIG_HOME="$ro_home/.config" \
+    bash "$GATE" --stdin --list "$seedlist" >/dev/null 2>&1; echo $?)"
+  [[ "$got" == 0 ]] && ok "an unwritable config still gets the default for this run" || error "unwritable config: default not applied, exit $got"
+  [[ -z "$(ls -A "$ro_home/.config/script-helpers")" ]] && ok "nothing is left in an unwritable config" \
+    || error "files left in an unwritable config: $(ls -A "$ro_home/.config/script-helpers")"
+fi
+chmod 755 "$ro_home/.config/script-helpers"
+
 # The default file holds only dictionary words: lower case letters, one per line.
 default="$(dirname "$GATE")/../config/private-names-allow"
 bad="$(grep -v '^#' "$default" | grep -v '^$' | grep -cv '^[a-z]\{2,\}$')"
