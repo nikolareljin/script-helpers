@@ -1,4 +1,4 @@
-## 2026-10-13 — v0.51.0
+## Unreleased
 
 ### Changed
 
@@ -16,6 +16,8 @@
   runs the same checks. Every check runs to the end. The full suite is
   `make test` or `./dev test`; the old test stage is `scripts/run_repo_tests.sh`.
   `PRE_PUSH_SKIP_TESTS` is no longer needed and is ignored.
+
+## 2026-10-13 — v0.51.0
 
 ### Added
 
