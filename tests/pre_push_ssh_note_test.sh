@@ -87,6 +87,41 @@ else
   note "skip: no util-linux script for a terminal"
 fi
 
+# The note lists every way to keep the connection alive.
+out="$(run git@github.com:me/x.git)"
+for want in "add to ~/.ssh/config" 'git config core.sshCommand "ssh -o ServerAliveInterval=20"' \
+            'GIT_SSH_COMMAND="ssh -o ServerAliveInterval=20" git push' "HTTPS remote is not affected"; do
+  grep -qF -- "$want" <<<"$out" && ok "note names: $want" || error "note lacks: $want"
+done
+# A push that only deletes refs runs no checks: no note.
+out="$( (cd "$repo" && printf 'refs/heads/gone %s refs/heads/gone %s\n' "$zeroes" "$(git rev-parse HEAD)" | bash "$HOOK" origin git@github.com:me/x.git 2>&1) )"
+grep -q "ServerAliveInterval" <<<"$out" && error "note on a deletions-only push" || ok "no note on a deletions-only push"
+
+# A chained setup: the dispatcher shows the note before the security checks and
+# the repository's own pre-push, and only once even when that pre-push is the
+# shared hook (which would show it too).
+SETUP="$ROOT_DIR/scripts/setup-hooks.sh"
+ch="$tmp/chained"
+git -c init.defaultBranch=main init -q "$ch"
+git -C "$ch" -c user.email=t@localhost -c user.name=t commit -q --allow-empty -m init
+git -C "$ch" remote add origin git@github.com:example-owner/x.git
+mkdir -p "$ch/.githooks"
+cp "$HOOK" "$ch/.githooks/pre-push"; printf '#!/usr/bin/env bash\nexit 0\n' > "$ch/.githooks/pre-commit"
+chmod +x "$ch/.githooks/pre-push" "$ch/.githooks/pre-commit"
+printf 'test:\n\t@exit 0\n' > "$ch/Makefile"
+export XDG_DATA_HOME="$tmp/data" SCRIPT_HELPERS_OWNERS=example-owner   # setup refuses without owners
+(cd "$ch" && bash "$SETUP" >/dev/null 2>&1) || error "chained: setup failed"
+wrapper="$(git -C "$ch" config --get core.hooksPath)/pre-push"
+if [[ -x "$wrapper" ]]; then
+  sha="$(git -C "$ch" rev-parse HEAD)"
+  out="$( (cd "$ch" && printf 'refs/heads/main %s refs/heads/main %s\n' "$sha" "$zeroes" | "$wrapper" origin git@github.com:example-owner/x.git 2>&1) )"
+  n="$(grep -c "The push waits" <<<"$out")"
+  [[ "$n" == 1 ]] && ok "chained: the note is shown once" || error "chained: note shown $n times"
+  grep -q "^\[script-helpers\] The push waits" <<<"$out" && ok "chained: shown by the dispatcher, before the checks" || error "chained: not from the dispatcher"
+else
+  error "chained: no installed pre-push wrapper at $wrapper"
+fi
+
 # setup-hooks.sh --status lists the keepalive with the prerequisites. In a
 # repository with no agent hooks it used to stop with exit 1 before them.
 SETUP="$ROOT_DIR/scripts/setup-hooks.sh"

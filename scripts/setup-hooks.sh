@@ -89,9 +89,11 @@
 #   one (for example the protected-refs guard), so a repository with only
 #   .githooks/pre-push gets the shared hooks and still runs its own.
 #   The pre-push hook runs this repository's tests while git holds the push's
-#   connection open. Over SSH, set a keepalive (ServerAliveInterval 20 for
-#   github.com in ~/.ssh/config) or a long run is cut off (exit 141); the hook
-#   and --status say so when none is set.
+#   connection open. Over SSH a long run is cut off (exit 141) unless a
+#   keepalive is set: ~/.ssh/config "Host github.com" + "ServerAliveInterval 20"
+#   (every repository), git config core.sshCommand "ssh -o ServerAliveInterval=20"
+#   (one repository), or GIT_SSH_COMMAND="ssh -o ServerAliveInterval=20" git push
+#   (one push). HTTPS remotes are not affected. The hook and --status say so.
 # EXIT_CODES:
 #   0 done; 1 failed (or a --doctor probe failed); 2 refused (no owners, no
 #   Python 3, no write access, bad arguments); 3 settings.json is not valid JSON
@@ -255,7 +257,7 @@ stage_common() {
   stage="$(mktemp -d "$1/.stage.XXXXXX")" || return 1
   mkdir -p "$stage/scripts" || return 1
   cp "$src_root/helpers.sh" "$stage/" && cp -R "$src_root/lib" "$stage/lib" || { rm -rf "$stage"; return 1; }
-  for name in owner_scope.sh check_sensitive.sh check_private_names.sh refresh_private_names.sh; do
+  for name in owner_scope.sh check_sensitive.sh check_private_names.sh refresh_private_names.sh ssh_keepalive.sh; do
     cp "$src_root/scripts/$name" "$stage/scripts/$name" || { rm -rf "$stage"; return 1; }
   done
   version_stamp > "$stage/VERSION"
