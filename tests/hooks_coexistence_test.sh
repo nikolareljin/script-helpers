@@ -185,6 +185,26 @@ clean_commit "$r" && [[ "$(ran)" == "committed" ]] && ok "the .githooks hook run
 (cd "$r" && bash "$setup" --uninstall >/dev/null 2>&1)
 [[ -z "$(git -C "$r" config --get core.hooksPath)" ]] && ok "uninstall: nothing set, as before the first setup" || error "old-direct-githooks: uninstall left '$(git -C "$r" config --get core.hooksPath)'"
 
+# An old direct .githooks setup that husky then took over: taken_over and
+# unscanned at once. --repair chains husky as the previous value and .githooks
+# as the target, each run once; --uninstall restores husky's value.
+r="$(new_repo old-direct-taken)"
+marker_hook "$r/.githooks/pre-commit" committed
+marker_hook "$r/.githooks/pre-push" committed-push
+marker_hook "$r/.husky/pre-commit" husky
+git -C "$r" config script-helpers.set-hooksPath .githooks
+git -C "$r" config script-helpers.mode direct
+git -C "$r" config script-helpers.expected-hooksPath .githooks
+git -C "$r" config script-helpers.trust-repo-hooks true
+git -C "$r" config core.hooksPath .husky
+[[ "$(field "$r" taken_over)" == yes && "$(field "$r" unscanned)" == yes ]] && ok "old direct, taken over: both reported" || error "old-direct-taken: '$(state "$r")'"
+(cd "$r" && bash "$setup" --repair >/dev/null 2>&1) || error "old-direct-taken: repair failed"
+[[ "$(field "$r" previous)" == .husky && "$(field "$r" target)" == .githooks && "$(field "$r" unscanned)" == no ]] \
+  && ok "--repair: .husky previous, .githooks target" || error "old-direct-taken: '$(state "$r")'"
+clean_commit "$r" && [[ "$(ran)" == "committed husky" ]] && ok "both run, once each" || error "old-direct-taken: ran '$(ran)'"
+(cd "$r" && bash "$setup" --uninstall >/dev/null 2>&1)
+[[ "$(git -C "$r" config --get core.hooksPath)" == .husky ]] && ok "uninstall: husky's value restored" || error "old-direct-taken: uninstall left '$(git -C "$r" config --get core.hooksPath)'"
+
 # An older vendored copy of these hooks run again is not a new tool: --repair
 # keeps the chain, the employer's value included.
 r="$(new_repo vendored-rerun)"
