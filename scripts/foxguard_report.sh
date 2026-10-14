@@ -50,6 +50,9 @@ if [[ ${#paths[@]} -eq 0 ]]; then
     [[ -n "$base" ]] || base="origin/HEAD"
   fi
   git rev-parse -q --verify "$base^{commit}" >/dev/null || { echo "[foxguard_report] not a commit: $base" >&2; exit 2; }
+  # No common history: the range below would fail inside <(...) and read as
+  # "nothing changed".
+  git merge-base "$base" HEAD >/dev/null 2>&1 || { echo "[foxguard_report] $base and HEAD share no history; name the files instead." >&2; exit 2; }
   while IFS= read -r -d '' f; do
     [[ -f "$f" ]] && paths+=("$f")
   # Three dots: what HEAD changed since it left <ref>, not what <ref> gained since.

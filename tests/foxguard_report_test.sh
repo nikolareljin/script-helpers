@@ -67,6 +67,13 @@ rc=0; out="$(bash "$root_dir/scripts/foxguard_report.sh" --base HEAD --output "$
 rc=0; bash "$root_dir/scripts/foxguard_report.sh" --base no-such-ref >/dev/null 2>&1 || rc=$?
 [[ $rc -eq 2 ]] && ok "an unknown base is a usage error (2)" || error "bad base: rc=$rc"
 
+orphan="$(printf 'x\n' | git hash-object -w --stdin)"
+orphan="$(printf '100644 blob %s\tx\n' "$orphan" | git mktree)"
+orphan="$(git -c user.email=t@localhost -c user.name=t commit-tree "$orphan" -m orphan)"
+rc=0; out="$(bash "$root_dir/scripts/foxguard_report.sh" --base "$orphan" --output "$tmp/r4.json" 2>&1)" || rc=$?
+[[ $rc -eq 2 && "$out" == *"share no history"* ]] && ok "a base with no common history is exit 2, not a clean empty scan" \
+  || error "unrelated base: rc=$rc out=$out"
+
 rc=0; bash "$root_dir/scripts/foxguard_report.sh" --output "$tmp/no/such/dir/r.json" -- good.sh >/dev/null 2>&1 || rc=$?
 [[ $rc -eq 2 ]] && ok "a report that cannot be written is exit 2, not 1 (findings)" || error "unwritable output: rc=$rc"
 
