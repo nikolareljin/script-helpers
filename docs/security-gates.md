@@ -166,7 +166,7 @@ scripts/prepare_public.sh verify --work ~/publish/my-repo
 | private repository names | `check_private_names.sh --strict-ambiguous` | added lines, file names, commit and tag messages, identities |
 | credentials | gitleaks (through `check_sensitive.sh`) | all refs, full history |
 | personal terms, machine identifiers, PII | `check_sensitive.sh` | the same |
-| static analysis (advisory, never a hit) | foxguard | each branch tip |
+| static analysis (advisory, never a hit) | foxguard | the default branch on `audit`, every published branch on `verify` |
 
 The repository's own name is not a hit (`--self <name>`, by default the
 source's directory name). A check that cannot run (no name list, no gitleaks)
