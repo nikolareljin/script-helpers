@@ -156,8 +156,11 @@ audit_repo() {
     || { say "git could not read the history of $g"; return 2; }
   awk -v sep="$(printf '\001')" '
     index($0, sep) == 1 { commit = substr($0, 2); next }
-    /^diff --(git|cc|combined) / { hdr = 1; cc = ($2 != "--git"); np = 1; next }
-    hdr && /^Binary files / { print "binary " commit "\t" $0 > "/dev/stderr"; next }
+    /^diff --(git|cc|combined) / { hdr = 1; cc = ($2 != "--git"); np = 1; ccf = substr($0, length($1 " " $2 " ") + 1); next }
+    # A merge prints "Binary files differ" with no path: name it from the header.
+    hdr && /^Binary files / {
+      bin = $0; if (cc && bin == "Binary files differ") bin = "Binary files a/" ccf " and b/" ccf " differ"
+      print "binary " commit "\t" bin > "/dev/stderr"; next }
     hdr && /^\+\+\+ / { f = substr($0, 5); sub(/^b\//, "", f); next }
     /^@@@* / {
       hdr = 0; np = 1
@@ -168,7 +171,8 @@ audit_repo() {
       m = substr($0, 1, np)
       if (m ~ /^\++$/) { print commit " " f ":" ln "\t" substr($0, np + 1); ln++ }
       else if (m !~ /-/) ln++
-    }' "$t/log" >> "$t/units" 2> "$t/binary"
+    }' "$t/log" >> "$t/units" 2> "$t/binary" \
+    || { say "could not parse the history of $g:"; grep -v '^binary ' "$t/binary" | head -3 | sed 's/^/    /' >&2; return 2; }
   # File names, which a line-based scan of contents never sees.
   git -C "$g" -c core.quotePath=false log --all --format='%x01%H' --name-only --no-renames \
     | awk -v sep="$(printf '\001')" 'index($0, sep) == 1 { c = substr($0, 2); next } NF { print c " path\t" $0 }' >> "$t/units" \
@@ -208,6 +212,8 @@ for line in open(listing, encoding="utf-8", errors="surrogateescape"):
     m = re.match(r"Binary files (?:a/.*|/dev/null) and b/(.*) differ$", rest)
     if m:
         want.append((commit, m.group(1)))
+    elif not rest.endswith(" and /dev/null differ"):   # a deletion adds nothing
+        open(skipped, "a", encoding="utf-8", errors="surrogateescape").write("%s (not parsed: %s)\n" % (commit, rest))
 if want:
     spec = "".join("%s:%s\n" % w for w in want).encode("utf-8", "surrogateescape")
     sizes = subprocess.run(["git", "-C", g, "cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"],

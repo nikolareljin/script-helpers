@@ -97,9 +97,15 @@ git init -q -b main "$tmp/src2" && cd "$tmp/src2" || exit 1
 echo "hello" > README.md && g add . && g commit -qm "start"
 g branch feat/secretproj-work
 printf 'PK\001\000secretproj build\000\002' > doc.bin && g add . && g commit -qm "a binary file"
+# A binary changed only in a merge: the combined diff prints no path for it.
+g checkout -qb side && printf 'B\000side\n' > m.bin && g add . && g commit -qm side
+g checkout -q main && printf 'C\000main\n' > m.bin && g add . && g commit -qm main
+g merge -q side >/dev/null 2>&1; printf 'D\000secretproj merged\n' > m.bin && g add . && g commit -qm merge
 cd "$tmp/out" || exit 1
 rc=0; bash "$pp" audit --source "$tmp/src2" --work "$tmp/out/r5" "${names[@]}" >/dev/null 2>&1 || rc=$?
 kinds="$("$py" -c 'import json,sys; print(" ".join(sorted({h["kind"] for h in json.load(open(sys.argv[1]))["hits"]})))' "$tmp/out/r5/report.json" 2>&1)"
+merged="$("$py" -c 'import json,sys; print(sum(1 for h in json.load(open(sys.argv[1]))["hits"] if h["path"] == "m.bin"))' "$tmp/out/r5/report.json" 2>&1)"
+[[ "$merged" -ge 1 ]] && ok "a name in a binary file changed only in a merge is a hit" || error "merge binary: '$merged'"
 [[ $rc -eq 1 && "$kinds" == "binary-file ref" ]] && ok "a name in a branch name and inside a binary file is a hit" \
   || error "ref/binary: rc=$rc kinds='$kinds'"
 perm() { ls -ld "$1" | cut -c1-10; }
@@ -176,7 +182,7 @@ else
   [[ $rc -eq 2 ]] && ok "an unknown plan directive is refused" || error "bad plan: rc=$rc"
   rc=0; bash "$pp" verify --work "$tmp/out/w" "${names[@]}" >/dev/null 2>&1 || rc=$?
   [[ $rc -eq 2 ]] && ok "verify refuses public.git after a clean that did not finish" || error "verify after failed clean: rc=$rc"
-  printf 'ref refs/heads/main\ndrop README.md\ndrop doc.bin\n' > "$tmp/plan7"
+  printf 'ref refs/heads/main\ndrop README.md\ndrop doc.bin\ndrop m.bin\n' > "$tmp/plan7"
   rc=0; out="$(bash "$pp" clean --work "$tmp/out/r5" --plan "$tmp/plan7" 2>&1)" || rc=$?
   [[ $rc -eq 2 && "$out" == *"no ref is left"* ]] && ok "a plan that empties the history is refused, not reported done" \
     || error "empty after plan: rc=$rc out=$out"
