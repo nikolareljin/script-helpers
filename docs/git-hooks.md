@@ -34,12 +34,13 @@ checks the repository's CI runs), otherwise the stack's quick
 test runner (PHP, Node, Python, Go, Gradle, Rust, Flutter), `make test`, bats
 or `tests/*_test.sh`. The push then takes as long as those tests.
 
-- Any value other than `quick` or `off` refuses the push, so a typo does not
-  turn the tests off.
+- Any value other than `quick`, `off` or `false` refuses the push, so a typo
+  does not turn the tests off.
 - A repository where no tests are found refuses the push too: opting in with
   nothing to run is not a pass.
-- With the global hooks, the setting works only in the repositories of
-  `script-helpers.owners`; anywhere else the push says the tests were not run.
+- With the global hooks, the setting works only in your own repositories
+  (`script-helpers.github-user`, `script-helpers.owners`); anywhere else the
+  push says the tests were not run.
 
 ## Set up
 
@@ -55,8 +56,9 @@ repositories run only their own hooks.
 git config --global script-helpers.owners <org>[,<another>]
 ```
 
-With neither, the security checks run in no repository, and `--global` and the
-agent hooks refuse to install.
+With neither, the global and agent hooks check no repository, and `--global`
+and the agent hooks refuse to install. A repository where you run
+`setup-hooks.sh` itself is always checked: installing there opts it in.
 
 Then, from a repository's root:
 
@@ -70,9 +72,9 @@ bash scripts/script-helpers/scripts/setup-hooks.sh
 
 | Command | What it does |
 |---|---|
-| `setup-hooks.sh` | this repository: point `core.hooksPath` at the hooks; hooks that already ran here (another tool's, an employer's, `.git/hooks`) are kept and chained after ours |
+| `setup-hooks.sh` | this repository: point `core.hooksPath` at the hooks; hooks that already ran here (another tool's, a team's, `.git/hooks`) are kept and chained after ours |
 | `setup-hooks.sh --global` | every repository on the machine (opt-in); a repository with its own `core.hooksPath` keeps it |
-| `setup-hooks.sh --status` | what is installed here, and the prerequisites (gitleaks, the name list, SSH keepalive, lint tools) |
+| `setup-hooks.sh --status` | what is installed here, and the prerequisites (gitleaks, foxguard, owners, the name list, SSH keepalive, lint tools) |
 | `setup-hooks.sh --status --porcelain` | the same as one machine-readable line |
 | `setup-hooks.sh --repair` | chain again after another tool replaced `core.hooksPath` (husky does on `npm install`) |
 | `setup-hooks.sh --uninstall` | undo; the previous `core.hooksPath` comes back |

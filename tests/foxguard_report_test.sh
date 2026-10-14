@@ -28,6 +28,7 @@ g() { git -c user.email=t@localhost -c user.name=t -c commit.gpgsign=false "$@";
 # and exit 0 whatever it finds. bad.sh has one finding, broken.sh fails.
 cat > "$tmp/bin/foxguard" <<'EOF'
 #!/usr/bin/env bash
+[[ "${1:-}" == --version ]] && { echo "foxguard 9.9.9"; exit 0; }
 paths=()
 while [[ $# -gt 0 ]]; do case "$1" in -f) shift ;; -q) ;; *) paths+=("$1") ;; esac; shift; done
 [[ ${#paths[@]} -eq 1 ]] || { echo "error: unexpected argument" >&2; exit 2; }
@@ -48,15 +49,15 @@ printf 'x="$1"\neval "$x"\n' > bad.sh; printf 'echo ok\n' > good.sh; printf 'nam
 g add . && g commit -qm change
 
 rc=0; out="$(bash "$root_dir/scripts/foxguard_report.sh" --base "$base" --output "$tmp/r.json" 2>&1)" || rc=$?
-summary="$("$py" -c 'import json,sys; d=json.load(open(sys.argv[1])); print(len(d["files"]), d["finding_counts"]["total"], d["findings"][0]["file"], d["findings"][0]["severity"], len(d["errors"]))' "$tmp/r.json" 2>&1)"
-[[ $rc -eq 1 && "$summary" == "3 1 bad.sh critical 0" ]] && ok "every changed file scanned (one per run), the finding kept with its file; exit 1" \
+summary="$("$py" -c 'import json,sys; d=json.load(open(sys.argv[1])); print(len(d["files"]), d["finding_counts"]["total"], d["findings"][0]["file"], d["findings"][0]["severity"], len(d["errors"]), d["version"])' "$tmp/r.json" 2>&1)"
+[[ $rc -eq 1 && "$summary" == "3 1 bad.sh critical 0 foxguard 9.9.9" ]] && ok "every changed file scanned (one per run), the finding kept with its file; exit 1" \
   || error "report: rc=$rc summary='$summary' out=$out"
 grep -q '^  "files"' "$tmp/r.json" && ok "the JSON is formatted (indented)" || error "JSON not indented"
 
 printf 'cat nothing\n' > broken.sh && g add . && g commit -qm broken
 rc=0; bash "$root_dir/scripts/foxguard_report.sh" --output "$tmp/r2.json" -- broken.sh good.sh >/dev/null 2>&1 || rc=$?
 summary="$("$py" -c 'import json,sys; d=json.load(open(sys.argv[1])); print(len(d["files"]), len(d["errors"]), d["errors"][0]["file"])' "$tmp/r2.json" 2>&1)"
-[[ $rc -eq 0 && "$summary" == "1 1 broken.sh" ]] && ok "a file foxguard cannot scan is listed under errors; the others are scanned" \
+[[ $rc -eq 2 && "$summary" == "1 1 broken.sh" ]] && ok "a file foxguard cannot scan is listed under errors, the others scanned; exit 2, not clean" \
   || error "errors: rc=$rc summary='$summary'"
 
 rc=0; out="$(bash "$root_dir/scripts/foxguard_report.sh" --base HEAD --output "$tmp/r3.json" 2>&1)" || rc=$?
@@ -65,6 +66,14 @@ rc=0; out="$(bash "$root_dir/scripts/foxguard_report.sh" --base HEAD --output "$
 
 rc=0; bash "$root_dir/scripts/foxguard_report.sh" --base no-such-ref >/dev/null 2>&1 || rc=$?
 [[ $rc -eq 2 ]] && ok "an unknown base is a usage error (2)" || error "bad base: rc=$rc"
+
+rc=0; bash "$root_dir/scripts/foxguard_report.sh" --output "$tmp/no/such/dir/r.json" -- good.sh >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 2 ]] && ok "a report that cannot be written is exit 2, not 1 (findings)" || error "unwritable output: rc=$rc"
+
+rm -f "$tmp/bin/foxguard"
+rc=0; out="$(PATH="$tmp/bin:$PATH" bash "$root_dir/scripts/foxguard_report.sh" -- good.sh 2>&1)" || rc=$?
+[[ $rc -eq 3 && "$out" == *"not installing"* ]] && ok "foxguard missing with SCRIPT_HELPERS_NO_AUTO_INSTALL=1: nothing downloaded, exit 3" \
+  || error "no-auto-install: rc=$rc out=$out"
 
 if [[ $failures -gt 0 ]]; then note "$failures failure(s)"; exit 1; fi
 note "all passed"

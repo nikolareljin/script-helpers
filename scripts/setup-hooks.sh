@@ -232,7 +232,13 @@ detect_github_user() {
   [[ -z "${SCRIPT_HELPERS_OWNERS:-}" ]] || return 0
   [[ -z "$(git config --global --get script-helpers.github-user 2>/dev/null || true)" ]] || return 0
   command -v gh >/dev/null 2>&1 || return 0
-  u="$(GH_PROMPT_DISABLED=1 gh api user --jq .login 2>/dev/null || true)"
+  # Bounded where timeout(1) exists (not on stock macOS): a dead network must
+  # not hang setup.
+  if command -v timeout >/dev/null 2>&1; then
+    u="$(GH_PROMPT_DISABLED=1 timeout 15 gh api user --jq .login 2>/dev/null || true)"
+  else
+    u="$(GH_PROMPT_DISABLED=1 gh api user --jq .login 2>/dev/null || true)"
+  fi
   [[ "$u" =~ ^[A-Za-z0-9-]+$ ]] || return 0
   git config --global script-helpers.github-user "$u" || return 0
   echo "[setup-hooks] Your GitHub account, $u, is checked (git config --global script-helpers.github-user)."
@@ -1183,6 +1189,9 @@ sys.exit(0 if all(not v for k, v in d.items() if k != "version") else 1)' "$(nat
     echo "[setup-hooks] $a: hook set for this repository only: $rel (in .git/info/exclude)."
   done
   echo "[setup-hooks] Codex and Gemini ask you to trust a new project hook before it runs (Codex: /hooks)."
+  detect_github_user
+  offer_gitleaks
+  offer_foxguard
   exit 0
 fi
 
@@ -1340,6 +1349,9 @@ if [[ "$direct" == true ]]; then
   git config --local script-helpers.trust-repo-hooks true
   echo "[setup-hooks] core.hooksPath = $hooks_dir"
   echo "[setup-hooks] Done. Hooks active for this repo, security checks included."
+  detect_github_user
+  offer_gitleaks
+  offer_foxguard
   exit 0
 fi
 

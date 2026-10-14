@@ -161,7 +161,8 @@ Chained means `core.hooksPath` points at a per-repository copy of the wrappers
 in `<data>/script-helpers/repo-hooks`, one for every git hook name, and each
 runs, in order, stopping at the first failure:
 
-1. the security checks, in the configured owners' repositories only;
+1. the security checks, in your own repositories only (your GitHub account and
+   the organisations in `script-helpers.owners`);
 2. this repository's committed hooks (`script-helpers.hooks-target`);
 3. what git ran before: the saved local `core.hooksPath`, else the global one,
    else `.git/hooks`, with git's arguments and stdin.
@@ -196,6 +197,8 @@ what runs in every repository on the machine, so it is opt-in.
 
 ```bash
 git config --global script-helpers.owners <your-github-user-or-org>[,<another>]
+# Not needed for your own account when gh is signed in: setup records it as
+# script-helpers.github-user. owners adds organisations.
 bash <script-helpers>/scripts/setup-hooks.sh --global
 bash <script-helpers>/scripts/setup-hooks.sh --status
 ```
@@ -218,7 +221,7 @@ copy does not depend on any checkout; run `--global` again to update it.
 - Every other repository (another org, a fork of someone else's, no remote
   and a push elsewhere) gets a pure pass-through: the hook git would have run
   without the install runs (see Chaining) and nothing is added.
-- No owners configured: `--global` refuses (exit 2), and an installed hook
+- No GitHub account or owners configured: `--global` refuses (exit 2), and an installed hook
   passes everything through with one notice per push.
 - Chaining: after the checks, the hook git would have run without the install
   runs, with git's arguments and stdin, and its exit status is the hook's: the
@@ -346,7 +349,7 @@ installed copy.
 | bash, git | the hooks are bash scripts | `git --version` |
 | Python 3 (`python3`, or `python` on Windows) | parses the hook payload and merges `settings.json` | `python3 --version` |
 | Git for Windows (Windows only) | Claude Code runs hooks through Git Bash | `git --version` in PowerShell |
-| owners | only their github.com repositories are checked | `git config --global script-helpers.owners` |
+| owners | only their github.com repositories are checked | your `gh` account (recorded by setup as `script-helpers.github-user`), plus `git config --global script-helpers.owners` |
 | gitleaks | secret scan; without it every command in your repositories is refused as "could not check" | `setup-hooks.sh --install-gitleaks` installs the pinned build |
 | private-name list | `~/.config/script-helpers/private-names.tsv`; without it every command in your repositories is refused as "could not check" | `refresh_private_names.sh` |
 
@@ -426,6 +429,6 @@ restores the saved global `core.hooksPath`.
   `PreToolUse` deny decision (JSON) on stdout.
 - In Claude Code, `/hooks` lists the entry. Settings are read when a session
   starts: open a new session after installing.
-- `no owners configured` (exit 2): set the owners first (above).
+- `no owners configured` (exit 2): sign in to `gh` and run setup again, or set the owners (above).
 - A hook copy that was deleted fails open; `--doctor` reports it, and
   `--claude` reinstalls it.

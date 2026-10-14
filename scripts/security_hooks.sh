@@ -291,7 +291,12 @@ sec_offer_install() {
     fi
     echo "[pre-push] $tool install failed (see above)." >&2
   fi
-  echo "[pre-push] To install $tool: bash ${r:-scripts/script-helpers}/scripts/setup-hooks.sh --install-$tool (or see docs/security-gates.md)." >&2
+  # The staged copies of the global and repository hooks carry no setup-hooks.sh.
+  if [[ -n "$r" && -f "$r/scripts/setup-hooks.sh" ]]; then
+    echo "[pre-push] To install $tool: bash $r/scripts/setup-hooks.sh --install-$tool (or see docs/security-gates.md)." >&2
+  else
+    echo "[pre-push] To install $tool: scripts/setup-hooks.sh --install-$tool in a script-helpers checkout (or see docs/security-gates.md)." >&2
+  fi
   return 1
 }
 
@@ -304,8 +309,9 @@ sec_sensitive_push() {
     sec_unchecked pre-push "check_sensitive.sh not found; credentials and personal data NOT checked"
     return
   }
-  # Missing gitleaks: offered on a terminal; still missing, the scan exits 2
-  # and the push is refused below.
+  # Missing gitleaks: installed (not in CI, nor with
+  # SCRIPT_HELPERS_NO_AUTO_INSTALL=1); still missing, the scan exits 2 and the
+  # push is refused below.
   if [[ -n "${GITLEAKS_BIN:-}" && ! -x "$GITLEAKS_BIN" ]]; then
     # Only that path counts: an install elsewhere would not be used.
     echo "[pre-push] ERROR: GITLEAKS_BIN is $GITLEAKS_BIN, which is not an executable; the credential scan cannot run." >&2
@@ -364,8 +370,7 @@ sec_loud() {
 
 # foxguard on the files this push changes. Never blocks: a missing foxguard
 # (installed when it can be), a failed scan and every finding are
-# loud warnings, and the push goes on. Measured 2026-09-29: its shell taint
-# rules flagged 93 lines of this library, none exploitable.
+# loud warnings, and the push goes on.
 # Measured 2026-09-29: its shell taint rules flagged 93 lines of this library,
 # none exploitable, so as a gate it would fail correct code.
 sec_foxguard_push() {
@@ -396,7 +401,7 @@ sec_foxguard_push() {
       1)
         hit=$((hit + 1))
         # Its summary line, "N issues" (terminal format); 1 when it has none.
-        k="$(printf '%s\n' "$out" | LC_ALL=C sed -n 's/^[^0-9]*\([0-9][0-9]*\) issues\{0,1\}[^a-z].*/\1/p' | tail -1)"
+        k="$(printf '%s\n' "$out" | LC_ALL=C sed -n -e 's/^[^0-9]*\([0-9][0-9]*\) issues\{0,1\}$/\1/p' -e 's/^[^0-9]*\([0-9][0-9]*\) issues\{0,1\}[^a-z].*/\1/p' | tail -1)"
         issues=$((issues + ${k:-1}))
         while IFS= read -r r; do
           [[ -n "${r//[[:space:]]/}" ]] || continue

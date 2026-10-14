@@ -129,10 +129,11 @@ if [[ "$in_scope" == true ]]; then
 fi
 
 # An opt-in the global hooks will not act on is said, not dropped: outside the
-# owners' repositories they run none of their checks, tests included.
+# repositories of your account and organisations they run none of their checks,
+# tests included.
 if [[ "$hook" == pre-push && "$in_scope" != true ]] && \
    [[ -n "$(git config --get script-helpers.push-tests 2>/dev/null || true)" ]]; then
-  echo "[script-helpers] script-helpers.push-tests is set, but this repository is not one of script-helpers.owners; tests not run." >&2
+  echo "[script-helpers] script-helpers.push-tests is set, but this repository is not yours (script-helpers.github-user, script-helpers.owners); tests not run." >&2
 fi
 
 # ------------------------------------------------------------- chaining
