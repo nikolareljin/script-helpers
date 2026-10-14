@@ -168,6 +168,10 @@ organisations you count as your own:
 What runs on commit and push, the options and settings:
 [docs/git-hooks.md](docs/git-hooks.md).
 
+Bringing a repository onto script-helpers, step by step:
+[docs/adopt.md](docs/adopt.md). Every script and its options:
+[docs/commands.md](docs/commands.md).
+
 Pinning the production branch
 -----------------------------
 

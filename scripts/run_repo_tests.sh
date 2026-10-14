@@ -5,6 +5,7 @@
 # PARAMETERS:
 #   --require  Exit 4 when no test runner is found, instead of 0. The push
 #              uses it, so an opted-in repository with no tests is not "passed".
+#   -h, --help Show this help message.
 #   Runs in the repository containing the current directory.
 # EXIT_CODES:
 #   0  tests passed, or none found without --require
@@ -23,6 +24,7 @@ _require=false
 case "${1:-}" in
   "") ;;
   --require) _require=true ;;
+  -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *) echo "[tests] unknown option: $1 (usage: run_repo_tests.sh [--require])" >&2; exit 2 ;;
 esac
 

@@ -2,6 +2,12 @@
 
 ### Added
 
+- **Adopt script-helpers in a repository** (`docs/adopt.md`): the submodule,
+  the git hooks, what a push checks, the scanners, tests.
+- **Command reference** (`docs/commands.md`): every script under `scripts/`
+  with its usage, options and exit codes, generated from the script headers by
+  `scripts/gen_command_reference.py`. `tests/command_reference_test.sh` fails
+  when the page and the headers disagree.
 - **`scripts/prepare_public.sh`: full-history audit and a cleaned copy of a
   repository.** `audit` mirror-clones it into a new work directory, archives the
   mirror and checks every ref and every commit: listed names, credentials,
@@ -31,6 +37,11 @@
   `make test` (exit 2) read as a usage error, and a runner exiting 4 read as
   "no tests found". A `preflight.sh` exiting 127 is a failure, not "no
   preflight". The push says which case refused it: no tests, or a failure.
+
+### Changed
+
+- `scripts/run_repo_tests.sh`: `-h`/`--help` prints its header, which now
+  lists the exit codes (0, 1, 2, 4).
 
 ## 2026-10-13 — v0.52.0
 

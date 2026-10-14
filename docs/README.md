@@ -19,6 +19,8 @@ Reusable Bash helpers extracted from projects in this workspace. Source the load
 Thirty-six modules — with a PowerShell mirror — that run unchanged on the bash 3.2 macOS ships and always will.
 
 - [Installation](installation.md)
+- [Adopt script-helpers in a repository](adopt.md): the submodule, hooks, scanners and tests, step by step
+- [Command reference](commands.md): every script, its options and exit codes
 - [Usage](usage.md)
 - [Git hooks](git-hooks.md): what runs on commit and push, setup, settings
 - [Local models with Ollama](local-models.md): the models file, the start script, settings, exit codes, testing and developing

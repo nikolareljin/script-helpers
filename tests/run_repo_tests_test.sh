@@ -80,6 +80,7 @@ printf 'test:\n\t@exit 0\n' > "$repo/Makefile"
 RUNNER_ARGS=--require case_is "--require: a passing suite still exits 0" 0 "All checks passed"
 reset_repo
 RUNNER_ARGS=--bogus case_is "an unknown option is a usage error (2)" 2 "unknown option"
+RUNNER_ARGS=--help case_is "--help prints the header, exit codes included, and exits 0" 0 "EXIT_CODES"
 
 # A runner that exits 4 must not read as "no tests found" (--require's 4).
 reset_repo
