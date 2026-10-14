@@ -149,7 +149,7 @@ sec_changed_files() {
     list="$(git log -z --name-only --format= --diff-filter=ACMR $revs 2>/dev/null \
       | while IFS= read -r -d '' f; do
           f="${f#$'\n'}"
-          [[ -n "$f" && "$f" != *$'\t'* && "$f" != *$'\n'* ]] && printf '%s\n' "$f"
+          if [[ -n "$f" && "$f" != *$'\t'* && "$f" != *$'\n'* ]]; then printf '%s\n' "$f"; fi
         done | LC_ALL=C sort -u)"
     [[ -n "$list" ]] || continue
     # One answer line per question, in order; "<name> missing" for a path the
@@ -157,7 +157,9 @@ sec_changed_files() {
     printf '%s\n' "$list" | while IFS= read -r f; do printf '%s:%s\n' "$tip" "$f"; done \
       | git cat-file --batch-check='%(objecttype)' 2>/dev/null \
       | paste - <(printf '%s\n' "$list") | while IFS=$'\t' read -r t f; do
-          [[ "$t" == blob || "$t" == commit ]] && printf '%s\t%s\n' "$tip" "$f"
+          # if, not &&: a last path the tip no longer has must not make the
+          # loop, and under pipefail the whole list, fail.
+          if [[ "$t" == blob || "$t" == commit ]]; then printf '%s\t%s\n' "$tip" "$f"; fi
         done
   done < <(sec_revs "$1" "${2:-}") | LC_ALL=C sort -u
 }
