@@ -121,6 +121,9 @@ else
   printf 'ref refs/heads/main\ndrop notes.tx\n' > "$tmp/plan5"
   rc=0; out="$(bash "$pp" clean --work "$tmp/out/w" --plan "$tmp/plan5" 2>&1)" || rc=$?
   [[ $rc -eq 2 && "$out" == *"not a path anywhere"* ]] && ok "a drop path that never existed is refused, not ignored" || error "drop typo: rc=$rc out=$out"
+  printf 'ref refs/heads/main\ndrop *.txt\n' > "$tmp/plan7"
+  rc=0; bash "$pp" clean --work "$tmp/out/w" --plan "$tmp/plan7" >/dev/null 2>&1 || rc=$?
+  [[ $rc -eq 2 ]] && ok "a glob in drop is refused: filter-repo takes paths literally" || error "drop glob: rc=$rc"
   printf 'ref refs/heads/main \ndrop notes.txt  \nreplace secretproj==>R-001\n' > "$tmp/plan6"
   rc=0; bash "$pp" clean --work "$tmp/out/w" --plan "$tmp/plan6" >/dev/null 2>&1 || rc=$?
   [[ $rc -eq 0 && -z "$(git -C "$tmp/out/w/public.git" log --all --format=%H -- notes.txt)" ]] \

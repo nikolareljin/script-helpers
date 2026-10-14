@@ -77,7 +77,7 @@ case "$CMD" in
 # ref <pattern>        A ref to publish (shell pattern). Every other ref is dropped.
 ref refs/heads/main
 ref refs/tags/*
-# drop <path>          A file or directory removed from all history.
+# drop <path>          A file or directory removed from all history (literal, no wildcards).
 #drop internal-notes/
 # rename <old>==><new> A path renamed in all history.
 #rename docs/old-name.md==>docs/new-name.md
@@ -389,7 +389,8 @@ case "$CMD" in
     t="$(mktemp -d)"; trap 'rm -rf "$t"' EXIT
     : > "$t/refs"; : > "$t/drop"; : > "$t/rename"; : > "$t/replace"; : > "$t/mailmap"
     # A mistyped drop path removes nothing, and the file is published: refuse it.
-    in_history() { [[ -n "$(git -C "$WORK/source.git" log --all --format=%H -1 -- "$1" 2>/dev/null)" ]]; }
+    # Literal, as filter-repo reads --path: "*.pem" would match here and drop nothing there.
+    in_history() { [[ -n "$(git -C "$WORK/source.git" log --all --format=%H -1 -- ":(literal)$1" 2>/dev/null)" ]]; }
     n=0
     while IFS= read -r line || [[ -n "$line" ]]; do
       n=$((n + 1))
