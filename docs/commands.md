@@ -63,10 +63,18 @@ Run a repository's test suite, detecting the stack (preflight --quick first, els
 Usage: bash scripts/run_repo_tests.sh [--require]
   --require  Exit 4 when no test runner is found, instead of 0. The push
              uses it, so an opted-in repository with no tests is not "passed".
+  -h, --help Show this help message.
   Runs in the repository containing the current directory.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1, 2, 4.
+Exit codes:
+
+```text
+0  the tests passed, or no test runner was found (without --require)
+2  unknown option
+4  no test runner was found (--require)
+other  a test failed: the test runner's own exit code
+```
 
 ### `scripts/security_hooks.sh`
 

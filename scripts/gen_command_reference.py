@@ -151,6 +151,8 @@ def collect():
     items = []
     for d in DIRS:
         path = os.path.join(ROOT, d)
+        if not os.path.isdir(path):
+            continue
         for name in sorted(os.listdir(path)):
             full = os.path.join(path, name)
             if not os.path.isfile(full) or name.startswith("."):
@@ -177,12 +179,12 @@ def render():
            "script header, then run it.", ""]
     items, done = collect(), set()
     for title, pred in GROUPS:
-        sel = [it for it in items if it[1] not in done and pred(it[1], it[0])]
+        sel = [it for it in items if (it[0], it[1]) not in done and pred(it[1], it[0])]
         if not sel:
             continue
         out += ["## " + title, ""]
         for d, name, fields, text in sel:
-            done.add(name)
+            done.add((d, name))
             out += entry(d + "/" + name, fields, text)
     return "\n".join(out).rstrip() + "\n"
 

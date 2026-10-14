@@ -46,6 +46,14 @@ account through `gh`. To count an organisation as yours too:
 git config --global script-helpers.owners <org>[,<another>]
 ```
 
+The repository-name check reads a list of your private repositories. Build it
+once, with `gh` signed in, before the first push; without it a push in your
+repositories is refused as "could not check":
+
+```bash
+bash scripts/script-helpers/scripts/refresh_private_names.sh
+```
+
 Details: [Git hooks](git-hooks.md).
 
 ## 3. What a push then checks
@@ -57,13 +65,15 @@ Details: [Git hooks](git-hooks.md).
 | lint | syntax and lint of the changed files, with the tools installed | refused |
 | static analysis | foxguard on the changed files | warning only |
 
-Only what the push sends is checked, so a normal push takes a few seconds.
+The checks read what the push sends; the repository-name check also reads
+the tracked files. A normal push takes a few seconds.
 Exceptions and limits: [Settings and exceptions](git-hooks.md#settings-and-exceptions).
 
 ## 4. The scanners
 
 gitleaks and foxguard are pinned releases, checked against their SHA-256.
-Setup offers both; a push installs a missing one. To install them now:
+Setup offers both; a push installs a missing one, except in CI or with
+`SCRIPT_HELPERS_NO_AUTO_INSTALL=1`. To install them now:
 
 ```bash
 bash scripts/script-helpers/scripts/setup-hooks.sh --install-gitleaks --install-foxguard
@@ -90,7 +100,7 @@ bash scripts/script-helpers/scripts/run_repo_tests.sh   # neither: detects the s
 `./dev` comes from `scripts/install_dev_cli.sh`:
 
 ```bash
-bash scripts/script-helpers/scripts/install_dev_cli.sh --shims test
+bash scripts/script-helpers/scripts/install_dev_cli.sh
 ```
 
 A repository whose tests run nowhere else (no CI test job) can run its quick

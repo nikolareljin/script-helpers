@@ -25,6 +25,11 @@
   at a machine-local domain (`.local`, `localhost`) is a hit. Linux CI installs
   git-filter-repo.
 
+### Changed
+
+- `scripts/run_repo_tests.sh`: `-h`/`--help` prints its header, which now
+  lists the exit codes (0, 2, 4, or the test runner's own).
+
 ## 2026-10-13 — v0.52.0
 
 ### Added
