@@ -45,6 +45,11 @@ added="$(git rev-parse HEAD)"
 g rm -q notes.txt && g commit -qm "drop the secretproj notes"
 msg_commit="$(git rev-parse HEAD)"
 g tag -a 1.0.0 -m "release, built for secretproj"
+# Places a line scan of contents never sees: an empty file's name, an author.
+: > secretproj.cfg && g add . && git -c user.email=dev@users.noreply.github.com -c user.name="secretproj bot" -c commit.gpgsign=false commit -qm "config"
+path_commit="$(git rev-parse HEAD)"
+# Planted PII, written in two parts so this file itself carries none.
+g tag -a 1.0.1 -m "contact jane.roe@""corp-mail.org"
 snapshot() { (cd "$tmp/src" && git for-each-ref && git rev-parse HEAD && git status --porcelain && find .git -type f ! -name index | LC_ALL=C sort | xargs cat | cksum); }
 before="$(snapshot)"
 cd "$tmp/out" || exit 1
@@ -54,11 +59,11 @@ rc=0; out="$(bash "$pp" audit --source "$tmp/src" --work "$tmp/out/w" "${names[@
 summary="$("$py" -c '
 import json,sys
 d = json.load(open(sys.argv[1]))
-seen = sorted(set((h["kind"], h["commit"][:7]) for h in d["hits"] if h["check"] == "names"))
-print(d["complete"], " ".join("%s@%s" % s for s in seen))' "$tmp/out/w/report.json" 2>&1)"
-want="True commit-message@${msg_commit:0:7} file@${added:0:7} tag-message@"
+seen = sorted(set((h["check"], h["kind"], h["commit"][:7]) for h in d["hits"]))
+print(d["complete"], " ".join("%s:%s@%s" % s for s in seen))' "$tmp/out/w/report.json" 2>&1)"
+want="True names:commit-message@${msg_commit:0:7} names:file@${added:0:7} names:identity@ names:path@${path_commit:0:7} names:tag-message@ sensitive:tag-text@"
 [[ $rc -eq 1 && "$summary" == "$want" ]] \
-  && ok "audit: the name in a deleted file, a commit message and a tag message, each with its commit; exit 1" \
+  && ok "audit: the name in a deleted file, a commit message, a tag message, a file name and an author, and PII in a tag; exit 1" \
   || error "audit: rc=$rc summary='$summary' want='$want' out=$out"
 grep -q 'secretproj' "$tmp/out/w/report.txt" && ls "$tmp/out/w"/source-*.tar.gz >/dev/null 2>&1 \
   && ok "audit: readable report and the mirror archived" || error "report.txt or archive missing"
@@ -80,7 +85,7 @@ if ! git filter-repo --version >/dev/null 2>&1; then
   if [[ -n "${CI:-}" && "$(uname -s)" == Linux ]]; then error "git filter-repo missing on Linux CI"
   else note "SKIP: git filter-repo not installed; clean and verify not tested here"; fi
 else
-  printf 'ref refs/heads/*\nref refs/tags/*\nreplace secretproj==>R-001\n' > "$tmp/plan"
+  printf 'ref refs/heads/*\nref refs/tags/1.0.0\nreplace secretproj==>R-001\nrename secretproj.cfg==>app.cfg\nmailmap R-001 bot <dev@users.noreply.github.com> secretproj bot <dev@users.noreply.github.com>\n' > "$tmp/plan"
   rc=0; out="$(bash "$pp" clean --work "$tmp/out/w" --plan "$tmp/plan" 2>&1)" || rc=$?
   [[ $rc -eq 0 ]] && grep -q 'message' "$tmp/out/w/changes.txt" \
     && ok "clean: public.git built, changes.txt lists the rewritten commits" || error "clean: rc=$rc out=$out"

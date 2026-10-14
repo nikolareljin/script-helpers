@@ -67,7 +67,7 @@ case "$CMD" in
   -h|--help) usage; exit 0 ;;
   plan-example)
     cat <<'EOF'
-# prepare_public plan. One directive per line; # starts a comment.
+# prepare_public plan. One directive per line; a line starting with # is a comment.
 #
 # ref <pattern>        A ref to publish (shell pattern). Every other ref is dropped.
 ref refs/heads/main
@@ -117,9 +117,8 @@ audit_repo() {
   local g="$1" prefix="$2" fox_scope="$3" t rc unchecked=0
   t="$(mktemp -d)"
   # shellcheck disable=SC2064
-  trap "rm -rf '$t'" RETURN
+  trap "rm -rf '$t'; trap - RETURN" RETURN
   : > "$t/hits.tsv"     # check, label, text
-  : > "$t/notes"
 
   git -C "$g" for-each-ref --format='%(refname)' > "$t/refs"
   [[ -s "$t/refs" ]] || { say "no refs in $g"; return 2; }
@@ -144,21 +143,27 @@ audit_repo() {
     }' "$t/log" > "$t/units" 2> "$t/binary"
   # File names, which a line-based scan of contents never sees.
   git -C "$g" log --all --format='%x01%H' --name-only --no-renames \
-    | awk -v sep="$(printf '\001')" 'index($0, sep) == 1 { c = substr($0, 2); next } NF { print c " path\t" $0 }' >> "$t/units"
+    | awk -v sep="$(printf '\001')" 'index($0, sep) == 1 { c = substr($0, 2); next } NF { print c " path\t" $0 }' >> "$t/units" \
+    || { say "git could not list the file names of $g"; return 2; }
   # Commit messages.
   git -C "$g" log --all --format='%x01%H%n%B' \
-    | awk -v sep="$(printf '\001')" 'index($0, sep) == 1 { c = substr($0, 2); n = 0; next } { n++; print c " message:" n "\t" $0 }' >> "$t/units"
+    | awk -v sep="$(printf '\001')" 'index($0, sep) == 1 { c = substr($0, 2); n = 0; next } { n++; print c " message:" n "\t" $0 }' >> "$t/units" \
+    || { say "git could not read the commit messages of $g"; return 2; }
   # Annotated tag messages (the signature block is not text anybody wrote).
-  : > "$t/tags.txt"
   git -C "$g" for-each-ref --format='%(objecttype) %(objectname) %(refname)' refs/tags | while read -r type obj ref; do
     [[ "$type" == tag ]] || continue
-    git -C "$g" cat-file tag "$obj" \
-      | awk -v r="$ref" '/^-----BEGIN (PGP|SSH) SIGNATURE-----/ { exit } /^tagger / { print "- " r " tagger\t" substr($0, 8); next } p { n++; print "- " r " tag-message:" n "\t" $0 } /^$/ { p = 1 }'
-  done >> "$t/units"
+    git -C "$g" cat-file tag "$obj" > "$t/tagobj" || { echo "unreadable $ref" >&2; continue; }
+    awk -v r="$ref" '/^-----BEGIN (PGP|SSH) SIGNATURE-----/ { exit } /^tagger / { print "- " r " tagger\t" substr($0, 8); next } p { n++; print "- " r " tag-message:" n "\t" $0 } /^$/ { p = 1 }' "$t/tagobj"
+  done >> "$t/units" 2> "$t/tag-errors"
+  [[ -s "$t/tag-errors" ]] && { say "could not read a tag of $g:"; sed 's/^/    /' "$t/tag-errors" >&2; return 2; }
   awk -F'\t' '$1 ~ / tag-message:/ || $1 ~ / tagger$/ { print substr($0, length($1) + 2) }' "$t/units" > "$t/tags.txt"
   # Every author and committer.
-  git -C "$g" log --all --format='%an <%ae>%n%cn <%ce>' | sort -u > "$t/identities.txt"
+  git -C "$g" log --all --format='%an <%ae>%n%cn <%ce>' | sort -u > "$t/identities.txt" \
+    || { say "git could not read the identities of $g"; return 2; }
   awk '{ print "- identity\t" $0 }' "$t/identities.txt" >> "$t/units"
+  # A NUL byte, or an encoding error outside the C locale, makes grep call the
+  # whole input binary and match nothing in it: the check would pass blind.
+  { tr -d '\000' < "$t/units" > "$t/units.c" && mv "$t/units.c" "$t/units"; } || { say "could not prepare the text"; return 2; }
   [[ -s "$t/binary" ]] && say "$(wc -l < "$t/binary" | tr -d ' ') binary file version(s) not read as text (listed in the report)"
 
   # 1. Private names. The check prints each hit as "<n>:<label>\t<text>".
@@ -166,7 +171,7 @@ audit_repo() {
   [[ -n "$LIST" ]] && nargs+=(--list "$LIST")
   [[ -n "$NAMES" ]] && nargs+=(--names "$NAMES")
   rc=0
-  PRIVATE_NAMES_ALLOW="${SELF}${PRIVATE_NAMES_ALLOW:+,$PRIVATE_NAMES_ALLOW}" \
+  LC_ALL=C PRIVATE_NAMES_ALLOW="${SELF}${PRIVATE_NAMES_ALLOW:+,$PRIVATE_NAMES_ALLOW}" \
     bash "$SCRIPT_DIR/check_private_names.sh" "${nargs[@]}" < "$t/units" > "$t/names.out" 2>&1 || rc=$?
   if [[ $rc -ge 2 ]]; then
     unchecked=1; say "the private-name check could not run:"; tail -5 "$t/names.out" | sed 's/^/    /' >&2
@@ -253,9 +258,11 @@ for line in open(os.path.join(t, "hits.tsv"), encoding="utf-8", errors="replace"
         continue
     check, label, text = parts
     # Labels from check_sensitive --file name the scratch file: say what it held.
+    # gitleaks names it after "- " (no commit), the other checks first.
     for name, k in (("tags.txt", "tag-text"), ("identities.txt", "identity")):
-        if label.startswith(os.path.join(t, name) + ":"):
-            label = "- %s:%s" % (k, label.rsplit(":", 1)[1])
+        for pre in ("", "- "):
+            if label.startswith(pre + os.path.join(t, name) + ":"):
+                label = "- %s:%s" % (k, label.rsplit(":", 1)[1])
     first, _, where = label.partition(" ")
     if first == "message":           # check_sensitive: "message <commit>:<n>"
         first, _, n = where.partition(":")
