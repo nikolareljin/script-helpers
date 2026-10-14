@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# pre-commit hook: refuse staged credentials, personal identifiers, PII and .env
+# files; then lint the docs and, on a release/* branch, check the version.
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"

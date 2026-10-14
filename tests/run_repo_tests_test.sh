@@ -78,6 +78,7 @@ printf 'test:\n\t@exit 0\n' > "$repo/Makefile"
 RUNNER_ARGS=--require case_is "--require: a passing suite still exits 0" 0 "All checks passed"
 reset_repo
 RUNNER_ARGS=--bogus case_is "an unknown option is a usage error (2)" 2 "unknown option"
+RUNNER_ARGS=--help case_is "--help prints the header, exit codes included, and exits 0" 0 "EXIT_CODES"
 
 # 4. The guard that matters most: calling run_tests in a `||` context disables
 #    set -e inside it, so a failing runner returned 0 and the run passed.

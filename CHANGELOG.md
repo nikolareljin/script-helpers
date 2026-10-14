@@ -2,6 +2,12 @@
 
 ### Added
 
+- **Adopt script-helpers in a repository** (`docs/adopt.md`): the submodule,
+  the git hooks, what a push checks, the scanners, tests.
+- **Command reference** (`docs/commands.md`): every script under `scripts/`
+  with its usage, options and exit codes, generated from the script headers by
+  `scripts/gen_command_reference.py`. `tests/command_reference_test.sh` fails
+  when the page and the headers disagree.
 - **`scripts/prepare_public.sh`: full-history audit and a cleaned copy of a
   repository.** `audit` mirror-clones it into a new work directory, archives the
   mirror and checks every ref and every commit: listed names, credentials,
@@ -18,6 +24,11 @@
   the report sums the names up with their codes. An author or committer email
   at a machine-local domain (`.local`, `localhost`) is a hit. Linux CI installs
   git-filter-repo.
+
+### Changed
+
+- `scripts/run_repo_tests.sh`: `-h`/`--help` prints its header, which now
+  lists the exit codes (0, 2, 4, or the test runner's own).
 
 ## 2026-10-13 — v0.52.0
 
