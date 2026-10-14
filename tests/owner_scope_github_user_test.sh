@@ -23,6 +23,7 @@ export HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/.config" XDG_DATA_HOME="$tmp/
 export LOCALAPPDATA="$XDG_DATA_HOME"
 export GIT_CONFIG_GLOBAL="$tmp/home/.gitconfig" GIT_CONFIG_NOSYSTEM=1
 unset SCRIPT_HELPERS_OWNERS SCRIPT_HELPERS_HOOKS_HOME SCRIPT_HELPERS_REPO_HOOKS_HOME
+export GH_CONFIG_DIR="$tmp/gh"; unset GH_TOKEN GITHUB_TOKEN
 mkdir -p "$HOME" "$tmp/bin"; : > "$GIT_CONFIG_GLOBAL"
 cd "$tmp" || exit 1
 
@@ -52,11 +53,12 @@ printf '#!/usr/bin/env bash\necho other-user\n' > "$tmp/bin/gh"
 [[ "$(git config --global --get script-helpers.github-user)" == example-user ]] && ok "an existing value is kept" \
   || error "github-user replaced: $(git config --global --get script-helpers.github-user)"
 
-# No gh: nothing recorded, nothing fails.
+# gh not signed in (it fails): nothing recorded, nothing fails.
 git config --global --unset script-helpers.github-user
+printf '#!/usr/bin/env bash\necho "not logged in" >&2\nexit 1\n' > "$tmp/bin/gh"
 git init -q "$tmp/r2"
-rc=0; (cd "$tmp/r2" && PATH="/usr/bin:/bin" bash "$root_dir/scripts/setup-hooks.sh" < /dev/null >/dev/null 2>&1) || rc=$?
-[[ $rc -eq 0 && -z "$(git config --global --get script-helpers.github-user)" ]] && ok "without gh nothing is recorded and setup still works" \
+rc=0; (cd "$tmp/r2" && PATH="$tmp/bin:$PATH" bash "$root_dir/scripts/setup-hooks.sh" < /dev/null >/dev/null 2>&1) || rc=$?
+[[ $rc -eq 0 && -z "$(git config --global --get script-helpers.github-user)" ]] && ok "gh not signed in: nothing is recorded and setup still works" \
   || error "no gh: rc=$rc, github-user='$(git config --global --get script-helpers.github-user)'"
 
 if [[ $failures -gt 0 ]]; then note "$failures failure(s)"; exit 1; fi

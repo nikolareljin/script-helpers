@@ -242,7 +242,7 @@ require_owners() {
   detect_github_user
   if [[ -z "$(configured_owners)" ]]; then
     echo "[setup-hooks] ERROR: no owners configured, so the hooks would check nothing." >&2
-    echo "[setup-hooks] Set your GitHub user or org first, then run this again:" >&2
+    echo "[setup-hooks] Sign in to gh (gh auth login) so your account is found, or set it, then run this again:" >&2
     echo "[setup-hooks]   git config --global script-helpers.owners <user-or-org>[,<another>]" >&2
     exit 2
   fi
@@ -392,7 +392,7 @@ prereqs() {
   if [[ -n "$owners" ]]; then
     echo "  owners    ok ($owners)"
   else
-    echo "  owners    MISSING: git config --global script-helpers.owners <user-or-org>"; missing=$((missing+1))
+    echo "  owners    MISSING: sign in to gh and run setup, or git config --global script-helpers.owners <user-or-org>"; missing=$((missing+1))
   fi
   list="${PRIVATE_NAMES_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names.tsv}"
   if [[ -s "$list" ]]; then

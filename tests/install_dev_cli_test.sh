@@ -53,6 +53,11 @@ run_installer() {
 tmp_root="$(mktemp -d)"
 # Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp_root"; fi' EXIT
+# Never the machine's global config or gh login: install_dev_cli.sh runs
+# setup-hooks.sh, which records the signed-in GitHub account there.
+export GIT_CONFIG_GLOBAL="$tmp_root/gitconfig" GIT_CONFIG_NOSYSTEM=1 GH_CONFIG_DIR="$tmp_root/gh"
+unset GH_TOKEN GITHUB_TOKEN
+printf '[user]\n\tname = test\n\temail = test@example.invalid\n[init]\n\tdefaultBranch = main\n' > "$GIT_CONFIG_GLOBAL"
 
 # 1) First install backs the original up and leaves a shim behind.
 repo="$tmp_root/once"

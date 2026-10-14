@@ -306,7 +306,10 @@ sec_sensitive_push() {
   }
   # Missing gitleaks: offered on a terminal; still missing, the scan exits 2
   # and the push is refused below.
-  if ! sec_gitleaks_present; then
+  if [[ -n "${GITLEAKS_BIN:-}" && ! -x "$GITLEAKS_BIN" ]]; then
+    # Only that path counts: an install elsewhere would not be used.
+    echo "[pre-push] ERROR: GITLEAKS_BIN is $GITLEAKS_BIN, which is not an executable; the credential scan cannot run." >&2
+  elif ! sec_gitleaks_present; then
     echo "[pre-push] ERROR: gitleaks is not installed; the credential scan cannot run." >&2
     sec_offer_install gitleaks "the credential scan" || true
   fi

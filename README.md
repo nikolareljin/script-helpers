@@ -158,9 +158,12 @@ run when you ask (`make test`, `./dev test`), or on push in a repository that
 opts in (`git config script-helpers.push-tests quick`).
 
 ```bash
-git config --global script-helpers.owners <user-or-org>   # once per machine
 bash scripts/script-helpers/scripts/setup-hooks.sh        # in each repository
 ```
+
+Setup finds your GitHub account through `gh`; without `gh`, or to add
+organisations you count as your own:
+`git config --global script-helpers.owners <user-or-org>[,<another>]`.
 
 What runs on commit and push, the options and settings:
 [docs/git-hooks.md](docs/git-hooks.md).

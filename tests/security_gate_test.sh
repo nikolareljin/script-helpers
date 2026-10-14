@@ -297,9 +297,9 @@ commit_file "$vend" b.md "docs at https://example.com"
 printf '# visibility\tnamespace\tname\tcode\tflags\nprivate\tacme\tzqxprivaterepo\tR-999\t\n' > "$tmp/names-ok.tsv"
 expect "pre-push refuses when gitleaks is missing (could not check)" 1 \
   "$(push GITLEAKS_BIN="$tmp/none" PRIVATE_NAMES_FILE="$tmp/names-ok.tsv" PRIVATE_NAMES_AUTO_REFRESH=false)"
-grep -q "ERROR: gitleaks is not installed" "$tmp/out" && grep -q "To install gitleaks: .*--install-gitleaks" "$tmp/out" \
+grep -q "ERROR: GITLEAKS_BIN is $tmp/none, which is not an executable" "$tmp/out" && ! grep -q "installing the pinned" "$tmp/out" \
   && grep -q "sensitive-data check could not run" "$tmp/out" \
-  && ok "gitleaks missing, no terminal: ERROR, how to install it, and refused by the credential scan" \
+  && ok "GITLEAKS_BIN pointing nowhere: named, nothing downloaded, refused by the credential scan" \
   || error "gitleaks missing: $(tail -6 "$tmp/out")"
 expect "SENSITIVE_ALLOW_UNCHECKED=1 lets it through" 0 "$(push GITLEAKS_BIN="$tmp/none" SENSITIVE_ALLOW_UNCHECKED=1)"
 if command -v foxguard >/dev/null 2>&1 || compgen -G "${XDG_CACHE_HOME:-$HOME/.cache}/script-helpers/foxguard/*/foxguard*" >/dev/null; then

@@ -72,7 +72,7 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
   if ! owners="$(scope_owners)"; then
     scope_failed "could not read git config script-helpers.owners"
   elif [[ -z "$owners" ]]; then
-    [[ "$hook" == pre-push ]] && echo "[script-helpers] global hooks: no owners set (git config --global script-helpers.owners <user-or-org>); security checks skipped." >&2
+    [[ "$hook" == pre-push ]] && echo "[script-helpers] global hooks: no owners set (run setup-hooks.sh signed in to gh, or git config --global script-helpers.owners <user-or-org>); security checks skipped." >&2
   elif ! remote_urls="$(scope_repo_urls)"; then
     # Cannot tell whose repository this is: check it rather than guess.
     echo "[script-helpers] global hooks: could not list this repository's remotes; checking it." >&2
