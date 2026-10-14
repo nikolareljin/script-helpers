@@ -10,7 +10,8 @@
 # ----------------------------------------------------
 # Checks the content being pushed (each ref's tip), not the work tree, and only
 # the files the push adds or changes. Every check runs to the end; a large push
-# takes longer. Tests are not run here: `make test` or `./dev test`.
+# takes longer. Tests are not run here: `make test` or `./dev test`, or
+# push_tests below for a repository that opts in.
 #
 # Writes nothing: lists live in variables, and each file goes from git (or the
 # work tree, when that holds the pushed content) to its tool through a pipe.
@@ -379,6 +380,36 @@ pc_lint() {
     fi
   fi
   [[ "$any_js_git" == 1 ]] && pc_say "lint: eslint runs only on the checked-out branch's files."
+  return 0
+}
+
+# push_tests: with git config script-helpers.push-tests quick, run the
+# repository's quick tests (run_repo_tests.sh beside this file) and block on a
+# failure. Off by default; for repositories with no CI test gate.
+# 0 = passed or off, 1 = failed or misconfigured.
+push_tests() {
+  local mode t0 rc=0
+  mode="$(git config --get script-helpers.push-tests 2>/dev/null || true)"
+  case "$mode" in
+    ""|off|false) return 0 ;;
+    quick) ;;
+    *)
+      # A typo must not turn the gate off without a word.
+      echo "[pre-push] REFUSED: script-helpers.push-tests is '$mode'; use quick or off." >&2
+      return 1 ;;
+  esac
+  if [[ ! -f "$PC_DIR/run_repo_tests.sh" ]]; then
+    echo "[pre-push] REFUSED: script-helpers.push-tests is quick, but run_repo_tests.sh is not next to the hooks; reinstall them." >&2
+    return 1
+  fi
+  pc_say "tests: quick (git config script-helpers.push-tests)"
+  t0=$SECONDS
+  bash "$PC_DIR/run_repo_tests.sh" --require < /dev/null || rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    echo "[pre-push] push refused: tests failed (exit $rc)." >&2
+    return 1
+  fi
+  pc_say "tests: passed ($((SECONDS - t0)) s)"
   return 0
 }
 

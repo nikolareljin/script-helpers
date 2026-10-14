@@ -130,6 +130,33 @@ line="refs/heads/main $(printf '1%.0s' {1..40}) refs/heads/main $(printf '0%.0s'
 [[ "$(cat "$tmp/pushed" 2>/dev/null)" == "$line" ]] && ok "the earlier pre-push gets git's ref list on stdin" \
   || { error "stdin: got '$(cat "$tmp/pushed" 2>/dev/null)'"; sed 's/^/    /' "$tmp/out" >&2; }
 
+# 6b. script-helpers.push-tests quick: the dispatcher runs the quick tests once
+#     and refuses a failing suite; a chained script-helpers pre-push is skipped.
+r="$(new_repo pushtests)"
+printf 'test:\n\t@echo SUITE-RAN; exit 1\n' > "$r/Makefile"; git -C "$r" add Makefile
+git -C "$r" commit -q -m "suite" >/dev/null 2>&1
+git -C "$r" config script-helpers.push-tests quick
+(cd "$r" && SCRIPT_HELPERS_OWNERS=acme bash "$setup" >/dev/null 2>&1) || error "pushtests: setup failed"
+line="refs/heads/main $(git -C "$r" rev-parse HEAD) refs/heads/main $(printf '0%.0s' {1..40})"
+rc=0
+(cd "$r" && printf '%s\n' "$line" | SCRIPT_HELPERS_OWNERS=acme SECURITY_GATE_ALLOW_UNCHECKED=1 PRIVATE_NAMES_AUTO_REFRESH=false \
+  PRIVATE_NAMES_FILE=/nonexistent/private-names.tsv \
+  bash "$repo_hooks/pre-push" origin git@github.com:acme/r.git >"$tmp/out" 2>&1) || rc=$?
+if [[ $rc -ne 0 ]] && grep -q 'tests failed' "$tmp/out" && [[ "$(grep -c SUITE-RAN "$tmp/out")" -eq 1 ]]; then
+  ok "the dispatcher runs push-tests quick once and refuses a failing suite"
+else
+  error "pushtests: rc=$rc, suite ran $(grep -c SUITE-RAN "$tmp/out") time(s)"; sed 's/^/    /' "$tmp/out" >&2
+fi
+
+rc=0
+(cd "$r" && printf '%s\n' "$line" | SCRIPT_HELPERS_OWNERS=acme \
+  bash "$repo_hooks/pre-push" origin git@github.com:other/r.git >"$tmp/out" 2>&1) || rc=$?
+if grep -q 'not one of script-helpers.owners; tests not run' "$tmp/out" && ! grep -q SUITE-RAN "$tmp/out"; then
+  ok "outside the owners' repositories, push-tests is reported as not run"
+else
+  error "pushtests outside scope: rc=$rc"; sed 's/^/    /' "$tmp/out" >&2
+fi
+
 # 7. A core.hooksPath this script did not set is left alone by --uninstall.
 r="$(new_repo foreign-uninstall)"
 git -C "$r" config core.hooksPath .other
@@ -234,14 +261,14 @@ if command -v python3 >/dev/null 2>&1; then
   (cd "$r" && bash "$setup" --claude-repo --uninstall >/dev/null 2>&1) || error "claude-existing: uninstall failed"
   python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d.get("permissions") == {"allow": ["Bash(ls)"]} else 1)' "$r/.claude/settings.local.json" \
     && ok "an existing settings.local.json keeps its own settings" || error "claude-existing: permissions lost"
-  [[ -z "$(ls "$r/.claude" | grep -v '^settings.local.json$')" ]] && ok "no backup files left in .claude/" \
+  [[ -z "$(find "$r/.claude" -mindepth 1 -maxdepth 1 ! -name settings.local.json)" ]] && ok "no backup files left in .claude/" \
     || error "claude-existing: in .claude: $(ls -A "$r/.claude" | tr '\n' ' ')"
   [[ -z "$(git -C "$r" status --porcelain --untracked-files=all | grep -v '^A  f$')" ]] && ok "existing file: git status shows nothing new" \
     || error "claude-existing: git status: $(git -C "$r" status --porcelain --untracked-files=all | tr '\n' ' ')"
   # A refused install writes nothing, so a later uninstall never deletes the user's file.
   r="$(new_repo claude-refused)"
   exclude_before="$(cat "$r/.git/info/exclude" 2>/dev/null)"
-  rc=0; (cd "$r" && SCRIPT_HELPERS_OWNERS= bash "$setup" --claude-repo >/dev/null 2>&1) || rc=$?
+  rc=0; (cd "$r" && SCRIPT_HELPERS_OWNERS='' bash "$setup" --claude-repo >/dev/null 2>&1) || rc=$?
   [[ $rc -eq 2 && -z "$(git -C "$r" config --local --get script-helpers.claude-local-created)" && "$(cat "$r/.git/info/exclude" 2>/dev/null)" == "$exclude_before" ]] \
     && ok "--claude-repo refused (no owners): nothing written" || error "claude-refused: rc=$rc or state written"
   mkdir -p "$r/.claude"; printf '{"permissions": {}}\n' > "$r/.claude/settings.local.json"

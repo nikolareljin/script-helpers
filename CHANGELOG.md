@@ -16,6 +16,12 @@
   runs the same checks. Every check runs to the end. The full suite is
   `make test` or `./dev test`; the old test stage is `scripts/run_repo_tests.sh`.
   `PRE_PUSH_SKIP_TESTS` is no longer needed and is ignored.
+- **Quick tests on push, opt-in per repository**:
+  `git config script-helpers.push-tests quick` makes `pre-push` (and the
+  global dispatcher) run `scripts/run_repo_tests.sh`, the old test stage, after
+  the checks, and refuse the push when it fails. For repositories with no CI
+  test gate. Off by default; an unknown value refuses the push rather than
+  turning the step off.
 
 ## 2026-10-13 — v0.51.0
 

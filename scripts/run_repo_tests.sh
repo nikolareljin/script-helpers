@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # SCRIPT: run_repo_tests.sh
 # DESCRIPTION: Run a repository's test suite, detecting the stack (preflight --quick first, else PHP, Node, Python, Go, Gradle, Rust, Flutter, make test, bats, tests/*_test.sh).
-# USAGE: bash scripts/run_repo_tests.sh
-# PARAMETERS: No parameters; runs in the repository containing the current directory.
+# USAGE: bash scripts/run_repo_tests.sh [--require]
+# PARAMETERS:
+#   --require  Exit 4 when no test runner is found, instead of 0. The push
+#              uses it, so an opted-in repository with no tests is not "passed".
+#   Runs in the repository containing the current directory.
 # EXAMPLE: bash scripts/script-helpers/scripts/run_repo_tests.sh
 # ----------------------------------------------------
 # This was the test stage of the pre-push hook. A push no longer runs tests
@@ -10,6 +13,13 @@
 # suite is `make test` or `./dev test`, and this is the same runner for a
 # repository that has neither.
 set -euo pipefail
+
+_require=false
+case "${1:-}" in
+  "") ;;
+  --require) _require=true ;;
+  *) echo "[tests] unknown option: $1 (usage: run_repo_tests.sh [--require])" >&2; exit 2 ;;
+esac
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$repo_root"
@@ -315,4 +325,7 @@ if [[ "$_tests_rc" -ne 0 ]]; then
 fi
 if [[ "$_ran_tests" == "true" ]]; then
   echo "[tests] All checks passed."
+elif [[ "$_require" == true ]]; then
+  echo "[tests] no tests found to run (add make test, or a stack the runner detects)." >&2
+  exit 4
 fi

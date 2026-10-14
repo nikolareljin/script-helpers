@@ -89,7 +89,8 @@
 #   one (for example the protected-refs guard), so a repository with only
 #   .githooks/pre-push gets the shared hooks and still runs its own.
 #   The pre-push hook blocks on security, hygiene and lint of the changed files
-#   (scripts/push_checks.sh); it runs no tests (make test or ./dev test). git
+#   (scripts/push_checks.sh); it runs no tests (make test or ./dev test)
+#   unless the repository opts in: git config script-helpers.push-tests quick. git
 #   holds the push's connection open meanwhile. Over SSH a long run (a first or
 #   very large push) is cut off (exit 141) unless a
 #   keepalive is set: ~/.ssh/config "Host github.com" + "ServerAliveInterval 20"
@@ -263,7 +264,7 @@ stage_common() {
   if [[ -f "$src_root/config/private-names-allow" ]]; then
     mkdir -p "$stage/config" && cp "$src_root/config/private-names-allow" "$stage/config/" || { rm -rf "$stage"; return 1; }
   fi
-  for name in owner_scope.sh check_sensitive.sh check_private_names.sh refresh_private_names.sh ssh_keepalive.sh push_checks.sh; do
+  for name in owner_scope.sh check_sensitive.sh check_private_names.sh refresh_private_names.sh ssh_keepalive.sh push_checks.sh run_repo_tests.sh; do
     cp "$src_root/scripts/$name" "$stage/scripts/$name" || { rm -rf "$stage"; return 1; }
   done
   version_stamp > "$stage/VERSION"
