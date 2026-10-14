@@ -11,6 +11,8 @@
 # example.*, owners are placeholders.
 # ----------------------------------------------------
 set -uo pipefail
+# The hooks would download a missing gitleaks or foxguard; tests never do.
+export SCRIPT_HELPERS_NO_AUTO_INSTALL=1
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHECK="$ROOT_DIR/scripts/check_sensitive.sh"
@@ -290,9 +292,23 @@ commit_file "$vend" a.md "Write to $real_email"
 expect "pre-push refuses a real email" 1 "$(push GITLEAKS_BIN="$tmp/none")"
 gc -C "$vend" reset -q --hard "$base"
 commit_file "$vend" b.md "docs at https://example.com"
-expect "pre-push refuses when gitleaks is missing (could not check)" 1 "$(push GITLEAKS_BIN="$tmp/none")"
+# A usable name list, so the push gets past the name check to the credential
+# scan (without it the refusal below came from the name check, not gitleaks).
+printf '# visibility\tnamespace\tname\tcode\tflags\nprivate\tacme\tzqxprivaterepo\tR-999\t\n' > "$tmp/names-ok.tsv"
+expect "pre-push refuses when gitleaks is missing (could not check)" 1 \
+  "$(push GITLEAKS_BIN="$tmp/none" PRIVATE_NAMES_FILE="$tmp/names-ok.tsv" PRIVATE_NAMES_AUTO_REFRESH=false)"
+grep -q "ERROR: GITLEAKS_BIN is $tmp/none, which is not an executable" "$tmp/out" && ! grep -q "installing the pinned" "$tmp/out" \
+  && grep -q "sensitive-data check could not run" "$tmp/out" \
+  && ok "GITLEAKS_BIN pointing nowhere: named, nothing downloaded, refused by the credential scan" \
+  || error "gitleaks missing: $(tail -6 "$tmp/out")"
 expect "SENSITIVE_ALLOW_UNCHECKED=1 lets it through" 0 "$(push GITLEAKS_BIN="$tmp/none" SENSITIVE_ALLOW_UNCHECKED=1)"
-grep -q "foxguard not installed" "$tmp/out" && ok "foxguard missing -> one-line notice" || error "no foxguard notice"
+if command -v foxguard >/dev/null 2>&1 || compgen -G "${XDG_CACHE_HOME:-$HOME/.cache}/script-helpers/foxguard/*/foxguard*" >/dev/null; then
+  note "SKIP: foxguard is installed here; the missing-foxguard notice is not checked"
+else
+  grep -q "WARNING: the foxguard scan did NOT run" "$tmp/out" && grep -q "To install foxguard: .*--install-foxguard" "$tmp/out" \
+    && ok "foxguard missing, no terminal: a WARNING that the scan did not run, and how to install it" \
+    || error "no foxguard warning or install hint: $(grep -i foxguard "$tmp/out" | head -3)"
+fi
 expect "SECURITY_GATE_ALLOW_UNCHECKED=1 lets it through" 0 "$(push GITLEAKS_BIN="$tmp/none" SECURITY_GATE_ALLOW_UNCHECKED=1)"
 grep -q "WARNING: .*allowed unchecked" "$tmp/out" && ok "with a visible warning" || error "no warning on an unchecked push"
 # No private-name list: the push is refused, not waved through.
@@ -301,6 +317,21 @@ grep -q "private-name check could not run" "$tmp/out" && ok "and says why" || er
 printf '#!/usr/bin/env bash\necho "b.md:1 example-rule: something to look at"\nexit 1\n' > "$tmp/fakefox"; chmod +x "$tmp/fakefox"
 expect "foxguard findings do not block" 0 "$(push GITLEAKS_BIN="$tmp/none" SENSITIVE_ALLOW_UNCHECKED=1 FOXGUARD_CMD="$tmp/fakefox")"
 grep -q "WARNING (foxguard): b.md:1 example-rule" "$tmp/out" && ok "foxguard findings shown as warnings" || error "foxguard warning missing: $(cat "$tmp/out")"
+grep -q "WARNING: foxguard: 1 finding(s) in 1 of 1 changed file(s)" "$tmp/out" && ok "and a framed summary warning" || error "no framed foxguard summary"
+# Like the real foxguard: one path per run, more is a usage error (exit 2).
+printf '#!/usr/bin/env bash\n[[ $# -eq 1 ]] || { echo "unexpected argument" >&2; exit 2; }\necho "$1:1 example-rule: look"\nexit 1\n' > "$tmp/onepathfox"
+chmod +x "$tmp/onepathfox"
+commit_file "$vend" b2.md "second file"
+expect "two changed files with a one-path foxguard: the push goes on" 0 "$(push GITLEAKS_BIN="$tmp/none" SENSITIVE_ALLOW_UNCHECKED=1 FOXGUARD_CMD="$tmp/onepathfox")"
+grep -q "WARNING (foxguard): b.md:1 example-rule" "$tmp/out" && grep -q "WARNING (foxguard): b2.md:1 example-rule" "$tmp/out" \
+  && ! grep -q "did NOT run" "$tmp/out" && ok "foxguard runs once per file: both files scanned" \
+  || error "per-file foxguard: $(grep -i fox "$tmp/out" | head -4)"
+grep -q "foxguard_report.sh --base $base --output foxguard-report.json" "$tmp/out" && grep -q "https://github.com/nikolareljin/leak-lock" "$tmp/out" \
+  && ok "the JSON report command and leak-lock are printed after the findings" || error "no report command or leak-lock link"
+printf '#!/usr/bin/env bash\necho "boom" >&2\nexit 2\n' > "$tmp/brokenfox"; chmod +x "$tmp/brokenfox"
+expect "a failed foxguard scan does not block" 0 "$(push GITLEAKS_BIN="$tmp/none" SENSITIVE_ALLOW_UNCHECKED=1 FOXGUARD_CMD="$tmp/brokenfox")"
+grep -q "WARNING: the foxguard scan did NOT run on 2 of 2 file(s) (exit 2)" "$tmp/out" && ok "it says the scan did not run" \
+  || error "no warning for a failed foxguard: $(grep -i fox "$tmp/out" | head -3)"
 deleted="$(printf 'refs/heads/x %s refs/heads/x %s\n' 0000000000000000000000000000000000000000 "$base")"
 (cd "$vend" && printf '%s\n' "$deleted" | bash "$HOOK" origin x >"$tmp/out" 2>&1)
 expect "deletions-only push passes untouched" 0 "$?"

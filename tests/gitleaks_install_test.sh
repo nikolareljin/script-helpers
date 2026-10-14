@@ -65,11 +65,11 @@ lib() { # lib <uname -s> <uname -m> <code>; runs code with lib/gitleaks.sh loade
 }
 
 # 1. Asset names: one per platform, and the pin exists for each.
-for row in "Linux x86_64 gitleaks_8.30.0_linux_x64.tar.gz" \
-           "Linux aarch64 gitleaks_8.30.0_linux_arm64.tar.gz" \
-           "Darwin x86_64 gitleaks_8.30.0_darwin_x64.tar.gz" \
-           "Darwin arm64 gitleaks_8.30.0_darwin_arm64.tar.gz" \
-           "MINGW64_NT-10.0 x86_64 gitleaks_8.30.0_windows_x64.zip"; do
+for row in "Linux x86_64 gitleaks_8.30.1_linux_x64.tar.gz" \
+           "Linux aarch64 gitleaks_8.30.1_linux_arm64.tar.gz" \
+           "Darwin x86_64 gitleaks_8.30.1_darwin_x64.tar.gz" \
+           "Darwin arm64 gitleaks_8.30.1_darwin_arm64.tar.gz" \
+           "MINGW64_NT-10.0 x86_64 gitleaks_8.30.1_windows_x64.zip"; do
   set -- $row
   got="$(lib "$1" "$2" 'a="$(gitleaks_asset)" && gitleaks_expected_sha256 "$a" >/dev/null && echo "$a"')"
   [[ "$got" == "$3" ]] && note "asset on $1 $2: $3" || error "asset on $1 $2: got '$got', want $3"
@@ -81,8 +81,8 @@ lib FreeBSD x86_64 'gitleaks_asset' >/dev/null 2>&1 && error "FreeBSD: an asset 
 # 2. A matching archive installs; gitleaks_bin finds it in the cache.
 rc=0
 out="$(CI_DEFAULT_GITLEAKS_SHA256_LINUX_X64="$GOOD_SHA" lib Linux x86_64 'gitleaks_install && gitleaks_bin' 2>&1)" || rc=$?
-if [[ $rc -eq 0 && "$out" == *"$tmp/cache/script-helpers/gitleaks/v8.30.0/gitleaks" ]] \
-   && grep -q "releases/download/v8.30.0/gitleaks_8.30.0_linux_x64.tar.gz" "$tmp/curl.log"; then
+if [[ $rc -eq 0 && "$out" == *"$tmp/cache/script-helpers/gitleaks/v8.30.1/gitleaks" ]] \
+   && grep -q "releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz" "$tmp/curl.log"; then
   note "install: pinned URL, checksum ok, binary in the cache"
 else
   error "install: rc=$rc out='$out'"
@@ -119,7 +119,7 @@ out="$(cd "$r" && CI="" PREFLIGHT_NO_INSTALL="" \
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) win=true ;; *) win=false ;; esac
 if $win; then
   note "SKIP preflight install case on Windows: the fake archive is a tar.gz"
-elif [[ $rc -ne 0 && "$out" == *"installing the pinned v8.30.0"* && "$out" == *"FAIL  security scan"* ]]; then
+elif [[ $rc -ne 0 && "$out" == *"installing the pinned v8.30.1"* && "$out" == *"FAIL  security scan"* ]]; then
   note "preflight: installs a missing gitleaks, then a committed secret fails"
 else
   error "preflight install: rc=$rc out='$(printf '%s' "$out" | tail -6)'"

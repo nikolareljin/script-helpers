@@ -10,6 +10,8 @@
 # test run is cut off (exit 141). The hook says so before the checks when no
 # keepalive is set. ssh is a stub that answers `ssh -G` with $FAKE_ALIVE.
 set -uo pipefail
+# The hooks would download a missing gitleaks or foxguard; tests never do.
+export SCRIPT_HELPERS_NO_AUTO_INSTALL=1
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOOK="$ROOT_DIR/scripts/git-hooks/pre-push"

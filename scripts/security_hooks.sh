@@ -250,6 +250,56 @@ sec_private_names() {
   return 0
 }
 
+# sec_lib_root: the script-helpers copy the security scripts come from (it
+# holds helpers.sh and lib/), or return 1.
+sec_lib_root() {
+  local gate r
+  gate="$(sec_find check_sensitive.sh)" || return 1
+  r="$(cd "$(dirname "$gate")/.." && pwd)" || return 1
+  [[ -f "$r/helpers.sh" ]] || return 1
+  printf '%s' "$r"
+}
+
+# sec_may_install: a missing scanner may be downloaded here. Not in CI (it
+# installs its own tools) and not with SCRIPT_HELPERS_NO_AUTO_INSTALL=1.
+sec_may_install() {
+  [[ -z "${CI:-}" && "${SCRIPT_HELPERS_NO_AUTO_INSTALL:-}" != 1 ]]
+}
+
+# sec_gitleaks_present: gitleaks where check_sensitive.sh looks for it.
+sec_gitleaks_present() {
+  local r
+  if [[ -n "${GITLEAKS_BIN:-}" ]]; then [[ -x "$GITLEAKS_BIN" ]]; return; fi
+  command -v gitleaks >/dev/null 2>&1 && return 0
+  r="$(sec_lib_root)" || return 1
+  # shellcheck source=/dev/null
+  ( source "$r/helpers.sh" && shlib_import logging foxguard gitleaks >/dev/null 2>&1 && gitleaks_bin >/dev/null 2>&1 )
+}
+
+# sec_offer_install <tool> <what it runs>: install the pinned <tool>
+# (downloaded, SHA-256 checked) when sec_may_install allows: 0 = installed.
+# Otherwise, or when the install fails, print how to install it: 1.
+sec_offer_install() {
+  local tool="$1" what="$2" r
+  r="$(sec_lib_root 2>/dev/null || true)"
+  if [[ -n "$r" ]] && sec_may_install; then
+    echo "[pre-push] $tool is not installed; installing the pinned release to run $what." >&2
+    # shellcheck source=/dev/null
+    if ( source "$r/helpers.sh" && shlib_import logging foxguard gitleaks && "${tool}_install" ) >&2; then
+      echo "[pre-push] $tool installed." >&2
+      return 0
+    fi
+    echo "[pre-push] $tool install failed (see above)." >&2
+  fi
+  # The staged copies of the global and repository hooks carry no setup-hooks.sh.
+  if [[ -n "$r" && -f "$r/scripts/setup-hooks.sh" ]]; then
+    echo "[pre-push] To install $tool: bash $r/scripts/setup-hooks.sh --install-$tool (or see docs/security-gates.md)." >&2
+  else
+    echo "[pre-push] To install $tool: scripts/setup-hooks.sh --install-$tool in a script-helpers checkout (or see docs/security-gates.md)." >&2
+  fi
+  return 1
+}
+
 # Credentials, personal identifiers and PII in the added lines and messages.
 # Exit 2 (could not check: gitleaks missing, commits unreadable) refuses the
 # push: a credential scan that did not run is not a clean one.
@@ -259,6 +309,16 @@ sec_sensitive_push() {
     sec_unchecked pre-push "check_sensitive.sh not found; credentials and personal data NOT checked"
     return
   }
+  # Missing gitleaks: installed (not in CI, nor with
+  # SCRIPT_HELPERS_NO_AUTO_INSTALL=1); still missing, the scan exits 2 and the
+  # push is refused below.
+  if [[ -n "${GITLEAKS_BIN:-}" && ! -x "$GITLEAKS_BIN" ]]; then
+    # Only that path counts: an install elsewhere would not be used.
+    echo "[pre-push] ERROR: GITLEAKS_BIN is $GITLEAKS_BIN, which is not an executable; the credential scan cannot run." >&2
+  elif ! sec_gitleaks_present; then
+    echo "[pre-push] ERROR: gitleaks is not installed; the credential scan cannot run." >&2
+    sec_offer_install gitleaks "the credential scan" || true
+  fi
   bash "$gate" --push-refs "$refs" --remote "$remote"
   rc=$?
   case "$rc" in
@@ -285,14 +345,45 @@ sec_foxguard_cmd() {
   return 1
 }
 
-# foxguard on the files this push changes. Warnings only: it always returns 0.
+# sec_foxguard_platform_ok: foxguard publishes a binary for this machine
+# (Linux and macOS x86_64/arm64, Windows x86_64).
+sec_foxguard_platform_ok() {
+  case "$(uname -s)" in Linux|Darwin|MINGW*|MSYS*|CYGWIN*) ;; *) return 1 ;; esac
+  case "$(uname -s)/$(uname -m)" in
+    MINGW*/x86_64|MSYS*/x86_64|CYGWIN*/x86_64) return 0 ;;
+    MINGW*|MSYS*|CYGWIN*) return 1 ;;
+  esac
+  case "$(uname -m)" in x86_64|amd64|aarch64|arm64) return 0 ;; esac
+  return 1
+}
+
+# sec_loud <text>: a warning meant to be seen: bold yellow on a terminal
+# (plain in CI or with NO_COLOR), framed by rules either way.
+sec_loud() {
+  local y="" r=""
+  # Plain in CI and with NO_COLOR, as the SSH note.
+  if [[ -t 2 && -z "${NO_COLOR:-}" && -z "${CI:-}" ]]; then y=$'\033[1;33m'; r=$'\033[0m'; fi
+  printf '%s[pre-push] ========================================================%s\n' "$y" "$r" >&2
+  printf '%s[pre-push] WARNING: %s%s\n' "$y" "$1" "$r" >&2
+  printf '%s[pre-push] ========================================================%s\n' "$y" "$r" >&2
+}
+
+# foxguard on the files this push changes. Never blocks: a missing foxguard
+# (installed when it can be), a failed scan and every finding are
+# loud warnings, and the push goes on.
 # Measured 2026-09-29: its shell taint rules flagged 93 lines of this library,
 # none exploitable, so as a gate it would fail correct code.
 sec_foxguard_push() {
-  local refs="$1" remote="${2:-}" cmd f out rc=0 n shown=0 max="${FOXGUARD_MAX_LINES:-40}"
+  local refs="$1" remote="${2:-}" cmd f out rc frc=0 shown=0 failed=0 r base="" issues=0 hit=0 k
   if ! cmd="$(sec_foxguard_cmd)"; then
-    echo "[pre-push] foxguard not installed; static-analysis warnings skipped (install: docs/security-gates.md)."
-    return 0
+    if ! sec_foxguard_platform_ok; then
+      sec_loud "the foxguard scan did NOT run: foxguard has no binary for $(uname -s) $(uname -m)."
+      return 0
+    fi
+    if ! { sec_offer_install foxguard "the static-analysis scan of the changed files" && cmd="$(sec_foxguard_cmd)"; }; then
+      sec_loud "the foxguard scan did NOT run: foxguard is not installed (see above to install it)."
+      return 0
+    fi
   fi
   # The changed files that exist here, in an array: nothing written to disk.
   local files=()
@@ -300,20 +391,40 @@ sec_foxguard_push() {
     [[ -f "$f" ]] && files+=("$f")
   done < <(sec_changed_files "$refs" "$remote" | cut -f2- | LC_ALL=C sort -u)
   [[ ${#files[@]} -gt 0 ]] || return 0
-  # shellcheck disable=SC2086  # FOXGUARD_CMD may carry arguments
-  out="$($cmd "${files[@]}" 2>&1)" || rc=$?
-  n="$(printf '%s\n' "$out" | LC_ALL=C grep -c '[^[:space:]]' || true)"
-  if [[ "$rc" -ne 0 && "$rc" -ne 1 ]]; then
-    echo "[pre-push] WARNING (foxguard): could not scan (exit $rc); push not affected."
-  fi
-  if [[ "${n:-0}" -gt 0 && ( "$rc" -ne 0 ) ]]; then
-    while IFS= read -r f; do
-      [[ -n "${f//[[:space:]]/}" ]] || continue
-      shown=$((shown + 1))
-      [[ "$shown" -le "$max" ]] && printf '[pre-push] WARNING (foxguard): %s\n' "$f"
-    done < <(printf '%s\n' "$out")
-    [[ "$shown" -gt "$max" ]] && echo "[pre-push] WARNING (foxguard): ... $((shown - max)) more line(s); run foxguard on the files to see them."
-    echo "[pre-push] foxguard findings are warnings; the push is not blocked by them."
+  # foxguard scans one path per run: 0 clean, 1 findings, anything else failed.
+  for f in "${files[@]}"; do
+    rc=0
+    # shellcheck disable=SC2086  # FOXGUARD_CMD may carry arguments
+    out="$($cmd "$f" 2>&1)" || rc=$?
+    case "$rc" in
+      0) ;;
+      1)
+        hit=$((hit + 1))
+        # Its summary line, "N issues" (terminal format); 1 when it has none.
+        k="$(printf '%s\n' "$out" | LC_ALL=C sed -n -e 's/^[^0-9]*\([0-9][0-9]*\) issues\{0,1\}$/\1/p' -e 's/^[^0-9]*\([0-9][0-9]*\) issues\{0,1\}[^a-z].*/\1/p' | tail -1)"
+        issues=$((issues + ${k:-1}))
+        while IFS= read -r r; do
+          [[ -n "${r//[[:space:]]/}" ]] || continue
+          shown=$((shown + 1))
+          printf '[pre-push] WARNING (foxguard): %s\n' "$r" >&2
+        done < <(printf '%s\n' "$out") ;;
+      *)
+        failed=$((failed + 1)); frc="$rc"
+        while IFS= read -r r; do printf '[pre-push] foxguard (%s): %s\n' "$f" "$r" >&2; done < <(printf '%s\n' "$out" | head -3) ;;
+    esac
+  done
+  [[ "$failed" -gt 0 ]] && sec_loud "the foxguard scan did NOT run on $failed of ${#files[@]} file(s) (exit $frc)."
+  if [[ "$shown" -gt 0 ]]; then
+    sec_loud "foxguard: $issues finding(s) in $hit of ${#files[@]} changed file(s) (above). They do not block the push."
+    # The base for the report: the remote's commit of the first updated ref.
+    base="$(awk '$4 !~ /^0+$/ && $2 !~ /^0+$/ { print $4; exit }' "$refs" 2>/dev/null || true)"
+    echo "[pre-push] Keep them as JSON (evidence, or to compare later):" >&2
+    if [[ -n "$base" ]]; then
+      echo "[pre-push]   bash $(sec_lib_root 2>/dev/null || echo scripts/script-helpers)/scripts/foxguard_report.sh --base $base --output foxguard-report.json" >&2
+    else
+      echo "[pre-push]   bash $(sec_lib_root 2>/dev/null || echo scripts/script-helpers)/scripts/foxguard_report.sh --output foxguard-report.json -- <files above>" >&2
+    fi
+    echo "[pre-push] To review them, and secrets across the whole history, in VS Code: leak-lock, https://github.com/nikolareljin/leak-lock" >&2
   fi
   return 0
 }

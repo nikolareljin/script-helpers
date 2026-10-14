@@ -1,4 +1,27 @@
-## Unreleased
+## 2026-10-13 — v0.52.0
+
+### Added
+
+- **Git hooks guide** (`docs/git-hooks.md`, on the site under Getting started):
+  what runs on commit and push, setup and its options, what a push checks,
+  settings and exceptions, opt-in tests on push, long pushes over SSH.
+  `usage.md` points there.
+- **A push installs a missing gitleaks or foxguard, and a skipped scan says
+  so.** Both are pinned and SHA-256 checked. Every `setup-hooks.sh` install
+  offers them, and `--install-foxguard` joins `--install-gitleaks`. When the
+  install cannot happen (in CI, with `SCRIPT_HELPERS_NO_AUTO_INSTALL=1`, or a
+  failed download), a missing gitleaks is an `ERROR` that refuses the push and
+  a missing foxguard a framed `WARNING` that the scan did not run (it was one
+  quiet line); both print how to install. `--status` reports foxguard.
+- **foxguard scans every changed file and shows every finding.** It takes one
+  path per run, so a push changing more than one file failed to scan at all
+  and printed only "could not scan". It now runs per file; every line is shown
+  (no 40-line cap), with a framed summary, the leak-lock link and the command
+  for `scripts/foxguard_report.sh`, new: the findings as formatted JSON.
+- **Your own GitHub account is in scope without configuring it.** Setup
+  records the signed-in `gh` account as `script-helpers.github-user`;
+  `script-helpers.owners` adds the organisations you count as your own.
+- **gitleaks 8.30.1** (was 8.30.0), pins and SHA-256 updated.
 
 ### Changed
 

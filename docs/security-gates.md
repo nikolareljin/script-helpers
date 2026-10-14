@@ -13,10 +13,11 @@ report a fourth:
 Order in `pre-push`: deletions-only shortcut, private names, credentials,
 personal identifiers and PII, foxguard, then hygiene and lint of the changed
 files (`scripts/push_checks.sh`), then the repository's own `.githooks/pre-push`
-(which still gets the ref lines). No tests run on push: `make test` or
+(which still gets the ref lines). No tests run on push unless the repository
+opts in ([Tests on push](git-hooks.md#tests-on-push-for-repositories-with-no-ci-test-gate)): `make test` or
 `./dev test`. A repository hook cannot skip the checks: it runs after them. The
 security steps live in `scripts/security_hooks.sh`; hygiene and lint are listed
-in [What a push checks](usage.md#what-a-push-checks).
+in [What a push checks](git-hooks.md#what-a-push-checks).
 
 ## check_sensitive.sh
 
@@ -114,9 +115,12 @@ allowance from the user.
 
 foxguard is a static-analysis scanner,
 [0sec-labs/foxguard](https://github.com/0sec-labs/foxguard). The hook runs it on
-the files a push adds or changes and prints each line of output as
-`[pre-push] WARNING (foxguard): ...`. It never blocks: its shell taint rules
-flag correct code. Not installed: one notice line, and the push goes on.
+the files a push adds or changes, one file per run, and prints every line of
+output as `[pre-push] WARNING (foxguard): ...`, then a framed summary and the
+`scripts/foxguard_report.sh` command that saves the findings as JSON. It never
+blocks: its shell taint rules flag correct code. Not installed: the push
+installs it and runs it; when that cannot happen, a framed WARNING says the
+scan did not run and how to install it, and the push goes on.
 
 It is looked up as `FOXGUARD_CMD`, then the pinned binary in
 `~/.cache/script-helpers/foxguard/<version>/`, then `foxguard` on `PATH`.
@@ -124,7 +128,7 @@ Install the pinned release, checked against the SHA-256 in `lib/ci_defaults.sh`
 (`CI_DEFAULT_FOXGUARD_VERSION`, `CI_DEFAULT_FOXGUARD_SHA256_*`):
 
 ```bash
-bash scripts/ci_security.sh --install-foxguard
+bash scripts/setup-hooks.sh --install-foxguard     # or: scripts/ci_security.sh --install-foxguard
 ```
 
 ## Turning it on
@@ -157,7 +161,8 @@ Chained means `core.hooksPath` points at a per-repository copy of the wrappers
 in `<data>/script-helpers/repo-hooks`, one for every git hook name, and each
 runs, in order, stopping at the first failure:
 
-1. the security checks, in the configured owners' repositories only;
+1. the security checks, in your own repositories only (your GitHub account and
+   the organisations in `script-helpers.owners`);
 2. this repository's committed hooks (`script-helpers.hooks-target`);
 3. what git ran before: the saved local `core.hooksPath`, else the global one,
    else `.git/hooks`, with git's arguments and stdin.
@@ -192,6 +197,8 @@ what runs in every repository on the machine, so it is opt-in.
 
 ```bash
 git config --global script-helpers.owners <your-github-user-or-org>[,<another>]
+# Not needed for your own account when gh is signed in: setup records it as
+# script-helpers.github-user. owners adds organisations.
 bash <script-helpers>/scripts/setup-hooks.sh --global
 bash <script-helpers>/scripts/setup-hooks.sh --status
 ```
@@ -214,7 +221,7 @@ copy does not depend on any checkout; run `--global` again to update it.
 - Every other repository (another org, a fork of someone else's, no remote
   and a push elsewhere) gets a pure pass-through: the hook git would have run
   without the install runs (see Chaining) and nothing is added.
-- No owners configured: `--global` refuses (exit 2), and an installed hook
+- No GitHub account or owners configured: `--global` refuses (exit 2), and an installed hook
   passes everything through with one notice per push.
 - Chaining: after the checks, the hook git would have run without the install
   runs, with git's arguments and stdin, and its exit status is the hook's: the
@@ -342,7 +349,7 @@ installed copy.
 | bash, git | the hooks are bash scripts | `git --version` |
 | Python 3 (`python3`, or `python` on Windows) | parses the hook payload and merges `settings.json` | `python3 --version` |
 | Git for Windows (Windows only) | Claude Code runs hooks through Git Bash | `git --version` in PowerShell |
-| owners | only their github.com repositories are checked | `git config --global script-helpers.owners` |
+| owners | only their github.com repositories are checked | your `gh` account (recorded by setup as `script-helpers.github-user`), plus `git config --global script-helpers.owners` |
 | gitleaks | secret scan; without it every command in your repositories is refused as "could not check" | `setup-hooks.sh --install-gitleaks` installs the pinned build |
 | private-name list | `~/.config/script-helpers/private-names.tsv`; without it every command in your repositories is refused as "could not check" | `refresh_private_names.sh` |
 
@@ -422,6 +429,6 @@ restores the saved global `core.hooksPath`.
   `PreToolUse` deny decision (JSON) on stdout.
 - In Claude Code, `/hooks` lists the entry. Settings are read when a session
   starts: open a new session after installing.
-- `no owners configured` (exit 2): set the owners first (above).
+- `no owners configured` (exit 2): sign in to `gh` and run setup again, or set the owners (above).
 - A hook copy that was deleted fails open; `--doctor` reports it, and
   `--claude` reinstalls it.

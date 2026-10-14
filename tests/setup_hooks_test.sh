@@ -12,10 +12,17 @@
 # shared pre-push must still hand over to the repository's own.
 # ----------------------------------------------------
 set -euo pipefail
+# The hooks would download a missing gitleaks or foxguard; tests never do.
+export SCRIPT_HELPERS_NO_AUTO_INSTALL=1
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
 tmp="$(mktemp -d)"
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
+# Never the machine's global config or gh login: setup records the signed-in
+# GitHub account there (script-helpers.github-user).
+export GIT_CONFIG_GLOBAL="$tmp/gitconfig" GIT_CONFIG_NOSYSTEM=1 GH_CONFIG_DIR="$tmp/gh"
+unset GH_TOKEN GITHUB_TOKEN
+printf '[user]\n\tname = test\n\temail = test@example.invalid\n[init]\n\tdefaultBranch = main\n' > "$GIT_CONFIG_GLOBAL"
 
 failures=0
 note()  { echo "[setup_hooks_test] $*"; }

@@ -20,6 +20,7 @@ Thirty-six modules — with a PowerShell mirror — that run unchanged on the ba
 
 - [Installation](installation.md)
 - [Usage](usage.md)
+- [Git hooks](git-hooks.md): what runs on commit and push, setup, settings
 - [Local models with Ollama](local-models.md): the models file, the start script, settings, exit codes, testing and developing
 - [Packaging](packaging.md)
 - [Full API](api.md)

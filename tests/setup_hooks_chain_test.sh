@@ -7,6 +7,8 @@
 # nothing tracked may change. Every case runs in a throwaway HOME.
 # ----------------------------------------------------
 set -uo pipefail
+# The hooks would download a missing gitleaks or foxguard; tests never do.
+export SCRIPT_HELPERS_NO_AUTO_INSTALL=1
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 failures=0
@@ -151,7 +153,7 @@ fi
 rc=0
 (cd "$r" && printf '%s\n' "$line" | SCRIPT_HELPERS_OWNERS=acme \
   bash "$repo_hooks/pre-push" origin git@github.com:other/r.git >"$tmp/out" 2>&1) || rc=$?
-if grep -q 'not one of script-helpers.owners; tests not run' "$tmp/out" && ! grep -q SUITE-RAN "$tmp/out"; then
+if grep -q 'is not yours (script-helpers.github-user, script-helpers.owners); tests not run' "$tmp/out" && ! grep -q SUITE-RAN "$tmp/out"; then
   ok "outside the owners' repositories, push-tests is reported as not run"
 else
   error "pushtests outside scope: rc=$rc"; sed 's/^/    /' "$tmp/out" >&2

@@ -153,7 +153,8 @@ pc_hygiene() {
     if ! pc_allowed "$path"; then
       [[ "$size" -gt "$max" ]] && pc_find hygiene "$path is $((size / 1024 / 1024)) MB, over $max_mb MB (git config script-helpers.max-file-mb, or list it in .script-helpers-push-allow)"
       case "${path##*/}" in
-        .env.example|.env.sample|.env.template|.env.dist|*.pub) ;;
+        # The templates pre-commit allows too, including variants (.env.local.example).
+        .env.example|.env.sample|.env.template|.env.dist|.env.*.example|.env.*.sample|.env.*.template|.env.*.dist|*.pub) ;;
         .env|.env.*|*.pem|*.key|id_rsa|id_rsa.*|id_dsa|id_ecdsa|id_ecdsa.*|id_ed25519|id_ed25519.*|*.p12|*.pfx|*.jks|*.keystore|.netrc|_netrc|.pypirc|*.tfstate|*.tfstate.backup|*.kdbx)
           pc_find hygiene "$path looks like a secret file (list it in .script-helpers-push-allow if it is not)" ;;
       esac

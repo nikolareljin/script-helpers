@@ -26,6 +26,12 @@ scope_owners() {
     o="$(git config --global --get script-helpers.owners 2>/dev/null)" || rc=$?
     # 1 = not set; anything else = git could not read the config.
     [[ "$rc" -eq 0 || "$rc" -eq 1 ]] || return 2
+    # Your own GitHub account counts without being listed: setup-hooks.sh
+    # records it in script-helpers.github-user. owners adds the organisations
+    # you count as your own.
+    local u
+    u="$(git config --global --get script-helpers.github-user 2>/dev/null || true)"
+    [[ -n "$u" ]] && o="${u}${o:+,$o}"
   fi
   printf '%s' "$o" | LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C tr -d ' \t'
   return 0

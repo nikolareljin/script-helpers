@@ -27,7 +27,7 @@ All values can be overridden by setting the variable before invoking a script.
 - `CI_DEFAULT_GO_IMAGE` (default: `golang`)
 
 ### Gitleaks
-- `CI_DEFAULT_GITLEAKS_VERSION` (default: `v8.30.0`)
+- `CI_DEFAULT_GITLEAKS_VERSION` (default: `v8.30.1`)
 - `CI_DEFAULT_GITLEAKS_IMAGE` (default: `zricethezav/gitleaks`)
 
 ### foxguard
