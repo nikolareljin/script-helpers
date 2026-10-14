@@ -10,8 +10,11 @@ report a fourth:
 | personal identifiers and PII (`check_sensitive.sh`) | `pre-commit`, `commit-msg`, `pre-push` | block |
 | foxguard static analysis of the changed files | `pre-push` | warning only |
 
-Order in `pre-push`: deletions-only and nothing-to-send shortcuts (a push
-whose refs are all up to date or rejected sends nothing), private names, credentials,
+Order in `pre-push`: deletions-only and nothing-to-send shortcuts (a ref
+already at the remote's commit sends nothing; when git sends no ref lines at
+all, as for an up-to-date or rejected push, the commits of `HEAD` that the
+remote does not have are checked instead, and with none the push passes),
+private names, credentials,
 personal identifiers and PII, foxguard, then hygiene and lint of the changed
 files (`scripts/push_checks.sh`), then the repository's own `.githooks/pre-push`
 (which still gets the ref lines). No tests run on push unless the repository

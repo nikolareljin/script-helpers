@@ -432,8 +432,15 @@ expect "a second configured owner is checked too" 1 "$?"
 expect "an owner repo pushed to a non-GitHub mirror is checked (origin decides)" 1 "$?"
 # A push that sends nothing: no ref lines (up to date, or rejected), or a ref
 # already at the remote's sha. HEAD's message would be refused if checked.
+# With no ref lines, HEAD's commits that the remote lacks are checked: a hook
+# manager that drops git's stdin must not turn every push into "nothing to
+# check". Here the remote has none of them, so HEAD is checked and refused.
 (cd "$own" && GITLEAKS_BIN="$tmp/none" bash "$gdir/hooks/pre-push" origin git@github.com:example-owner/own.git < /dev/null >"$tmp/out" 2>&1)
-expect "global pre-push with no ref lines passes" 0 "$?"
+expect "global pre-push with no ref lines checks HEAD's unpushed commits" 1 "$?"
+(cd "$own" && git update-ref refs/remotes/origin/main HEAD \
+  && GITLEAKS_BIN="$tmp/none" bash "$gdir/hooks/pre-push" origin git@github.com:example-owner/own.git < /dev/null >"$tmp/out" 2>&1)
+expect "global pre-push with no ref lines and HEAD on the remote passes" 0 "$?"
+git -C "$own" update-ref -d refs/remotes/origin/main
 (cd "$own" && printf 'refs/heads/main %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD)" \
   | GITLEAKS_BIN="$tmp/none" bash "$gdir/hooks/pre-push" origin git@github.com:example-owner/own.git >"$tmp/out" 2>&1)
 expect "global pre-push of a ref already at the remote's sha passes" 0 "$?"

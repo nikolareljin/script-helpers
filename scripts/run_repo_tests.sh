@@ -74,7 +74,7 @@ run_go_tests_inline() {
   while IFS= read -r gomod; do
     module_dir="$(dirname "$gomod")"
     echo "[tests] go test ./... ($module_dir)"
-    (cd "$module_dir" && go test ./...)
+    (cd "$module_dir" && go test ./...) || return $?
   done < <(
     find . \
       \( -name .git -o -path "*/node_modules" -o -path "*/vendor" \) -prune \
@@ -101,7 +101,7 @@ run_tests() {
       local _php_checked=false
       if [[ -x vendor/bin/pint ]]; then
         echo "[tests] vendor/bin/pint --test"
-        vendor/bin/pint --test
+        vendor/bin/pint --test || return $?
         _php_checked=true
       fi
       if [[ "${SKIP_PHP_TESTS:-}" != "1" ]]; then
@@ -111,7 +111,7 @@ run_tests() {
           _php_checked=true
         elif [[ -x vendor/bin/phpunit ]]; then
           echo "[tests] vendor/bin/phpunit"
-          vendor/bin/phpunit
+          vendor/bin/phpunit || return $?
           _php_checked=true
         fi
       fi
@@ -166,7 +166,7 @@ run_tests() {
 
       if [[ -n "$python_bin" ]] && "$python_bin" -m pytest --version &>/dev/null; then
         echo "[tests] $python_bin -m pytest"
-        "$python_bin" -m pytest --tb=short -q
+        "$python_bin" -m pytest --tb=short -q || return $?
         _ran_tests=true
         return 0
       fi
@@ -184,7 +184,7 @@ run_tests() {
         echo "[tests] local_test_go.sh --quick"
         bash "$_scripts_dir/local_test_go.sh" --quick || return $?
       else
-        run_go_tests_inline
+        run_go_tests_inline || return $?
       fi
       _ran_tests=true
       return 0

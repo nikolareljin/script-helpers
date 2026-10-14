@@ -101,25 +101,33 @@ if [[ "$in_scope" == true ]]; then
   top="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
   case "$hook" in
     pre-push)
-      # Nothing to check when no ref adds commits: deletions, refs already up
-      # to date, or no ref lines at all (git sends none when every ref is up
-      # to date or will be rejected).
+      # No ref lines at all: an up-to-date or rejected push, or a wrapper that
+      # lost git's stdin. HEAD's commits the remote lacks are checked instead
+      # (sec_push_head_line), in a file of their own: chained hooks still get
+      # exactly what git sent.
+      checks_file="$stdin_file"
+      if ! grep -q '[^[:space:]]' "$stdin_file"; then
+        checks_file="$stdin_dir/checks"
+        (cd "$top" && sec_push_head_line "${1:-}") > "$checks_file"
+      fi
+      # Nothing to check when no ref adds commits: deletions, or refs already
+      # at the remote's sha.
       deletions_only=true
       # shellcheck disable=SC2034
       while read -r lref lsha rref rsha; do
         [[ -n "${lsha:-}" ]] || continue
         [[ "$lsha" =~ ^0+$ ]] && continue
         [[ "$lsha" =~ ^[0-9a-f]{40,64}$ && "$lsha" == "${rsha:-}" ]] || deletions_only=false
-      done < "$stdin_file"
+      done < "$checks_file"
       if [[ "$deletions_only" == false ]]; then
-        (cd "$top" && sec_pre_push "$stdin_file" "${1:-}" "${2:-}") || exit 1
+        (cd "$top" && sec_pre_push "$checks_file" "${1:-}" "${2:-}") || exit 1
         # Hygiene and lint of what the push changes, as the bundled pre-push does.
         if [[ -f "$base/push_checks.sh" ]]; then
           # shellcheck source=/dev/null
-          (cd "$top" && source "$base/push_checks.sh" && push_checks "$stdin_file" "${1:-}" "${2:-}" && push_tests) || exit 1
+          (cd "$top" && source "$base/push_checks.sh" && push_checks "$checks_file" "${1:-}" "${2:-}" && push_tests) || exit 1
           # A chained script-helpers pre-push skips the same checks for this
           # same push (the hash of its ref lines), instead of running them twice.
-          SCRIPT_HELPERS_PUSH_CHECKED="$(git hash-object --stdin < "$stdin_file" 2>/dev/null || true)"
+          SCRIPT_HELPERS_PUSH_CHECKED="$(git hash-object --stdin < "$checks_file" 2>/dev/null || true)"
           export SCRIPT_HELPERS_PUSH_CHECKED
         fi
       fi

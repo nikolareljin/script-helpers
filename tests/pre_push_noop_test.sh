@@ -46,6 +46,15 @@ rc=0; out="$(bash "$HOOK" origin "$tmp/remote.git" < /dev/null 2>&1)" || rc=$?
 [[ $rc -eq 0 && "$out" == *"no ref to update"* ]] && ok "no ref lines: passes with a note" \
   || error "no ref lines: rc=$rc out=$out"
 
+# 1b. No ref lines, but HEAD has commits the remote does not: a wrapper that
+#     lost git's stdin looks exactly like an up-to-date push, so HEAD's unpushed
+#     commits are checked rather than waved through.
+echo 'see zqxprivaterepo' > leak.txt && g add leak.txt && g commit -qm leak
+rc=0; out="$(bash "$HOOK" origin "$tmp/remote.git" < /dev/null 2>&1)" || rc=$?
+[[ $rc -ne 0 && "$out" == *"checking HEAD"* ]] && ok "no ref lines with unpushed HEAD commits: they are checked (a private name is refused)" \
+  || error "no ref lines, unpushed HEAD: rc=$rc out=$out"
+g reset -q --hard "$head"
+
 # 2. A ref line whose local and remote sha are the same sends nothing.
 rc=0; out="$(printf 'refs/heads/main %s refs/heads/main %s\n' "$head" "$head" | bash "$HOOK" origin "$tmp/remote.git" 2>&1)" || rc=$?
 [[ $rc -eq 0 && "$out" == *"no ref to update"* ]] && ok "same sha on both sides: passes with a note" \

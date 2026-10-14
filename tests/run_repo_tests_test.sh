@@ -109,6 +109,44 @@ else
   note "SKIP: npm not installed, the node branch was not exercised"
 fi
 
+# The PHP, Python and Go runners ran without `|| return`, so inside run_tests
+# (called in a `||` context, set -e off) a failing phpunit, pint, pytest or
+# go test was ignored and the run said "All checks passed". Stand-ins on PATH
+# fail on purpose; each must fail the run.
+fake="$tmp/fakebin"; mkdir -p "$fake"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/php"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/composer"
+printf '#!/usr/bin/env bash\n[[ "$1" == test ]] && exit 1\nexit 0\n' > "$fake/go"
+chmod +x "$fake"/*
+fake_run() { ( cd "$repo" && PATH="$fake:$PATH" bash "$RUNNER" 2>&1 ); }
+fake_case() {   # <label> <expect-text>
+  local out rc
+  out="$(fake_run)"; rc=$?
+  if [[ $rc -eq 1 ]] && grep -q -- "$2" <<<"$out"; then ok "$1"; else error "$1: exit $rc, out: $out"; fi
+}
+php_reset() { rm -rf "$repo/composer.json" "$repo/vendor" "$repo/artisan"; }
+
+reset_repo; php_reset
+printf '{}\n' > "$repo/composer.json"; mkdir -p "$repo/vendor/bin"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$repo/vendor/bin/phpunit"; chmod +x "$repo/vendor/bin/phpunit"
+fake_case "a failing phpunit fails the run" "tests failed (exit 1)"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$repo/vendor/bin/phpunit"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$repo/vendor/bin/pint"; chmod +x "$repo/vendor/bin/pint"
+fake_case "a failing pint --test fails the run" "tests failed (exit 1)"
+php_reset
+
+reset_repo
+printf 'x\n' > "$repo/requirements.txt"; mkdir -p "$repo/.venv/bin"
+printf '#!/usr/bin/env bash\n[[ "$*" == *--version* ]] && exit 0\nexit 1\n' > "$repo/.venv/bin/python"; chmod +x "$repo/.venv/bin/python"
+fake_case "a failing pytest fails the run" "tests failed (exit 1)"
+rm -rf "$repo/requirements.txt" "$repo/.venv"
+
+reset_repo
+mkdir -p "$repo/a" "$repo/b"; printf 'module a\n' > "$repo/a/go.mod"; printf 'module b\n' > "$repo/b/go.mod"
+printf '#!/usr/bin/env bash\n[[ "$1" == test && "$PWD" == */a ]] && exit 1\nexit 0\n' > "$fake/go"
+fake_case "a failing go test in the first of two modules fails the run" "tests failed (exit 1)"
+rm -rf "$repo/a" "$repo/b"
+
 # The runner must not pass git's hook variables to the tests it runs (a repo's
 # own .githooks/pre-push may call it). Git sets GIT_DIR for a hook, pointing at
 # the repository being pushed (an absolute path in a linked worktree). A test

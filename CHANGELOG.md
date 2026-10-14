@@ -30,13 +30,19 @@
 - **A push that updates no ref passes `pre-push`.** git runs the hook with no
   ref lines when every ref is already up to date or will be rejected
   (non-fast-forward); the hook refused it with "nothing could be checked". It
-  now says "no ref to update; nothing to check" and exits 0. The global hooks
-  treat a ref already at the remote's sha the same way.
+  now says "no ref to update; nothing to check" and exits 0 when `HEAD` has no
+  commits the remote lacks; when it has some, those are checked, so a hook
+  manager that drops git's stdin cannot wave a push through. The global hooks
+  do the same, and treat a ref already at the remote's sha as sending nothing.
 - **`run_repo_tests.sh` exit codes no longer collide with a runner's.** A
   failure is exit 1, with the runner's code in the message: a failing
   `make test` (exit 2) read as a usage error, and a runner exiting 4 read as
   "no tests found". A `preflight.sh` exiting 127 is a failure, not "no
   preflight". The push says which case refused it: no tests, or a failure.
+- **`run_repo_tests.sh`: a failing phpunit, pint, pytest or inline `go test`
+  failed the run.** They ran without passing their exit code on, so the run
+  said "All checks passed"; `go test` in every module but the last was
+  ignored.
 
 ### Changed
 

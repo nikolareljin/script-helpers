@@ -48,20 +48,20 @@ _push_is_deletions_only() {
   [[ "$saw_ref" == "true" ]]
 }
 
-# A push that updates no ref: git runs this hook with no ref lines when every
-# ref is already up to date, or when it will reject them all (non-fast-forward).
-# Nothing is sent, so there is nothing to check. A ref line whose local and
-# remote sha are the same sends nothing either.
+# A push whose every ref line has the same local and remote sha sends nothing.
+# No ref lines at all (an up-to-date or rejected push, or a wrapper that lost
+# git's stdin) is not decided here: see sec_push_head_line below.
 _push_sends_nothing() {
-  local lref lsha rref rsha
+  local lref lsha rref rsha saw=false
   # shellcheck disable=SC2034
   while read -r lref lsha rref rsha; do
     [[ -n "${lref:-}" ]] || continue                     # a blank line
     # Anything that is not a well-formed ref line goes to the checks, which
     # refuse what they cannot read.
     [[ "${lsha:-}" =~ ^[0-9a-f]{40,64}$ && "$lsha" == "${rsha:-}" ]] || return 1
+    saw=true
   done
-  return 0
+  [[ "$saw" == true ]]
 }
 
 # git feeds the ref lines on stdin, and they can only be read once. They are
@@ -114,6 +114,14 @@ done
 if [[ -n "$_security_lib" ]]; then
   # shellcheck source=/dev/null
   source "$_security_lib"
+  if ! grep -q '[^[:space:]]' "$_push_refs"; then
+    sec_push_head_line "${1:-}" > "$_push_refs"
+    if [[ ! -s "$_push_refs" ]]; then
+      echo "[pre-push] no ref to update; nothing to check."
+      exit 0
+    fi
+    echo "[pre-push] git sent no ref lines; checking HEAD's commits that the remote does not have."
+  fi
   if ! sec_pre_push "$_push_refs" "${1:-}" "${2:-}"; then
     exit 1
   fi
