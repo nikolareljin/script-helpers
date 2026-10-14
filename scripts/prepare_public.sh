@@ -40,6 +40,9 @@
 set -euo pipefail
 # The mirror, the archive and the reports hold the private history: owner only.
 umask 077
+# History is bytes, not text in the caller's locale: in a UTF-8 locale a Latin-1
+# line makes gawk warn and miscount, and BSD tr, sed and grep fail outright.
+export LC_ALL=C
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # An exported GIT_DIR or GIT_WORK_TREE (a hook, a wrapper) wins over git -C: the
@@ -62,9 +65,7 @@ trap 'if [[ ${BASHPID-$$} == "$$" ]]; then cleanup; fi' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 die()  { echo "$TAG ERROR: $*" >&2; exit 2; }
-# History is bytes, not text in the caller's locale: gawk in a UTF-8 locale
-# warns on (and miscounts) a Latin-1 line.
-cawk() { LC_ALL=C awk "$@"; }
+
 usage() { sed -n '2,/^# ------/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 CMD="${1:-}"
@@ -152,13 +153,13 @@ audit_repo() {
   git -C "$g" for-each-ref --format='%(refname)' > "$t/refs"
   [[ -s "$t/refs" ]] || { say "no refs in $g"; return 2; }
   # Branch and tag names are published with the history.
-  cawk '{ print "- ref\t" $0 }' "$t/refs" > "$t/units"
+  awk '{ print "- ref\t" $0 }' "$t/refs" > "$t/units"
 
   # Every line the history ever added, labelled "<commit> <path>:<line>".
   git -C "$g" -c core.quotePath=false log --all -p --cc -M -U0 --no-color --no-ext-diff --format='%x01%H' > "$t/log" \
     || { say "git could not read the history of $g"; return 2; }
   : > "$t/binary"
-  cawk -v sep="$(printf '\001')" -v binf="$t/binary" '
+  awk -v sep="$(printf '\001')" -v binf="$t/binary" '
     index($0, sep) == 1 { commit = substr($0, 2); next }
     /^diff --(git|cc|combined) / { hdr = 1; cc = ($2 != "--git"); np = 1; ccf = substr($0, length($1 " " $2 " ") + 1); next }
     # A merge prints "Binary files differ" with no path: name it from the header.
@@ -179,24 +180,24 @@ audit_repo() {
     || { say "could not parse the history of $g:"; head -3 "$t/parse-errors" | sed 's/^/    /' >&2; return 2; }
   # File names, which a line-based scan of contents never sees.
   git -C "$g" -c core.quotePath=false log --all --format='%x01%H' --name-only --no-renames \
-    | cawk -v sep="$(printf '\001')" 'index($0, sep) == 1 { c = substr($0, 2); next } NF { print c " path\t" $0 }' >> "$t/units" \
+    | awk -v sep="$(printf '\001')" 'index($0, sep) == 1 { c = substr($0, 2); next } NF { print c " path\t" $0 }' >> "$t/units" \
     || { say "git could not list the file names of $g"; return 2; }
   # Commit messages.
   git -C "$g" log --all --format='%x01%H%n%B' \
-    | cawk -v sep="$(printf '\001')" 'index($0, sep) == 1 { c = substr($0, 2); n = 0; next } { n++; print c " message:" n "\t" $0 }' >> "$t/units" \
+    | awk -v sep="$(printf '\001')" 'index($0, sep) == 1 { c = substr($0, 2); n = 0; next } { n++; print c " message:" n "\t" $0 }' >> "$t/units" \
     || { say "git could not read the commit messages of $g"; return 2; }
   # Annotated tag messages (the signature block is not text anybody wrote).
   git -C "$g" for-each-ref --format='%(objecttype) %(objectname) %(refname)' refs/tags | while read -r type obj ref; do
     [[ "$type" == tag ]] || continue
     git -C "$g" cat-file tag "$obj" > "$t/tagobj" || { echo "unreadable $ref" >&2; continue; }
-    cawk -v r="$ref" '/^-----BEGIN (PGP|SSH) SIGNATURE-----/ { exit } /^tagger / { print "- " r " tagger\t" substr($0, 8); next } p { n++; print "- " r " tag-message:" n "\t" $0 } /^$/ { p = 1 }' "$t/tagobj"
+    awk -v r="$ref" '/^-----BEGIN (PGP|SSH) SIGNATURE-----/ { exit } /^tagger / { print "- " r " tagger\t" substr($0, 8); next } p { n++; print "- " r " tag-message:" n "\t" $0 } /^$/ { p = 1 }' "$t/tagobj"
   done >> "$t/units" 2> "$t/tag-errors"
   [[ -s "$t/tag-errors" ]] && { say "could not read a tag of $g:"; sed 's/^/    /' "$t/tag-errors" >&2; return 2; }
-  cawk -F'\t' '$1 ~ / tag-message:/ || $1 ~ / tagger$/ { print substr($0, length($1) + 2) }' "$t/units" > "$t/tags.txt"
+  awk -F'\t' '$1 ~ / tag-message:/ || $1 ~ / tagger$/ { print substr($0, length($1) + 2) }' "$t/units" > "$t/tags.txt"
   # Every author and committer.
   git -C "$g" log --all --format='%an <%ae>%n%cn <%ce>' | sort -u > "$t/identities.txt" \
     || { say "git could not read the identities of $g"; return 2; }
-  cawk '{ print "- identity\t" $0 }' "$t/identities.txt" >> "$t/units"
+  awk '{ print "- identity\t" $0 }' "$t/identities.txt" >> "$t/units"
   # An email at a machine-local domain (git's default on an unconfigured host)
   # publishes the machine's name. The local part is masked, the host is the hit.
   grep -iE '@([^>.]+|[^>]*\.(local|lan|localdomain|home|internal|localhost))>$' "$t/identities.txt" \
@@ -260,12 +261,12 @@ PY
   # name it skips is listed in the report, never silently passed.
   (cd "$t" && LC_ALL=C PRIVATE_NAMES_ALLOW="${SELF}${PRIVATE_NAMES_ALLOW:+,$PRIVATE_NAMES_ALLOW}" \
     bash "$SCRIPT_DIR/check_private_names.sh" "${nargs[@]}") < "$t/units" > "$t/names.out" 2>&1 || rc=$?
-  sed -n 's/.*allowed by override, not checked: //p' "$t/names.out" | cawk -v s="$SELF" 'tolower($0) != tolower(s)' | sort -u > "$t/not-checked" || true
+  sed -n 's/.*allowed by override, not checked: //p' "$t/names.out" | awk -v s="$SELF" 'tolower($0) != tolower(s)' | sort -u > "$t/not-checked" || true
   [[ -s "$t/not-checked" ]] && say "names skipped by an allowlist, NOT checked: $(paste -sd, - < "$t/not-checked")"
   if [[ $rc -ge 2 ]]; then
     unchecked=1; say "the private-name check could not run:"; tail -5 "$t/names.out" | sed 's/^/    /' >&2
   fi
-  sed -n 's/^      [0-9][0-9]*://p' "$t/names.out" | sort -u | cawk -F'\t' '{ print "names\t" $0 }' >> "$t/hits.tsv"
+  sed -n 's/^      [0-9][0-9]*://p' "$t/names.out" | sort -u | awk -F'\t' '{ print "names\t" $0 }' >> "$t/hits.tsv"
   # The names found, "name" or "name -> code", for the report and the plan.
   sed -n 's/^        \([^ ].*\)$/\1/p' "$t/names.out" > "$t/names-found" || true
   if [[ $rc -eq 1 ]] && ! grep -q '^names' "$t/hits.tsv"; then
@@ -285,9 +286,9 @@ PY
   fi
   [[ $rc -ge 2 || $rc2 -ge 2 ]] && { unchecked=1; say "the sensitive check could not check everything:"; grep -E 'NOT checked|COULD NOT|could not' "$t/sens.out" | sed 's/^/    /' >&2 || true; }
   sed -n 's/^\[sensitive\] BLOCK \(.*\): \(.*\)$/\1\t\2/p' "$t/sens.out" | grep -v '^gitleaks found' \
-    | cawk -F'\t' '{ print "sensitive\t" $0 }' >> "$t/hits.tsv" || true
+    | awk -F'\t' '{ print "sensitive\t" $0 }' >> "$t/hits.tsv" || true
   # gitleaks findings come as blocks of "Key: value" lines.
-  cawk '
+  awk '
     /^\[sensitive\] gitleaks: (RuleID|File|Line|Commit):/ {
       sub(/^\[sensitive\] gitleaks: /, ""); k = $1; sub(/:$/, "", k); v = $0; sub(/^[^:]*: */, "", v); r[k] = v
     }
@@ -328,7 +329,7 @@ PY
   # Which ref each commit is on, for the report.
   local head_ref r
   head_ref="$(git -C "$g" symbolic-ref -q HEAD || true)"
-  cut -f2 "$t/hits.tsv" | cawk '{ print $1 }' | grep -E '^[0-9a-f]{7,40}$' | sort -u | while read -r c; do
+  cut -f2 "$t/hits.tsv" | awk '{ print $1 }' | grep -E '^[0-9a-f]{7,40}$' | sort -u | while read -r c; do
     # The default branch when it has the commit, else the first ref that does.
     git -C "$g" for-each-ref --contains "$c" --format='%(refname)' 2>/dev/null > "$t/on" || true
     r="$(grep -xF "$head_ref" "$t/on" || head -1 "$t/on")"
