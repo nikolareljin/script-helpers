@@ -96,6 +96,12 @@ reset_main
 commit "examples" .env.example "NAME=" id_ed25519.pub "a public key"
 expect ".env.example and a public key pass" 0 ""
 reset_main
+commit "variants" .env.sample "NAME=" config/.env.local.example "NAME=" .env.prod.dist "NAME="
+expect "template variants pre-commit allows (.env.local.example, .env.sample) pass" 0 ""
+reset_main
+commit "local" .env.local "NAME=x"
+expect ".env.local is refused" 1 "looks like a secret file"
+reset_main
 commit "pem" certs/server.pem "x"
 expect "a .pem file is refused" 1 "certs/server.pem looks like a secret file"
 reset_main

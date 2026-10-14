@@ -43,8 +43,9 @@ or `tests/*_test.sh`. The push then takes as long as those tests.
 
 ## Set up
 
-Configure whose repositories are checked, once per machine. Installing refuses
-until this is set:
+Configure whose repositories are checked, once per machine. Without it the
+security checks run in no repository, and `--global` and the agent hooks refuse
+to install:
 
 ```bash
 git config --global script-helpers.owners <user-or-org>[,<another>]
@@ -119,8 +120,9 @@ chained and global installs run none of it.
 
 git opens the push's connection before `pre-push` runs and keeps it idle until
 the checks pass. Over SSH a long run (a first or very large push) can be cut off:
-the push exits 141 with `Connection to github.com closed by remote host`. The
-hook prints a note before the checks when no keepalive is set. Set one:
+the push exits 141 with `Connection to github.com closed by remote host`, after
+the checks passed. The hook prints a note before the checks when no keepalive is
+set, and `setup-hooks.sh --status` reports it. Set one:
 
 | Scope | Set it with |
 |---|---|
@@ -128,4 +130,8 @@ hook prints a note before the checks when no keepalive is set. Set one:
 | one repository | `git config core.sshCommand "ssh -o ServerAliveInterval=20"` |
 | one push | `GIT_SSH_COMMAND="ssh -o ServerAliveInterval=20" git push` |
 
-An HTTPS remote is not affected.
+`ServerAliveInterval 20` sends a keepalive every 20 seconds. With the default
+`ServerAliveCountMax 3` the connection still ends after about a minute if the
+server stops answering; add `-o ServerAliveCountMax=60` to wait longer.
+
+An HTTPS remote is not affected: git makes a new request after the hook.
