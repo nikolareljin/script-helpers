@@ -8,6 +8,8 @@
 # Each check is fed input it must refuse and input it must pass: a check that
 # fires on correct input gets switched off.
 set -uo pipefail
+# The hooks would download a missing gitleaks or foxguard; tests never do.
+export SCRIPT_HELPERS_NO_AUTO_INSTALL=1
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOOK="$ROOT_DIR/scripts/git-hooks/pre-push"

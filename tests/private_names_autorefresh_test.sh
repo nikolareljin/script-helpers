@@ -10,6 +10,8 @@
 # says so. The refresh must never block or fail a push, and never run twice at
 # once.
 set -uo pipefail
+# The hooks would download a missing gitleaks or foxguard; tests never do.
+export SCRIPT_HELPERS_NO_AUTO_INSTALL=1
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOOK="$ROOT_DIR/scripts/git-hooks/pre-push"

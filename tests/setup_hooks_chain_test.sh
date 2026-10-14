@@ -7,6 +7,8 @@
 # nothing tracked may change. Every case runs in a throwaway HOME.
 # ----------------------------------------------------
 set -uo pipefail
+# The hooks would download a missing gitleaks or foxguard; tests never do.
+export SCRIPT_HELPERS_NO_AUTO_INSTALL=1
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 failures=0

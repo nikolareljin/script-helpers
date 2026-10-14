@@ -17,7 +17,7 @@ if [[ -z "${CI_DEFAULT_GITLEAKS_SHA256_LINUX_X64:-}" ]]; then
 fi
 
 # gitleaks_asset; the release archive for this machine, e.g.
-# gitleaks_8.30.0_linux_x64.tar.gz, or ..._windows_x64.zip under Git Bash.
+# gitleaks_8.30.1_linux_x64.tar.gz, or ..._windows_x64.zip under Git Bash.
 gitleaks_asset() {
   local os arch ext=tar.gz v="${CI_DEFAULT_GITLEAKS_VERSION#v}"
   case "$(uname -s)" in

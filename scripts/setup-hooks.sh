@@ -73,7 +73,8 @@
 #   --install-gitleaks  Download the pinned gitleaks (SHA-256 checked) into the cache.
 #   --install-foxguard  Download the pinned foxguard (SHA-256 checked) into the cache.
 #   Every install offers both (asked on a terminal, printed otherwise); a push
-#   with one missing asks again on a terminal, and says what did not run.
+#   with one missing installs it (not in CI, nor with
+#   SCRIPT_HELPERS_NO_AUTO_INSTALL=1), and says what did not run when it cannot.
 #   <data> is %LOCALAPPDATA% on Windows (Git Bash), else ${XDG_DATA_HOME:-~/.local/share}.
 #   Installing refuses (exit 2) until owners are configured:
 #     git config --global script-helpers.owners <user-or-org>[,<another>]
@@ -216,10 +217,29 @@ agent_repo_home="$data_base/script-helpers/agent-repo-hooks"
 GLOBAL_HOOK_NAMES="applypatch-msg pre-applypatch post-applypatch pre-commit pre-merge-commit prepare-commit-msg commit-msg post-commit pre-rebase post-checkout post-merge pre-push post-rewrite push-to-checkout pre-auto-gc sendemail-validate reference-transaction post-index-change"
 
 configured_owners() {
-  printf '%s' "${SCRIPT_HELPERS_OWNERS:-$(git config --global --get script-helpers.owners 2>/dev/null || true)}"
+  local o u
+  if [[ -n "${SCRIPT_HELPERS_OWNERS:-}" ]]; then printf '%s' "$SCRIPT_HELPERS_OWNERS"; return; fi
+  o="$(git config --global --get script-helpers.owners 2>/dev/null || true)"
+  u="$(git config --global --get script-helpers.github-user 2>/dev/null || true)"
+  printf '%s' "${u}${u:+${o:+,}}${o}"
+}
+
+# detect_github_user: record the signed-in GitHub account (gh) as
+# script-helpers.github-user, once. Its repositories are then checked without
+# listing it in script-helpers.owners. No gh, not signed in: nothing changes.
+detect_github_user() {
+  local u
+  [[ -z "${SCRIPT_HELPERS_OWNERS:-}" ]] || return 0
+  [[ -z "$(git config --global --get script-helpers.github-user 2>/dev/null || true)" ]] || return 0
+  command -v gh >/dev/null 2>&1 || return 0
+  u="$(GH_PROMPT_DISABLED=1 gh api user --jq .login 2>/dev/null || true)"
+  [[ "$u" =~ ^[A-Za-z0-9-]+$ ]] || return 0
+  git config --global script-helpers.github-user "$u" || return 0
+  echo "[setup-hooks] Your GitHub account, $u, is checked (git config --global script-helpers.github-user)."
 }
 
 require_owners() {
+  detect_github_user
   if [[ -z "$(configured_owners)" ]]; then
     echo "[setup-hooks] ERROR: no owners configured, so the hooks would check nothing." >&2
     echo "[setup-hooks] Set your GitHub user or org first, then run this again:" >&2
@@ -268,7 +288,7 @@ stage_common() {
   if [[ -f "$src_root/config/private-names-allow" ]]; then
     mkdir -p "$stage/config" && cp "$src_root/config/private-names-allow" "$stage/config/" || { rm -rf "$stage"; return 1; }
   fi
-  for name in owner_scope.sh check_sensitive.sh check_private_names.sh refresh_private_names.sh ssh_keepalive.sh push_checks.sh run_repo_tests.sh; do
+  for name in owner_scope.sh check_sensitive.sh check_private_names.sh refresh_private_names.sh ssh_keepalive.sh push_checks.sh run_repo_tests.sh foxguard_report.sh; do
     cp "$src_root/scripts/$name" "$stage/scripts/$name" || { rm -rf "$stage"; return 1; }
   done
   version_stamp > "$stage/VERSION"
@@ -1363,5 +1383,6 @@ git config --local script-helpers.trust-repo-hooks true
 echo "[setup-hooks] core.hooksPath = $repo_hooks"
 echo "[setup-hooks] Chained, in order: security checks (configured owners only)${hooks_dir:+, then $hooks_dir}, then what ran before: $foreign"
 echo "[setup-hooks] Undo: setup-hooks.sh --uninstall (restores the previous value)."
+detect_github_user
 offer_gitleaks
 offer_foxguard

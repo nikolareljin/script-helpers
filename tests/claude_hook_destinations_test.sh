@@ -12,6 +12,8 @@
 # may point at another copy of the hook, to show which cases an older one fails.
 # ----------------------------------------------------
 set -uo pipefail
+# The hooks would download a missing gitleaks or foxguard; tests never do.
+export SCRIPT_HELPERS_NO_AUTO_INSTALL=1
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
 HOOK="${CLAUDE_HOOK:-$root_dir/scripts/claude-hooks/pretooluse_private_names.sh}"

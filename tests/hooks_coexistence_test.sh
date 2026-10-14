@@ -8,6 +8,8 @@
 # runs in a throwaway HOME with a stand-in gitleaks.
 # ----------------------------------------------------
 set -uo pipefail
+# The hooks would download a missing gitleaks or foxguard; tests never do.
+export SCRIPT_HELPERS_NO_AUTO_INSTALL=1
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 failures=0
@@ -33,7 +35,6 @@ printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/gl-clean"; chmod +x "$tmp/gl-clea
 export PRIVATE_NAMES_FILE="$tmp/names.tsv" PRIVATE_NAMES_AUTO_REFRESH=false GITLEAKS_BIN="$tmp/gl-clean"
 cd "$tmp" || exit 1
 setup="$root_dir/scripts/setup-hooks.sh"
-repo_hooks="$XDG_DATA_HOME/script-helpers/repo-hooks/hooks"
 native() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s\n' "$1"; fi; }
 email="jane.roe""@""mailbox.org"
 

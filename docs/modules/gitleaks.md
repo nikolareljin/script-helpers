@@ -12,7 +12,7 @@ Functions
 ---------
 
 - gitleaks_asset
-  - Purpose: Print the release archive name for this machine, e.g. `gitleaks_8.30.0_linux_x64.tar.gz`, or `gitleaks_8.30.0_windows_x64.zip` under Git Bash, MSYS or Cygwin.
+  - Purpose: Print the release archive name for this machine, e.g. `gitleaks_8.30.1_linux_x64.tar.gz`, or `gitleaks_8.30.1_windows_x64.zip` under Git Bash, MSYS or Cygwin.
   - Returns: 3 on a platform with no release binary (Linux and macOS on x64 and arm64, and Windows on x64, have one).
 
 - gitleaks_expected_sha256 asset

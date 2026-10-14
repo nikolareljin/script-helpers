@@ -12,6 +12,8 @@
 # shared pre-push must still hand over to the repository's own.
 # ----------------------------------------------------
 set -euo pipefail
+# The hooks would download a missing gitleaks or foxguard; tests never do.
+export SCRIPT_HELPERS_NO_AUTO_INSTALL=1
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
 tmp="$(mktemp -d)"

@@ -115,11 +115,12 @@ allowance from the user.
 
 foxguard is a static-analysis scanner,
 [0sec-labs/foxguard](https://github.com/0sec-labs/foxguard). The hook runs it on
-the files a push adds or changes and prints each line of output as
-`[pre-push] WARNING (foxguard): ...`. It never blocks: its shell taint rules
-flag correct code. Not installed: on a terminal the push asks to install it
-and then runs it; otherwise, or on a no, it prints a WARNING that the scan did
-not run and how to install it, and the push goes on.
+the files a push adds or changes, one file per run, and prints every line of
+output as `[pre-push] WARNING (foxguard): ...`, then a framed summary and the
+`scripts/foxguard_report.sh` command that saves the findings as JSON. It never
+blocks: its shell taint rules flag correct code. Not installed: the push
+installs it and runs it; when that cannot happen, a framed WARNING says the
+scan did not run and how to install it, and the push goes on.
 
 It is looked up as `FOXGUARD_CMD`, then the pinned binary in
 `~/.cache/script-helpers/foxguard/<version>/`, then `foxguard` on `PATH`.

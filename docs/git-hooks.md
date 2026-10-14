@@ -43,13 +43,20 @@ or `tests/*_test.sh`. The push then takes as long as those tests.
 
 ## Set up
 
-Configure whose repositories are checked, once per machine. Without it the
-security checks run in no repository, and `--global` and the agent hooks refuse
-to install:
+The checks run in the repositories you own: those of your GitHub account,
+public or private, and of any organisation you count as your own. Other
+repositories run only their own hooks.
+
+- Your account is found for you: when `gh` is signed in, setup records it as
+  `script-helpers.github-user`.
+- Add organisations, or set the account by hand where `gh` is not available:
 
 ```bash
-git config --global script-helpers.owners <user-or-org>[,<another>]
+git config --global script-helpers.owners <org>[,<another>]
 ```
+
+With neither, the security checks run in no repository, and `--global` and the
+agent hooks refuse to install.
 
 Then, from a repository's root:
 
@@ -74,24 +81,35 @@ bash scripts/script-helpers/scripts/setup-hooks.sh
 
 ### The scanners: gitleaks and foxguard
 
-Every install above offers to download the pinned gitleaks and foxguard
-(SHA-256 checked) when they are missing: asked on a terminal, printed
-otherwise. `--status` shows both. To install them yourself:
+Both are pinned releases, downloaded and checked against their SHA-256, for
+Linux and macOS (x86_64 and arm64) and Windows (x86_64). Every install above
+offers them when they are missing, and `--status` shows both. To install them
+yourself:
 
 ```bash
 bash scripts/script-helpers/scripts/setup-hooks.sh --install-gitleaks --install-foxguard
 ```
 
-A push with one missing asks again on a terminal, installs it on a yes, and
-runs the scan. Without a terminal (a GUI client, CI), or on a no:
+A push with one missing installs it, then runs the scan. When that cannot
+happen (no binary for the machine, no network, in CI, or with
+`SCRIPT_HELPERS_NO_AUTO_INSTALL=1`):
 
 | Missing | The push |
 |---|---|
 | gitleaks | `ERROR`: the credential scan cannot run; refused |
-| foxguard | `WARNING`: the static-analysis scan did not run; goes on (its findings never block) |
+| foxguard | a framed `WARNING` that the static-analysis scan did not run; goes on |
 
-Both print the command that installs the tool. `SCRIPT_HELPERS_NO_PROMPT=1`
-turns the question off.
+Both print the command that installs the tool.
+
+foxguard never blocks a push. Every line it reports is shown, then a framed
+summary, the command that writes the same findings as formatted JSON (to keep
+as evidence, or to compare later), and a pointer to
+[leak-lock](https://github.com/nikolareljin/leak-lock), a VS Code extension for
+reviewing findings and secrets across the whole history:
+
+```bash
+bash scripts/script-helpers/scripts/foxguard_report.sh --base origin/main --output foxguard-report.json
+```
 
 Hooks other tools installed keep working: ours run first, then theirs. Removing
 ours restores what was there before. See `setup-hooks.sh --help` for every
