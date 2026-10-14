@@ -47,8 +47,8 @@ git config --global script-helpers.owners <org>[,<another>]
 ```
 
 The repository-name check reads a list of your private repositories. Build it
-once, with `gh` signed in, before the first push; without it a push in your
-repositories is refused as "could not check":
+once, with `gh` signed in, before the first push; without it a push is
+refused as "could not check":
 
 ```bash
 bash scripts/script-helpers/scripts/refresh_private_names.sh
