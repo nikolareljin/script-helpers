@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SCRIPT: setup-hooks.sh
 # DESCRIPTION: Configure git to use shared or repository-local hook scripts, and install the Claude Code security hook.
-# USAGE: bash scripts/setup-hooks.sh [--claude-repo|--agent-repo <list>|--global|--claude|--agent <list>|--all|--managed] [--uninstall] | --repair | --status [--porcelain] | --doctor | --install-gitleaks
+# USAGE: bash scripts/setup-hooks.sh [--claude-repo|--agent-repo <list>|--global|--claude|--agent <list>|--all|--managed] [--uninstall] | --repair | --status [--porcelain] | --doctor | --install-gitleaks | --install-foxguard
 # PARAMETERS:
 #   (none)        Set up this repository. With no hooks running here yet, point its
 #                 core.hooksPath at the shared hooks. If hooks already run (a local or
@@ -71,6 +71,9 @@
 #                 another reason (no name list, no gitleaks) is a failure. Exit 1 on
 #                 any failure.
 #   --install-gitleaks  Download the pinned gitleaks (SHA-256 checked) into the cache.
+#   --install-foxguard  Download the pinned foxguard (SHA-256 checked) into the cache.
+#   Every install offers both (asked on a terminal, printed otherwise); a push
+#   with one missing asks again on a terminal, and says what did not run.
 #   <data> is %LOCALAPPDATA% on Windows (Git Bash), else ${XDG_DATA_HOME:-~/.local/share}.
 #   Installing refuses (exit 2) until owners are configured:
 #     git config --global script-helpers.owners <user-or-org>[,<another>]
@@ -104,7 +107,7 @@
 # After running, hooks are active for all subsequent git operations in this repo.
 set -euo pipefail
 
-GLOBAL=false; CLAUDE=false; CLAUDE_REPO=false; MANAGED=false; UNINSTALL=false; STATUS=false; DOCTOR=false; GITLEAKS=false
+GLOBAL=false; CLAUDE=false; CLAUDE_REPO=false; MANAGED=false; UNINSTALL=false; STATUS=false; DOCTOR=false; GITLEAKS=false; FOXGUARD=false
 REPAIR=false; PORCELAIN=false; AGENT_REPO=""; AGENT_USER=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -123,6 +126,7 @@ while [[ $# -gt 0 ]]; do
       shift ;;
     --doctor) DOCTOR=true ;;
     --install-gitleaks) GITLEAKS=true ;;
+    --install-foxguard) FOXGUARD=true ;;
     -h|--help) sed -n '2,/^# ------/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "[setup-hooks] unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -279,6 +283,34 @@ gitleaks_found() {
     source "$src_root/helpers.sh" && shlib_import logging foxguard gitleaks >/dev/null 2>&1 && gitleaks_bin >/dev/null 2>&1 )
 }
 
+foxguard_found() {
+  if [[ -n "${FOXGUARD_CMD:-}" ]]; then return 0; fi
+  command -v foxguard >/dev/null 2>&1 && return 0
+  ( # shellcheck source=/dev/null
+    source "$src_root/helpers.sh" && shlib_import logging foxguard >/dev/null 2>&1 && foxguard_bin >/dev/null 2>&1 )
+}
+
+install_foxguard() {
+  # shellcheck source=/dev/null
+  ( source "$src_root/helpers.sh" && shlib_import logging foxguard && foxguard_install )
+}
+
+# offer_foxguard: as offer_gitleaks. Without it the push's static-analysis
+# scan does not run (its findings are warnings, so nothing is refused).
+offer_foxguard() {
+  local answer=""
+  foxguard_found && return 0
+  echo "[setup-hooks] foxguard is missing. Without it the push's static-analysis scan does not run."
+  if [[ -t 0 && -t 1 ]]; then
+    printf '[setup-hooks] Install the pinned foxguard now (download, SHA-256 checked)? [y/N] '
+    read -r answer || answer=""
+  fi
+  case "$answer" in
+    y|Y|yes) install_foxguard || echo "[setup-hooks] foxguard install failed; see above." >&2 ;;
+    *) echo "[setup-hooks] To install it later: bash $src_root/scripts/setup-hooks.sh --install-foxguard" ;;
+  esac
+}
+
 install_gitleaks() {
   # shellcheck source=/dev/null
   ( source "$src_root/helpers.sh" && shlib_import logging foxguard gitleaks && gitleaks_install )
@@ -329,6 +361,12 @@ prereqs() {
   else
     echo "  gitleaks  MISSING: every command in your repositories is refused until it is installed;"
     echo "            bash $src_root/scripts/setup-hooks.sh --install-gitleaks"
+  fi
+  if foxguard_found; then
+    echo "  foxguard  ok"
+  else
+    echo "  foxguard  WARN: the push's static-analysis scan does not run;"
+    echo "            bash $src_root/scripts/setup-hooks.sh --install-foxguard"
   fi
   owners="$(configured_owners)"
   if [[ -n "$owners" ]]; then
@@ -482,6 +520,8 @@ install_agents_user() {
     echo "[setup-hooks] $a: hook set in $f"
   done
   echo "[setup-hooks] Codex and Gemini ask you to trust a new hook before it runs (Codex: /hooks)."
+  offer_gitleaks
+  offer_foxguard
 }
 uninstall_agents_user() {
   local a f rc left=false
@@ -585,6 +625,7 @@ install_claude() {
   fi
   echo "[setup-hooks] New Claude Code sessions use it; /hooks lists it. Check it with: bash $src_root/scripts/setup-hooks.sh --doctor"
   offer_gitleaks
+  offer_foxguard
 }
 
 uninstall_claude() {
@@ -653,6 +694,8 @@ install_global() {
   echo "[setup-hooks] global core.hooksPath = $global_hooks"
   echo "[setup-hooks] Checked: github.com repositories of: $owners. Others run only their own hooks."
   echo "[setup-hooks] A repository with its own core.hooksPath ignores this; run setup-hooks.sh in it."
+  offer_gitleaks
+  offer_foxguard
 }
 
 uninstall_global() {
@@ -773,7 +816,12 @@ doctor() {
   return "$failed"
 }
 
-if [[ "$GITLEAKS" == true ]]; then install_gitleaks; exit $?; fi
+if [[ "$GITLEAKS" == true || "$FOXGUARD" == true ]]; then
+  rc=0
+  if [[ "$GITLEAKS" == true ]]; then install_gitleaks || rc=$?; fi
+  if [[ "$FOXGUARD" == true ]]; then install_foxguard || rc=$?; fi
+  exit "$rc"
+fi
 if [[ "$DOCTOR" == true ]]; then
   rc=0; doctor || rc=$?
   exit "$rc"
@@ -1315,3 +1363,5 @@ git config --local script-helpers.trust-repo-hooks true
 echo "[setup-hooks] core.hooksPath = $repo_hooks"
 echo "[setup-hooks] Chained, in order: security checks (configured owners only)${hooks_dir:+, then $hooks_dir}, then what ran before: $foreign"
 echo "[setup-hooks] Undo: setup-hooks.sh --uninstall (restores the previous value)."
+offer_gitleaks
+offer_foxguard

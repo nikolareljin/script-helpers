@@ -250,6 +250,60 @@ sec_private_names() {
   return 0
 }
 
+# sec_lib_root: the script-helpers copy the security scripts come from (it
+# holds helpers.sh and lib/), or return 1.
+sec_lib_root() {
+  local gate r
+  gate="$(sec_find check_sensitive.sh)" || return 1
+  r="$(cd "$(dirname "$gate")/.." && pwd)" || return 1
+  [[ -f "$r/helpers.sh" ]] || return 1
+  printf '%s' "$r"
+}
+
+# sec_can_ask: a person at a terminal can answer. Not in CI, not with
+# SCRIPT_HELPERS_NO_PROMPT=1, and only when /dev/tty opens (a GUI git client
+# has none). The question goes to /dev/tty: git gives the hook the ref lines
+# on stdin.
+sec_can_ask() {
+  [[ -z "${CI:-}" && "${SCRIPT_HELPERS_NO_PROMPT:-}" != 1 ]] || return 1
+  [[ -t 2 ]] || return 1
+  { : < /dev/tty; } 2>/dev/null
+}
+
+# sec_gitleaks_present: gitleaks where check_sensitive.sh looks for it.
+sec_gitleaks_present() {
+  local r
+  if [[ -n "${GITLEAKS_BIN:-}" ]]; then [[ -x "$GITLEAKS_BIN" ]]; return; fi
+  command -v gitleaks >/dev/null 2>&1 && return 0
+  r="$(sec_lib_root)" || return 1
+  # shellcheck source=/dev/null
+  ( source "$r/helpers.sh" && shlib_import logging foxguard gitleaks >/dev/null 2>&1 && gitleaks_bin >/dev/null 2>&1 )
+}
+
+# sec_offer_install <tool> <what it runs>: on a terminal, ask to install the
+# pinned <tool> (downloaded, SHA-256 checked) and install it: 0 = installed.
+# Otherwise, or on a no or a failed install, print how to install it: 1.
+sec_offer_install() {
+  local tool="$1" what="$2" r answer=""
+  r="$(sec_lib_root 2>/dev/null || true)"
+  if [[ -n "$r" ]] && sec_can_ask; then
+    printf '[pre-push] %s is not installed. Install the pinned %s now (download, SHA-256 checked) to run %s? [y/N] ' \
+      "$tool" "$tool" "$what" > /dev/tty
+    read -r answer < /dev/tty || answer=""
+    case "$answer" in
+      y|Y|yes)
+        # shellcheck source=/dev/null
+        if ( source "$r/helpers.sh" && shlib_import logging foxguard gitleaks && "${tool}_install" ) >&2; then
+          echo "[pre-push] $tool installed." >&2
+          return 0
+        fi
+        echo "[pre-push] $tool install failed (see above)." >&2 ;;
+    esac
+  fi
+  echo "[pre-push] To install $tool: bash ${r:-scripts/script-helpers}/scripts/setup-hooks.sh --install-$tool (or see docs/security-gates.md)." >&2
+  return 1
+}
+
 # Credentials, personal identifiers and PII in the added lines and messages.
 # Exit 2 (could not check: gitleaks missing, commits unreadable) refuses the
 # push: a credential scan that did not run is not a clean one.
@@ -259,6 +313,12 @@ sec_sensitive_push() {
     sec_unchecked pre-push "check_sensitive.sh not found; credentials and personal data NOT checked"
     return
   }
+  # Missing gitleaks: offered on a terminal; still missing, the scan exits 2
+  # and the push is refused below.
+  if ! sec_gitleaks_present; then
+    echo "[pre-push] ERROR: gitleaks is not installed; the credential scan cannot run." >&2
+    sec_offer_install gitleaks "the credential scan" || true
+  fi
   bash "$gate" --push-refs "$refs" --remote "$remote"
   rc=$?
   case "$rc" in
@@ -291,8 +351,10 @@ sec_foxguard_cmd() {
 sec_foxguard_push() {
   local refs="$1" remote="${2:-}" cmd f out rc=0 n shown=0 max="${FOXGUARD_MAX_LINES:-40}"
   if ! cmd="$(sec_foxguard_cmd)"; then
-    echo "[pre-push] foxguard not installed; static-analysis warnings skipped (install: docs/security-gates.md)."
-    return 0
+    if ! { sec_offer_install foxguard "the static-analysis scan of the changed files" && cmd="$(sec_foxguard_cmd)"; }; then
+      echo "[pre-push] WARNING: the foxguard scan did NOT run: foxguard is not installed. Its findings never block, so the push goes on." >&2
+      return 0
+    fi
   fi
   # The changed files that exist here, in an array: nothing written to disk.
   local files=()

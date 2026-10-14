@@ -290,9 +290,23 @@ commit_file "$vend" a.md "Write to $real_email"
 expect "pre-push refuses a real email" 1 "$(push GITLEAKS_BIN="$tmp/none")"
 gc -C "$vend" reset -q --hard "$base"
 commit_file "$vend" b.md "docs at https://example.com"
-expect "pre-push refuses when gitleaks is missing (could not check)" 1 "$(push GITLEAKS_BIN="$tmp/none")"
+# A usable name list, so the push gets past the name check to the credential
+# scan (without it the refusal below came from the name check, not gitleaks).
+printf '# visibility\tnamespace\tname\tcode\tflags\nprivate\tacme\tzqxprivaterepo\tR-999\t\n' > "$tmp/names-ok.tsv"
+expect "pre-push refuses when gitleaks is missing (could not check)" 1 \
+  "$(push GITLEAKS_BIN="$tmp/none" PRIVATE_NAMES_FILE="$tmp/names-ok.tsv" PRIVATE_NAMES_AUTO_REFRESH=false)"
+grep -q "ERROR: gitleaks is not installed" "$tmp/out" && grep -q "To install gitleaks: .*--install-gitleaks" "$tmp/out" \
+  && grep -q "sensitive-data check could not run" "$tmp/out" \
+  && ok "gitleaks missing, no terminal: ERROR, how to install it, and refused by the credential scan" \
+  || error "gitleaks missing: $(tail -6 "$tmp/out")"
 expect "SENSITIVE_ALLOW_UNCHECKED=1 lets it through" 0 "$(push GITLEAKS_BIN="$tmp/none" SENSITIVE_ALLOW_UNCHECKED=1)"
-grep -q "foxguard not installed" "$tmp/out" && ok "foxguard missing -> one-line notice" || error "no foxguard notice"
+if command -v foxguard >/dev/null 2>&1 || compgen -G "${XDG_CACHE_HOME:-$HOME/.cache}/script-helpers/foxguard/*/foxguard*" >/dev/null; then
+  note "SKIP: foxguard is installed here; the missing-foxguard notice is not checked"
+else
+  grep -q "WARNING: the foxguard scan did NOT run" "$tmp/out" && grep -q "To install foxguard: .*--install-foxguard" "$tmp/out" \
+    && ok "foxguard missing, no terminal: a WARNING that the scan did not run, and how to install it" \
+    || error "no foxguard warning or install hint: $(grep -i foxguard "$tmp/out" | head -3)"
+fi
 expect "SECURITY_GATE_ALLOW_UNCHECKED=1 lets it through" 0 "$(push GITLEAKS_BIN="$tmp/none" SECURITY_GATE_ALLOW_UNCHECKED=1)"
 grep -q "WARNING: .*allowed unchecked" "$tmp/out" && ok "with a visible warning" || error "no warning on an unchecked push"
 # No private-name list: the push is refused, not waved through.

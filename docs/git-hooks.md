@@ -72,6 +72,27 @@ bash scripts/script-helpers/scripts/setup-hooks.sh
 | `setup-hooks.sh --claude`, `--agent <list>` | the same checks for AI agents' shell commands (Claude Code, Codex, Gemini, Copilot CLI, Cursor) |
 | `setup-hooks.sh --doctor` | the prerequisites, then probes through the installed agent hook |
 
+### The scanners: gitleaks and foxguard
+
+Every install above offers to download the pinned gitleaks and foxguard
+(SHA-256 checked) when they are missing: asked on a terminal, printed
+otherwise. `--status` shows both. To install them yourself:
+
+```bash
+bash scripts/script-helpers/scripts/setup-hooks.sh --install-gitleaks --install-foxguard
+```
+
+A push with one missing asks again on a terminal, installs it on a yes, and
+runs the scan. Without a terminal (a GUI client, CI), or on a no:
+
+| Missing | The push |
+|---|---|
+| gitleaks | `ERROR`: the credential scan cannot run; refused |
+| foxguard | `WARNING`: the static-analysis scan did not run; goes on (its findings never block) |
+
+Both print the command that installs the tool. `SCRIPT_HELPERS_NO_PROMPT=1`
+turns the question off.
+
 Hooks other tools installed keep working: ours run first, then theirs. Removing
 ours restores what was there before. See `setup-hooks.sh --help` for every
 option.

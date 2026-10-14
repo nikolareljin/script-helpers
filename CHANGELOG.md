@@ -6,6 +6,13 @@
   what runs on commit and push, setup and its options, what a push checks,
   settings and exceptions, opt-in tests on push, long pushes over SSH.
   `usage.md` points there.
+- **A missing gitleaks or foxguard is offered for install, and a skipped scan
+  says so.** Every `setup-hooks.sh` install offers both (pinned, SHA-256
+  checked), and `--install-foxguard` joins `--install-gitleaks`. A push with
+  one missing asks on a terminal and installs it on a yes. Without a terminal,
+  a missing gitleaks is an `ERROR` that refuses the push and a missing foxguard
+  a `WARNING` that the scan did not run (it was one quiet line); both print how
+  to install. `--status` reports foxguard.
 
 ### Changed
 

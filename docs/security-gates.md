@@ -117,7 +117,9 @@ foxguard is a static-analysis scanner,
 [0sec-labs/foxguard](https://github.com/0sec-labs/foxguard). The hook runs it on
 the files a push adds or changes and prints each line of output as
 `[pre-push] WARNING (foxguard): ...`. It never blocks: its shell taint rules
-flag correct code. Not installed: one notice line, and the push goes on.
+flag correct code. Not installed: on a terminal the push asks to install it
+and then runs it; otherwise, or on a no, it prints a WARNING that the scan did
+not run and how to install it, and the push goes on.
 
 It is looked up as `FOXGUARD_CMD`, then the pinned binary in
 `~/.cache/script-helpers/foxguard/<version>/`, then `foxguard` on `PATH`.
@@ -125,7 +127,7 @@ Install the pinned release, checked against the SHA-256 in `lib/ci_defaults.sh`
 (`CI_DEFAULT_FOXGUARD_VERSION`, `CI_DEFAULT_FOXGUARD_SHA256_*`):
 
 ```bash
-bash scripts/ci_security.sh --install-foxguard
+bash scripts/setup-hooks.sh --install-foxguard     # or: scripts/ci_security.sh --install-foxguard
 ```
 
 ## Turning it on
