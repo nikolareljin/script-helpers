@@ -39,6 +39,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# An exported GIT_DIR or GIT_WORK_TREE (a hook, a wrapper) wins over git -C: the
+# filter-repo run and the ref deletions in clean would land in that repository,
+# which can be the source.
+# shellcheck disable=SC2046
+unset $(git rev-parse --local-env-vars 2>/dev/null) GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR 2>/dev/null || true
 TAG="[prepare_public]"
 MARKER=".prepare-public"
 
@@ -97,9 +102,10 @@ abspath() { (cd "$1" && pwd); }
 # one that audit made. Inside a git work tree it could end up committed.
 check_work_parent() {
   local parent="$1"
-  if git -C "$parent" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-     && [[ "$(git -C "$parent" rev-parse --is-inside-work-tree 2>/dev/null)" == true ]]; then
-    die "the work directory must not be inside a git checkout: $parent"
+  # --git-dir also answers inside a .git directory or a bare repository, which
+  # --is-inside-work-tree reports as false: the source's own .git included.
+  if git -C "$parent" rev-parse --git-dir >/dev/null 2>&1; then
+    die "the work directory must not be inside a git repository: $parent"
   fi
 }
 require_work() {
@@ -119,12 +125,13 @@ audit_repo() {
   # shellcheck disable=SC2064
   trap "rm -rf '$t'; trap - RETURN" RETURN
   : > "$t/hits.tsv"     # check, label, text
+  : > "$t/not-checked"
 
   git -C "$g" for-each-ref --format='%(refname)' > "$t/refs"
   [[ -s "$t/refs" ]] || { say "no refs in $g"; return 2; }
 
   # Every line the history ever added, labelled "<commit> <path>:<line>".
-  git -C "$g" log --all -p --cc -M -U0 --no-color --no-ext-diff --format='%x01%H' > "$t/log" \
+  git -C "$g" -c core.quotePath=false log --all -p --cc -M -U0 --no-color --no-ext-diff --format='%x01%H' > "$t/log" \
     || { say "git could not read the history of $g"; return 2; }
   awk -v sep="$(printf '\001')" '
     index($0, sep) == 1 { commit = substr($0, 2); next }
@@ -142,7 +149,7 @@ audit_repo() {
       else if (m !~ /-/) ln++
     }' "$t/log" > "$t/units" 2> "$t/binary"
   # File names, which a line-based scan of contents never sees.
-  git -C "$g" log --all --format='%x01%H' --name-only --no-renames \
+  git -C "$g" -c core.quotePath=false log --all --format='%x01%H' --name-only --no-renames \
     | awk -v sep="$(printf '\001')" 'index($0, sep) == 1 { c = substr($0, 2); next } NF { print c " path\t" $0 }' >> "$t/units" \
     || { say "git could not list the file names of $g"; return 2; }
   # Commit messages.
@@ -171,8 +178,13 @@ audit_repo() {
   [[ -n "$LIST" ]] && nargs+=(--list "$LIST")
   [[ -n "$NAMES" ]] && nargs+=(--names "$NAMES")
   rc=0
-  LC_ALL=C PRIVATE_NAMES_ALLOW="${SELF}${PRIVATE_NAMES_ALLOW:+,$PRIVATE_NAMES_ALLOW}" \
-    bash "$SCRIPT_DIR/check_private_names.sh" "${nargs[@]}" < "$t/units" > "$t/names.out" 2>&1 || rc=$?
+  # Run from the scratch directory, so the allowlist of whatever repository the
+  # caller stands in does not apply. The machine's allowlist still does: each
+  # name it skips is listed in the report, never silently passed.
+  (cd "$t" && LC_ALL=C PRIVATE_NAMES_ALLOW="${SELF}${PRIVATE_NAMES_ALLOW:+,$PRIVATE_NAMES_ALLOW}" \
+    bash "$SCRIPT_DIR/check_private_names.sh" "${nargs[@]}") < "$t/units" > "$t/names.out" 2>&1 || rc=$?
+  sed -n 's/.*allowed by override, not checked: //p' "$t/names.out" | awk -v s="$SELF" 'tolower($0) != tolower(s)' | sort -u > "$t/not-checked" || true
+  [[ -s "$t/not-checked" ]] && say "names skipped by an allowlist, NOT checked: $(paste -sd, - < "$t/not-checked")"
   if [[ $rc -ge 2 ]]; then
     unchecked=1; say "the private-name check could not run:"; tail -5 "$t/names.out" | sed 's/^/    /' >&2
   fi
@@ -297,6 +309,7 @@ for line in open(os.path.join(t, "hits.tsv"), encoding="utf-8", errors="replace"
 binary = [l.rstrip("\n") for l in open(os.path.join(t, "binary"), encoding="utf-8", errors="replace")]
 fox = [dict(zip(("ref", "result"), l.rstrip("\n").split("\t", 1))) for l in open(os.path.join(t, "foxguard.tsv"), encoding="utf-8")]
 refs = [l.strip() for l in open(os.path.join(t, "refs"), encoding="utf-8") if l.strip()]
+not_checked = [l.strip() for l in open(os.path.join(t, "not-checked"), encoding="utf-8") if l.strip()]
 counts = {}
 for h in hits:
     counts[h["check"]] = counts.get(h["check"], 0) + 1
@@ -307,6 +320,7 @@ report = {
     "refs": refs,
     "hit_counts": {"total": len(hits), **counts},
     "hits": hits,
+    "names_not_checked": not_checked,
     "binary_not_read": binary,
     "foxguard_advisory": fox,
 }
@@ -318,6 +332,8 @@ with open(prefix + ".txt", "w", encoding="utf-8") as f:
     f.write("Refs: %d. Hits: %d (%s).\n" % (len(refs), len(hits), ", ".join("%s %d" % kv for kv in sorted(counts.items())) or "none"))
     if unchecked:
         f.write("INCOMPLETE: a check could not run; this is not a clean result.\n")
+    if not_checked:
+        f.write("Names skipped by an allowlist, NOT checked: %s\n" % ", ".join(not_checked))
     for h in hits:
         loc = h["path"] + (":%d" % h["line"] if h["line"] else "")
         f.write("\n[%s] %s %s %s %s\n    %s\n" % (h["check"], h["kind"], h["ref"] or "-", (h["commit"] or "-")[:12], loc, h["text"][:200]))
@@ -372,18 +388,23 @@ case "$CMD" in
       || die "git filter-repo is not installed (https://github.com/newren/git-filter-repo)"
     t="$(mktemp -d)"; trap 'rm -rf "$t"' EXIT
     : > "$t/refs"; : > "$t/drop"; : > "$t/rename"; : > "$t/replace"; : > "$t/mailmap"
+    # A mistyped drop path removes nothing, and the file is published: refuse it.
+    in_history() { [[ -n "$(git -C "$WORK/source.git" log --all --format=%H -1 -- "$1" 2>/dev/null)" ]]; }
     n=0
     while IFS= read -r line || [[ -n "$line" ]]; do
       n=$((n + 1))
       line="${line%$'\r'}"
       line="${line#"${line%%[![:space:]]*}"}"
+      line="${line%"${line##*[![:space:]]}"}"
       [[ -z "$line" || "$line" == \#* ]] && continue
       key="${line%% *}"; val="${line#* }"
       [[ "$key" != "$line" && -n "$val" ]] || die "plan line $n: '$line' has no value"
       case "$key" in
         ref)     printf '%s\n' "$val" >> "$t/refs" ;;
-        drop)    printf '%s\n' "$val" >> "$t/drop" ;;
+        drop)    in_history "${val%/}" || die "plan line $n: drop '$val' is not a path anywhere in the history"
+                 printf '%s\n' "$val" >> "$t/drop" ;;
         rename)  [[ "$val" == *'==>'* ]] || die "plan line $n: rename needs old==>new"
+                 in_history "${val%%==>*}" || die "plan line $n: rename '${val%%==>*}' is not a path anywhere in the history"
                  printf '%s:%s\n' "${val%%==>*}" "${val#*==>}" >> "$t/rename" ;;
         replace) printf '%s\n' "$val" >> "$t/replace" ;;
         mailmap) printf '%s\n' "$val" >> "$t/mailmap" ;;

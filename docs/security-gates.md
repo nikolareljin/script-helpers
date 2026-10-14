@@ -170,13 +170,16 @@ scripts/prepare_public.sh verify --work ~/publish/my-repo
 
 The repository's own name is not a hit (`--self <name>`, by default the
 source's directory name). A check that cannot run (no name list, no gitleaks)
-makes the result exit 2, never a clean pass.
+makes the result exit 2, never a clean pass. A name your allowlist skips (an
+everyday word that is also a repository name) is not checked; the report lists
+each one under "NOT checked", so you can search for it by hand.
 
 The plan file lists the refs to publish (`ref refs/heads/main`), paths to
 remove from all history (`drop`), paths to rename (`rename old==>new`), text
 to replace in files and messages (`replace name==>CODE`, in `git filter-repo`
 syntax) and `.mailmap` lines for authors (`mailmap`). Every other ref is left
-out. `clean` needs [git filter-repo](https://github.com/newren/git-filter-repo).
+out. A `drop` or `rename` path that is not in the history is refused, since a
+mistyped path would publish the file. `clean` needs [git filter-repo](https://github.com/newren/git-filter-repo).
 
 After `verify` passes: create the new repository, protect it, then push
 `public.git` to it. Issues, pull requests and releases are not carried over;

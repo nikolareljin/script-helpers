@@ -76,11 +76,21 @@ rc=0; bash "$pp" audit --source "$tmp/src" --work "$tmp/src/w" "${names[@]}" >/d
 [[ $rc -eq 2 && ! -e "$tmp/src/w" ]] && ok "audit refuses a work directory inside a checkout" || error "work in checkout: rc=$rc"
 rc=0; bash "$pp" audit --source "$tmp/nope" --work "$tmp/out/w3" "${names[@]}" >/dev/null 2>&1 || rc=$?
 [[ $rc -eq 2 && ! -e "$tmp/out/w3" ]] && ok "a source that cannot be cloned leaves no work directory" || error "bad source: rc=$rc"
+rc=0; bash "$pp" audit --source "$tmp/src" --work "$tmp/src/.git/w" "${names[@]}" >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 2 && ! -e "$tmp/src/.git/w" ]] && ok "audit refuses a work directory inside the source's .git" || error "work in .git: rc=$rc"
 rc=0; bash "$pp" verify --work "$tmp/src" >/dev/null 2>&1 || rc=$?
 [[ $rc -eq 2 ]] && ok "verify refuses a directory audit did not make" || error "foreign work: rc=$rc"
 
 rc=0; out="$(GITLEAKS_BIN="$tmp/bin/none" bash "$pp" audit --source "$tmp/src" --work "$tmp/out/w2" "${names[@]}" 2>&1)" || rc=$?
 [[ $rc -eq 2 && "$out" == *"NOT a clean result"* ]] && ok "gitleaks unavailable: exit 2, never clean" || error "no gitleaks: rc=$rc out=$out"
+
+# A name the machine's allowlist skips is listed in the report, not passed silently.
+mkdir -p "$XDG_CONFIG_HOME/script-helpers" && echo otherproj > "$XDG_CONFIG_HOME/script-helpers/private-names-allow"
+rc=0; bash "$pp" audit --source "$tmp/src" --work "$tmp/out/w5" --names secretproj,otherproj >/dev/null 2>&1 || rc=$?
+skipped="$("$py" -c 'import json,sys; print(",".join(json.load(open(sys.argv[1]))["names_not_checked"]))' "$tmp/out/w5/report.json" 2>&1)"
+[[ "$skipped" == otherproj ]] && grep -q 'NOT checked: otherproj' "$tmp/out/w5/report.txt" \
+  && ok "a name skipped by an allowlist is reported as not checked" || error "not-checked: skipped='$skipped'"
+rm -f "$XDG_CONFIG_HOME/script-helpers/private-names-allow"
 
 if ! git filter-repo --version >/dev/null 2>&1; then
   # CI installs it, so a skip there would hide the two steps that rewrite history.
@@ -108,6 +118,16 @@ else
   rc=0; bash "$pp" clean --work "$tmp/out/w" --plan "$tmp/plan3" >/dev/null 2>&1 || rc=$?
   [[ $rc -eq 0 && -z "$(git -C "$tmp/out/w/public.git" log --all --format=%H -- notes.txt)" ]] \
     && ok "drop removes a path from all history" || error "drop: rc=$rc"
+  printf 'ref refs/heads/main\ndrop notes.tx\n' > "$tmp/plan5"
+  rc=0; out="$(bash "$pp" clean --work "$tmp/out/w" --plan "$tmp/plan5" 2>&1)" || rc=$?
+  [[ $rc -eq 2 && "$out" == *"not a path anywhere"* ]] && ok "a drop path that never existed is refused, not ignored" || error "drop typo: rc=$rc out=$out"
+  printf 'ref refs/heads/main \ndrop notes.txt  \nreplace secretproj==>R-001\n' > "$tmp/plan6"
+  rc=0; bash "$pp" clean --work "$tmp/out/w" --plan "$tmp/plan6" >/dev/null 2>&1 || rc=$?
+  [[ $rc -eq 0 && -z "$(git -C "$tmp/out/w/public.git" log --all --format=%H -- notes.txt)" ]] \
+    && ok "trailing spaces in a plan line are trimmed" || error "trailing space: rc=$rc"
+  # An exported GIT_DIR (a hook, a wrapper) must not turn clean onto the source.
+  rc=0; GIT_DIR="$tmp/src/.git" bash "$pp" clean --work "$tmp/out/w" --plan "$tmp/plan2" >/dev/null 2>&1 || rc=$?
+  [[ $rc -eq 0 && "$(snapshot)" == "$before" ]] && ok "an exported GIT_DIR does not reach the source" || error "GIT_DIR: rc=$rc, source changed?"
   printf 'bogus x\n' > "$tmp/plan4"
   rc=0; bash "$pp" clean --work "$tmp/out/w" --plan "$tmp/plan4" >/dev/null 2>&1 || rc=$?
   [[ $rc -eq 2 ]] && ok "an unknown plan directive is refused" || error "bad plan: rc=$rc"
