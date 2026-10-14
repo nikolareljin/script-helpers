@@ -1614,6 +1614,35 @@ Exit codes:
 1-9 with ensure: as ollama_project_ensure_models (docs/local-models.md)
 ```
 
+### `scripts/prepare_public.sh`
+
+Audit a repository's whole history and build a cleaned copy of it.
+
+```text
+Usage: scripts/prepare_public.sh <audit|clean|verify|plan-example> [options]
+  audit  --source <path|url> --work <dir>   Mirror-clone the source into a new work
+         directory, archive it, and audit every ref, commit, file, message,
+         tag and identity. Writes <work>/report.json and <work>/report.txt.
+  clean  --work <dir> --plan <file>         Build <work>/public.git from the mirror
+         with git filter-repo, as the plan says. Writes <work>/changes.txt.
+  verify --work <dir>                       Re-run the full audit on public.git.
+         Writes <work>/report-public.json and .txt. Exit 0 only with zero hits.
+  plan-example                              Print an example plan file.
+  --list <path> | --names <a,b>             Name list for the name check
+                                            (default: the check's own list).
+  --self <name>                             This repository's own name, which is
+                                            not a hit (default: the source's name).
+  -h, --help                                Show this help message.
+```
+
+Exit codes:
+
+```text
+0  nothing found (audit, verify); done (clean)
+1  something found
+2  usage error, or a check could not run: the result is NOT clean
+```
+
 ### `scripts/site_verify.py`
 
 Verify a built static site the way a visitor reaches it: over HTTP.

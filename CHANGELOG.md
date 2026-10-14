@@ -8,6 +8,22 @@
   with its usage, options and exit codes, generated from the script headers by
   `scripts/gen_command_reference.py`. `tests/command_reference_test.sh` fails
   when the page and the headers disagree.
+- **`scripts/prepare_public.sh`: full-history audit and a cleaned copy of a
+  repository.** `audit` mirror-clones it into a new work directory, archives the
+  mirror and checks every ref and every commit: listed names, credentials,
+  personal identifiers and PII, in added lines, file names, commit and tag
+  messages and identities; foxguard on the default branch, advisory. `clean`
+  builds `public.git` with `git filter-repo` from a plan (refs, dropped and
+  renamed paths, replacements, mailmap) and writes a per-commit summary.
+  `verify` re-runs the audit on it and exits 0 only with zero hits. It never
+  writes to the source and never pushes, even with `GIT_DIR` exported. Names
+  an allowlist skips are listed in the report as not checked. Branch and tag
+  names and the text inside binary files are checked for names; Git LFS
+  content and binary files over 50 MB are reported as not checked (exit 2).
+  The work directory is owner-only. Each name hit says which name matched, and
+  the report sums the names up with their codes. An author or committer email
+  at a machine-local domain (`.local`, `localhost`) is a hit. Linux CI installs
+  git-filter-repo.
 
 ## 2026-10-13 — v0.52.0
 
