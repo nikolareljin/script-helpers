@@ -65,6 +65,12 @@ want="True names:commit-message@${msg_commit:0:7} names:file@${added:0:7} names:
 [[ $rc -eq 1 && "$summary" == "$want" ]] \
   && ok "audit: the name in a deleted file, a commit message, a tag message, a file name and an author, and PII in a tag; exit 1" \
   || error "audit: rc=$rc summary='$summary' want='$want' out=$out"
+named="$("$py" -c '
+import json,sys
+d = json.load(open(sys.argv[1]))
+print(all(h.get("names") == ["secretproj"] for h in d["hits"] if h["check"] == "names"), d.get("terms", {}).get("secretproj", {}).get("hits"))' "$tmp/out/w/report.json" 2>&1)"
+[[ "$named" == "True 5" ]] && grep -q '^Names found: secretproj 5' "$tmp/out/w/report.txt" \
+  && ok "each name hit says which name matched, and the report sums them up" || error "names per hit: '$named'"
 grep -q 'secretproj' "$tmp/out/w/report.txt" && ls "$tmp/out/w"/source-*.tar.gz >/dev/null 2>&1 \
   && ok "audit: readable report and the mirror archived" || error "report.txt or archive missing"
 [[ "$(snapshot)" == "$before" ]] && ok "the source repository is unchanged" || error "the source changed"
@@ -123,6 +129,25 @@ rc=0; out="$(bash "$pp" audit --source "$tmp/src3" --work "$tmp/out/r6" "${names
 [[ $rc -eq 2 && "$out" == *"LFS"*"big.bin"* ]] && ok "a Git LFS file is reported as not checked: exit 2, never clean" \
   || error "lfs: rc=$rc out=$out"
 
+git init -q -b main "$tmp/src4" && cd "$tmp/src4" || exit 1
+printf 'caf\351 secretproj\n' > latin1.txt && g add . && g commit -qm "latin-1 text"
+echo "other" > other.txt && git -c user.email=dev@build-box.local -c user.name=dev -c commit.gpgsign=false add . \
+  && git -c user.email=dev@build-box.local -c user.name=dev -c commit.gpgsign=false commit -qm "from a laptop"
+parents_commit="$(git rev-parse HEAD)"
+cd "$tmp/out" || exit 1
+utf8="$(locale -a 2>/dev/null | grep -i -m1 -E '^(c|en_us)\.utf-?8$' || true)"
+if [[ -n "$utf8" ]]; then
+  rc=0; out="$(LC_ALL="$utf8" bash "$pp" audit --source "$tmp/src4" --work "$tmp/out/r10" "${names[@]}" 2>&1)" || rc=$?
+  [[ $rc -eq 1 && "$out" != *"NOT read"* && "$out" != *INCOMPLETE* ]] \
+    && ok "a file that is not UTF-8, audited in a UTF-8 locale: the name is found, the result is complete" \
+    || error "latin-1 in $utf8: rc=$rc out=$out"
+else
+  rc=0; bash "$pp" audit --source "$tmp/src4" --work "$tmp/out/r10" "${names[@]}" >/dev/null 2>&1 || rc=$?
+  note "SKIP: no UTF-8 locale; latin-1 audit rc=$rc"
+fi
+localid="$("$py" -c 'import json,sys; print(sum(1 for h in json.load(open(sys.argv[1]))["hits"] if h["kind"] == "identity" and "build-box.local" in h["text"]))' "$tmp/out/r10/report.json" 2>&1)"
+[[ "$localid" == 1 ]] && ok "an author email at a machine-local domain (.local) is a hit" || error "local identity: '$localid'"
+
 rc=0; bash "$pp" audit --source "--upload-pack=touch $tmp/pwned" --work "$tmp/out/r7" "${names[@]}" >/dev/null 2>&1 || rc=$?
 [[ $rc -eq 2 && ! -e "$tmp/pwned" ]] && ok "a source starting with a dash is a path, never a git option" || error "dash source: rc=$rc"
 rc=0; bash "$pp" audit --source >/dev/null 2>&1 || rc=$?
@@ -153,6 +178,12 @@ else
   [[ "$(git -C "$tmp/out/w/public.git" for-each-ref --format='%(contents)' refs/tags/1.0.0)" == *R-001* ]] \
     && ok "the tag message is rewritten too" || error "tag message not rewritten"
   [[ "$(snapshot)" == "$before" ]] && ok "the source is still unchanged after clean" || error "the source changed after clean"
+
+  printf 'ref refs/heads/main\nreplace secretproj==>R-001\n' > "$tmp/plan8"
+  bash "$pp" clean --work "$tmp/out/r10" --plan "$tmp/plan8" >/dev/null 2>&1
+  grep -q "^${parents_commit:0:12} [0-9a-f]\{12\} parents$" "$tmp/out/r10/changes.txt" \
+    && ok "changes.txt: a commit rewritten only for its parent reads 'parents', not 'unchanged'" \
+    || error "parents-only: $(cat "$tmp/out/r10/changes.txt" 2>&1)"
 
   printf 'ref refs/heads/main\n' > "$tmp/plan2"
   bash "$pp" clean --work "$tmp/out/w" --plan "$tmp/plan2" >/dev/null 2>&1

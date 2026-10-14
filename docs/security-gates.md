@@ -150,12 +150,14 @@ never pushes.
 ```bash
 # 1. Mirror, archive, audit every ref and every commit
 scripts/prepare_public.sh audit --source ~/src/my-repo --work ~/publish/my-repo
-#    -> report.txt / report.json: each hit with ref, commit, path, line, check
+#    -> report.txt / report.json: each hit with ref, commit, path, line, check,
+#       and for a name hit the name; "Names found" sums them up with their codes
 
 # 2. Choose what is published, then build the cleaned copy
 scripts/prepare_public.sh plan-example > plan.txt     # edit it
 scripts/prepare_public.sh clean --work ~/publish/my-repo --plan plan.txt
-#    -> public.git, and changes.txt: each commit old -> new and what changed
+#    -> public.git, and changes.txt: each commit old -> new and what it changed
+#       (files, message, identity; "parents" when only an earlier commit did)
 
 # 3. Re-run the full audit on the copy; exit 0 only with zero hits
 scripts/prepare_public.sh verify --work ~/publish/my-repo
@@ -166,6 +168,7 @@ scripts/prepare_public.sh verify --work ~/publish/my-repo
 | private repository names | `check_private_names.sh --strict-ambiguous` | branch and tag names, added lines, file names, the printable text of binary files, commit and tag messages, identities |
 | credentials | gitleaks (through `check_sensitive.sh`) | all refs, full history |
 | personal terms, machine identifiers, PII | `check_sensitive.sh` | the same |
+| machine names in author and committer emails (`@host.local`, `@localhost`) | this script | identities |
 | static analysis (advisory, never a hit) | foxguard | the default branch on `audit`, every published branch on `verify` |
 
 The repository's own name is not a hit (`--self <name>`, by default the

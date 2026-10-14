@@ -62,6 +62,9 @@ trap 'if [[ ${BASHPID-$$} == "$$" ]]; then cleanup; fi' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 die()  { echo "$TAG ERROR: $*" >&2; exit 2; }
+# History is bytes, not text in the caller's locale: gawk in a UTF-8 locale
+# warns on (and miscounts) a Latin-1 line.
+cawk() { LC_ALL=C awk "$@"; }
 usage() { sed -n '2,/^# ------/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 CMD="${1:-}"
@@ -149,18 +152,19 @@ audit_repo() {
   git -C "$g" for-each-ref --format='%(refname)' > "$t/refs"
   [[ -s "$t/refs" ]] || { say "no refs in $g"; return 2; }
   # Branch and tag names are published with the history.
-  awk '{ print "- ref\t" $0 }' "$t/refs" > "$t/units"
+  cawk '{ print "- ref\t" $0 }' "$t/refs" > "$t/units"
 
   # Every line the history ever added, labelled "<commit> <path>:<line>".
   git -C "$g" -c core.quotePath=false log --all -p --cc -M -U0 --no-color --no-ext-diff --format='%x01%H' > "$t/log" \
     || { say "git could not read the history of $g"; return 2; }
-  awk -v sep="$(printf '\001')" '
+  : > "$t/binary"
+  cawk -v sep="$(printf '\001')" -v binf="$t/binary" '
     index($0, sep) == 1 { commit = substr($0, 2); next }
     /^diff --(git|cc|combined) / { hdr = 1; cc = ($2 != "--git"); np = 1; ccf = substr($0, length($1 " " $2 " ") + 1); next }
     # A merge prints "Binary files differ" with no path: name it from the header.
     hdr && /^Binary files / {
       bin = $0; if (cc && bin == "Binary files differ") bin = "Binary files a/" ccf " and b/" ccf " differ"
-      print "binary " commit "\t" bin > "/dev/stderr"; next }
+      print "binary " commit "\t" bin > binf; next }
     hdr && /^\+\+\+ / { f = substr($0, 5); sub(/^b\//, "", f); next }
     /^@@@* / {
       hdr = 0; np = 1
@@ -171,28 +175,32 @@ audit_repo() {
       m = substr($0, 1, np)
       if (m ~ /^\++$/) { print commit " " f ":" ln "\t" substr($0, np + 1); ln++ }
       else if (m !~ /-/) ln++
-    }' "$t/log" >> "$t/units" 2> "$t/binary" \
-    || { say "could not parse the history of $g:"; grep -v '^binary ' "$t/binary" | head -3 | sed 's/^/    /' >&2; return 2; }
+    }' "$t/log" >> "$t/units" 2> "$t/parse-errors" \
+    || { say "could not parse the history of $g:"; head -3 "$t/parse-errors" | sed 's/^/    /' >&2; return 2; }
   # File names, which a line-based scan of contents never sees.
   git -C "$g" -c core.quotePath=false log --all --format='%x01%H' --name-only --no-renames \
-    | awk -v sep="$(printf '\001')" 'index($0, sep) == 1 { c = substr($0, 2); next } NF { print c " path\t" $0 }' >> "$t/units" \
+    | cawk -v sep="$(printf '\001')" 'index($0, sep) == 1 { c = substr($0, 2); next } NF { print c " path\t" $0 }' >> "$t/units" \
     || { say "git could not list the file names of $g"; return 2; }
   # Commit messages.
   git -C "$g" log --all --format='%x01%H%n%B' \
-    | awk -v sep="$(printf '\001')" 'index($0, sep) == 1 { c = substr($0, 2); n = 0; next } { n++; print c " message:" n "\t" $0 }' >> "$t/units" \
+    | cawk -v sep="$(printf '\001')" 'index($0, sep) == 1 { c = substr($0, 2); n = 0; next } { n++; print c " message:" n "\t" $0 }' >> "$t/units" \
     || { say "git could not read the commit messages of $g"; return 2; }
   # Annotated tag messages (the signature block is not text anybody wrote).
   git -C "$g" for-each-ref --format='%(objecttype) %(objectname) %(refname)' refs/tags | while read -r type obj ref; do
     [[ "$type" == tag ]] || continue
     git -C "$g" cat-file tag "$obj" > "$t/tagobj" || { echo "unreadable $ref" >&2; continue; }
-    awk -v r="$ref" '/^-----BEGIN (PGP|SSH) SIGNATURE-----/ { exit } /^tagger / { print "- " r " tagger\t" substr($0, 8); next } p { n++; print "- " r " tag-message:" n "\t" $0 } /^$/ { p = 1 }' "$t/tagobj"
+    cawk -v r="$ref" '/^-----BEGIN (PGP|SSH) SIGNATURE-----/ { exit } /^tagger / { print "- " r " tagger\t" substr($0, 8); next } p { n++; print "- " r " tag-message:" n "\t" $0 } /^$/ { p = 1 }' "$t/tagobj"
   done >> "$t/units" 2> "$t/tag-errors"
   [[ -s "$t/tag-errors" ]] && { say "could not read a tag of $g:"; sed 's/^/    /' "$t/tag-errors" >&2; return 2; }
-  awk -F'\t' '$1 ~ / tag-message:/ || $1 ~ / tagger$/ { print substr($0, length($1) + 2) }' "$t/units" > "$t/tags.txt"
+  cawk -F'\t' '$1 ~ / tag-message:/ || $1 ~ / tagger$/ { print substr($0, length($1) + 2) }' "$t/units" > "$t/tags.txt"
   # Every author and committer.
   git -C "$g" log --all --format='%an <%ae>%n%cn <%ce>' | sort -u > "$t/identities.txt" \
     || { say "git could not read the identities of $g"; return 2; }
-  awk '{ print "- identity\t" $0 }' "$t/identities.txt" >> "$t/units"
+  cawk '{ print "- identity\t" $0 }' "$t/identities.txt" >> "$t/units"
+  # An email at a machine-local domain (git's default on an unconfigured host)
+  # publishes the machine's name. The local part is masked, the host is the hit.
+  grep -iE '@([^>.]+|[^>]*\.(local|lan|localdomain|home|internal|localhost))>$' "$t/identities.txt" \
+    | sed -E 's/^.*<(.{1,3})[^@]*@([^>]*)>$/sensitive\t- identity\tan email at a machine-local domain (\1***@\2)/' >> "$t/hits.tsv" || true
   # A NUL byte, or an encoding error outside the C locale, makes grep call the
   # whole input binary and match nothing in it: the check would pass blind.
   { tr -d '\000' < "$t/units" > "$t/units.c" && mv "$t/units.c" "$t/units"; } || { say "could not prepare the text"; return 2; }
@@ -252,12 +260,14 @@ PY
   # name it skips is listed in the report, never silently passed.
   (cd "$t" && LC_ALL=C PRIVATE_NAMES_ALLOW="${SELF}${PRIVATE_NAMES_ALLOW:+,$PRIVATE_NAMES_ALLOW}" \
     bash "$SCRIPT_DIR/check_private_names.sh" "${nargs[@]}") < "$t/units" > "$t/names.out" 2>&1 || rc=$?
-  sed -n 's/.*allowed by override, not checked: //p' "$t/names.out" | awk -v s="$SELF" 'tolower($0) != tolower(s)' | sort -u > "$t/not-checked" || true
+  sed -n 's/.*allowed by override, not checked: //p' "$t/names.out" | cawk -v s="$SELF" 'tolower($0) != tolower(s)' | sort -u > "$t/not-checked" || true
   [[ -s "$t/not-checked" ]] && say "names skipped by an allowlist, NOT checked: $(paste -sd, - < "$t/not-checked")"
   if [[ $rc -ge 2 ]]; then
     unchecked=1; say "the private-name check could not run:"; tail -5 "$t/names.out" | sed 's/^/    /' >&2
   fi
-  sed -n 's/^      [0-9][0-9]*://p' "$t/names.out" | sort -u | awk -F'\t' '{ print "names\t" $0 }' >> "$t/hits.tsv"
+  sed -n 's/^      [0-9][0-9]*://p' "$t/names.out" | sort -u | cawk -F'\t' '{ print "names\t" $0 }' >> "$t/hits.tsv"
+  # The names found, "name" or "name -> code", for the report and the plan.
+  sed -n 's/^        \([^ ].*\)$/\1/p' "$t/names.out" > "$t/names-found" || true
   if [[ $rc -eq 1 ]] && ! grep -q '^names' "$t/hits.tsv"; then
     unchecked=1; say "the private-name check failed but no hit could be read from it"
   fi
@@ -275,9 +285,9 @@ PY
   fi
   [[ $rc -ge 2 || $rc2 -ge 2 ]] && { unchecked=1; say "the sensitive check could not check everything:"; grep -E 'NOT checked|COULD NOT|could not' "$t/sens.out" | sed 's/^/    /' >&2 || true; }
   sed -n 's/^\[sensitive\] BLOCK \(.*\): \(.*\)$/\1\t\2/p' "$t/sens.out" | grep -v '^gitleaks found' \
-    | awk -F'\t' '{ print "sensitive\t" $0 }' >> "$t/hits.tsv" || true
+    | cawk -F'\t' '{ print "sensitive\t" $0 }' >> "$t/hits.tsv" || true
   # gitleaks findings come as blocks of "Key: value" lines.
-  awk '
+  cawk '
     /^\[sensitive\] gitleaks: (RuleID|File|Line|Commit):/ {
       sub(/^\[sensitive\] gitleaks: /, ""); k = $1; sub(/:$/, "", k); v = $0; sub(/^[^:]*: */, "", v); r[k] = v
     }
@@ -318,7 +328,7 @@ PY
   # Which ref each commit is on, for the report.
   local head_ref r
   head_ref="$(git -C "$g" symbolic-ref -q HEAD || true)"
-  cut -f2 "$t/hits.tsv" | awk '{ print $1 }' | grep -E '^[0-9a-f]{7,40}$' | sort -u | while read -r c; do
+  cut -f2 "$t/hits.tsv" | cawk '{ print $1 }' | grep -E '^[0-9a-f]{7,40}$' | sort -u | while read -r c; do
     # The default branch when it has the commit, else the first ref that does.
     git -C "$g" for-each-ref --contains "$c" --format='%(refname)' 2>/dev/null > "$t/on" || true
     r="$(grep -xF "$head_ref" "$t/on" || head -1 "$t/on")"
@@ -326,8 +336,15 @@ PY
   done > "$t/commit-refs"
 
   "$PY" -I - "$t" "$g" "$prefix" "$unchecked" <<'PY' || { say "could not write the report"; return 2; }
-import json, os, sys, datetime
+import json, os, re, sys, datetime
 t, g, prefix, unchecked = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4] == "1"
+codes = {}
+for line in open(os.path.join(t, "names-found"), encoding="utf-8", errors="replace"):
+    name, _, code = line.strip().partition(" -> ")
+    if name:
+        codes[name] = code
+def names_in(text):
+    return sorted(n for n in codes if re.search(r"(?<![A-Za-z0-9])" + re.escape(n) + r"(?![A-Za-z0-9])", text, re.I))
 refs_of = {}
 for line in open(os.path.join(t, "commit-refs"), encoding="utf-8", errors="replace"):
     c, _, r = line.rstrip("\n").partition("\t")
@@ -377,8 +394,11 @@ for line in open(os.path.join(t, "hits.tsv"), encoding="utf-8", errors="replace"
     ref = ""
     if commit:
         ref = next((r for c, r in refs_of.items() if c.startswith(commit) or commit.startswith(c)), "")
-    hits.append({"check": check, "kind": kind, "ref": ref, "commit": commit, "path": path,
-                 "line": int(line_no) if line_no and line_no.isdigit() else None, "text": text})
+    hit = {"check": check, "kind": kind, "ref": ref, "commit": commit, "path": path,
+           "line": int(line_no) if line_no and line_no.isdigit() else None, "text": text}
+    if check == "names":
+        hit["names"] = names_in(text + " " + path)
+    hits.append(hit)
 binary = [l.rstrip("\n") for l in open(os.path.join(t, "binary-skipped"), encoding="utf-8", errors="replace")]
 lfs = [l.rstrip("\n") for l in open(os.path.join(t, "lfs"), encoding="utf-8", errors="replace")]
 fox = [dict(zip(("ref", "result"), l.rstrip("\n").split("\t", 1))) for l in open(os.path.join(t, "foxguard.tsv"), encoding="utf-8")]
@@ -387,12 +407,17 @@ not_checked = [l.strip() for l in open(os.path.join(t, "not-checked"), encoding=
 counts = {}
 for h in hits:
     counts[h["check"]] = counts.get(h["check"], 0) + 1
+terms = {}
+for h in hits:
+    for n in h.get("names", []):
+        terms.setdefault(n, {"code": codes.get(n, ""), "hits": 0})["hits"] += 1
 report = {
     "repository": os.path.abspath(g),
     "generated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "complete": not unchecked,
     "refs": refs,
     "hit_counts": {"total": len(hits), **counts},
+    "terms": terms,
     "hits": hits,
     "names_not_checked": not_checked,
     "binary_not_read": binary,
@@ -407,11 +432,15 @@ with open(prefix + ".txt", "w", encoding="utf-8") as f:
     f.write("Refs: %d. Hits: %d (%s).\n" % (len(refs), len(hits), ", ".join("%s %d" % kv for kv in sorted(counts.items())) or "none"))
     if unchecked:
         f.write("INCOMPLETE: a check could not run; this is not a clean result.\n")
+    if terms:
+        f.write("Names found: %s\n" % ", ".join("%s%s %d" % (n, " (%s)" % v["code"] if v["code"] else "", v["hits"])
+                                                for n, v in sorted(terms.items(), key=lambda kv: -kv[1]["hits"])))
     if not_checked:
         f.write("Names skipped by an allowlist, NOT checked: %s\n" % ", ".join(not_checked))
     for h in hits:
         loc = h["path"] + (":%d" % h["line"] if h["line"] else "")
-        f.write("\n[%s] %s %s %s %s\n    %s\n" % (h["check"], h["kind"], h["ref"] or "-", (h["commit"] or "-")[:12], loc, h["text"][:200]))
+        f.write("\n[%s] %s %s %s %s%s\n    %s\n" % (h["check"], h["kind"], h["ref"] or "-", (h["commit"] or "-")[:12], loc,
+                                              " [%s]" % ", ".join(h["names"]) if h.get("names") else "", h["text"][:200]))
     if binary:
         f.write("\nBinary file versions NOT read: %d\n" % len(binary))
         for b in binary:
@@ -555,9 +584,22 @@ def info(repo, shas):
             res[s] = None; i = nl + 1; continue
         size = int(head[2]); body = data[nl + 1:nl + 1 + size]; i = nl + 1 + size + 1
         hdr, _, msg = body.partition(b"\n\n")
-        tree = hdr.split(b"\n")[0].split()[1].decode()
         who = [l for l in hdr.split(b"\n") if l.startswith((b"author ", b"committer "))]
-        res[s] = (tree, msg, b"\n".join(who))
+        res[s] = (msg, b"\n".join(who))
+    return res
+def own_changes(repo):
+    # What each commit itself changed (path, blob, status), not its whole tree:
+    # a tree differs in every descendant of a rewritten file.
+    out = subprocess.run(["git", "-C", repo, "-c", "core.quotePath=false", "log", "--all", "--root", "-r", "--raw",
+                          "--no-renames", "--no-abbrev", "--diff-merges=first-parent", "--format=%x01%H"], capture_output=True, check=True).stdout
+    res, c = {}, None
+    for line in out.split(b"\n"):
+        if line.startswith(b"\x01"):
+            c = line[1:].decode(); res[c] = set()
+        elif line.startswith(b":") and c:
+            meta, _, path = line.partition(b"\t")
+            f = meta.split()
+            res[c].add((path, f[3], f[4]))
     return res
 def who(raw):
     # Name and email only: the timestamps are kept by filter-repo anyway.
@@ -565,6 +607,7 @@ def who(raw):
 olds = sorted(chained)
 news = [n for n in chained.values() if n.strip("0")]
 oi, ni = info(src, olds), info(pub, news)
+oc, nc = own_changes(src), own_changes(pub)
 with open(out, "w", encoding="utf-8") as f:
     f.write("old          new          changes\n")
     for o in olds:
@@ -574,9 +617,11 @@ with open(out, "w", encoding="utf-8") as f:
         a, b = oi.get(o), ni.get(n)
         what = []
         if a and b:
-            if a[0] != b[0]: what.append("files")
-            if a[1] != b[1]: what.append("message")
-            if who(a[2]) != who(b[2]): what.append("identity")
+            if oc.get(o) != nc.get(n): what.append("files")
+            if a[0] != b[0]: what.append("message")
+            if who(a[1]) != who(b[1]): what.append("identity")
+        if not what and n != o:
+            what.append("parents")
         f.write("%s %s %s\n" % (o[:12], n[:12], ", ".join(what) or "unchanged"))
 PY
     : > "$WORK/$MARKER.clean"

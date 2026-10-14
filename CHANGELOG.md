@@ -14,7 +14,10 @@
   an allowlist skips are listed in the report as not checked. Branch and tag
   names and the text inside binary files are checked for names; Git LFS
   content and binary files over 50 MB are reported as not checked (exit 2).
-  The work directory is owner-only. Linux CI installs git-filter-repo.
+  The work directory is owner-only. Each name hit says which name matched, and
+  the report sums the names up with their codes. An author or committer email
+  at a machine-local domain (`.local`, `localhost`) is a hit. Linux CI installs
+  git-filter-repo.
 
 ## 2026-10-13 — v0.52.0
 
