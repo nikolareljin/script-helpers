@@ -74,6 +74,8 @@ rc=0; bash "$pp" audit --source "$tmp/src" --work "$tmp/out/w" "${names[@]}" >/d
 [[ $rc -eq 2 ]] && ok "audit refuses an existing work directory" || error "existing work: rc=$rc"
 rc=0; bash "$pp" audit --source "$tmp/src" --work "$tmp/src/w" "${names[@]}" >/dev/null 2>&1 || rc=$?
 [[ $rc -eq 2 && ! -e "$tmp/src/w" ]] && ok "audit refuses a work directory inside a checkout" || error "work in checkout: rc=$rc"
+rc=0; bash "$pp" audit --source "$tmp/nope" --work "$tmp/out/w3" "${names[@]}" >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 2 && ! -e "$tmp/out/w3" ]] && ok "a source that cannot be cloned leaves no work directory" || error "bad source: rc=$rc"
 rc=0; bash "$pp" verify --work "$tmp/src" >/dev/null 2>&1 || rc=$?
 [[ $rc -eq 2 ]] && ok "verify refuses a directory audit did not make" || error "foreign work: rc=$rc"
 
@@ -109,6 +111,8 @@ else
   printf 'bogus x\n' > "$tmp/plan4"
   rc=0; bash "$pp" clean --work "$tmp/out/w" --plan "$tmp/plan4" >/dev/null 2>&1 || rc=$?
   [[ $rc -eq 2 ]] && ok "an unknown plan directive is refused" || error "bad plan: rc=$rc"
+  rc=0; bash "$pp" verify --work "$tmp/out/w" "${names[@]}" >/dev/null 2>&1 || rc=$?
+  [[ $rc -eq 2 ]] && ok "verify refuses public.git after a clean that did not finish" || error "verify after failed clean: rc=$rc"
 fi
 
 if [[ $failures -gt 0 ]]; then note "$failures failure(s)"; exit 1; fi

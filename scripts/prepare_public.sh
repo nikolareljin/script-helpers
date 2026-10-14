@@ -352,7 +352,8 @@ case "$CMD" in
     WORK="$(abspath "$WORK")"
     printf 'source=%s\nself=%s\n' "$SOURCE" "$SELF" > "$WORK/$MARKER"
     say "mirror clone of $SOURCE"
-    git clone -q --mirror --no-hardlinks "$SOURCE" "$WORK/source.git" || die "could not clone $SOURCE"
+    git clone -q --mirror --no-hardlinks "$SOURCE" "$WORK/source.git" \
+      || { rm -rf "$WORK"; die "could not clone $SOURCE"; }
     # The mirror must not be able to reach the source again: no remote.
     git -C "$WORK/source.git" remote remove origin 2>/dev/null || true
     stamp="$(date -u +%Y%m%d-%H%M%S)"
@@ -364,6 +365,8 @@ case "$CMD" in
 
   clean)
     require_work
+    # verify accepts public.git only from a clean that finished.
+    rm -f "$WORK/$MARKER.clean"
     [[ -n "$PLAN" && -f "$PLAN" ]] || die "--plan <file> is required"
     git filter-repo --version >/dev/null 2>&1 \
       || die "git filter-repo is not installed (https://github.com/newren/git-filter-repo)"
@@ -473,6 +476,7 @@ with open(out, "w", encoding="utf-8") as f:
             if who(a[2]) != who(b[2]): what.append("identity")
         f.write("%s %s %s\n" % (o[:12], n[:12], ", ".join(what) or "unchanged"))
 PY
+    : > "$WORK/$MARKER.clean"
     say "cleaned history: $pub"
     say "per-commit changes: $WORK/changes.txt"
     say "next: verify --work $WORK"
@@ -480,7 +484,7 @@ PY
 
   verify)
     require_work
-    [[ -d "$WORK/public.git" ]] || die "$WORK/public.git is missing; run clean first"
+    [[ -d "$WORK/public.git" && -f "$WORK/$MARKER.clean" ]] || die "no finished clean in $WORK; run clean first"
     if [[ -n "$(git -C "$WORK/public.git" remote)" ]]; then
       die "public.git has a remote configured; it must have none"
     fi
