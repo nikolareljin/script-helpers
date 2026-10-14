@@ -1,3 +1,17 @@
+## Unreleased
+
+### Added
+
+- **`scripts/prepare_public.sh`: publish a private repository as a new public
+  one.** `audit` mirror-clones it into a new work directory, archives the
+  mirror and checks every ref and every commit: private names, credentials,
+  personal identifiers and PII, in added lines, file names, commit and tag
+  messages and identities; foxguard on each branch tip, advisory. `clean`
+  builds `public.git` with `git filter-repo` from a plan (refs, dropped and
+  renamed paths, replacements, mailmap) and writes a per-commit summary.
+  `verify` re-runs the audit on it and exits 0 only with zero hits. It never
+  writes to the source and never pushes. Linux CI installs git-filter-repo.
+
 ## 2026-10-13 — v0.52.0
 
 ### Added

@@ -131,6 +131,59 @@ Install the pinned release, checked against the SHA-256 in `lib/ci_defaults.sh`
 bash scripts/setup-hooks.sh --install-foxguard     # or: scripts/ci_security.sh --install-foxguard
 ```
 
+## Publishing a private repository
+
+A push from a private repository is not checked for private names, because a
+private repository may name another. The check happens once, when a
+repository becomes public: every commit, message, tag and file of its history
+becomes readable then, and that cannot be taken back.
+
+Do not change the private repository's visibility. Its issues, pull requests,
+comments and releases, with their edit history, would become public with it.
+Create a new public repository from a cleaned copy of the history instead, and
+leave the private one as it is.
+
+`scripts/prepare_public.sh` does the copy and the checks. It works only on
+mirror clones in a work directory it creates, never writes to the source, and
+never pushes.
+
+```bash
+# 1. Mirror, archive, audit every ref and every commit
+scripts/prepare_public.sh audit --source ~/src/my-repo --work ~/publish/my-repo
+#    -> report.txt / report.json: each hit with ref, commit, path, line, check
+
+# 2. Choose what is published, then build the cleaned copy
+scripts/prepare_public.sh plan-example > plan.txt     # edit it
+scripts/prepare_public.sh clean --work ~/publish/my-repo --plan plan.txt
+#    -> public.git, and changes.txt: each commit old -> new and what changed
+
+# 3. Re-run the full audit on the copy; exit 0 only with zero hits
+scripts/prepare_public.sh verify --work ~/publish/my-repo
+```
+
+| Check | Tool | Over |
+|---|---|---|
+| private repository names | `check_private_names.sh --strict-ambiguous` | added lines, file names, commit and tag messages, identities |
+| credentials | gitleaks (through `check_sensitive.sh`) | all refs, full history |
+| personal terms, machine identifiers, PII | `check_sensitive.sh` | the same |
+| static analysis (advisory, never a hit) | foxguard | each branch tip |
+
+The repository's own name is not a hit (`--self <name>`, by default the
+source's directory name). A check that cannot run (no name list, no gitleaks)
+makes the result exit 2, never a clean pass.
+
+The plan file lists the refs to publish (`ref refs/heads/main`), paths to
+remove from all history (`drop`), paths to rename (`rename old==>new`), text
+to replace in files and messages (`replace name==>CODE`, in `git filter-repo`
+syntax) and `.mailmap` lines for authors (`mailmap`). Every other ref is left
+out. `clean` needs [git filter-repo](https://github.com/newren/git-filter-repo).
+
+After `verify` passes: create the new repository, protect it, then push
+`public.git` to it. Issues, pull requests and releases are not carried over;
+recreate any that matter from reviewed text. To review history findings in an
+editor, the [leak-lock](https://github.com/nikolareljin/leak-lock) VS Code
+extension shows secrets across the whole history.
+
 ## Turning it on
 
 ### In one repository (the default)
