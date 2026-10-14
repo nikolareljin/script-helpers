@@ -101,11 +101,14 @@ if [[ "$in_scope" == true ]]; then
   top="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
   case "$hook" in
     pre-push)
+      # Nothing to check when no ref adds commits: deletions, refs already up
+      # to date, or no ref lines at all (git sends none when every ref is up
+      # to date or will be rejected).
       deletions_only=true
       # shellcheck disable=SC2034
       while read -r lref lsha rref rsha; do
         [[ -n "${lsha:-}" ]] || continue
-        [[ "$lsha" =~ ^0+$ ]] || deletions_only=false
+        [[ "$lsha" =~ ^0+$ || "$lsha" == "${rsha:-}" ]] || deletions_only=false
       done < "$stdin_file"
       if [[ "$deletions_only" == false ]]; then
         (cd "$top" && sec_pre_push "$stdin_file" "${1:-}" "${2:-}") || exit 1

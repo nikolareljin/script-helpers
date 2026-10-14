@@ -19,6 +19,19 @@
   at a machine-local domain (`.local`, `localhost`) is a hit. Linux CI installs
   git-filter-repo.
 
+### Fixed
+
+- **A push that updates no ref passes `pre-push`.** git runs the hook with no
+  ref lines when every ref is already up to date or will be rejected
+  (non-fast-forward); the hook refused it with "nothing could be checked". It
+  now says "no ref to update; nothing to check" and exits 0. The global hooks
+  treat a ref already at the remote's sha the same way.
+- **`run_repo_tests.sh` exit codes no longer collide with a runner's.** A
+  failure is exit 1, with the runner's code in the message: a failing
+  `make test` (exit 2) read as a usage error, and a runner exiting 4 read as
+  "no tests found". A `preflight.sh` exiting 127 is a failure, not "no
+  preflight". The push says which case refused it: no tests, or a failure.
+
 ## 2026-10-13 — v0.52.0
 
 ### Added

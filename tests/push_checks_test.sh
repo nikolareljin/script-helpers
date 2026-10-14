@@ -442,6 +442,13 @@ out="$(hook)"; rc=$?
 [[ $rc -eq 1 ]] && grep -q 'no tests found' <<<"$out" && ! grep -q 'tests: passed' <<<"$out" \
   && ok "push-tests quick with no tests to run refuses" \
   || error "push-tests quick, no tests: exit $rc: $(grep -E "tests|REFUSED|refused" <<<"$out" | head -5)"
+# A suite that itself exits 4 is a failure, not "no tests found".
+commit "suite exits 4" tests/four_test.sh $'#!/usr/bin/env bash\necho SUITE-RAN; exit 4\n'
+out="$(hook)"; rc=$?
+[[ $rc -eq 1 ]] && grep -q SUITE-RAN <<<"$out" && grep -q 'push refused: tests failed' <<<"$out" && ! grep -q 'no tests found' <<<"$out" \
+  && ok "push-tests quick: a suite exiting 4 is reported as a failure, not as no tests" \
+  || error "push-tests quick, suite exit 4: exit $rc: $(grep -E "tests|refused" <<<"$out" | head -5)"
+g rm -q tests/four_test.sh && g commit -qm "drop four"
 commit "suite ok" Makefile $'test:\n\t@echo SUITE-RAN; exit 0\n'
 git config script-helpers.push-tests qiuck
 out="$(hook)"; rc=$?

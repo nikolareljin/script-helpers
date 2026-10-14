@@ -47,7 +47,9 @@ reset_repo() { rm -f "$repo/Makefile" "$repo/package.json"; rm -rf "$repo/tests"
 # 1. A Makefile test target is run, and a failure refuses the push.
 reset_repo
 printf 'test:\n\t@exit 1\n' > "$repo/Makefile"
-case_is "a failing make test fails the run" 2 "tests failed"
+# make exits 2 on a failed target. The run says 1: passing 2 through made a red
+# suite look like a usage error.
+case_is "a failing make test fails the run with exit 1" 1 "tests failed (exit 2)"
 
 reset_repo
 printf 'test:\n\t@exit 0\n' > "$repo/Makefile"
@@ -78,6 +80,22 @@ printf 'test:\n\t@exit 0\n' > "$repo/Makefile"
 RUNNER_ARGS=--require case_is "--require: a passing suite still exits 0" 0 "All checks passed"
 reset_repo
 RUNNER_ARGS=--bogus case_is "an unknown option is a usage error (2)" 2 "unknown option"
+
+# A runner that exits 4 must not read as "no tests found" (--require's 4).
+reset_repo
+mkdir -p "$repo/tests"
+printf '#!/usr/bin/env bash\nexit 4\n' > "$repo/tests/four_test.sh"
+RUNNER_ARGS=--require case_is "--require: a runner exiting 4 is a failure (1), not 'no tests'" 1 "tests failed (exit 4)"
+
+# A preflight.sh that exits 127 (a command it runs is missing) failed; it was
+# read as "no preflight here" and the run fell through to "no tests", exit 0.
+reset_repo
+mkdir -p "$repo/scripts"
+printf '#!/usr/bin/env bash\nexit 127\n' > "$repo/scripts/preflight.sh"
+case_is "a preflight that exits 127 is a failure, not an absent preflight" 1 "preflight failed (exit 127)"
+printf '#!/usr/bin/env bash\nexit 3\n' > "$repo/scripts/preflight.sh"
+case_is "a preflight that finds no stack (3) still falls through" 0 "No test runner detected"
+rm -rf "$repo/scripts"
 
 # 4. The guard that matters most: calling run_tests in a `||` context disables
 #    set -e inside it, so a failing runner returned 0 and the run passed.

@@ -38,6 +38,9 @@ or `tests/*_test.sh`. The push then takes as long as those tests.
   does not turn the tests off.
 - A repository where no tests are found refuses the push too: opting in with
   nothing to run is not a pass.
+- `run_repo_tests.sh` exits 0 (passed, or no tests without `--require`), 1
+  (tests failed; the runner's own code is in the message), 2 (usage) or 4 (no
+  tests, with `--require`).
 - With the global hooks, the setting works only in your own repositories
   (`script-helpers.github-user`, `script-helpers.owners`); anywhere else the
   push says the tests were not run.

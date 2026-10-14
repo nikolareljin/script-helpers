@@ -48,6 +48,22 @@ _push_is_deletions_only() {
   [[ "$saw_ref" == "true" ]]
 }
 
+# A push that updates no ref: git runs this hook with no ref lines when every
+# ref is already up to date, or when it will reject them all (non-fast-forward).
+# Nothing is sent, so there is nothing to check. A ref line whose local and
+# remote sha are the same sends nothing either.
+_push_sends_nothing() {
+  local lref lsha rref rsha
+  # shellcheck disable=SC2034
+  while read -r lref lsha rref rsha; do
+    [[ -n "${lref:-}" ]] || continue                     # a blank line
+    # Anything that is not a well-formed ref line goes to the checks, which
+    # refuse what they cannot read.
+    [[ "${lsha:-}" =~ ^[0-9a-f]{40,64}$ && "$lsha" == "${rsha:-}" ]] || return 1
+  done
+  return 0
+}
+
 # git feeds the ref lines on stdin, and they can only be read once. They are
 # needed twice -- for the deletions-only shortcut and to work out which commits
 # are actually going out -- so they are captured first.
@@ -70,6 +86,10 @@ cat > "$_push_refs" || { echo "[pre-push] could not read the ref lines; refused.
 
 if _push_is_deletions_only < "$_push_refs"; then
   echo "[pre-push] deletions only — no new commits to check."
+  exit 0
+fi
+if _push_sends_nothing < "$_push_refs"; then
+  echo "[pre-push] no ref to update; nothing to check."
   exit 0
 fi
 
