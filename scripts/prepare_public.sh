@@ -373,7 +373,7 @@ case "$CMD" in
     # The mirror must not be able to reach the source again: no remote.
     git -C "$WORK/source.git" remote remove origin 2>/dev/null || true
     stamp="$(date -u +%Y%m%d-%H%M%S)"
-    tar -czf "$WORK/source-$stamp.tar.gz" -C "$WORK" source.git || die "could not archive the mirror"
+    tar -czf "$WORK/source-$stamp.tar.gz" -C "$WORK" source.git || { rm -rf "$WORK"; die "could not archive the mirror"; }
     say "archived: $WORK/source-$stamp.tar.gz"
     rc=0; audit_repo "$WORK/source.git" "$WORK/report" head || rc=$?
     [[ $rc -eq 0 ]] || say "next: write a plan (plan-example), then clean --work $WORK --plan <file>"
