@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SCRIPT: prepare_public.sh
-# DESCRIPTION: Audit a private repository's whole history and build a cleaned copy for a new public repository.
+# DESCRIPTION: Audit a repository's whole history and build a cleaned copy of it.
 # USAGE: scripts/prepare_public.sh <audit|clean|verify|plan-example> [options]
 # PARAMETERS:
 #   audit  --source <path|url> --work <dir>   Mirror-clone the source into a new work
@@ -11,7 +11,7 @@
 #   verify --work <dir>                       Re-run the full audit on public.git.
 #          Writes <work>/report-public.json and .txt. Exit 0 only with zero hits.
 #   plan-example                              Print an example plan file.
-#   --list <path> | --names <a,b>             Private-name list for the name check
+#   --list <path> | --names <a,b>             Name list for the name check
 #                                             (default: the check's own list).
 #   --self <name>                             This repository's own name, which is
 #                                             not a hit (default: the source's name).
@@ -22,11 +22,10 @@
 #   2  usage error, or a check could not run: the result is NOT clean
 # ----------------------------------------------------
 #
-# Making a private repository public publishes all of its history at once:
-# every commit, message, tag and file that was ever there. That cannot be taken
-# back. So the private repository is never changed: this tool works on mirror
-# clones in a work directory it creates, and a new public repository is created
-# from the cleaned copy. It never pushes, and never writes to the source.
+# Every commit, message, tag and file a repository ever held is audited, on
+# every ref. The source is never changed: this tool works on mirror clones in a
+# work directory it creates, and the cleaned copy goes to a new repository. It
+# never pushes, and never writes to the source.
 #
 # Checks, over all refs and all history (added lines, so a deleted file is seen
 # in the commit that added it):
@@ -34,11 +33,11 @@
 #              branch and tag names and the printable text of binary files too
 #   sensitive  check_sensitive.sh: credentials (gitleaks), personal terms and
 #              this machine's identifiers, PII. Tag messages and identities too.
-#   foxguard   static analysis: the default branch on audit, every published
+#   foxguard   static analysis: the default branch on audit, every copied
 #              branch on verify; advisory, never a hit.
 # ----------------------------------------------------
 set -euo pipefail
-# The mirror, the archive and the reports hold the private history: owner only.
+# The mirror, the archive and the reports hold the whole history: owner only.
 umask 077
 # History is bytes, not text in the caller's locale: in a UTF-8 locale a Latin-1
 # line makes gawk warn and miscount, and BSD tr, sed and grep fail outright.
@@ -54,7 +53,7 @@ TAG="[prepare_public]"
 MARKER=".prepare-public"
 
 say()  { echo "$TAG $*" >&2; }
-# Scratch directories hold private text (names, history); removed on every exit,
+# Scratch directories hold history text and names; removed on every exit,
 # Ctrl-C and kill included.
 SCRATCH=()
 # Not through $(...): a subshell would record the directory and forget it.
@@ -99,7 +98,7 @@ case "$CMD" in
     cat <<'EOF'
 # prepare_public plan. One directive per line; a line starting with # is a comment.
 #
-# ref <pattern>        A ref to publish (shell pattern). Every other ref is dropped.
+# ref <pattern>        A ref the copy keeps (shell pattern). Every other ref is dropped.
 ref refs/heads/main
 ref refs/tags/*
 # drop <path>          A file or directory removed from all history (literal, no wildcards).
@@ -108,7 +107,7 @@ ref refs/tags/*
 #rename docs/old-name.md==>docs/new-name.md
 # replace <text>==><new>  Text replaced in every file and every commit/tag message.
 #                      git filter-repo syntax: literal, or regex:..., or glob:...
-#replace private-name==>R-000
+#replace old-name==>R-000
 # mailmap <line>       A .mailmap line, applied to authors and committers.
 #mailmap Your Name <you@users.noreply.github.com> <old@example.org>
 EOF
@@ -152,7 +151,7 @@ audit_repo() {
 
   git -C "$g" for-each-ref --format='%(refname)' > "$t/refs"
   [[ -s "$t/refs" ]] || { say "no refs in $g"; return 2; }
-  # Branch and tag names are published with the history.
+  # Branch and tag names travel with the history.
   awk '{ print "- ref\t" $0 }' "$t/refs" > "$t/units"
 
   # Every line the history ever added, labelled "<commit> <path>:<line>".
@@ -199,7 +198,7 @@ audit_repo() {
     || { say "git could not read the identities of $g"; return 2; }
   awk '{ print "- identity\t" $0 }' "$t/identities.txt" >> "$t/units"
   # An email at a machine-local domain (git's default on an unconfigured host)
-  # publishes the machine's name. The local part is masked, the host is the hit.
+  # carries the machine's name. The local part is masked, the host is the hit.
   grep -iE '@([^>.]+|[^>]*\.(local|lan|localdomain|home|internal|localhost))>$' "$t/identities.txt" \
     | sed -E 's/^.*<(.{1,3})[^@]*@([^>]*)>$/sensitive\t- identity\tan email at a machine-local domain (\1***@\2)/' >> "$t/hits.tsv" || true
   # A NUL byte, or an encoding error outside the C locale, makes grep call the
@@ -251,7 +250,7 @@ PY
     sed 's/^/    /' "$t/lfs" >&2
   fi
 
-  # 1. Private names. The check prints each hit as "<n>:<label>\t<text>".
+  # 1. Listed names. The check prints each hit as "<n>:<label>\t<text>".
   local -a nargs=(--stdin --strict-ambiguous)
   [[ -n "$LIST" ]] && nargs+=(--list "$LIST")
   [[ -n "$NAMES" ]] && nargs+=(--names "$NAMES")
@@ -264,13 +263,13 @@ PY
   sed -n 's/.*allowed by override, not checked: //p' "$t/names.out" | awk -v s="$SELF" 'tolower($0) != tolower(s)' | sort -u > "$t/not-checked" || true
   [[ -s "$t/not-checked" ]] && say "names skipped by an allowlist, NOT checked: $(paste -sd, - < "$t/not-checked")"
   if [[ $rc -ge 2 ]]; then
-    unchecked=1; say "the private-name check could not run:"; tail -5 "$t/names.out" | sed 's/^/    /' >&2
+    unchecked=1; say "the name check could not run:"; tail -5 "$t/names.out" | sed 's/^/    /' >&2
   fi
   sed -n 's/^      [0-9][0-9]*://p' "$t/names.out" | sort -u | awk -F'\t' '{ print "names\t" $0 }' >> "$t/hits.tsv"
   # The names found, "name" or "name -> code", for the report and the plan.
   sed -n 's/^        \([^ ].*\)$/\1/p' "$t/names.out" > "$t/names-found" || true
   if [[ $rc -eq 1 ]] && ! grep -q '^names' "$t/hits.tsv"; then
-    unchecked=1; say "the private-name check failed but no hit could be read from it"
+    unchecked=1; say "the name check failed but no hit could be read from it"
   fi
 
   # 2. Credentials, personal terms and PII: every added line, all refs.
@@ -301,8 +300,8 @@ PY
   fi
 
   # 3. foxguard: advisory, recorded, never a hit. audit scans the default
-  # branch (a private repository has many stale branches, and each scan runs
-  # per file); verify scans every branch that will be published.
+  # branch (an old repository has many stale branches, and each scan runs
+  # per file); verify scans every branch of the copy.
   : > "$t/foxguard.tsv"
   git clone -q --no-hardlinks "$g" "$t/tip" 2>/dev/null || true
   if [[ -d "$t/tip/.git" ]]; then
@@ -497,7 +496,7 @@ case "$CMD" in
       || die "git filter-repo is not installed (https://github.com/newren/git-filter-repo)"
     scratch; t="$SCRATCH_DIR"
     : > "$t/refs"; : > "$t/drop"; : > "$t/rename"; : > "$t/replace"; : > "$t/mailmap"
-    # A mistyped drop path removes nothing, and the file is published: refuse it.
+    # A mistyped drop path removes nothing, and the file stays: refuse it.
     # Literal, as filter-repo reads --path: "*.pem" would match here and drop nothing there.
     in_history() { [[ -n "$(git -C "$WORK/source.git" log --all --format=%H -1 -- ":(literal)$1" 2>/dev/null)" ]]; }
     n=0
@@ -521,7 +520,7 @@ case "$CMD" in
         *) die "plan line $n: unknown directive '$key' (ref, drop, rename, replace, mailmap)" ;;
       esac
     done < "$PLAN"
-    [[ -s "$t/refs" ]] || die "the plan names no ref to publish (ref <pattern>)"
+    [[ -s "$t/refs" ]] || die "the plan names no ref to keep (ref <pattern>)"
 
     pub="$WORK/public.git"
     rm -rf "$pub"
@@ -537,7 +536,7 @@ case "$CMD" in
       if [[ "$keep" == true ]]; then kept=$((kept + 1)); else git -C "$pub" update-ref -d "$ref"; fi
     done < <(git -C "$pub" for-each-ref --format='%(refname)')
     [[ $kept -gt 0 ]] || die "no ref matches the plan's ref lines"
-    say "publishing $kept ref(s)"
+    say "keeping $kept ref(s)"
 
     if [[ -s "$t/drop" ]]; then
       args=(--force --quiet --replace-refs delete-no-add --invert-paths)
@@ -551,8 +550,8 @@ case "$CMD" in
     cp "$pub/filter-repo/commit-map" "$t/map1" 2>/dev/null || true
     git -C "$pub" filter-repo "${args[@]}" || die "git filter-repo failed"
     git -C "$pub" remote remove origin 2>/dev/null || true
-    # A plan that drops every file leaves no commit, so no ref: nothing to publish.
-    [[ -n "$(git -C "$pub" for-each-ref --format='%(refname)')" ]] || die "after the plan no ref is left to publish"
+    # A plan that drops every file leaves no commit, so no ref: nothing to copy.
+    [[ -n "$(git -C "$pub" for-each-ref --format='%(refname)')" ]] || die "after the plan no ref is left"
 
     # Per-commit summary: old -> new, and what changed. Two passes of
     # filter-repo leave two maps; they are chained.
@@ -640,7 +639,7 @@ PY
     rc=0; audit_repo "$WORK/public.git" "$WORK/report-public" all || rc=$?
     if [[ $rc -eq 0 ]]; then
       say "verified: zero hits in $WORK/public.git"
-      say "next, by hand: create the new repository, protect it, then push public.git to it"
+      say "next, by hand: create the new repository, protect it, then push $WORK/public.git to it"
     fi
     exit "$rc" ;;
 esac

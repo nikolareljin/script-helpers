@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SCRIPT: prepare_public_test.sh
-# DESCRIPTION: scripts/prepare_public.sh finds a private name anywhere in history, leaves the source alone, and verify passes only on a cleaned copy.
+# DESCRIPTION: scripts/prepare_public.sh finds a listed name anywhere in history, leaves the source alone, and verify passes only on a cleaned copy.
 # USAGE: bash tests/prepare_public_test.sh
 # ----------------------------------------------------
 set -uo pipefail

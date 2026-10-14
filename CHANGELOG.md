@@ -2,9 +2,9 @@
 
 ### Added
 
-- **`scripts/prepare_public.sh`: publish a private repository as a new public
-  one.** `audit` mirror-clones it into a new work directory, archives the
-  mirror and checks every ref and every commit: private names, credentials,
+- **`scripts/prepare_public.sh`: full-history audit and a cleaned copy of a
+  repository.** `audit` mirror-clones it into a new work directory, archives the
+  mirror and checks every ref and every commit: listed names, credentials,
   personal identifiers and PII, in added lines, file names, commit and tag
   messages and identities; foxguard on the default branch, advisory. `clean`
   builds `public.git` with `git filter-repo` from a plan (refs, dropped and

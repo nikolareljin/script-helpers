@@ -131,45 +131,40 @@ Install the pinned release, checked against the SHA-256 in `lib/ci_defaults.sh`
 bash scripts/setup-hooks.sh --install-foxguard     # or: scripts/ci_security.sh --install-foxguard
 ```
 
-## Publishing a private repository
+## Auditing and cleaning a repository's history
 
-A push from a private repository is not checked for private names, because a
-private repository may name another. The check happens once, when a
-repository becomes public: every commit, message, tag and file of its history
-becomes readable then, and that cannot be taken back.
+A push checks what it sends. Some decisions need the whole history instead:
+every commit, message, tag and file a repository ever held, on every branch.
+`scripts/prepare_public.sh` audits all of it, builds a cleaned copy, and
+re-checks the copy.
 
-Do not change the private repository's visibility. Its issues, pull requests,
-comments and releases, with their edit history, would become public with it.
-Create a new public repository from a cleaned copy of the history instead, and
-leave the private one as it is.
-
-`scripts/prepare_public.sh` does the copy and the checks. It works only on
-mirror clones in a work directory it creates, never writes to the source, and
-never pushes.
+It works only on mirror clones in a work directory it creates, never writes
+to the source, and never pushes. The source repository is left as it is; the
+cleaned copy goes to a new repository.
 
 ```bash
 # 1. Mirror, archive, audit every ref and every commit
-scripts/prepare_public.sh audit --source ~/src/my-repo --work ~/publish/my-repo
+scripts/prepare_public.sh audit --source ~/src/my-repo --work ~/audit/my-repo
 #    -> report.txt / report.json: each hit with ref, commit, path, line, check,
 #       and for a name hit the name; "Names found" sums them up with their codes
 
-# 2. Choose what is published, then build the cleaned copy
+# 2. Choose what the copy keeps, then build it
 scripts/prepare_public.sh plan-example > plan.txt     # edit it
-scripts/prepare_public.sh clean --work ~/publish/my-repo --plan plan.txt
+scripts/prepare_public.sh clean --work ~/audit/my-repo --plan plan.txt
 #    -> public.git, and changes.txt: each commit old -> new and what it changed
 #       (files, message, identity; "parents" when only an earlier commit did)
 
 # 3. Re-run the full audit on the copy; exit 0 only with zero hits
-scripts/prepare_public.sh verify --work ~/publish/my-repo
+scripts/prepare_public.sh verify --work ~/audit/my-repo
 ```
 
 | Check | Tool | Over |
 |---|---|---|
-| private repository names | `check_private_names.sh --strict-ambiguous` | branch and tag names, added lines, file names, the printable text of binary files, commit and tag messages, identities |
+| listed repository names | `check_private_names.sh --strict-ambiguous` | branch and tag names, added lines, file names, the printable text of binary files, commit and tag messages, identities |
 | credentials | gitleaks (through `check_sensitive.sh`) | all refs, full history |
 | personal terms, machine identifiers, PII | `check_sensitive.sh` | the same |
 | machine names in author and committer emails (`@host.local`, `@localhost`) | this script | identities |
-| static analysis (advisory, never a hit) | foxguard | the default branch on `audit`, every published branch on `verify` |
+| static analysis (advisory, never a hit) | foxguard | the default branch on `audit`, every branch of the copy on `verify` |
 
 The repository's own name is not a hit (`--self <name>`, by default the
 source's directory name). A check that cannot run (no name list, no gitleaks)
@@ -181,15 +176,15 @@ LFS file (only its pointer is in the history) and a binary file version over
 50 MB. Drop those paths in the plan, or check them by hand.
 
 The work directory, the mirror, its archive and the reports are readable by
-you only (mode 0700/0600). Reports show the line around a private name;
+you only (mode 0700/0600). Reports show the line around a listed name;
 credentials and PII appear masked.
 
-The plan file lists the refs to publish (`ref refs/heads/main`), paths to
+The plan file lists the refs the copy keeps (`ref refs/heads/main`), paths to
 remove from all history (`drop`), paths to rename (`rename old==>new`), text
 to replace in files and messages (`replace name==>CODE`, in `git filter-repo`
 syntax) and `.mailmap` lines for authors (`mailmap`). Every other ref is left
 out. A `drop` or `rename` path that is not in the history is refused, since a
-mistyped path would publish the file. A plan that leaves no commit is
+mistyped path would leave the file in the copy. A plan that leaves no commit is
 refused. Commit and tag signatures are not kept: the rewritten history is
 unsigned. `clean` needs [git filter-repo](https://github.com/newren/git-filter-repo).
 
