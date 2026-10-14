@@ -39,8 +39,9 @@ Hooks the repository already had (a team's, another tool's, `.git/hooks`)
 keep running, after ours. `--uninstall` puts the previous setup back. To cover
 every repository on the machine instead, use `--global`.
 
-The checks apply to the repositories you own: setup records your GitHub
-account through `gh`. To count an organisation as yours too:
+Installing here opts this repository in: it is always checked. With
+`--global`, the checks apply only to the repositories you own; setup records
+your GitHub account through `gh`. To count an organisation as yours too:
 
 ```bash
 git config --global script-helpers.owners <org>[,<another>]
