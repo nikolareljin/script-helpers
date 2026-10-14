@@ -34,6 +34,8 @@ or `tests/*_test.sh`. The push then takes as long as those tests.
 
 - Any value other than `quick` or `off` refuses the push, so a typo does not
   turn the tests off.
+- A repository where no tests are found refuses the push too: opting in with
+  nothing to run is not a pass.
 - With the global hooks, the setting works only in the repositories of
   `script-helpers.owners`; anywhere else the push says the tests were not run.
 
