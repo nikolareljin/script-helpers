@@ -108,7 +108,8 @@ if [[ "$in_scope" == true ]]; then
       # shellcheck disable=SC2034
       while read -r lref lsha rref rsha; do
         [[ -n "${lsha:-}" ]] || continue
-        [[ "$lsha" =~ ^0+$ || "$lsha" == "${rsha:-}" ]] || deletions_only=false
+        [[ "$lsha" =~ ^0+$ ]] && continue
+        [[ "$lsha" =~ ^[0-9a-f]{40,64}$ && "$lsha" == "${rsha:-}" ]] || deletions_only=false
       done < "$stdin_file"
       if [[ "$deletions_only" == false ]]; then
         (cd "$top" && sec_pre_push "$stdin_file" "${1:-}" "${2:-}") || exit 1

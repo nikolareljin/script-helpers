@@ -430,6 +430,13 @@ expect "a second configured owner is checked too" 1 "$?"
 (cd "$own" && printf 'refs/heads/main %s refs/heads/main 0000000000000000000000000000000000000000\n' "$(git rev-parse HEAD)" \
   | GITLEAKS_BIN="$tmp/none" bash "$gdir/hooks/pre-push" mirror "$tmp/mirror.git" >"$tmp/out" 2>&1)
 expect "an owner repo pushed to a non-GitHub mirror is checked (origin decides)" 1 "$?"
+# A push that sends nothing: no ref lines (up to date, or rejected), or a ref
+# already at the remote's sha. HEAD's message would be refused if checked.
+(cd "$own" && GITLEAKS_BIN="$tmp/none" bash "$gdir/hooks/pre-push" origin git@github.com:example-owner/own.git < /dev/null >"$tmp/out" 2>&1)
+expect "global pre-push with no ref lines passes" 0 "$?"
+(cd "$own" && printf 'refs/heads/main %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD)" \
+  | GITLEAKS_BIN="$tmp/none" bash "$gdir/hooks/pre-push" origin git@github.com:example-owner/own.git >"$tmp/out" 2>&1)
+expect "global pre-push of a ref already at the remote's sha passes" 0 "$?"
 
 # An owner repository's committed hook runs only when the clone opted in.
 mkdir -p "$own/.githooks"
