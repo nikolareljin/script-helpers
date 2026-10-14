@@ -32,3 +32,17 @@ if grep -q '^### `scripts/git-hooks/pre-push`' "$tmp/docs/commands.md" \
 else
   echo "[command_reference_test][ERROR] a script sharing a name with another directory's is missing" >&2; exit 1
 fi
+
+# A file that is not UTF-8 (a Latin-1 comment, a binary someone drops in scripts/)
+# crashed the generator with a traceback and exit 1, which --check reports as
+# "out of date". CRLF headers must parse like LF ones.
+printf '#!/usr/bin/env bash\n# DESCRIPTION: caf\xe9 latin1\nexit 0\n' > "$tmp/scripts/latin.sh"
+printf '#!/usr/bin/env bash\r\n# DESCRIPTION: crlf header\r\n# USAGE: crlf.sh [-a]\r\nexit 0\r\n' > "$tmp/scripts/crlf.sh"
+rc=0; "$py" "$tmp/scripts/gen_command_reference.py" 2>"$tmp/err" || rc=$?
+if [[ $rc -eq 0 ]] && grep -q '^### `scripts/latin.sh`' "$tmp/docs/commands.md" \
+  && grep -q '^crlf header$' "$tmp/docs/commands.md" && grep -q '^Usage: crlf.sh \[-a\]$' "$tmp/docs/commands.md" \
+  && ! grep -q $'\r' "$tmp/docs/commands.md"; then
+  echo "[command_reference_test] PASS: a non-UTF-8 file and a CRLF header are read, not a crash"
+else
+  echo "[command_reference_test][ERROR] non-UTF-8 or CRLF header: rc=$rc $(head -c 300 "$tmp/err")" >&2; exit 1
+fi

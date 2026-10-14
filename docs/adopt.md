@@ -23,8 +23,8 @@ shlib_import logging env
 ```
 
 Later updates: `git submodule update --remote scripts/script-helpers`, then
-commit the new pointer. See [Installation](installation.md) and
-[Usage](usage.md).
+commit the new pointer. See [Installation](installation.md),
+[Usage](usage.md) and the [API index](api.md) for the modules.
 
 ## 2. Install the git hooks
 
@@ -33,6 +33,14 @@ From the repository root:
 ```bash
 bash scripts/script-helpers/scripts/setup-hooks.sh
 bash scripts/script-helpers/scripts/setup-hooks.sh --status   # what is installed
+```
+
+On Windows, run the commands in this guide from Git Bash. From PowerShell,
+`setup-hooks.ps1` finds Git Bash and runs `setup-hooks.sh` with the same
+arguments:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\script-helpers\scripts\setup-hooks.ps1 --status
 ```
 
 Hooks the repository already had (a team's, another tool's, `.git/hooks`)
@@ -62,7 +70,7 @@ Details: [Git hooks](git-hooks.md).
 | Group | Checks | On a finding |
 |---|---|---|
 | security | private repository names (public repositories), credentials (gitleaks), personal identifiers and PII | refused |
-| hygiene | conflict markers, large or secret-looking files, release CHANGELOG and VERSION, AI trailers in commit messages | refused |
+| hygiene | conflict markers, large or secret-looking files, release CHANGELOG and VERSION, AI trailers in commit messages (repositories you own) | refused |
 | lint | syntax and lint of the changed files, with the tools installed | refused |
 | static analysis | foxguard on the changed files | warning only |
 
