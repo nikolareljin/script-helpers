@@ -11,8 +11,10 @@
   renamed paths, replacements, mailmap) and writes a per-commit summary.
   `verify` re-runs the audit on it and exits 0 only with zero hits. It never
   writes to the source and never pushes, even with `GIT_DIR` exported. Names
-  an allowlist skips are listed in the report as not checked. Linux CI
-  installs git-filter-repo.
+  an allowlist skips are listed in the report as not checked. Branch and tag
+  names and the text inside binary files are checked for names; Git LFS
+  content and binary files over 50 MB are reported as not checked (exit 2).
+  The work directory is owner-only. Linux CI installs git-filter-repo.
 
 ## 2026-10-13 — v0.52.0
 

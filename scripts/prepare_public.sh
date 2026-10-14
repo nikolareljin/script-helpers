@@ -30,13 +30,16 @@
 #
 # Checks, over all refs and all history (added lines, so a deleted file is seen
 # in the commit that added it):
-#   names      check_private_names.sh --strict-ambiguous (the --self name excepted)
+#   names      check_private_names.sh --strict-ambiguous (the --self name excepted),
+#              branch and tag names and the printable text of binary files too
 #   sensitive  check_sensitive.sh: credentials (gitleaks), personal terms and
 #              this machine's identifiers, PII. Tag messages and identities too.
 #   foxguard   static analysis: the default branch on audit, every published
 #              branch on verify; advisory, never a hit.
 # ----------------------------------------------------
 set -euo pipefail
+# The mirror, the archive and the reports hold the private history: owner only.
+umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # An exported GIT_DIR or GIT_WORK_TREE (a hook, a wrapper) wins over git -C: the
@@ -48,6 +51,16 @@ TAG="[prepare_public]"
 MARKER=".prepare-public"
 
 say()  { echo "$TAG $*" >&2; }
+# Scratch directories hold private text (names, history); removed on every exit,
+# Ctrl-C and kill included.
+SCRATCH=()
+# Not through $(...): a subshell would record the directory and forget it.
+scratch() { SCRATCH_DIR="$(mktemp -d)"; SCRATCH+=("$SCRATCH_DIR"); }
+cleanup() { [[ ${#SCRATCH[@]} -eq 0 ]] || rm -rf "${SCRATCH[@]}"; }
+# Guarded: a subshell inherits the trap and must not delete the owner's scratch.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then cleanup; fi' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 die()  { echo "$TAG ERROR: $*" >&2; exit 2; }
 usage() { sed -n '2,/^# ------/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
@@ -56,16 +69,24 @@ CMD="${1:-}"
 shift
 SOURCE=""; WORK=""; PLAN=""; LIST=""; NAMES=""; SELF=""
 while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --source) SOURCE="${2:?--source needs a path or URL}"; shift 2 ;;
-    --work)   WORK="${2:?--work needs a directory}"; shift 2 ;;
-    --plan)   PLAN="${2:?--plan needs a file}"; shift 2 ;;
-    --list)   LIST="${2:?--list needs a path}"; shift 2 ;;
-    --names)  NAMES="${2:?--names needs a list}"; shift 2 ;;
-    --self)   SELF="${2:?--self needs a name}"; shift 2 ;;
+  opt="$1"; val=""; shift
+  case "$opt" in
     -h|--help) usage; exit 0 ;;
-    *) die "unknown argument: $1" ;;
+    --*=*) val="${opt#*=}"; opt="${opt%%=*}" ;;
+    --source|--work|--plan|--list|--names|--self)
+      [[ $# -gt 0 && -n "$1" ]] || die "$opt needs a value"
+      val="$1"; shift ;;
   esac
+  case "$opt" in
+    --source) SOURCE="$val" ;;
+    --work)   WORK="$val" ;;
+    --plan)   PLAN="$val" ;;
+    --list)   LIST="$val" ;;
+    --names)  NAMES="$val" ;;
+    --self)   SELF="$val" ;;
+    *) die "unknown argument: $opt" ;;
+  esac
+  [[ -n "$val" ]] || die "$opt needs a value"
 done
 
 case "$CMD" in
@@ -96,7 +117,7 @@ command -v git >/dev/null 2>&1 || die "git is not installed"
 PY="$(command -v python3 || true)"
 [[ -n "$PY" ]] || die "python3 is not installed (it writes the JSON report)"
 
-abspath() { (cd "$1" && pwd); }
+abspath() { (cd -- "$1" && pwd); }
 
 # The work directory is ours: audit creates it, and clean and verify accept only
 # one that audit made. Inside a git work tree it could end up committed.
@@ -121,14 +142,14 @@ require_work() {
 # Returns 0 clean, 1 hits, 2 a check could not run.
 audit_repo() {
   local g="$1" prefix="$2" fox_scope="$3" t rc unchecked=0
-  t="$(mktemp -d)"
-  # shellcheck disable=SC2064
-  trap "rm -rf '$t'; trap - RETURN" RETURN
+  scratch; t="$SCRATCH_DIR"
   : > "$t/hits.tsv"     # check, label, text
   : > "$t/not-checked"
 
   git -C "$g" for-each-ref --format='%(refname)' > "$t/refs"
   [[ -s "$t/refs" ]] || { say "no refs in $g"; return 2; }
+  # Branch and tag names are published with the history.
+  awk '{ print "- ref\t" $0 }' "$t/refs" > "$t/units"
 
   # Every line the history ever added, labelled "<commit> <path>:<line>".
   git -C "$g" -c core.quotePath=false log --all -p --cc -M -U0 --no-color --no-ext-diff --format='%x01%H' > "$t/log" \
@@ -147,7 +168,7 @@ audit_repo() {
       m = substr($0, 1, np)
       if (m ~ /^\++$/) { print commit " " f ":" ln "\t" substr($0, np + 1); ln++ }
       else if (m !~ /-/) ln++
-    }' "$t/log" > "$t/units" 2> "$t/binary"
+    }' "$t/log" >> "$t/units" 2> "$t/binary"
   # File names, which a line-based scan of contents never sees.
   git -C "$g" -c core.quotePath=false log --all --format='%x01%H' --name-only --no-renames \
     | awk -v sep="$(printf '\001')" 'index($0, sep) == 1 { c = substr($0, 2); next } NF { print c " path\t" $0 }' >> "$t/units" \
@@ -171,7 +192,49 @@ audit_repo() {
   # A NUL byte, or an encoding error outside the C locale, makes grep call the
   # whole input binary and match nothing in it: the check would pass blind.
   { tr -d '\000' < "$t/units" > "$t/units.c" && mv "$t/units.c" "$t/units"; } || { say "could not prepare the text"; return 2; }
-  [[ -s "$t/binary" ]] && say "$(wc -l < "$t/binary" | tr -d ' ') binary file version(s) not read as text (listed in the report)"
+  # A binary file version (a PDF, an image, an archive) can carry a name in its
+  # text: its printable strings go to the name check. One larger than the limit
+  # is not read, and the result is then incomplete.
+  : > "$t/binary-skipped"
+  if [[ -s "$t/binary" ]]; then
+    "$PY" -I - "$g" "$t/binary" "$t/units" "$t/binary-skipped" <<'PY' || { say "could not read the binary file versions of $g"; return 2; }
+import re, subprocess, sys
+g, listing, units, skipped = sys.argv[1:5]
+LIMIT = 50 * 1024 * 1024
+want = []
+for line in open(listing, encoding="utf-8", errors="surrogateescape"):
+    commit, _, rest = line.rstrip("\n").partition("\t")
+    commit = commit.split(" ", 1)[1] if " " in commit else commit
+    m = re.match(r"Binary files (?:a/.*|/dev/null) and b/(.*) differ$", rest)
+    if m:
+        want.append((commit, m.group(1)))
+if want:
+    spec = "".join("%s:%s\n" % w for w in want).encode("utf-8", "surrogateescape")
+    sizes = subprocess.run(["git", "-C", g, "cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"],
+                           input=spec, capture_output=True, check=True).stdout.decode().splitlines()
+    with open(units, "ab") as out, open(skipped, "a", encoding="utf-8", errors="surrogateescape") as sk:
+        for (commit, path), line in zip(want, sizes):
+            f = line.split()
+            if len(f) < 3 or f[1] != "blob":
+                sk.write("%s %s (unreadable)\n" % (commit, path)); continue
+            if int(f[2]) > LIMIT:
+                sk.write("%s %s (%s bytes, over the limit)\n" % (commit, path, f[2])); continue
+            data = subprocess.run(["git", "-C", g, "cat-file", "blob", f[0]], capture_output=True, check=True).stdout
+            label = ("%s %s:binary" % (commit, path)).encode("utf-8", "surrogateescape")
+            for s in set(re.findall(rb"[\x20-\x7e]{4,}", data)):
+                out.write(label + b"\t" + s + b"\n")
+PY
+    say "$(wc -l < "$t/binary" | tr -d ' ') binary file version(s): printable strings checked for names"
+  fi
+  if [[ -s "$t/binary-skipped" ]]; then
+    unchecked=1; say "binary file version(s) NOT read:"; sed 's/^/    /' "$t/binary-skipped" >&2
+  fi
+  # Git LFS keeps the content outside the history: only the pointer is here.
+  grep -E $':1\tversion https://git-lfs\.github\.com/spec/v1$' "$t/units" | cut -f1 | sed 's/:1$//' | sort -u > "$t/lfs" || true
+  if [[ -s "$t/lfs" ]]; then
+    unchecked=1; say "Git LFS file(s): the content is not in the history and is NOT checked; drop them or check them by hand:"
+    sed 's/^/    /' "$t/lfs" >&2
+  fi
 
   # 1. Private names. The check prints each hit as "<n>:<label>\t<text>".
   local -a nargs=(--stdin --strict-ambiguous)
@@ -287,6 +350,10 @@ for line in open(os.path.join(t, "hits.tsv"), encoding="utf-8", errors="replace"
         kind, line_no = "commit-message", where.split(":", 1)[1]
     elif where == "path":
         kind, path = "path", text
+    elif where == "ref":
+        kind, path = "ref", text
+    elif where.endswith(":binary"):
+        kind, path = "binary-file", where[:-len(":binary")]
     elif where.startswith("refs/"):
         ref, _, k = where.partition(" ")
         kind = "tag-message" if k.startswith("tag-message") else "tagger"
@@ -306,7 +373,8 @@ for line in open(os.path.join(t, "hits.tsv"), encoding="utf-8", errors="replace"
         ref = next((r for c, r in refs_of.items() if c.startswith(commit) or commit.startswith(c)), "")
     hits.append({"check": check, "kind": kind, "ref": ref, "commit": commit, "path": path,
                  "line": int(line_no) if line_no and line_no.isdigit() else None, "text": text})
-binary = [l.rstrip("\n") for l in open(os.path.join(t, "binary"), encoding="utf-8", errors="replace")]
+binary = [l.rstrip("\n") for l in open(os.path.join(t, "binary-skipped"), encoding="utf-8", errors="replace")]
+lfs = [l.rstrip("\n") for l in open(os.path.join(t, "lfs"), encoding="utf-8", errors="replace")]
 fox = [dict(zip(("ref", "result"), l.rstrip("\n").split("\t", 1))) for l in open(os.path.join(t, "foxguard.tsv"), encoding="utf-8")]
 refs = [l.strip() for l in open(os.path.join(t, "refs"), encoding="utf-8") if l.strip()]
 not_checked = [l.strip() for l in open(os.path.join(t, "not-checked"), encoding="utf-8") if l.strip()]
@@ -322,6 +390,7 @@ report = {
     "hits": hits,
     "names_not_checked": not_checked,
     "binary_not_read": binary,
+    "lfs_not_checked": lfs,
     "foxguard_advisory": fox,
 }
 with open(prefix + ".json", "w", encoding="utf-8") as f:
@@ -338,8 +407,12 @@ with open(prefix + ".txt", "w", encoding="utf-8") as f:
         loc = h["path"] + (":%d" % h["line"] if h["line"] else "")
         f.write("\n[%s] %s %s %s %s\n    %s\n" % (h["check"], h["kind"], h["ref"] or "-", (h["commit"] or "-")[:12], loc, h["text"][:200]))
     if binary:
-        f.write("\nBinary file versions not read as text: %d\n" % len(binary))
+        f.write("\nBinary file versions NOT read: %d\n" % len(binary))
         for b in binary:
+            f.write("    %s\n" % b)
+    if lfs:
+        f.write("\nGit LFS files, content NOT checked: %d\n" % len(lfs))
+        for b in lfs:
             f.write("    %s\n" % b)
     if fox:
         f.write("\nfoxguard (advisory, not a hit):\n")
@@ -359,16 +432,16 @@ case "$CMD" in
     [[ -n "$SOURCE" ]] || die "--source is required"
     [[ -n "$WORK" ]] || die "--work is required"
     [[ ! -e "$WORK" ]] || die "$WORK already exists; audit makes a new work directory"
-    parent="$(dirname "$WORK")"
+    parent="$(dirname -- "$WORK")"
     [[ -d "$parent" ]] || die "no such directory: $parent"
     check_work_parent "$parent"
     if [[ -d "$SOURCE" ]]; then SOURCE="$(abspath "$SOURCE")"; fi
-    if [[ -z "$SELF" ]]; then SELF="$(basename "${SOURCE%/}")"; SELF="${SELF%.git}"; fi
-    mkdir "$WORK"
+    if [[ -z "$SELF" ]]; then SELF="$(basename -- "${SOURCE%/}")"; SELF="${SELF%.git}"; fi
+    mkdir -- "$WORK"
     WORK="$(abspath "$WORK")"
     printf 'source=%s\nself=%s\n' "$SOURCE" "$SELF" > "$WORK/$MARKER"
     say "mirror clone of $SOURCE"
-    git clone -q --mirror --no-hardlinks "$SOURCE" "$WORK/source.git" \
+    git clone -q --mirror --no-hardlinks -- "$SOURCE" "$WORK/source.git" \
       || { rm -rf "$WORK"; die "could not clone $SOURCE"; }
     # The mirror must not be able to reach the source again: no remote.
     git -C "$WORK/source.git" remote remove origin 2>/dev/null || true
@@ -386,7 +459,7 @@ case "$CMD" in
     [[ -n "$PLAN" && -f "$PLAN" ]] || die "--plan <file> is required"
     git filter-repo --version >/dev/null 2>&1 \
       || die "git filter-repo is not installed (https://github.com/newren/git-filter-repo)"
-    t="$(mktemp -d)"; trap 'rm -rf "$t"' EXIT
+    scratch; t="$SCRATCH_DIR"
     : > "$t/refs"; : > "$t/drop"; : > "$t/rename"; : > "$t/replace"; : > "$t/mailmap"
     # A mistyped drop path removes nothing, and the file is published: refuse it.
     # Literal, as filter-repo reads --path: "*.pem" would match here and drop nothing there.
@@ -442,6 +515,8 @@ case "$CMD" in
     cp "$pub/filter-repo/commit-map" "$t/map1" 2>/dev/null || true
     git -C "$pub" filter-repo "${args[@]}" || die "git filter-repo failed"
     git -C "$pub" remote remove origin 2>/dev/null || true
+    # A plan that drops every file leaves no commit, so no ref: nothing to publish.
+    [[ -n "$(git -C "$pub" for-each-ref --format='%(refname)')" ]] || die "after the plan no ref is left to publish"
 
     # Per-commit summary: old -> new, and what changed. Two passes of
     # filter-repo leave two maps; they are chained.

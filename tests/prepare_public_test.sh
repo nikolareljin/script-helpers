@@ -92,6 +92,46 @@ skipped="$("$py" -c 'import json,sys; print(",".join(json.load(open(sys.argv[1])
   && ok "a name skipped by an allowlist is reported as not checked" || error "not-checked: skipped='$skipped'"
 rm -f "$XDG_CONFIG_HOME/script-helpers/private-names-allow"
 
+# Ref names, binary files and LFS pointers: each a place the line scan never reads.
+git init -q -b main "$tmp/src2" && cd "$tmp/src2" || exit 1
+echo "hello" > README.md && g add . && g commit -qm "start"
+g branch feat/secretproj-work
+printf 'PK\001\000secretproj build\000\002' > doc.bin && g add . && g commit -qm "a binary file"
+cd "$tmp/out" || exit 1
+rc=0; bash "$pp" audit --source "$tmp/src2" --work "$tmp/out/r5" "${names[@]}" >/dev/null 2>&1 || rc=$?
+kinds="$("$py" -c 'import json,sys; print(" ".join(sorted({h["kind"] for h in json.load(open(sys.argv[1]))["hits"]})))' "$tmp/out/r5/report.json" 2>&1)"
+[[ $rc -eq 1 && "$kinds" == "binary-file ref" ]] && ok "a name in a branch name and inside a binary file is a hit" \
+  || error "ref/binary: rc=$rc kinds='$kinds'"
+perm() { ls -ld "$1" | cut -c1-10; }
+[[ "$(perm "$tmp/out/r5")" == drwx------ && "$(perm "$tmp/out/r5/source.git")" == drwx------ \
+   && "$(perm "$tmp/out/r5/report.json")" == -rw------- && "$(perm "$(ls "$tmp/out/r5"/source-*.tar.gz)")" == -rw------- ]] \
+  && ok "the work directory, mirror, archive and report are readable by the owner only" \
+  || error "modes: $(perm "$tmp/out/r5") $(perm "$tmp/out/r5/report.json")"
+
+git init -q -b main "$tmp/src3" && cd "$tmp/src3" || exit 1
+printf '*.bin filter=lfs diff=lfs merge=lfs -text\n' > .gitattributes
+printf 'version https://git-lfs.github.com/spec/v1\noid sha256:%064d\nsize 12\n' 0 > big.bin
+g add . && g commit -qm "lfs"
+cd "$tmp/out" || exit 1
+rc=0; out="$(bash "$pp" audit --source "$tmp/src3" --work "$tmp/out/r6" "${names[@]}" 2>&1)" || rc=$?
+[[ $rc -eq 2 && "$out" == *"LFS"*"big.bin"* ]] && ok "a Git LFS file is reported as not checked: exit 2, never clean" \
+  || error "lfs: rc=$rc out=$out"
+
+rc=0; bash "$pp" audit --source "--upload-pack=touch $tmp/pwned" --work "$tmp/out/r7" "${names[@]}" >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 2 && ! -e "$tmp/pwned" ]] && ok "a source starting with a dash is a path, never a git option" || error "dash source: rc=$rc"
+rc=0; bash "$pp" audit --source >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 2 ]] && ok "an option without its value is a usage error (2)" || error "missing value: rc=$rc"
+rc=0; bash "$pp" audit --source="$tmp/src2" --work="$tmp/out/r8" --names=secretproj >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 1 ]] && ok "--option=value works" || error "--opt=value: rc=$rc"
+# Killed mid-run (gitleaks stand-in sleeps), the scratch copy of the history goes too.
+mkdir -p "$tmp/tmpd"
+printf '#!/usr/bin/env bash\nsleep 3\nexit 0\n' > "$tmp/bin/gitleaks-slow" && chmod +x "$tmp/bin/gitleaks-slow"
+TMPDIR="$tmp/tmpd" GITLEAKS_BIN="$tmp/bin/gitleaks-slow" bash "$pp" audit --source "$tmp/src2" --work "$tmp/out/r9" "${names[@]}" >/dev/null 2>&1 &
+pid=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -n "$(ls -A "$tmp/tmpd")" ]] && break; sleep 0.5; done
+sleep 1; kill -TERM "$pid" 2>/dev/null; rc=0; wait "$pid" || rc=$?
+[[ $rc -ne 0 && -z "$(ls -A "$tmp/tmpd")" ]] && ok "killed mid-run: no scratch copy of the history is left behind" || error "scratch left: rc=$rc $(ls -A "$tmp/tmpd")"
+
 if ! git filter-repo --version >/dev/null 2>&1; then
   # CI installs it, so a skip there would hide the two steps that rewrite history.
   if [[ -n "${CI:-}" && "$(uname -s)" == Linux ]]; then error "git filter-repo missing on Linux CI"
@@ -136,6 +176,10 @@ else
   [[ $rc -eq 2 ]] && ok "an unknown plan directive is refused" || error "bad plan: rc=$rc"
   rc=0; bash "$pp" verify --work "$tmp/out/w" "${names[@]}" >/dev/null 2>&1 || rc=$?
   [[ $rc -eq 2 ]] && ok "verify refuses public.git after a clean that did not finish" || error "verify after failed clean: rc=$rc"
+  printf 'ref refs/heads/main\ndrop README.md\ndrop doc.bin\n' > "$tmp/plan7"
+  rc=0; out="$(bash "$pp" clean --work "$tmp/out/r5" --plan "$tmp/plan7" 2>&1)" || rc=$?
+  [[ $rc -eq 2 && "$out" == *"no ref is left"* ]] && ok "a plan that empties the history is refused, not reported done" \
+    || error "empty after plan: rc=$rc out=$out"
 fi
 
 if [[ $failures -gt 0 ]]; then note "$failures failure(s)"; exit 1; fi
