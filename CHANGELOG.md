@@ -1,3 +1,14 @@
+## Unreleased
+
+### Added
+
+- **Adopt script-helpers in a repository** (`docs/adopt.md`): the submodule,
+  the git hooks, what a push checks, the scanners, tests.
+- **Command reference** (`docs/commands.md`): every script under `scripts/`
+  with its usage, options and exit codes, generated from the script headers by
+  `scripts/gen_command_reference.py`. `tests/command_reference_test.sh` fails
+  when the page and the headers disagree.
+
 ## 2026-10-13 — v0.52.0
 
 ### Added
