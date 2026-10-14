@@ -359,7 +359,7 @@ prereqs() {
   fi
   # Not required: push_checks.sh lints a file type only when its tool is here.
   local t have="" lack=""
-  for t in shellcheck ruff actionlint gofmt pwsh; do
+  for t in shellcheck ruff actionlint gofmt rustfmt pwsh; do
     if command -v "$t" >/dev/null 2>&1; then have="$have $t"; else lack="$lack $t"; fi
   done
   echo "  lint      on push:${have:- none}${lack:+; not installed (those files are not linted):$lack}"

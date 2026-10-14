@@ -13,7 +13,8 @@ report a fourth:
 Order in `pre-push`: deletions-only shortcut, private names, credentials,
 personal identifiers and PII, foxguard, then hygiene and lint of the changed
 files (`scripts/push_checks.sh`), then the repository's own `.githooks/pre-push`
-(which still gets the ref lines). No tests run on push: `make test` or
+(which still gets the ref lines). No tests run on push unless the repository
+opts in ([Tests on push](git-hooks.md#tests-on-push-for-repositories-with-no-ci-test-gate)): `make test` or
 `./dev test`. A repository hook cannot skip the checks: it runs after them. The
 security steps live in `scripts/security_hooks.sh`; hygiene and lint are listed
 in [What a push checks](git-hooks.md#what-a-push-checks).

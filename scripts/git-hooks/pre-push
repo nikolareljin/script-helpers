@@ -4,7 +4,8 @@
 #   2. hygiene:  conflict markers, large or secret-looking files, AI trailers,
 #                release CHANGELOG and VERSION
 #   3. lint:     syntax and lint of the files the push changes
-# Tests do not run on push: the full suite is `make test` or `./dev test`
+# Tests do not run on push unless the repository opts in (git config
+# script-helpers.push-tests quick): the full suite is `make test` or `./dev test`
 # (or scripts/run_repo_tests.sh). Every check runs to the end; a large or
 # first push takes longer, and that is fine.
 # Install via: git config core.hooksPath scripts/git-hooks
@@ -140,7 +141,7 @@ if [[ -f .githooks/pre-push ]] && ! [[ .githooks/pre-push -ef "$0" ]]; then
 fi
 
 if [[ -n "${PRE_PUSH_SKIP_TESTS:-}" ]]; then
-  echo "[pre-push] PRE_PUSH_SKIP_TESTS is no longer needed: a push runs no tests."
+  echo "[pre-push] PRE_PUSH_SKIP_TESTS is ignored: a push runs tests only with git config script-helpers.push-tests quick."
 fi
 if [[ "$(git config --get script-helpers.push-tests 2>/dev/null || true)" == quick ]]; then
   echo "[pre-push] All checks passed."

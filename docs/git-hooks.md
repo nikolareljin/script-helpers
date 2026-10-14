@@ -2,7 +2,8 @@
 
 script-helpers ships git hooks that stop secrets, private repository names and
 broken files before they leave your machine. A push runs fast checks of what
-it sends; tests run when you ask for them.
+it sends; tests run when you ask for them, or on push in a repository that
+opts in.
 
 ## What runs when
 
@@ -12,8 +13,9 @@ it sends; tests run when you ask for them.
 | `commit-msg` | `git commit` | a private repository name, credentials or PII in the message |
 | `pre-push` | `git push` | security, hygiene and lint of the commits and files the push sends (below) |
 
-Tests do not run on commit or push. Run them with `make test` or `./dev test`
-(or `scripts/run_repo_tests.sh` in a repository with neither).
+By default, tests do not run on commit or push. Run them with `make test` or
+`./dev test` (or `scripts/script-helpers/scripts/run_repo_tests.sh` in a
+repository with neither).
 
 ### Tests on push, for repositories with no CI test gate
 
@@ -92,7 +94,8 @@ How it reads files:
 - Nothing is written to disk, not even a temporary file: each file goes from git
   to its tool through a pipe.
 - A symbolic link is not linted: the push sends the link, not its target.
-- A lint tool that is not installed is named and skipped; `--status` lists them.
+- A lint tool that is not installed is named and skipped; `--status` lists
+  which of shellcheck, ruff, actionlint, gofmt, rustfmt and pwsh are installed.
 - In a chained setup the checks run once per push.
 
 ## Settings and exceptions

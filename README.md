@@ -154,7 +154,8 @@ Git hooks
 
 Hooks that stop secrets, private repository names and broken files before they
 leave your machine. A push checks only what it sends, usually in seconds; tests
-run when you ask (`make test`, `./dev test`).
+run when you ask (`make test`, `./dev test`), or on push in a repository that
+opts in (`git config script-helpers.push-tests quick`).
 
 ```bash
 git config --global script-helpers.owners <user-or-org>   # once per machine
