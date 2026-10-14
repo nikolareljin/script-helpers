@@ -28,7 +28,7 @@ mkdir -p "$repo"
 git -c init.defaultBranch=main init -q "$repo"
 git -C "$repo" -c user.email=t@localhost -c user.name=t commit -q --allow-empty -m init
 
-hook_run() { ( cd "$repo" && bash "$RUNNER" 2>&1 ); }
+hook_run() { ( cd "$repo" && bash "$RUNNER" ${RUNNER_ARGS:-} 2>&1 ); }
 
 case_is() {   # <label> <expect-rc> <expect-text>
   local label="$1" want_rc="$2" want="$3" out rc
@@ -72,6 +72,12 @@ case_is "a passing tests/*_test.sh allows it" 0 "All checks passed"
 # 3. Nothing to run is not a failure.
 reset_repo
 case_is "a repo with no tests is still allowed" 0 "No test runner detected"
+# --require (the push's opt-in tests): nothing to run is exit 4, not a pass.
+RUNNER_ARGS=--require case_is "--require: a repo with no tests exits 4" 4 "no tests found"
+printf 'test:\n\t@exit 0\n' > "$repo/Makefile"
+RUNNER_ARGS=--require case_is "--require: a passing suite still exits 0" 0 "All checks passed"
+reset_repo
+RUNNER_ARGS=--bogus case_is "an unknown option is a usage error (2)" 2 "unknown option"
 
 # 4. The guard that matters most: calling run_tests in a `||` context disables
 #    set -e inside it, so a failing runner returned 0 and the run passed.

@@ -428,6 +428,13 @@ out="$(hook)"; rc=$?
 [[ $rc -eq 0 ]] && grep -q SUITE-RAN <<<"$out" && grep -q 'tests: passed' <<<"$out" \
   && ok "push-tests quick: a passing suite lets the push through" \
   || error "push-tests quick with a passing suite: exit $rc: $(tail -3 <<<"$out")"
+# Opted in with nothing to run: refused, not reported as passed.
+g rm -q Makefile && g commit -qm "no suite"
+out="$(hook)"; rc=$?
+[[ $rc -eq 1 ]] && grep -q 'no tests found' <<<"$out" && ! grep -q 'tests: passed' <<<"$out" \
+  && ok "push-tests quick with no tests to run refuses" \
+  || error "push-tests quick, no tests: exit $rc: $(grep -E "tests|REFUSED|refused" <<<"$out" | head -5)"
+commit "suite ok" Makefile $'test:\n\t@echo SUITE-RAN; exit 0\n'
 git config script-helpers.push-tests qiuck
 out="$(hook)"; rc=$?
 [[ $rc -eq 1 ]] && grep -q "use quick or off" <<<"$out" && ! grep -q SUITE-RAN <<<"$out" \
@@ -478,6 +485,14 @@ commit "lf" crlf.sh $'#!/usr/bin/env bash\nif true; then\n  echo ok\nfi\n'
 git config core.autocrlf true && rm crlf.sh && git checkout -- crlf.sh
 expect "a script checked out with CRLF is checked as pushed (LF)" 0 ""
 git config --unset core.autocrlf; reset_main
+
+# A file the push adds and a later commit of the same push deletes, sorting
+# last: the tip has no such path, and that must not read as "could not list".
+commit "add" zz-last.txt "x
+"
+g rm -q zz-last.txt && g commit -qm "drop"
+expect "a path added then deleted within the push is not a listing failure" 0 ""
+reset_main
 
 if [[ $failures -gt 0 ]]; then
   echo "[push_checks_test] FAILED ($failures)" >&2
