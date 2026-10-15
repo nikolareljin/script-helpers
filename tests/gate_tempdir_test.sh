@@ -92,6 +92,7 @@ else error "left in TMPDIR by commit/push/preflight: $left"; fi
 
 # Interrupted mid-scan (SIGTERM while foxguard runs), ci_security.sh and
 # preflight.sh still leave nothing. Before, foxguard's three files stayed.
+sr="$tmp/sigrepo"; git init -q "$sr"
 mkdir -p "$tmp/slowbin"
 printf '#!/usr/bin/env bash\n[[ "${1:-}" == --version ]] && { echo "foxguard 0.14.0"; exit 0; }\nsleep 30\n' > "$tmp/slowbin/foxguard"
 chmod +x "$tmp/slowbin/foxguard"
@@ -108,7 +109,10 @@ proc_tree() {  # proc_tree <pid>: the pid and all its descendants (ps works on L
 term_mid_scan() {
   local label="$1" sig_tmp="$tmp/sig-tmp" pid left; shift
   rm -rf "$sig_tmp"; mkdir -p "$sig_tmp"
-  ( cd "$hr" && TMPDIR="$sig_tmp" CI='' PATH="$tmp/slowbin:$PATH" "$@" ) >"$tmp/sig-out" 2>&1 &
+  # An empty cache: foxguard_bin prefers a cached foxguard over PATH, and a CI
+  # runner's real one finishes before the interrupt.
+  rm -rf "$tmp/sig-cache"; mkdir -p "$tmp/sig-cache"
+  ( cd "$sr" && TMPDIR="$sig_tmp" XDG_CACHE_HOME="$tmp/sig-cache" CI='' PATH="$tmp/slowbin:$PATH" "$@" ) >"$tmp/sig-out" 2>&1 &
   pid=$!
   for _ in $(seq 1 600); do
     [[ -n "$(find "$sig_tmp" -type f 2>/dev/null | head -1)" ]] && break
