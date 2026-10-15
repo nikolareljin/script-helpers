@@ -160,6 +160,50 @@ term_mid_scan() {
 term_mid_scan "ci_security.sh" bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker --skip-python --skip-node --skip-gitleaks
 term_mid_scan "preflight.sh" bash "$ROOT_DIR/scripts/preflight.sh" --security-only
 
+# Ctrl-C (SIGINT to the foreground group) and a closed terminal (SIGHUP). A
+# background job of this script ignores SIGINT, so python starts the run in a
+# group of its own and signals that group. Not on Windows: python there cannot
+# signal Git Bash processes.
+# signal_mid_scan <SIG> <label> <command...>
+signal_mid_scan() {
+  local sig="$1" label="$2" sig_tmp="$tmp/sig-tmp" rc=0 left; shift 2
+  rm -rf "$sig_tmp" "$tmp/sig-cache"; mkdir -p "$sig_tmp" "$tmp/sig-cache"
+  tmpdir_honoured "$sig_tmp" "$label $sig case" || return
+  rm -f "$tmp/fox-started"
+  ( cd "$sr" && TMPDIR="$sig_tmp" XDG_CACHE_HOME="$tmp/sig-cache" FOX_STARTED="$tmp/fox-started" CI='' \
+      PATH="$tmp/slowbin:$PATH" python3 -c '
+import os, signal, subprocess, sys, time
+p = subprocess.Popen(sys.argv[2:], start_new_session=True)
+for _ in range(600):
+    if os.path.exists(os.environ["FOX_STARTED"]) and os.path.getsize(os.environ["FOX_STARTED"]):
+        break
+    time.sleep(0.1)
+else:
+    os.killpg(p.pid, signal.SIGKILL); p.wait(); sys.exit(3)
+os.killpg(p.pid, getattr(signal, sys.argv[1]))
+try:
+    p.wait(timeout=30)
+except subprocess.TimeoutExpired:
+    os.killpg(p.pid, signal.SIGKILL); p.wait(); sys.exit(4)
+' "SIG$sig" "$@" ) >"$tmp/sig-out" 2>&1 || rc=$?
+  case "$rc" in
+    3) error "$label: the stub foxguard never started, so $sig was not tested"; tail -15 "$tmp/sig-out" | sed 's/^/    | /' >&2; return ;;
+    4) error "$label: still running 30s after $sig"; return ;;
+  esac
+  for _ in $(seq 1 50); do [[ -z "$(find "$sig_tmp" -mindepth 1 | head -1)" ]] && break; sleep 0.1; done
+  left="$(find "$sig_tmp" -mindepth 1 | head -5)"
+  if [[ -z "$left" ]]; then ok "$label: $sig mid-scan, nothing left in TMPDIR"
+  else error "$label: $sig mid-scan, left in TMPDIR: $left"; fi
+}
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) note "SKIP: SIGINT/SIGHUP mid-scan: python cannot signal Git Bash processes" ;;
+  *)
+    for sig in INT HUP; do
+      signal_mid_scan "$sig" "ci_security.sh" bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker --skip-python --skip-node --skip-gitleaks
+      signal_mid_scan "$sig" "preflight.sh" bash "$ROOT_DIR/scripts/preflight.sh" --security-only
+    done ;;
+esac
+
 # Source check: the hook-path scripts never make a bare temp file.
 for f in scripts/check_private_names.sh scripts/check_sensitive.sh scripts/security_hooks.sh \
          scripts/preflight.sh scripts/ci_security.sh \
