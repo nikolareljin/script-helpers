@@ -75,6 +75,7 @@ _push_tmp="$(mktemp -d 2>/dev/null)" && [[ -n "$_push_tmp" && -d "$_push_tmp" &&
 }
 chmod 700 "$_push_tmp" 2>/dev/null || true
 _push_refs="$_push_tmp/refs"
+_check_refs="$_push_refs"
 # Guarded: a subshell inherits an EXIT trap, and bash runs it there when the
 # subshell is signalled -- so this could tear down the caller's stack, or
 # delete a directory, while the run is still using it. ${BASHPID-$$} rather
@@ -114,15 +115,18 @@ done
 if [[ -n "$_security_lib" ]]; then
   # shellcheck source=/dev/null
   source "$_security_lib"
+  # The checks read _check_refs; the repository's own hook below still gets
+  # exactly what git sent (_push_refs).
   if ! grep -q '[^[:space:]]' "$_push_refs"; then
-    sec_push_head_line "${1:-}" > "$_push_refs"
-    if [[ ! -s "$_push_refs" ]]; then
+    _check_refs="$_push_tmp/check-refs"
+    sec_push_head_line "${1:-}" > "$_check_refs"
+    if [[ ! -s "$_check_refs" ]]; then
       echo "[pre-push] no ref to update; nothing to check."
       exit 0
     fi
     echo "[pre-push] git sent no ref lines; checking HEAD's commits that the remote does not have."
   fi
-  if ! sec_pre_push "$_push_refs" "${1:-}" "${2:-}"; then
+  if ! sec_pre_push "$_check_refs" "${1:-}" "${2:-}"; then
     exit 1
   fi
 else
@@ -139,13 +143,13 @@ fi
 # Hygiene and lint of what the push changes (scripts/push_checks.sh). Not
 # twice: the global dispatcher, when it chains to this hook, has run them for
 # this very push (the hash of these ref lines; any other value is ignored).
-_push_hash="$(git hash-object --stdin < "$_push_refs" 2>/dev/null || true)"
+_push_hash="$(git hash-object --stdin < "$_check_refs" 2>/dev/null || true)"
 if [[ -n "$_push_hash" && "${SCRIPT_HELPERS_PUSH_CHECKED:-}" == "$_push_hash" ]]; then
   echo "[pre-push] hygiene, lint (and opted-in tests): already run for this push by the global hooks."
 elif [[ -n "$_security_lib" && -f "$(dirname "$_security_lib")/push_checks.sh" ]]; then
   # shellcheck source=/dev/null
   source "$(dirname "$_security_lib")/push_checks.sh"
-  push_checks "$_push_refs" "${1:-}" "${2:-}" || exit 1
+  push_checks "$_check_refs" "${1:-}" "${2:-}" || exit 1
   push_tests || exit 1
 else
   # Opted in, but the runner is not here: refuse rather than skip the tests.

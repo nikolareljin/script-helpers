@@ -55,6 +55,17 @@ rc=0; out="$(bash "$HOOK" origin "$tmp/remote.git" < /dev/null 2>&1)" || rc=$?
   || error "no ref lines, unpushed HEAD: rc=$rc out=$out"
 g reset -q --hard "$head"
 
+# 1c. The repository's own .githooks/pre-push still gets exactly what git
+#     sent (no lines), not the HEAD line made up for the checks.
+mkdir -p .githooks
+printf '#!/usr/bin/env bash\nn=$(grep -c . || true)\necho "repo-hook-lines=$n"\n' > .githooks/pre-push
+echo d > d.txt && g add d.txt && g commit -qm d
+rc=0; out="$(bash "$HOOK" origin "$tmp/remote.git" < /dev/null 2>&1)" || rc=$?
+[[ $rc -eq 0 && "$out" == *"repo-hook-lines=0"* ]] && ok "no ref lines: the repository's own pre-push gets no lines" \
+  || error "repo hook stdin: rc=$rc out=$out"
+rm -rf .githooks
+g reset -q --hard "$head"
+
 # 2. A ref line whose local and remote sha are the same sends nothing.
 rc=0; out="$(printf 'refs/heads/main %s refs/heads/main %s\n' "$head" "$head" | bash "$HOOK" origin "$tmp/remote.git" 2>&1)" || rc=$?
 [[ $rc -eq 0 && "$out" == *"no ref to update"* ]] && ok "same sha on both sides: passes with a note" \
