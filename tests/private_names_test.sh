@@ -422,8 +422,28 @@ out="$(cd "$hook_repo" && PRIVATE_NAMES_FILE="$hook_list" PRIVATE_NAMES_AUTO_REF
   bash -c 'source "$1"; sec_private_names "$2" origin git@github.com:testns/hookrepo.git' _ \
   "$ROOT_DIR/scripts/security_hooks.sh" "$tmp/push-refs" 2>&1)"
 rc=$?
-[[ $rc == 1 && "$out" == *"The message of tag refs/heads/rel names"* ]] \
+[[ $rc == 1 && "$out" == *"The message of the tag pushed to refs/heads/rel names"* ]] \
   && ok "a tag pushed to a branch ref is still checked" || error "tag to branch ref: exit $rc: $out"
+
+# Several tags: the refusal names the one with the name, not the first pushed.
+git_t -C "$hook_repo" tag -a rel-0 -m "ships R-111"
+{ printf 'refs/tags/rel-0 %s refs/tags/rel-0 %s\n' "$(git -C "$hook_repo" rev-parse rel-0)" "$zero"
+  printf 'refs/tags/rel-1 %s refs/tags/rel-1 %s\n' "$(git -C "$hook_repo" rev-parse rel-1)" "$zero"; } > "$tmp/push-refs"
+out="$(cd "$hook_repo" && PRIVATE_NAMES_FILE="$hook_list" PRIVATE_NAMES_AUTO_REFRESH=false \
+  bash -c 'source "$1"; sec_private_names "$2" origin git@github.com:testns/hookrepo.git' _ \
+  "$ROOT_DIR/scripts/security_hooks.sh" "$tmp/push-refs" 2>&1)"
+rc=$?
+[[ $rc == 1 && "$out" == *"The message of tag rel-1 names"* ]] \
+  && ok "of several tags, the refusal names the one holding the name" || error "several tags: exit $rc: $out"
+
+# Clean tag messages pass.
+printf 'refs/tags/rel-0 %s refs/tags/rel-0 %s\n' "$(git -C "$hook_repo" rev-parse rel-0)" "$zero" > "$tmp/push-refs"
+( cd "$hook_repo" && PRIVATE_NAMES_FILE="$hook_list" PRIVATE_NAMES_AUTO_REFRESH=false \
+  bash -c 'source "$1"; sec_private_names "$2" origin git@github.com:testns/hookrepo.git' _ \
+  "$ROOT_DIR/scripts/security_hooks.sh" "$tmp/push-refs" >/dev/null 2>&1 )
+rc=$?
+[[ $rc == 0 ]] && ok "a clean tag message passes" || error "a clean tag message was refused: exit $rc"
+git_t -C "$hook_repo" tag -d rel-0 >/dev/null
 git_t -C "$hook_repo" tag -d rel-1 >/dev/null
 
 if command -v python3 >/dev/null 2>&1; then
