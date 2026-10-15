@@ -245,7 +245,6 @@ sec_private_names() {
     # shellcheck disable=SC2086  # revs is a list of git log arguments
     git log --format='%B' $revs >> "$messages" 2>/dev/null || log_failed=1
   done < <(sec_revs "$refs" "$remote")
-  sec_tag_messages "$refs" >> "$messages" || log_failed=1
 
   if [[ "$log_failed" -eq 1 ]]; then
     # Distinct from both "clean" and "found something", because it is neither.
@@ -263,7 +262,45 @@ sec_private_names() {
   elif [[ "$rc" -ne 0 ]]; then
     sec_unchecked pre-push "the private-name check could not run on the commit messages (exit $rc)" || return 1
   fi
-  return 0
+
+  # Tag messages: one gate run over all of them (a run costs ~0.3s, and a
+  # first push can carry hundreds of tags), then, only on a hit, one run per
+  # tag so the refusal names the tag instead of blaming the commit messages.
+  if ! sec_tag_messages "$refs" > "$messages"; then
+    rm -f "$messages"
+    sec_unchecked pre-push "could not read every outgoing tag message" || return 1
+    return 0
+  fi
+  [[ -s "$messages" ]] || { rm -f "$messages"; return 0; }
+  bash "$gate" --file "$messages" --only-public "${target[@]+"${target[@]}"}" >/dev/null 2>&1
+  rc=$?
+  if [[ "$rc" -ne 1 ]]; then
+    rm -f "$messages"
+    [[ "$rc" -eq 0 ]] && return 0
+    sec_unchecked pre-push "the private-name check could not run on the tag messages (exit $rc)" || return 1
+    return 0
+  fi
+
+  local lref lsha rref rsha label="A tag message" one="${refs}.tag"
+  # shellcheck disable=SC2034
+  while read -r lref lsha rref rsha; do
+    # Every ref, not only refs/tags/: a tag object can be pushed to any ref.
+    printf '%s %s %s %s\n' "$lref" "$lsha" "$rref" "${rsha:-}" > "$one"
+    sec_tag_messages "$one" > "$messages" && [[ -s "$messages" ]] || continue
+    bash "$gate" --file "$messages" --only-public "${target[@]+"${target[@]}"}"
+    if [[ $? -eq 1 ]]; then
+      case "$rref" in
+        refs/tags/*) label="The message of tag ${rref#refs/tags/}" ;;
+        *)           label="The message of the tag pushed to $rref" ;;
+      esac
+      break
+    fi
+  done < "$refs"
+  rm -f "$one" "$messages"
+  echo "[pre-push] $label names a private repository." >&2
+  echo "[pre-push] To override:  PRIVATE_NAMES_ALLOW=<term> git push ..." >&2
+  echo "[pre-push]              or git push --no-verify" >&2
+  return 1
 }
 
 # sec_lib_root: the script-helpers copy the security scripts come from (it
