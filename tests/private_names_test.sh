@@ -415,6 +415,15 @@ out="$(cd "$hook_repo" && PRIVATE_NAMES_FILE="$hook_list" PRIVATE_NAMES_AUTO_REF
 rc=$?
 [[ $rc == 1 && "$out" == *"The message of tag rel-1 names a private repository"* && "$out" != *"A commit message"* ]] \
   && ok "pre-push names the tag whose message holds the name" || error "tag-message refusal: exit $rc: $out"
+
+# A tag object pushed to a ref outside refs/tags/ is still checked.
+printf 'refs/tags/rel-1 %s refs/heads/rel %s\n' "$(git -C "$hook_repo" rev-parse rel-1)" "$zero" > "$tmp/push-refs"
+out="$(cd "$hook_repo" && PRIVATE_NAMES_FILE="$hook_list" PRIVATE_NAMES_AUTO_REFRESH=false \
+  bash -c 'source "$1"; sec_private_names "$2" origin git@github.com:testns/hookrepo.git' _ \
+  "$ROOT_DIR/scripts/security_hooks.sh" "$tmp/push-refs" 2>&1)"
+rc=$?
+[[ $rc == 1 && "$out" == *"The message of tag refs/heads/rel names"* ]] \
+  && ok "a tag pushed to a branch ref is still checked" || error "tag to branch ref: exit $rc: $out"
 git_t -C "$hook_repo" tag -d rel-1 >/dev/null
 
 if command -v python3 >/dev/null 2>&1; then

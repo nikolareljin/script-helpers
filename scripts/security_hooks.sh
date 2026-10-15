@@ -268,7 +268,8 @@ sec_private_names() {
   local lref lsha rref rsha tag one="${refs}.tag"
   # shellcheck disable=SC2034
   while read -r lref lsha rref rsha; do
-    [[ "${rref:-}" == refs/tags/* ]] || continue
+    # Every ref, not only refs/tags/: a tag object can be pushed to any ref.
+    [[ -n "${rref:-}" ]] || continue
     tag="${rref#refs/tags/}"
     printf '%s %s %s %s\n' "$lref" "$lsha" "$rref" "${rsha:-}" > "$one"
     if ! sec_tag_messages "$one" > "$messages"; then
