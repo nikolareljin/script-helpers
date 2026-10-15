@@ -192,10 +192,10 @@ pc_hygiene() {
     [[ -n "${lsha:-}" && ! "$lsha" =~ ^0+$ ]] || continue
     v="${rref#refs/heads/release/}"
     [[ "$v" != "$rref" && "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
-    # Only where the repository keeps dated release headings ("## YYYY-MM-DD ...");
-    # another changelog style is not this check's to judge.
-    top="$(git cat-file blob "$lsha:CHANGELOG.md" 2>/dev/null | grep -m1 -E '^##[[:space:]]+[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]' || true)"
-    [[ -n "$top" ]] || continue
+    # Only when the newest release heading is dated ("## YYYY-MM-DD ..."); another
+    # changelog style is not this check's to judge, even above older dated ones.
+    top="$(git cat-file blob "$lsha:CHANGELOG.md" 2>/dev/null | grep -m1 -E '^##[[:space:]]+([0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]|\[?v?[0-9]+\.[0-9]+\.[0-9]+)' || true)"
+    [[ "$top" =~ ^##[[:space:]]+[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]] ]] || continue
     # The format ci-helpers reads release notes from: "## YYYY-MM-DD <em-dash> vX.Y.Z".
     [[ "$top" =~ ^##[[:space:]]+[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+${PC_EMDASH}[[:space:]]+v?[0-9]+\.[0-9]+\.[0-9]+ ]] \
       || pc_find hygiene "release/$v CHANGELOG heading needs an em-dash: '## YYYY-MM-DD <em-dash> v$v', found '$top'"

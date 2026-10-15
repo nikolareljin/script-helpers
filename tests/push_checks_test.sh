@@ -176,6 +176,13 @@ commit "release" CHANGELOG.md $'# Changelog\n\n## [1.2.3] - 2026-10-13\n- x\n'
 expect "a release branch with another changelog style is not judged" 0 "" \
   "refs/heads/release/1.2.3 $(git rev-parse HEAD) refs/heads/release/1.2.3 $zeroes"
 g checkout -q main; reset_main
+# A changelog that switched style: the newest heading is not dated, so the older
+# dated one below it is not taken as the newest release.
+g checkout -q -B release/1.2.3 origin/main
+commit "release" CHANGELOG.md $'# Changelog\n\n## [Unreleased]\n\n## [1.2.3] - 2026-10-13\n- x\n\n## 2026-08-25 \xe2\x80\x94 v1.1.0\n- y\n' VERSION $'1.2.3\n'
+expect "newer headings in another style above a dated one are not judged" 0 "" \
+  "refs/heads/release/1.2.3 $(git rev-parse HEAD) refs/heads/release/1.2.3 $zeroes"
+g checkout -q main; reset_main
 
 # --- lint
 commit "syntax" broken.sh $'#!/usr/bin/env bash\nif then\n'
