@@ -90,6 +90,48 @@ left="$(find "$hook_tmp" -mindepth 1 | head -5)"
 if [[ -z "$left" ]]; then ok "commit, refused commit, push and preflight leave nothing in TMPDIR"
 else error "left in TMPDIR by commit/push/preflight: $left"; fi
 
+# Interrupted mid-scan (SIGTERM while foxguard runs), ci_security.sh and
+# preflight.sh still leave nothing. Before, foxguard's three files stayed.
+mkdir -p "$tmp/slowbin"
+printf '#!/usr/bin/env bash\n[[ "${1:-}" == --version ]] && { echo "foxguard 0.14.0"; exit 0; }\nsleep 30\n' > "$tmp/slowbin/foxguard"
+chmod +x "$tmp/slowbin/foxguard"
+# term_mid_scan <label> <command...>: start it, wait (up to 15s) until a file
+# exists under TMPDIR, TERM its whole process tree at once (what a terminal's
+# Ctrl-C does to the foreground group; setsid is not on macOS), then check
+# TMPDIR is empty.
+proc_tree() {  # proc_tree <pid>: the pid and all its descendants
+  local c
+  printf '%s\n' "$1"
+  for c in $(pgrep -P "$1" 2>/dev/null); do proc_tree "$c"; done
+}
+term_mid_scan() {
+  local label="$1" sig_tmp="$tmp/sig-tmp" pid left; shift
+  rm -rf "$sig_tmp"; mkdir -p "$sig_tmp"
+  ( cd "$hr" && TMPDIR="$sig_tmp" CI='' PATH="$tmp/slowbin:$PATH" "$@" ) >/dev/null 2>&1 &
+  pid=$!
+  for _ in $(seq 1 150); do
+    [[ -n "$(find "$sig_tmp" -type f 2>/dev/null | head -1)" ]] && break
+    sleep 0.1
+  done
+  if [[ -z "$(find "$sig_tmp" -type f 2>/dev/null | head -1)" ]]; then
+    kill "$pid" 2>/dev/null; pkill -f "$tmp/slowbin/foxguard" 2>/dev/null; wait "$pid" 2>/dev/null
+    error "$label: no scratch file appeared, so the interrupt was not tested"; return
+  fi
+  # shellcheck disable=SC2046  # one pid per word
+  kill -TERM $(proc_tree "$pid") 2>/dev/null
+  wait "$pid" 2>/dev/null
+  for _ in $(seq 1 50); do [[ -z "$(find "$sig_tmp" -mindepth 1 | head -1)" ]] && break; sleep 0.1; done
+  left="$(find "$sig_tmp" -mindepth 1 | head -5)"
+  if [[ -z "$left" ]]; then ok "$label: interrupted mid-scan, nothing left in TMPDIR"
+  else error "$label: interrupted mid-scan, left in TMPDIR: $left"; fi
+}
+if command -v pgrep >/dev/null 2>&1; then
+  term_mid_scan "ci_security.sh" bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker --skip-python --skip-node --skip-gitleaks
+  term_mid_scan "preflight.sh" bash "$ROOT_DIR/scripts/preflight.sh" --security-only
+else
+  note "SKIP: pgrep not available; the interrupt cases did not run"
+fi
+
 # Source check: the hook-path scripts never make a bare temp file.
 for f in scripts/check_private_names.sh scripts/check_sensitive.sh scripts/security_hooks.sh \
          scripts/preflight.sh scripts/ci_security.sh \

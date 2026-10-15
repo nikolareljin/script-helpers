@@ -33,7 +33,7 @@
   `$TMPDIR`. Without a temp file preflight also ran on and dropped every
   runner's skip reason; it now refuses. `tests/gate_tempdir_test.sh` checks
   that a commit, a refused commit, a push and a preflight run leave `$TMPDIR`
-  empty.
+  empty, and so does a SIGTERM to either script mid-scan.
 - **`pre-push` names the tag when a tag message holds a private name.** It said
   "A commit message names a private repository"; it now says "The message of
   tag <tag> names a private repository". All tag messages are checked in one
