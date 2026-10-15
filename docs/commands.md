@@ -71,10 +71,10 @@ Usage: bash scripts/run_repo_tests.sh [--require]
 Exit codes:
 
 ```text
-0  the tests passed, or no test runner was found (without --require)
-2  unknown option
-4  no test runner was found (--require)
-other  a test failed: the test runner's own exit code
+0  tests passed, or none found without --require
+1  tests failed (the runner's own exit code is in the message)
+2  usage error
+4  no tests found, with --require
 ```
 
 ### `scripts/security_hooks.sh`

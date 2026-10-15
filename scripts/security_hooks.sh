@@ -164,6 +164,22 @@ sec_changed_files() {
   done < <(sec_revs "$1" "${2:-}") | LC_ALL=C sort -u
 }
 
+# sec_push_head_line <remote-name>: for a push that came with no ref lines,
+# one ref line for HEAD when it has commits the remote's tracking refs lack;
+# nothing when it has none. git sends no lines when every ref is up to date or
+# will be rejected, but a hook manager that drops git's stdin sends none too,
+# and that must not wave the push through: HEAD's unpushed commits are checked
+# instead. A git error prints the line (checked, not skipped).
+sec_push_head_line() {
+  local head ref out
+  head="$(git rev-parse -q --verify 'HEAD^{commit}' 2>/dev/null)" || return 0
+  if out="$(git rev-list -n 1 "$head" --not --remotes="${1:-}" 2>/dev/null)"; then
+    [[ -n "$out" ]] || return 0
+  fi
+  ref="$(git symbolic-ref -q HEAD 2>/dev/null || echo HEAD)"
+  printf '%s %s %s %s\n' "$ref" "$head" "$ref" "${head//?/0}"
+}
+
 # sec_tag_messages <refs-file>: the message of every annotated tag the push
 # sends (each level of a tag of a tag), without its signature. 1 = unreadable.
 sec_tag_messages() {

@@ -8,10 +8,10 @@
 #   -h, --help Show this help message.
 #   Runs in the repository containing the current directory.
 # EXIT_CODES:
-#   0  the tests passed, or no test runner was found (without --require)
-#   2  unknown option
-#   4  no test runner was found (--require)
-#   other  a test failed: the test runner's own exit code
+#   0  tests passed, or none found without --require
+#   1  tests failed (the runner's own exit code is in the message)
+#   2  usage error
+#   4  no tests found, with --require
 # EXAMPLE: bash scripts/script-helpers/scripts/run_repo_tests.sh
 # ----------------------------------------------------
 # This was the test stage of the pre-push hook. A push no longer runs tests
@@ -49,21 +49,22 @@ _ran_tests=false
 # and Android among them. In a repo that has deleted its build workflows this
 # hook is the only remaining gate, so prefer the thorough runner and fall back
 # to the per-language chain below only when it is absent.
-# Returns 127 when preflight is not installed — distinct from any status
-# preflight itself can return, so "not available" can never be confused with
-# "checks failed". Confusing the two would let a failing push through.
+# "Not available" is said in _preflight_absent, not in the exit code: preflight
+# can itself exit 127 (a command it runs is missing), and reading that as "not
+# installed" would let a failing push through.
+_preflight_absent=false
 run_preflight() {
-  local preflight=""
+  local preflight="" rc=0
   if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/preflight.sh" ]]; then
     preflight="$_scripts_dir/preflight.sh"
   else
-    return 127
+    _preflight_absent=true
+    return 0
   fi
   echo "[tests] preflight --quick"
-  bash "$preflight" --quick
+  bash "$preflight" --quick || rc=$?
   # 3 = no stack detected. Not a failure; let the chain below try instead.
-  local rc=$?
-  [[ "$rc" -eq 3 ]] && return 127
+  [[ "$rc" -eq 3 ]] && { _preflight_absent=true; return 0; }
   return "$rc"
 }
 
@@ -73,7 +74,7 @@ run_go_tests_inline() {
   while IFS= read -r gomod; do
     module_dir="$(dirname "$gomod")"
     echo "[tests] go test ./... ($module_dir)"
-    (cd "$module_dir" && go test ./...)
+    (cd "$module_dir" && go test ./...) || return $?
   done < <(
     find . \
       \( -name .git -o -path "*/node_modules" -o -path "*/vendor" \) -prune \
@@ -100,7 +101,7 @@ run_tests() {
       local _php_checked=false
       if [[ -x vendor/bin/pint ]]; then
         echo "[tests] vendor/bin/pint --test"
-        vendor/bin/pint --test
+        vendor/bin/pint --test || return $?
         _php_checked=true
       fi
       if [[ "${SKIP_PHP_TESTS:-}" != "1" ]]; then
@@ -110,7 +111,7 @@ run_tests() {
           _php_checked=true
         elif [[ -x vendor/bin/phpunit ]]; then
           echo "[tests] vendor/bin/phpunit"
-          vendor/bin/phpunit
+          vendor/bin/phpunit || return $?
           _php_checked=true
         fi
       fi
@@ -165,7 +166,7 @@ run_tests() {
 
       if [[ -n "$python_bin" ]] && "$python_bin" -m pytest --version &>/dev/null; then
         echo "[tests] $python_bin -m pytest"
-        "$python_bin" -m pytest --tb=short -q
+        "$python_bin" -m pytest --tb=short -q || return $?
         _ran_tests=true
         return 0
       fi
@@ -183,7 +184,7 @@ run_tests() {
         echo "[tests] local_test_go.sh --quick"
         bash "$_scripts_dir/local_test_go.sh" --quick || return $?
       else
-        run_go_tests_inline
+        run_go_tests_inline || return $?
       fi
       _ran_tests=true
       return 0
@@ -310,14 +311,17 @@ _drop_git_hook_env() {
 }
 _drop_git_hook_env
 
+# A failure is always exit 1, with the runner's code in the message. Passing
+# the runner's code through made `make test` (exit 2) read as a usage error and
+# a runner that exits 4 read as "no tests found".
 _preflight_rc=0
 run_preflight || _preflight_rc=$?
-if [[ "$_preflight_rc" -eq 0 ]]; then
+if [[ "$_preflight_rc" -ne 0 ]]; then
+  echo "[tests] preflight failed (exit $_preflight_rc)." >&2
+  exit 1
+elif [[ "$_preflight_absent" != true ]]; then
   echo "[tests] All checks passed."
   exit 0
-elif [[ "$_preflight_rc" -ne 127 ]]; then
-  echo "[tests] preflight failed." >&2
-  exit "$_preflight_rc"
 fi
 
 # Captured, not left to `set -e`. Calling run_tests in a `||` context disables
@@ -328,7 +332,7 @@ _tests_rc=0
 run_tests || _tests_rc=$?
 if [[ "$_tests_rc" -ne 0 ]]; then
   echo "[tests] tests failed (exit $_tests_rc)." >&2
-  exit "$_tests_rc"
+  exit 1
 fi
 if [[ "$_ran_tests" == "true" ]]; then
   echo "[tests] All checks passed."

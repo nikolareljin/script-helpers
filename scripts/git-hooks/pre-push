@@ -48,6 +48,22 @@ _push_is_deletions_only() {
   [[ "$saw_ref" == "true" ]]
 }
 
+# A push whose every ref line has the same local and remote sha sends nothing.
+# No ref lines at all (an up-to-date or rejected push, or a wrapper that lost
+# git's stdin) is not decided here: see sec_push_head_line below.
+_push_sends_nothing() {
+  local lref lsha rref rsha saw=false
+  # shellcheck disable=SC2034
+  while read -r lref lsha rref rsha; do
+    [[ -n "${lref:-}" ]] || continue                     # a blank line
+    # Anything that is not a well-formed ref line goes to the checks, which
+    # refuse what they cannot read.
+    [[ "${lsha:-}" =~ ^[0-9a-f]{40,64}$ && "$lsha" == "${rsha:-}" ]] || return 1
+    saw=true
+  done
+  [[ "$saw" == true ]]
+}
+
 # git feeds the ref lines on stdin, and they can only be read once. They are
 # needed twice -- for the deletions-only shortcut and to work out which commits
 # are actually going out -- so they are captured first.
@@ -59,6 +75,7 @@ _push_tmp="$(mktemp -d 2>/dev/null)" && [[ -n "$_push_tmp" && -d "$_push_tmp" &&
 }
 chmod 700 "$_push_tmp" 2>/dev/null || true
 _push_refs="$_push_tmp/refs"
+_check_refs="$_push_refs"
 # Guarded: a subshell inherits an EXIT trap, and bash runs it there when the
 # subshell is signalled -- so this could tear down the caller's stack, or
 # delete a directory, while the run is still using it. ${BASHPID-$$} rather
@@ -70,6 +87,10 @@ cat > "$_push_refs" || { echo "[pre-push] could not read the ref lines; refused.
 
 if _push_is_deletions_only < "$_push_refs"; then
   echo "[pre-push] deletions only — no new commits to check."
+  exit 0
+fi
+if _push_sends_nothing < "$_push_refs"; then
+  echo "[pre-push] no ref to update; nothing to check."
   exit 0
 fi
 
@@ -94,7 +115,18 @@ done
 if [[ -n "$_security_lib" ]]; then
   # shellcheck source=/dev/null
   source "$_security_lib"
-  if ! sec_pre_push "$_push_refs" "${1:-}" "${2:-}"; then
+  # The checks read _check_refs; the repository's own hook below still gets
+  # exactly what git sent (_push_refs).
+  if ! grep -q '[^[:space:]]' "$_push_refs"; then
+    _check_refs="$_push_tmp/check-refs"
+    sec_push_head_line "${1:-}" > "$_check_refs"
+    if [[ ! -s "$_check_refs" ]]; then
+      echo "[pre-push] no ref to update; nothing to check."
+      exit 0
+    fi
+    echo "[pre-push] git sent no ref lines; checking HEAD's commits that the remote does not have."
+  fi
+  if ! sec_pre_push "$_check_refs" "${1:-}" "${2:-}"; then
     exit 1
   fi
 else
@@ -111,13 +143,13 @@ fi
 # Hygiene and lint of what the push changes (scripts/push_checks.sh). Not
 # twice: the global dispatcher, when it chains to this hook, has run them for
 # this very push (the hash of these ref lines; any other value is ignored).
-_push_hash="$(git hash-object --stdin < "$_push_refs" 2>/dev/null || true)"
+_push_hash="$(git hash-object --stdin < "$_check_refs" 2>/dev/null || true)"
 if [[ -n "$_push_hash" && "${SCRIPT_HELPERS_PUSH_CHECKED:-}" == "$_push_hash" ]]; then
   echo "[pre-push] hygiene, lint (and opted-in tests): already run for this push by the global hooks."
 elif [[ -n "$_security_lib" && -f "$(dirname "$_security_lib")/push_checks.sh" ]]; then
   # shellcheck source=/dev/null
   source "$(dirname "$_security_lib")/push_checks.sh"
-  push_checks "$_push_refs" "${1:-}" "${2:-}" || exit 1
+  push_checks "$_check_refs" "${1:-}" "${2:-}" || exit 1
   push_tests || exit 1
 else
   # Opted in, but the runner is not here: refuse rather than skip the tests.

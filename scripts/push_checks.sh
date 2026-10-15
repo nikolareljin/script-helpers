@@ -406,10 +406,11 @@ push_tests() {
   pc_say "tests: quick (git config script-helpers.push-tests)"
   t0=$SECONDS
   bash "$PC_DIR/run_repo_tests.sh" --require < /dev/null || rc=$?
-  if [[ "$rc" -ne 0 ]]; then
-    echo "[pre-push] push refused: tests failed (exit $rc)." >&2
-    return 1
-  fi
+  case "$rc" in
+    0) ;;
+    4) echo "[pre-push] push refused: no tests found to run." >&2; return 1 ;;
+    *) echo "[pre-push] push refused: tests failed." >&2; return 1 ;;
+  esac
   pc_say "tests: passed ($((SECONDS - t0)) s)"
   return 0
 }

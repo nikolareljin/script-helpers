@@ -47,7 +47,9 @@ reset_repo() { rm -f "$repo/Makefile" "$repo/package.json"; rm -rf "$repo/tests"
 # 1. A Makefile test target is run, and a failure refuses the push.
 reset_repo
 printf 'test:\n\t@exit 1\n' > "$repo/Makefile"
-case_is "a failing make test fails the run" 2 "tests failed"
+# make exits 2 on a failed target. The run says 1: passing 2 through made a red
+# suite look like a usage error.
+case_is "a failing make test fails the run with exit 1" 1 "tests failed (exit 2)"
 
 reset_repo
 printf 'test:\n\t@exit 0\n' > "$repo/Makefile"
@@ -80,6 +82,22 @@ reset_repo
 RUNNER_ARGS=--bogus case_is "an unknown option is a usage error (2)" 2 "unknown option"
 RUNNER_ARGS=--help case_is "--help prints the header, exit codes included, and exits 0" 0 "EXIT_CODES"
 
+# A runner that exits 4 must not read as "no tests found" (--require's 4).
+reset_repo
+mkdir -p "$repo/tests"
+printf '#!/usr/bin/env bash\nexit 4\n' > "$repo/tests/four_test.sh"
+RUNNER_ARGS=--require case_is "--require: a runner exiting 4 is a failure (1), not 'no tests'" 1 "tests failed (exit 4)"
+
+# A preflight.sh that exits 127 (a command it runs is missing) failed; it was
+# read as "no preflight here" and the run fell through to "no tests", exit 0.
+reset_repo
+mkdir -p "$repo/scripts"
+printf '#!/usr/bin/env bash\nexit 127\n' > "$repo/scripts/preflight.sh"
+case_is "a preflight that exits 127 is a failure, not an absent preflight" 1 "preflight failed (exit 127)"
+printf '#!/usr/bin/env bash\nexit 3\n' > "$repo/scripts/preflight.sh"
+case_is "a preflight that finds no stack (3) still falls through" 0 "No test runner detected"
+rm -rf "$repo/scripts"
+
 # 4. The guard that matters most: calling run_tests in a `||` context disables
 #    set -e inside it, so a failing runner returned 0 and the run passed.
 #    A node repo covers the branches that existed before the shell one.
@@ -90,6 +108,44 @@ if command -v npm >/dev/null 2>&1; then
 else
   note "SKIP: npm not installed, the node branch was not exercised"
 fi
+
+# The PHP, Python and Go runners ran without `|| return`, so inside run_tests
+# (called in a `||` context, set -e off) a failing phpunit, pint, pytest or
+# go test was ignored and the run said "All checks passed". Stand-ins on PATH
+# fail on purpose; each must fail the run.
+fake="$tmp/fakebin"; mkdir -p "$fake"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/php"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/composer"
+printf '#!/usr/bin/env bash\n[[ "$1" == test ]] && exit 1\nexit 0\n' > "$fake/go"
+chmod +x "$fake"/*
+fake_run() { ( cd "$repo" && PATH="$fake:$PATH" bash "$RUNNER" 2>&1 ); }
+fake_case() {   # <label> <expect-text>
+  local out rc
+  out="$(fake_run)"; rc=$?
+  if [[ $rc -eq 1 ]] && grep -q -- "$2" <<<"$out"; then ok "$1"; else error "$1: exit $rc, out: $out"; fi
+}
+php_reset() { rm -rf "$repo/composer.json" "$repo/vendor" "$repo/artisan"; }
+
+reset_repo; php_reset
+printf '{}\n' > "$repo/composer.json"; mkdir -p "$repo/vendor/bin"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$repo/vendor/bin/phpunit"; chmod +x "$repo/vendor/bin/phpunit"
+fake_case "a failing phpunit fails the run" "tests failed (exit 1)"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$repo/vendor/bin/phpunit"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$repo/vendor/bin/pint"; chmod +x "$repo/vendor/bin/pint"
+fake_case "a failing pint --test fails the run" "tests failed (exit 1)"
+php_reset
+
+reset_repo
+printf 'x\n' > "$repo/requirements.txt"; mkdir -p "$repo/.venv/bin"
+printf '#!/usr/bin/env bash\n[[ "$*" == *--version* ]] && exit 0\nexit 1\n' > "$repo/.venv/bin/python"; chmod +x "$repo/.venv/bin/python"
+fake_case "a failing pytest fails the run" "tests failed (exit 1)"
+rm -rf "$repo/requirements.txt" "$repo/.venv"
+
+reset_repo
+mkdir -p "$repo/a" "$repo/b"; printf 'module a\n' > "$repo/a/go.mod"; printf 'module b\n' > "$repo/b/go.mod"
+printf '#!/usr/bin/env bash\n[[ "$1" == test && "$PWD" == */a ]] && exit 1\nexit 0\n' > "$fake/go"
+fake_case "a failing go test in the first of two modules fails the run" "tests failed (exit 1)"
+rm -rf "$repo/a" "$repo/b"
 
 # The runner must not pass git's hook variables to the tests it runs (a repo's
 # own .githooks/pre-push may call it). Git sets GIT_DIR for a hook, pointing at
