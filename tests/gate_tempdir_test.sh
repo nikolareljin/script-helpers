@@ -56,12 +56,24 @@ rc=0; (cd "$repo" && printf 'refs/heads/x %s refs/heads/x %s\n' "$(printf 'a%.0s
 if [[ "$rc" -ne 0 ]] && grep -q 'private temp directory' "$tmp/out"; then ok "pre-push refuses without a temp dir"
 else error "pre-push without a temp dir: rc=$rc, want non-zero"; sed 's/^/    /' "$tmp/out" >&2; fi
 
+# tmpdir_honoured <dir>: mktemp -d creates under TMPDIR=<dir>. macOS's does not
+# (it uses /var/folders/...), and there a leftover check on <dir> would pass
+# without looking at anything, so those checks report SKIP instead.
+tmpdir_honoured() {
+  local probe
+  probe="$(TMPDIR="$1" mktemp -d 2>/dev/null)"; rmdir "$probe" 2>/dev/null
+  case "$probe" in "$1"/*) return 0 ;; esac
+  note "SKIP: $2: mktemp -d ignores TMPDIR here ($probe)"; return 1
+}
+
 # Nothing is left in TMPDIR after a normal run, and no bare files are made there.
 own_tmp="$tmp/own-tmp"; mkdir -p "$own_tmp"
-printf 'hello\n' | TMPDIR="$own_tmp" bash "$ROOT_DIR/scripts/check_private_names.sh" --stdin --names zorblatt-core >/dev/null 2>&1
-printf 'hello\n' | TMPDIR="$own_tmp" bash "$ROOT_DIR/scripts/check_sensitive.sh" --stdin >/dev/null 2>&1
-left="$(find "$own_tmp" -mindepth 1 | head -5)"
-if [[ -z "$left" ]]; then ok "no temp files left behind"; else error "left in TMPDIR: $left"; fi
+if tmpdir_honoured "$own_tmp" "no temp files left behind"; then
+  printf 'hello\n' | TMPDIR="$own_tmp" bash "$ROOT_DIR/scripts/check_private_names.sh" --stdin --names zorblatt-core >/dev/null 2>&1
+  printf 'hello\n' | TMPDIR="$own_tmp" bash "$ROOT_DIR/scripts/check_sensitive.sh" --stdin >/dev/null 2>&1
+  left="$(find "$own_tmp" -mindepth 1 | head -5)"
+  if [[ -z "$left" ]]; then ok "no temp files left behind"; else error "left in TMPDIR: $left"; fi
+fi
 
 # preflight.sh and ci_security.sh refuse without a temp dir (CI unset: both
 # refuse to run in CI before anything else).
@@ -78,6 +90,7 @@ hook_tmp="$tmp/hook-tmp"; mkdir -p "$hook_tmp"
 hr="$tmp/hookrepo"; git init -q "$hr"; git init -q --bare "$tmp/remote.git"
 hg() { git -C "$hr" -c user.name=T -c user.email=t@example.com -c core.hooksPath="$ROOT_DIR/scripts/git-hooks" "$@"; }
 git -C "$hr" remote add origin "$tmp/remote.git"
+if tmpdir_honoured "$hook_tmp" "commit, refused commit, push and preflight leave nothing in TMPDIR"; then
 (
   export TMPDIR="$hook_tmp"
   printf 'key = %s\n' "AKIA""QYLPMN5HHHFPZAM2" > "$hr/b.txt"; hg add b.txt
@@ -89,6 +102,7 @@ git -C "$hr" remote add origin "$tmp/remote.git"
 left="$(find "$hook_tmp" -mindepth 1 | head -5)"
 if [[ -z "$left" ]]; then ok "commit, refused commit, push and preflight leave nothing in TMPDIR"
 else error "left in TMPDIR by commit/push/preflight: $left"; fi
+fi
 
 # Interrupted mid-scan (SIGTERM while foxguard runs), ci_security.sh and
 # preflight.sh still leave nothing. Before, foxguard's three files stayed.
@@ -113,17 +127,12 @@ proc_tree() {  # proc_tree <pid>: the pid and all its descendants (ps works on L
                               if (q == root) print p } }'
 }
 term_mid_scan() {
-  local label="$1" sig_tmp="$tmp/sig-tmp" pid left probe; shift
+  local label="$1" sig_tmp="$tmp/sig-tmp" pid left; shift
   rm -rf "$sig_tmp"; mkdir -p "$sig_tmp"
   # An empty cache: foxguard_bin prefers a cached foxguard over PATH, and a CI
   # runner's real one finishes before the interrupt.
   rm -rf "$tmp/sig-cache"; mkdir -p "$tmp/sig-cache"
-  # Only meaningful where mktemp -d honours TMPDIR; say so where it does not.
-  probe="$(TMPDIR="$sig_tmp" mktemp -d 2>/dev/null)"; rmdir "$probe" 2>/dev/null
-  case "$probe" in
-    "$sig_tmp"/*) ;;
-    *) note "SKIP: $label interrupt case: mktemp -d ignores TMPDIR here ($probe)"; return ;;
-  esac
+  tmpdir_honoured "$sig_tmp" "$label interrupt case" || return
   rm -f "$tmp/fox-started"
   ( cd "$sr" && TMPDIR="$sig_tmp" XDG_CACHE_HOME="$tmp/sig-cache" FOX_STARTED="$tmp/fox-started" CI='' \
       PATH="$tmp/slowbin:$PATH" "$@" ) >"$tmp/sig-out" 2>&1 &
