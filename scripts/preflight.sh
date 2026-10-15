@@ -56,6 +56,16 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
+# One private directory per run (mktemp -d, mode 700), removed on any exit, so
+# an interrupted step leaves nothing under $TMPDIR.
+_pf_tmp="$(mktemp -d 2>/dev/null)" && [[ -n "$_pf_tmp" && -d "$_pf_tmp" && ! -L "$_pf_tmp" ]] || {
+  echo "[preflight] could not create a private temp directory (TMPDIR=${TMPDIR:-unset})." >&2
+  exit 1
+}
+chmod 700 "$_pf_tmp" 2>/dev/null || true
+# Guarded: a subshell inherits an EXIT trap (see the pre-push hook).
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$_pf_tmp"; fi' EXIT
+
 # shellcheck source=/dev/null
 source "$SCRIPT_HELPERS_DIR/helpers.sh"
 shlib_import help logging os foxguard gitleaks
@@ -467,7 +477,8 @@ run_step() {
   print_line 2>/dev/null || true
   log_info "preflight: $label"
   # A runner that cannot check writes its one-line reason here.
-  skip_file="$(mktemp)"
+  skip_file="$_pf_tmp/skip"
+  : > "$skip_file"
   PREFLIGHT_SKIP_FILE="$skip_file" "$@" || rc=$?
   reason="$(head -n 1 "$skip_file" 2>/dev/null || true)"
   rm -f "$skip_file"

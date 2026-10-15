@@ -63,8 +63,36 @@ printf 'hello\n' | TMPDIR="$own_tmp" bash "$ROOT_DIR/scripts/check_sensitive.sh"
 left="$(find "$own_tmp" -mindepth 1 | head -5)"
 if [[ -z "$left" ]]; then ok "no temp files left behind"; else error "left in TMPDIR: $left"; fi
 
+# preflight.sh and ci_security.sh refuse without a temp dir (CI unset: both
+# refuse to run in CI before anything else).
+for s in preflight.sh ci_security.sh; do
+  rc=0; (cd "$repo" && CI='' PATH="$no_tmp_path" bash "$ROOT_DIR/scripts/$s" --help) >"$tmp/out" 2>&1 || rc=$?
+  if [[ "$rc" -ne 0 ]] && grep -q 'private temp directory' "$tmp/out"; then ok "$s refuses without a temp dir"
+  else error "$s without a temp dir: rc=$rc, want non-zero"; sed 's/^/    /' "$tmp/out" >&2; fi
+done
+
+# A commit, a refused commit and a push through the hooks, and a preflight run,
+# leave nothing under TMPDIR. Exit codes are not under test here (no gitleaks
+# in CI); what is left behind is.
+hook_tmp="$tmp/hook-tmp"; mkdir -p "$hook_tmp"
+hr="$tmp/hookrepo"; git init -q "$hr"; git init -q --bare "$tmp/remote.git"
+hg() { git -C "$hr" -c user.name=T -c user.email=t@example.com -c core.hooksPath="$ROOT_DIR/scripts/git-hooks" "$@"; }
+git -C "$hr" remote add origin "$tmp/remote.git"
+(
+  export TMPDIR="$hook_tmp"
+  printf 'key = %s\n' "AKIA""QYLPMN5HHHFPZAM2" > "$hr/b.txt"; hg add b.txt
+  hg commit -q -m "add b"; hg reset -q --hard 2>/dev/null; rm -f "$hr/b.txt"
+  printf 'hello\n' > "$hr/a.txt"; hg add a.txt; hg commit -q -m "add a"
+  hg push -q origin HEAD:main
+  cd "$hr" && CI='' PREFLIGHT_NO_INSTALL=1 bash "$ROOT_DIR/scripts/preflight.sh" --security-only
+) >/dev/null 2>&1
+left="$(find "$hook_tmp" -mindepth 1 | head -5)"
+if [[ -z "$left" ]]; then ok "commit, refused commit, push and preflight leave nothing in TMPDIR"
+else error "left in TMPDIR by commit/push/preflight: $left"; fi
+
 # Source check: the hook-path scripts never make a bare temp file.
 for f in scripts/check_private_names.sh scripts/check_sensitive.sh scripts/security_hooks.sh \
+         scripts/preflight.sh scripts/ci_security.sh \
          scripts/git-hooks/pre-push scripts/global-hooks/dispatch.sh scripts/claude-hooks/pretooluse_private_names.sh; do
   if grep -nE '\$\(mktemp( [^-]|\))' "$ROOT_DIR/$f" >/dev/null; then error "$f uses a bare mktemp file"; else ok "$f: mktemp -d only"; fi
 done

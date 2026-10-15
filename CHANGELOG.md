@@ -27,6 +27,13 @@
 
 ### Fixed
 
+- **`preflight.sh` and `ci_security.sh` keep their scratch files in one private
+  directory per run, removed on exit.** Each made bare `mktemp` files with no
+  trap, so an interrupt or a failed step under `set -e` left them in
+  `$TMPDIR`. Without a temp file preflight also ran on and dropped every
+  runner's skip reason; it now refuses. `tests/gate_tempdir_test.sh` checks
+  that a commit, a refused commit, a push and a preflight run leave `$TMPDIR`
+  empty.
 - **`pre-push` names the tag when a tag message holds a private name.** It said
   "A commit message names a private repository"; it now says "The message of
   tag <tag> names a private repository". All tag messages are checked in one
