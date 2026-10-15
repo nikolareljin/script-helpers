@@ -438,7 +438,7 @@ fi
 # One private directory per run (mktemp -d, mode 700), removed on any exit, so
 # an interrupted step leaves nothing under $TMPDIR. Made after the options, so
 # --help and --list need no temp space.
-_pf_tmp="$(mktemp -d 2>/dev/null)" && [[ -n "$_pf_tmp" && -d "$_pf_tmp" && ! -L "$_pf_tmp" ]] || {
+_pf_tmp="$(mktemp -d "${TMPDIR:-/tmp}/preflight.XXXXXX" 2>/dev/null)" && [[ -n "$_pf_tmp" && -d "$_pf_tmp" && ! -L "$_pf_tmp" ]] || {
   echo "[preflight] could not create a private temp directory (TMPDIR=${TMPDIR:-unset})." >&2
   exit 1
 }

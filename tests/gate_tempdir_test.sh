@@ -56,12 +56,13 @@ rc=0; (cd "$repo" && printf 'refs/heads/x %s refs/heads/x %s\n' "$(printf 'a%.0s
 if [[ "$rc" -ne 0 ]] && grep -q 'private temp directory' "$tmp/out"; then ok "pre-push refuses without a temp dir"
 else error "pre-push without a temp dir: rc=$rc, want non-zero"; sed 's/^/    /' "$tmp/out" >&2; fi
 
-# tmpdir_honoured <dir>: mktemp -d creates under TMPDIR=<dir>. macOS's does not
-# (it uses /var/folders/...), and there a leftover check on <dir> would pass
-# without looking at anything, so those checks report SKIP instead.
+# tmpdir_honoured <dir>: the gates' mktemp -d "${TMPDIR:-/tmp}/x.XXXXXX" creates
+# under TMPDIR=<dir>. Without a template macOS ignores TMPDIR (/var/folders/...),
+# so the gates pass one; if it still lands elsewhere, a leftover check on <dir>
+# would pass without looking at anything, so those checks report SKIP instead.
 tmpdir_honoured() {
   local probe
-  probe="$(TMPDIR="$1" mktemp -d 2>/dev/null)"; rmdir "$probe" 2>/dev/null
+  probe="$(TMPDIR="$1" mktemp -d "$1/probe.XXXXXX" 2>/dev/null)"; rmdir "$probe" 2>/dev/null
   case "$probe" in "$1"/*) return 0 ;; esac
   note "SKIP: $2: mktemp -d ignores TMPDIR here ($probe)"; return 1
 }
@@ -208,7 +209,10 @@ esac
 for f in scripts/check_private_names.sh scripts/check_sensitive.sh scripts/security_hooks.sh \
          scripts/preflight.sh scripts/ci_security.sh \
          scripts/git-hooks/pre-push scripts/global-hooks/dispatch.sh scripts/claude-hooks/pretooluse_private_names.sh; do
-  if grep -nE '\$\(mktemp( [^-]|\))' "$ROOT_DIR/$f" >/dev/null; then error "$f uses a bare mktemp file"; else ok "$f: mktemp -d only"; fi
+  if grep -nE '\$\(mktemp( [^-]|\))' "$ROOT_DIR/$f" >/dev/null; then error "$f uses a bare mktemp file"
+  # Without a template, macOS's mktemp -d ignores TMPDIR.
+  elif grep -nE 'mktemp -d( 2>|\))' "$ROOT_DIR/$f" >/dev/null; then error "$f: mktemp -d without a \${TMPDIR:-/tmp} template"
+  else ok "$f: mktemp -d only, under TMPDIR"; fi
 done
 
 if [[ "$failures" -gt 0 ]]; then note "$failures failure(s)"; exit 1; fi

@@ -114,7 +114,7 @@ fi
 # One private directory per run (mktemp -d, mode 700), removed on any exit:
 # under set -e a failed step would otherwise leave its files under $TMPDIR.
 # Made after the options, so --help and the install verbs need no temp space.
-_sec_tmp="$(mktemp -d 2>/dev/null)" && [[ -n "$_sec_tmp" && -d "$_sec_tmp" && ! -L "$_sec_tmp" ]] || {
+_sec_tmp="$(mktemp -d "${TMPDIR:-/tmp}/ci_security.XXXXXX" 2>/dev/null)" && [[ -n "$_sec_tmp" && -d "$_sec_tmp" && ! -L "$_sec_tmp" ]] || {
   echo "[ci_security] could not create a private temp directory (TMPDIR=${TMPDIR:-unset})." >&2
   exit 1
 }

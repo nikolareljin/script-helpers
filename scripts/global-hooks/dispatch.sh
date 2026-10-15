@@ -41,7 +41,7 @@ trap 'if [[ ${BASHPID-$$} == "$$" ]]; then cleanup; fi' EXIT
 case "$hook" in
   pre-push|post-rewrite|reference-transaction|pre-receive|post-receive|proc-receive)
     # A private per-run directory (mktemp -d, mode 700), never a bare file in TMPDIR.
-    stdin_dir="$(mktemp -d 2>/dev/null)" && [[ -n "$stdin_dir" && -d "$stdin_dir" && ! -L "$stdin_dir" ]] || {
+    stdin_dir="$(mktemp -d "${TMPDIR:-/tmp}/dispatch.XXXXXX" 2>/dev/null)" && [[ -n "$stdin_dir" && -d "$stdin_dir" && ! -L "$stdin_dir" ]] || {
       echo "[script-helpers] global hooks: could not create a private temp directory; refused." >&2
       exit 1
     }

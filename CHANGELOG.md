@@ -36,6 +36,10 @@
   that a commit, a refused commit, a push and a preflight run leave `$TMPDIR`
   empty, and so does a SIGTERM, SIGINT (Ctrl-C) or SIGHUP to either script
   mid-scan.
+- **The security gates' temp directories honour `TMPDIR` on macOS.** Every
+  gate's `mktemp -d` now passes a `${TMPDIR:-/tmp}/<gate>.XXXXXX` template:
+  without one, BSD `mktemp` ignores `TMPDIR`, and the leftover checks above
+  could not look in the right place on macOS.
 - **`pre-push` names the tag when a tag message holds a private name.** It said
   "A commit message names a private repository"; it now says "The message of
   tag <tag> names a private repository". All tag messages are checked in one
