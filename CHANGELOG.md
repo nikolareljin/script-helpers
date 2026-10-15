@@ -31,7 +31,8 @@
   directory per run, removed on exit.** Each made bare `mktemp` files with no
   trap, so an interrupt or a failed step under `set -e` left them in
   `$TMPDIR`. Without a temp file preflight also ran on and dropped every
-  runner's skip reason; it now refuses. `tests/gate_tempdir_test.sh` checks
+  runner's skip reason; it now refuses (`--help`, `--list` and the install
+  options still work without one). `tests/gate_tempdir_test.sh` checks
   that a commit, a refused commit, a push and a preflight run leave `$TMPDIR`
   empty, and so does a SIGTERM to either script mid-scan.
 - **`pre-push` names the tag when a tag message holds a private name.** It said

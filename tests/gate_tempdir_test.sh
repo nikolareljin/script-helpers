@@ -75,12 +75,17 @@ if tmpdir_honoured "$own_tmp" "no temp files left behind"; then
   if [[ -z "$left" ]]; then ok "no temp files left behind"; else error "left in TMPDIR: $left"; fi
 fi
 
-# preflight.sh and ci_security.sh refuse without a temp dir (CI unset: both
-# refuse to run in CI before anything else).
-for s in preflight.sh ci_security.sh; do
-  rc=0; (cd "$repo" && CI='' PATH="$no_tmp_path" bash "$ROOT_DIR/scripts/$s" --help) >"$tmp/out" 2>&1 || rc=$?
+# preflight.sh and ci_security.sh refuse to run without a temp dir, but --help
+# needs none (CI unset: both refuse to run in CI before anything else).
+for run in "preflight.sh --security-only" "ci_security.sh"; do
+  s="${run%% *}"
+  # shellcheck disable=SC2086  # $run is the script and its options
+  rc=0; (cd "$repo" && CI='' PATH="$no_tmp_path" bash "$ROOT_DIR/scripts/"$run) >"$tmp/out" 2>&1 || rc=$?
   if [[ "$rc" -ne 0 ]] && grep -q 'private temp directory' "$tmp/out"; then ok "$s refuses without a temp dir"
   else error "$s without a temp dir: rc=$rc, want non-zero"; sed 's/^/    /' "$tmp/out" >&2; fi
+  rc=0; (cd "$repo" && CI='' PATH="$no_tmp_path" bash "$ROOT_DIR/scripts/$s" --help) >"$tmp/out" 2>&1 || rc=$?
+  if [[ "$rc" -eq 0 ]]; then ok "$s --help needs no temp dir"
+  else error "$s --help without a temp dir: rc=$rc, want 0"; sed 's/^/    /' "$tmp/out" >&2; fi
 done
 
 # A commit, a refused commit and a push through the hooks, and a preflight run,

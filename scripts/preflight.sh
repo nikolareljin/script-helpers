@@ -56,16 +56,6 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
-# One private directory per run (mktemp -d, mode 700), removed on any exit, so
-# an interrupted step leaves nothing under $TMPDIR.
-_pf_tmp="$(mktemp -d 2>/dev/null)" && [[ -n "$_pf_tmp" && -d "$_pf_tmp" && ! -L "$_pf_tmp" ]] || {
-  echo "[preflight] could not create a private temp directory (TMPDIR=${TMPDIR:-unset})." >&2
-  exit 1
-}
-chmod 700 "$_pf_tmp" 2>/dev/null || true
-# Guarded: a subshell inherits an EXIT trap (see the pre-push hook).
-trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$_pf_tmp"; fi' EXIT
-
 # shellcheck source=/dev/null
 source "$SCRIPT_HELPERS_DIR/helpers.sh"
 shlib_import help logging os foxguard gitleaks
@@ -444,6 +434,17 @@ if [[ "$SKIP_SECURITY" == "true" && "$SECURITY_ONLY" == "true" ]]; then
   echo "--skip-security and --security-only cannot be combined" >&2
   exit 2
 fi
+
+# One private directory per run (mktemp -d, mode 700), removed on any exit, so
+# an interrupted step leaves nothing under $TMPDIR. Made after the options, so
+# --help and --list need no temp space.
+_pf_tmp="$(mktemp -d 2>/dev/null)" && [[ -n "$_pf_tmp" && -d "$_pf_tmp" && ! -L "$_pf_tmp" ]] || {
+  echo "[preflight] could not create a private temp directory (TMPDIR=${TMPDIR:-unset})." >&2
+  exit 1
+}
+chmod 700 "$_pf_tmp" 2>/dev/null || true
+# Guarded: a subshell inherits an EXIT trap (see the pre-push hook).
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$_pf_tmp"; fi' EXIT
 
 # The projects whose dependencies the security step audits, kept before the
 # security-only mode empties PAIRS: a dependency audit reads a project's
