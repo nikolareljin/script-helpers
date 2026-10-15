@@ -94,10 +94,16 @@ else error "left in TMPDIR by commit/push/preflight: $left"; fi
 # preflight.sh still leave nothing. Before, foxguard's three files stayed.
 sr="$tmp/sigrepo"; git init -q "$sr"
 mkdir -p "$tmp/slowbin"
-printf '#!/usr/bin/env bash\n[[ "${1:-}" == --version ]] && { echo "foxguard 0.14.0"; exit 0; }\nsleep 30\n' > "$tmp/slowbin/foxguard"
+# The stub writes its arguments to a marker when the scan starts, then sleeps.
+cat > "$tmp/slowbin/foxguard" <<'EOF'
+#!/usr/bin/env bash
+[[ "${1:-}" == --version ]] && { echo "foxguard 0.14.0"; exit 0; }
+printf '%s\n' "$*" > "$FOX_STARTED"
+sleep 30
+EOF
 chmod +x "$tmp/slowbin/foxguard"
-# term_mid_scan <label> <command...>: start it, wait (up to 60s) until a file
-# exists under TMPDIR, TERM its whole process tree at once (what a terminal's
+# term_mid_scan <label> <command...>: start it, wait (up to 60s) until the stub
+# foxguard has started, TERM its whole process tree at once (what a terminal's
 # Ctrl-C does to the foreground group; setsid is not on macOS), then check
 # TMPDIR is empty.
 proc_tree() {  # proc_tree <pid>: the pid and all its descendants (ps works on Linux and macOS)
@@ -107,21 +113,26 @@ proc_tree() {  # proc_tree <pid>: the pid and all its descendants (ps works on L
                               if (q == root) print p } }'
 }
 term_mid_scan() {
-  local label="$1" sig_tmp="$tmp/sig-tmp" pid left; shift
+  local label="$1" sig_tmp="$tmp/sig-tmp" pid left probe; shift
   rm -rf "$sig_tmp"; mkdir -p "$sig_tmp"
   # An empty cache: foxguard_bin prefers a cached foxguard over PATH, and a CI
   # runner's real one finishes before the interrupt.
   rm -rf "$tmp/sig-cache"; mkdir -p "$tmp/sig-cache"
-  ( cd "$sr" && TMPDIR="$sig_tmp" XDG_CACHE_HOME="$tmp/sig-cache" CI='' PATH="$tmp/slowbin:$PATH" "$@" ) >"$tmp/sig-out" 2>&1 &
+  # Only meaningful where mktemp -d honours TMPDIR; say so where it does not.
+  probe="$(TMPDIR="$sig_tmp" mktemp -d 2>/dev/null)"; rmdir "$probe" 2>/dev/null
+  case "$probe" in
+    "$sig_tmp"/*) ;;
+    *) note "SKIP: $label interrupt case: mktemp -d ignores TMPDIR here ($probe)"; return ;;
+  esac
+  rm -f "$tmp/fox-started"
+  ( cd "$sr" && TMPDIR="$sig_tmp" XDG_CACHE_HOME="$tmp/sig-cache" FOX_STARTED="$tmp/fox-started" CI='' \
+      PATH="$tmp/slowbin:$PATH" "$@" ) >"$tmp/sig-out" 2>&1 &
   pid=$!
-  for _ in $(seq 1 600); do
-    [[ -n "$(find "$sig_tmp" -type f 2>/dev/null | head -1)" ]] && break
-    sleep 0.1
-  done
-  if [[ -z "$(find "$sig_tmp" -type f 2>/dev/null | head -1)" ]]; then
+  for _ in $(seq 1 600); do [[ -s "$tmp/fox-started" ]] && break; sleep 0.1; done
+  if [[ ! -s "$tmp/fox-started" ]]; then
     # shellcheck disable=SC2046  # one pid per word
     kill -TERM $(proc_tree "$pid") 2>/dev/null; wait "$pid" 2>/dev/null
-    error "$label: no scratch file appeared, so the interrupt was not tested"
+    error "$label: the stub foxguard never started, so the interrupt was not tested"
     tail -15 "$tmp/sig-out" | sed 's/^/    | /' >&2; return
   fi
   # shellcheck disable=SC2046  # one pid per word
@@ -130,7 +141,7 @@ term_mid_scan() {
   for _ in $(seq 1 50); do [[ -z "$(find "$sig_tmp" -mindepth 1 | head -1)" ]] && break; sleep 0.1; done
   left="$(find "$sig_tmp" -mindepth 1 | head -5)"
   if [[ -z "$left" ]]; then ok "$label: interrupted mid-scan, nothing left in TMPDIR"
-  else error "$label: interrupted mid-scan, left in TMPDIR: $left"; fi
+  else error "$label: interrupted mid-scan, left in TMPDIR: $left (foxguard ran with: $(cat "$tmp/fox-started"))"; fi
 }
 term_mid_scan "ci_security.sh" bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker --skip-python --skip-node --skip-gitleaks
 term_mid_scan "preflight.sh" bash "$ROOT_DIR/scripts/preflight.sh" --security-only
