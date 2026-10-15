@@ -145,7 +145,7 @@ fi
 # One private directory per run (mktemp -d, mode 700, random name); every
 # scratch file lives in it. Refuse when it cannot be made: an empty $work would
 # write to /hard, /entries ... and the scan would pass over an empty list.
-work="$(mktemp -d 2>/dev/null)" && [[ -n "$work" && -d "$work" && ! -L "$work" ]] || {
+work="$(mktemp -d "${TMPDIR:-/tmp}/check_private_names.XXXXXX" 2>/dev/null)" && [[ -n "$work" && -d "$work" && ! -L "$work" ]] || {
   log_error "could not create a private temp directory (TMPDIR=${TMPDIR:-unset}); NOT checked."
   exit 2
 }

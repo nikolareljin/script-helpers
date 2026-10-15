@@ -101,7 +101,7 @@ fi
 # reading its own source as the payload -- and every call would sail through.
 # Every file this hook writes lives in one private directory (mktemp -d is
 # mode 700), so another user cannot predict or replace any of them.
-work_dir="$(mktemp -d 2>/dev/null)" && [[ -d "$work_dir" && ! -L "$work_dir" ]] || {
+work_dir="$(mktemp -d "${TMPDIR:-/tmp}/pretooluse.XXXXXX" 2>/dev/null)" && [[ -d "$work_dir" && ! -L "$work_dir" ]] || {
   echo "The security gate could not create a private temp directory; refused." >&2
   printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"The security gate could not create a temp directory."}}'
   exit 2

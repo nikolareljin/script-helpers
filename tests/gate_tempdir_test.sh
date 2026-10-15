@@ -56,17 +56,163 @@ rc=0; (cd "$repo" && printf 'refs/heads/x %s refs/heads/x %s\n' "$(printf 'a%.0s
 if [[ "$rc" -ne 0 ]] && grep -q 'private temp directory' "$tmp/out"; then ok "pre-push refuses without a temp dir"
 else error "pre-push without a temp dir: rc=$rc, want non-zero"; sed 's/^/    /' "$tmp/out" >&2; fi
 
+# tmpdir_honoured <dir>: the gates' mktemp -d "${TMPDIR:-/tmp}/x.XXXXXX" creates
+# under TMPDIR=<dir>. Without a template macOS ignores TMPDIR (/var/folders/...),
+# so the gates pass one; if it still lands elsewhere, a leftover check on <dir>
+# would pass without looking at anything, so those checks report SKIP instead.
+tmpdir_honoured() {
+  local probe
+  probe="$(TMPDIR="$1" mktemp -d "$1/probe.XXXXXX" 2>/dev/null)"; rmdir "$probe" 2>/dev/null
+  case "$probe" in "$1"/*) return 0 ;; esac
+  note "SKIP: $2: mktemp -d ignores TMPDIR here ($probe)"; return 1
+}
+
 # Nothing is left in TMPDIR after a normal run, and no bare files are made there.
 own_tmp="$tmp/own-tmp"; mkdir -p "$own_tmp"
-printf 'hello\n' | TMPDIR="$own_tmp" bash "$ROOT_DIR/scripts/check_private_names.sh" --stdin --names zorblatt-core >/dev/null 2>&1
-printf 'hello\n' | TMPDIR="$own_tmp" bash "$ROOT_DIR/scripts/check_sensitive.sh" --stdin >/dev/null 2>&1
-left="$(find "$own_tmp" -mindepth 1 | head -5)"
-if [[ -z "$left" ]]; then ok "no temp files left behind"; else error "left in TMPDIR: $left"; fi
+if tmpdir_honoured "$own_tmp" "no temp files left behind"; then
+  printf 'hello\n' | TMPDIR="$own_tmp" bash "$ROOT_DIR/scripts/check_private_names.sh" --stdin --names zorblatt-core >/dev/null 2>&1
+  printf 'hello\n' | TMPDIR="$own_tmp" bash "$ROOT_DIR/scripts/check_sensitive.sh" --stdin >/dev/null 2>&1
+  left="$(find "$own_tmp" -mindepth 1 | head -5)"
+  if [[ -z "$left" ]]; then ok "no temp files left behind"; else error "left in TMPDIR: $left"; fi
+fi
+
+# preflight.sh and ci_security.sh refuse to run without a temp dir, but --help
+# needs none (CI unset: both refuse to run in CI before anything else).
+for run in "preflight.sh --security-only" "ci_security.sh"; do
+  s="${run%% *}"
+  # shellcheck disable=SC2086  # $run is the script and its options
+  rc=0; (cd "$repo" && CI='' PATH="$no_tmp_path" bash "$ROOT_DIR/scripts/"$run) >"$tmp/out" 2>&1 || rc=$?
+  if [[ "$rc" -ne 0 ]] && grep -q 'private temp directory' "$tmp/out"; then ok "$s refuses without a temp dir"
+  else error "$s without a temp dir: rc=$rc, want non-zero"; sed 's/^/    /' "$tmp/out" >&2; fi
+  rc=0; (cd "$repo" && CI='' PATH="$no_tmp_path" bash "$ROOT_DIR/scripts/$s" --help) >"$tmp/out" 2>&1 || rc=$?
+  if [[ "$rc" -eq 0 ]]; then ok "$s --help needs no temp dir"
+  else error "$s --help without a temp dir: rc=$rc, want 0"; sed 's/^/    /' "$tmp/out" >&2; fi
+done
+
+# A commit, a refused commit and a push through the hooks, and a preflight run,
+# leave nothing under TMPDIR. Exit codes are not under test here (no gitleaks
+# in CI); what is left behind is.
+hook_tmp="$tmp/hook-tmp"; mkdir -p "$hook_tmp"
+hr="$tmp/hookrepo"; git init -q "$hr"; git init -q --bare "$tmp/remote.git"
+hg() { git -C "$hr" -c user.name=T -c user.email=t@example.com -c core.hooksPath="$ROOT_DIR/scripts/git-hooks" "$@"; }
+git -C "$hr" remote add origin "$tmp/remote.git"
+if tmpdir_honoured "$hook_tmp" "commit, refused commit, push and preflight leave nothing in TMPDIR"; then
+(
+  export TMPDIR="$hook_tmp"
+  printf 'key = %s\n' "AKIA""QYLPMN5HHHFPZAM2" > "$hr/b.txt"; hg add b.txt
+  hg commit -q -m "add b"; hg reset -q --hard 2>/dev/null; rm -f "$hr/b.txt"
+  printf 'hello\n' > "$hr/a.txt"; hg add a.txt; hg commit -q -m "add a"
+  hg push -q origin HEAD:main
+  cd "$hr" && CI='' PREFLIGHT_NO_INSTALL=1 bash "$ROOT_DIR/scripts/preflight.sh" --security-only
+) >/dev/null 2>&1
+left="$(find "$hook_tmp" -mindepth 1 | head -5)"
+if [[ -z "$left" ]]; then ok "commit, refused commit, push and preflight leave nothing in TMPDIR"
+else error "left in TMPDIR by commit/push/preflight: $left"; fi
+fi
+
+# Interrupted mid-scan (SIGTERM while foxguard runs), ci_security.sh and
+# preflight.sh still leave nothing. Before, foxguard's three files stayed.
+sr="$tmp/sigrepo"; git init -q "$sr"
+mkdir -p "$tmp/slowbin"
+# The stub writes its arguments to a marker when the scan starts, then sleeps.
+cat > "$tmp/slowbin/foxguard" <<'EOF'
+#!/usr/bin/env bash
+[[ "${1:-}" == --version ]] && { echo "foxguard 0.14.0"; exit 0; }
+printf '%s\n' "$*" > "$FOX_STARTED"
+sleep 30
+EOF
+chmod +x "$tmp/slowbin/foxguard"
+# term_mid_scan <label> <command...>: start it, wait (up to 60s) until the stub
+# foxguard has started, TERM its whole process tree at once (what a terminal's
+# Ctrl-C does to the foreground group; setsid is not on macOS), then check
+# TMPDIR is empty.
+proc_tree() {  # proc_tree <pid>: the pid and all its descendants (ps works on Linux and macOS)
+  ps -A -o pid= -o ppid= | awk -v root="$1" '
+    { parent[$1] = $2 }
+    END { for (p in parent) { q = p; while (q != "" && q != root && q in parent && q != parent[q]) q = parent[q]
+                              if (q == root) print p } }'
+}
+term_mid_scan() {
+  local label="$1" sig_tmp="$tmp/sig-tmp" pid left; shift
+  rm -rf "$sig_tmp"; mkdir -p "$sig_tmp"
+  # An empty cache: foxguard_bin prefers a cached foxguard over PATH, and a CI
+  # runner's real one finishes before the interrupt.
+  rm -rf "$tmp/sig-cache"; mkdir -p "$tmp/sig-cache"
+  tmpdir_honoured "$sig_tmp" "$label interrupt case" || return
+  rm -f "$tmp/fox-started"
+  ( cd "$sr" && TMPDIR="$sig_tmp" XDG_CACHE_HOME="$tmp/sig-cache" FOX_STARTED="$tmp/fox-started" CI='' \
+      PATH="$tmp/slowbin:$PATH" "$@" ) >"$tmp/sig-out" 2>&1 &
+  pid=$!
+  for _ in $(seq 1 600); do [[ -s "$tmp/fox-started" ]] && break; sleep 0.1; done
+  if [[ ! -s "$tmp/fox-started" ]]; then
+    # shellcheck disable=SC2046  # one pid per word
+    kill -TERM $(proc_tree "$pid") 2>/dev/null; wait "$pid" 2>/dev/null
+    error "$label: the stub foxguard never started, so the interrupt was not tested"
+    tail -15 "$tmp/sig-out" | sed 's/^/    | /' >&2; return
+  fi
+  # shellcheck disable=SC2046  # one pid per word
+  kill -TERM $(proc_tree "$pid") 2>/dev/null
+  wait "$pid" 2>/dev/null
+  for _ in $(seq 1 50); do [[ -z "$(find "$sig_tmp" -mindepth 1 | head -1)" ]] && break; sleep 0.1; done
+  left="$(find "$sig_tmp" -mindepth 1 | head -5)"
+  if [[ -z "$left" ]]; then ok "$label: interrupted mid-scan, nothing left in TMPDIR"
+  else error "$label: interrupted mid-scan, left in TMPDIR: $left (foxguard ran with: $(cat "$tmp/fox-started"))"; fi
+}
+term_mid_scan "ci_security.sh" bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker --skip-python --skip-node --skip-gitleaks
+term_mid_scan "preflight.sh" bash "$ROOT_DIR/scripts/preflight.sh" --security-only
+
+# Ctrl-C (SIGINT to the foreground group) and a closed terminal (SIGHUP). A
+# background job of this script ignores SIGINT, so python starts the run in a
+# group of its own and signals that group. Not on Windows: python there cannot
+# signal Git Bash processes.
+# signal_mid_scan <SIG> <label> <command...>
+signal_mid_scan() {
+  local sig="$1" label="$2" sig_tmp="$tmp/sig-tmp" rc=0 left; shift 2
+  rm -rf "$sig_tmp" "$tmp/sig-cache"; mkdir -p "$sig_tmp" "$tmp/sig-cache"
+  tmpdir_honoured "$sig_tmp" "$label $sig case" || return
+  rm -f "$tmp/fox-started"
+  ( cd "$sr" && TMPDIR="$sig_tmp" XDG_CACHE_HOME="$tmp/sig-cache" FOX_STARTED="$tmp/fox-started" CI='' \
+      PATH="$tmp/slowbin:$PATH" python3 -c '
+import os, signal, subprocess, sys, time
+p = subprocess.Popen(sys.argv[2:], start_new_session=True)
+for _ in range(600):
+    if os.path.exists(os.environ["FOX_STARTED"]) and os.path.getsize(os.environ["FOX_STARTED"]):
+        break
+    time.sleep(0.1)
+else:
+    os.killpg(p.pid, signal.SIGKILL); p.wait(); sys.exit(3)
+os.killpg(p.pid, getattr(signal, sys.argv[1]))
+try:
+    p.wait(timeout=30)
+except subprocess.TimeoutExpired:
+    os.killpg(p.pid, signal.SIGKILL); p.wait(); sys.exit(4)
+' "SIG$sig" "$@" ) >"$tmp/sig-out" 2>&1 || rc=$?
+  case "$rc" in
+    3) error "$label: the stub foxguard never started, so $sig was not tested"; tail -15 "$tmp/sig-out" | sed 's/^/    | /' >&2; return ;;
+    4) error "$label: still running 30s after $sig"; return ;;
+  esac
+  for _ in $(seq 1 50); do [[ -z "$(find "$sig_tmp" -mindepth 1 | head -1)" ]] && break; sleep 0.1; done
+  left="$(find "$sig_tmp" -mindepth 1 | head -5)"
+  if [[ -z "$left" ]]; then ok "$label: $sig mid-scan, nothing left in TMPDIR"
+  else error "$label: $sig mid-scan, left in TMPDIR: $left"; fi
+}
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) note "SKIP: SIGINT/SIGHUP mid-scan: python cannot signal Git Bash processes" ;;
+  *)
+    for sig in INT HUP; do
+      signal_mid_scan "$sig" "ci_security.sh" bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker --skip-python --skip-node --skip-gitleaks
+      signal_mid_scan "$sig" "preflight.sh" bash "$ROOT_DIR/scripts/preflight.sh" --security-only
+    done ;;
+esac
 
 # Source check: the hook-path scripts never make a bare temp file.
 for f in scripts/check_private_names.sh scripts/check_sensitive.sh scripts/security_hooks.sh \
+         scripts/preflight.sh scripts/ci_security.sh \
          scripts/git-hooks/pre-push scripts/global-hooks/dispatch.sh scripts/claude-hooks/pretooluse_private_names.sh; do
-  if grep -nE '\$\(mktemp( [^-]|\))' "$ROOT_DIR/$f" >/dev/null; then error "$f uses a bare mktemp file"; else ok "$f: mktemp -d only"; fi
+  if grep -nE '\$\(mktemp( [^-]|\))' "$ROOT_DIR/$f" >/dev/null; then error "$f uses a bare mktemp file"
+  # Without a template, macOS's mktemp -d ignores TMPDIR.
+  elif grep -nE 'mktemp -d( 2>|\))' "$ROOT_DIR/$f" >/dev/null; then error "$f: mktemp -d without a \${TMPDIR:-/tmp} template"
+  else ok "$f: mktemp -d only, under TMPDIR"; fi
 done
 
 if [[ "$failures" -gt 0 ]]; then note "$failures failure(s)"; exit 1; fi

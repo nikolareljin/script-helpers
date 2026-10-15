@@ -111,6 +111,17 @@ if [[ "$INSTALL_FOXGUARD" == "true" ]]; then
   exit $?
 fi
 
+# One private directory per run (mktemp -d, mode 700), removed on any exit:
+# under set -e a failed step would otherwise leave its files under $TMPDIR.
+# Made after the options, so --help and the install verbs need no temp space.
+_sec_tmp="$(mktemp -d "${TMPDIR:-/tmp}/ci_security.XXXXXX" 2>/dev/null)" && [[ -n "$_sec_tmp" && -d "$_sec_tmp" && ! -L "$_sec_tmp" ]] || {
+  echo "[ci_security] could not create a private temp directory (TMPDIR=${TMPDIR:-unset})." >&2
+  exit 1
+}
+chmod 700 "$_sec_tmp" 2>/dev/null || true
+# Guarded: a subshell inherits an EXIT trap (see the pre-push hook).
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$_sec_tmp"; fi' EXIT
+
 # Resolve images: --*-image overrides take precedence over --*-version defaults.
 if [[ -n "$PY_IMAGE_OVERRIDE" ]]; then
   PY_IMAGE="$PY_IMAGE_OVERRIDE"
@@ -261,7 +272,7 @@ run_foxguard() {
   fi
   # Report only: the count, not the listing or foxguard's per-file notices
   # (these kept for a failed scan).
-  out="$(mktemp)"
+  out="$_sec_tmp/foxguard.json"
   printf '{}\n' > "$out.cfg"
   ( cd "$dir" && "$bin" --quiet --format json --output "$out" --config "$out.cfg" "${args[@]+"${args[@]}"}" . ) 2>"$out.err" || rc=$?
   case "$rc" in

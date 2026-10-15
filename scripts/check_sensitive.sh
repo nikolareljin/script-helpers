@@ -114,7 +114,7 @@ if [[ -n "${SENSITIVE_MACHINE_IDS_FILE:-}" ]]; then
 fi
 
 # One private directory per run (mktemp -d, mode 700, random name).
-tmp="$(mktemp -d 2>/dev/null)" && [[ -n "$tmp" && -d "$tmp" && ! -L "$tmp" ]] || {
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/check_sensitive.XXXXXX" 2>/dev/null)" && [[ -n "$tmp" && -d "$tmp" && ! -L "$tmp" ]] || {
   echo "$TAG could not create a private temp directory (TMPDIR=${TMPDIR:-unset}); NOT checked." >&2
   exit 2
 }
