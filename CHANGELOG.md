@@ -1,3 +1,13 @@
+## 2026-10-15 — v0.53.1
+
+### Fixed
+
+- **`pre-push` judged an older release heading in a changelog that changed
+  style.** The release check took the first dated heading (`## YYYY-MM-DD ...`)
+  even below newer `## [X.Y.Z] - date` ones, so `release/0.10.0` was refused
+  with "the newest CHANGELOG release is '0.8.2'". It now finds the newest
+  release heading in either style and judges it only when it is dated.
+
 ## 2026-10-15 — v0.53.0
 
 ### Added
