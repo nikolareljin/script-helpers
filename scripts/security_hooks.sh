@@ -287,7 +287,8 @@ sec_private_names() {
     # Every ref, not only refs/tags/: a tag object can be pushed to any ref.
     printf '%s %s %s %s\n' "$lref" "$lsha" "$rref" "${rsha:-}" > "$one"
     sec_tag_messages "$one" > "$messages" && [[ -s "$messages" ]] || continue
-    if ! bash "$gate" --file "$messages" --only-public "${target[@]+"${target[@]}"}"; then
+    bash "$gate" --file "$messages" --only-public "${target[@]+"${target[@]}"}"
+    if [[ $? -eq 1 ]]; then
       case "$rref" in
         refs/tags/*) label="The message of tag ${rref#refs/tags/}" ;;
         *)           label="The message of the tag pushed to $rref" ;;
