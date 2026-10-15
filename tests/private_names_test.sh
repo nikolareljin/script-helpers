@@ -395,6 +395,28 @@ printf 'feat: wire bluewidget into the thing\n' > "$msg"
 [[ $? == 0 ]] && ok "the commit-msg hook allows the commit when it cannot check" \
               || error "a missing list blocked a commit"
 
+# pre-push: a refusal says which object holds the name, a commit message or a tag.
+git_t -C "$hook_repo" commit -q --allow-empty -m "feat: wire bluewidget in"
+zero=0000000000000000000000000000000000000000
+printf 'refs/heads/main %s refs/heads/main %s\n' "$(git -C "$hook_repo" rev-parse HEAD)" "$zero" > "$tmp/push-refs"
+out="$(cd "$hook_repo" && PRIVATE_NAMES_FILE="$hook_list" PRIVATE_NAMES_AUTO_REFRESH=false \
+  bash -c 'source "$1"; sec_private_names "$2" origin git@github.com:testns/hookrepo.git' _ \
+  "$ROOT_DIR/scripts/security_hooks.sh" "$tmp/push-refs" 2>&1)"
+rc=$?
+[[ $rc == 1 && "$out" == *"A commit message names a private repository"* ]] \
+  && ok "pre-push names a commit message as a commit message" || error "commit-message refusal: exit $rc: $out"
+
+git_t -C "$hook_repo" commit -q --allow-empty --amend -m "feat: wire R-111 in"
+git_t -C "$hook_repo" tag -a rel-1 -m "ships bluewidget"
+printf 'refs/tags/rel-1 %s refs/tags/rel-1 %s\n' "$(git -C "$hook_repo" rev-parse rel-1)" "$zero" > "$tmp/push-refs"
+out="$(cd "$hook_repo" && PRIVATE_NAMES_FILE="$hook_list" PRIVATE_NAMES_AUTO_REFRESH=false \
+  bash -c 'source "$1"; sec_private_names "$2" origin git@github.com:testns/hookrepo.git' _ \
+  "$ROOT_DIR/scripts/security_hooks.sh" "$tmp/push-refs" 2>&1)"
+rc=$?
+[[ $rc == 1 && "$out" == *"The message of tag rel-1 names a private repository"* && "$out" != *"A commit message"* ]] \
+  && ok "pre-push names the tag whose message holds the name" || error "tag-message refusal: exit $rc: $out"
+git_t -C "$hook_repo" tag -d rel-1 >/dev/null
+
 if command -v python3 >/dev/null 2>&1; then
   agent_hook="$ROOT_DIR/scripts/claude-hooks/pretooluse_private_names.sh"
   # The hook also runs check_sensitive.sh, which refuses without gitleaks (CI

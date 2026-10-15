@@ -27,6 +27,10 @@
 
 ### Fixed
 
+- **`pre-push` names the tag when a tag message holds a private name.** It said
+  "A commit message names a private repository"; it now says "The message of
+  tag <tag> names a private repository". Tag messages are checked one tag at a
+  time.
 - **A push that updates no ref passes `pre-push`.** git runs the hook with no
   ref lines when every ref is already up to date or will be rejected
   (non-fast-forward); the hook refused it with "nothing could be checked". It

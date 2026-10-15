@@ -245,7 +245,6 @@ sec_private_names() {
     # shellcheck disable=SC2086  # revs is a list of git log arguments
     git log --format='%B' $revs >> "$messages" 2>/dev/null || log_failed=1
   done < <(sec_revs "$refs" "$remote")
-  sec_tag_messages "$refs" >> "$messages" || log_failed=1
 
   if [[ "$log_failed" -eq 1 ]]; then
     # Distinct from both "clean" and "found something", because it is neither.
@@ -263,6 +262,35 @@ sec_private_names() {
   elif [[ "$rc" -ne 0 ]]; then
     sec_unchecked pre-push "the private-name check could not run on the commit messages (exit $rc)" || return 1
   fi
+
+  # Tag messages one tag at a time, so a refusal names the tag instead of
+  # blaming the commit messages.
+  local lref lsha rref rsha tag one="${refs}.tag"
+  # shellcheck disable=SC2034
+  while read -r lref lsha rref rsha; do
+    [[ "${rref:-}" == refs/tags/* ]] || continue
+    tag="${rref#refs/tags/}"
+    printf '%s %s %s %s\n' "$lref" "$lsha" "$rref" "${rsha:-}" > "$one"
+    if ! sec_tag_messages "$one" > "$messages"; then
+      rm -f "$one" "$messages"
+      sec_unchecked pre-push "could not read the message of tag $tag" || return 1
+      continue
+    fi
+    [[ -s "$messages" ]] || continue
+    bash "$gate" --file "$messages" --only-public "${target[@]+"${target[@]}"}"
+    rc=$?
+    if [[ "$rc" -eq 1 ]]; then
+      rm -f "$one" "$messages"
+      echo "[pre-push] The message of tag $tag names a private repository." >&2
+      echo "[pre-push] To override:  PRIVATE_NAMES_ALLOW=<term> git push ..." >&2
+      echo "[pre-push]              or git push --no-verify" >&2
+      return 1
+    elif [[ "$rc" -ne 0 ]]; then
+      rm -f "$one" "$messages"
+      sec_unchecked pre-push "the private-name check could not run on the message of tag $tag (exit $rc)" || return 1
+    fi
+  done < "$refs"
+  rm -f "$one" "$messages"
   return 0
 }
 
