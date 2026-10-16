@@ -18,3 +18,10 @@
 #   is asserting it never reaches argv or .git/config.
 scripts/ci_pimcore_bundle_check.sh:generic-api-key:45
 tests/publish_homebrew_test.sh:generic-api-key:25
+# tests/security_gate_test.sh  aws_secret: AWS's documented example secret with
+#   EXAMPLEKEY replaced, kept on purpose. The test commits it into a temp repo
+#   with no ignore file and asserts gitleaks blocks it. Two entries are the same
+#   line in older commits (it was at 50, then 52).
+tests/security_gate_test.sh:generic-api-key:58
+1eec243deec4774dde09762b8c584e4ca91bcd67:tests/security_gate_test.sh:generic-api-key:50
+7b29172a911431995cb5be3fd7be143608ce18c3:tests/security_gate_test.sh:generic-api-key:52
