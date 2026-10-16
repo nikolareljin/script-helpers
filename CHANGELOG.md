@@ -7,7 +7,8 @@
   `Download failed. "A valid URL was not provided."`, and one attempt with
   `|| true` turned that blip into a failed check in strict mode. It now tries
   3 times with a 5s, then 10s pause (`PLUGIN_CHECK_INSTALL_ATTEMPTS`,
-  `PLUGIN_CHECK_RETRY_DELAY`); a bad value exits 2 before any container starts.
+  `PLUGIN_CHECK_RETRY_DELAY`, 1-99 and 0-999, no leading zeros); a bad value
+  exits 2 before any other work.
 
 ## 2026-10-16 — v0.54.0
 

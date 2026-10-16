@@ -33,8 +33,8 @@
 #   --cleanup <true|false>                   Clean up Docker resources on exit (default: true).
 #   -h, --help                               Show this help message.
 # ENVIRONMENT:
-#   PLUGIN_CHECK_INSTALL_ATTEMPTS  Tries to install plugin-check (default: 3).
-#   PLUGIN_CHECK_RETRY_DELAY       Seconds before retry n is n x this (default: 5).
+#   PLUGIN_CHECK_INSTALL_ATTEMPTS  Tries to install plugin-check, 1-99 (default: 3).
+#   PLUGIN_CHECK_RETRY_DELAY       Seconds before retry n is n x this, 0-999 (default: 5).
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -139,6 +139,14 @@ if [[ ! "$host_port" =~ ^[0-9]+$ ]] || (( host_port < 1 || host_port > 65535 ));
   exit 2
 fi
 
+# No leading zeros: bash arithmetic reads 08 as bad octal and aborts mid-run.
+plugin_check_install_attempts="${PLUGIN_CHECK_INSTALL_ATTEMPTS:-3}"
+plugin_check_retry_delay="${PLUGIN_CHECK_RETRY_DELAY:-5}"
+if [[ ! "$plugin_check_install_attempts" =~ ^[1-9][0-9]?$ || ! "$plugin_check_retry_delay" =~ ^(0|[1-9][0-9]{0,2})$ ]]; then
+  log_error "PLUGIN_CHECK_INSTALL_ATTEMPTS must be 1-99 and PLUGIN_CHECK_RETRY_DELAY 0-999 (no leading zeros)."
+  exit 2
+fi
+
 if [[ -z "$plugin_slug" ]]; then
   log_error "--plugin-slug is required"
   exit 2
@@ -235,13 +243,6 @@ run_wp_shell() {
 run_wp() {
   run_wp_shell "$@"
 }
-
-plugin_check_install_attempts="${PLUGIN_CHECK_INSTALL_ATTEMPTS:-3}"
-plugin_check_retry_delay="${PLUGIN_CHECK_RETRY_DELAY:-5}"
-if [[ ! "$plugin_check_install_attempts" =~ ^[1-9][0-9]*$ || ! "$plugin_check_retry_delay" =~ ^[0-9]+$ ]]; then
-  log_error "PLUGIN_CHECK_INSTALL_ATTEMPTS must be >= 1 and PLUGIN_CHECK_RETRY_DELAY >= 0 (whole numbers)."
-  exit 2
-fi
 
 export "${plugin_src_env}=${resolved_plugin_src}"
 docker_compose -f "$compose_file" up -d "$db_service" "$wordpress_service"

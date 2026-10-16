@@ -1049,8 +1049,8 @@ Usage: scripts/ci_wp_plugin_check.sh [options]
   --cleanup <true|false>                   Clean up Docker resources on exit (default: true).
   -h, --help                               Show this help message.
 ENVIRONMENT:
-  PLUGIN_CHECK_INSTALL_ATTEMPTS  Tries to install plugin-check (default: 3).
-  PLUGIN_CHECK_RETRY_DELAY       Seconds before retry n is n x this (default: 5).
+  PLUGIN_CHECK_INSTALL_ATTEMPTS  Tries to install plugin-check, 1-99 (default: 3).
+  PLUGIN_CHECK_RETRY_DELAY       Seconds before retry n is n x this, 0-999 (default: 5).
 ```
 
 Exit codes: not in the header; the script exits with 0, 1, 2, 4, 5.
