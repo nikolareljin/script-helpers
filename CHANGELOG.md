@@ -1,3 +1,14 @@
+## Unreleased
+
+### Fixed
+
+- **`ci_wp_plugin_check.sh` retried nothing when the plugin-check download
+  failed.** It downloads inside the wp-cli container, where a DNS miss reads
+  `Download failed. "A valid URL was not provided."`, and one attempt with
+  `|| true` turned that blip into a failed check in strict mode. It now tries
+  3 times with a 5s, then 10s pause (`PLUGIN_CHECK_INSTALL_ATTEMPTS`,
+  `PLUGIN_CHECK_RETRY_DELAY`); a bad value exits 2 before any container starts.
+
 ## 2026-10-16 — v0.54.0
 
 ### Fixed

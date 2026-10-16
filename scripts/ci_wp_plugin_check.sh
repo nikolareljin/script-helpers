@@ -32,6 +32,9 @@
 #   --fail-on-findings <true|false>          Fail on plugin-check errors (default: false).
 #   --cleanup <true|false>                   Clean up Docker resources on exit (default: true).
 #   -h, --help                               Show this help message.
+# ENVIRONMENT:
+#   PLUGIN_CHECK_INSTALL_ATTEMPTS  Tries to install plugin-check (default: 3).
+#   PLUGIN_CHECK_RETRY_DELAY       Seconds before retry n is n x this (default: 5).
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -233,6 +236,13 @@ run_wp() {
   run_wp_shell "$@"
 }
 
+plugin_check_install_attempts="${PLUGIN_CHECK_INSTALL_ATTEMPTS:-3}"
+plugin_check_retry_delay="${PLUGIN_CHECK_RETRY_DELAY:-5}"
+if [[ ! "$plugin_check_install_attempts" =~ ^[1-9][0-9]*$ || ! "$plugin_check_retry_delay" =~ ^[0-9]+$ ]]; then
+  log_error "PLUGIN_CHECK_INSTALL_ATTEMPTS must be >= 1 and PLUGIN_CHECK_RETRY_DELAY >= 0 (whole numbers)."
+  exit 2
+fi
+
 export "${plugin_src_env}=${resolved_plugin_src}"
 docker_compose -f "$compose_file" up -d "$db_service" "$wordpress_service"
 
@@ -283,7 +293,27 @@ else
   run_wp plugin activate "$plugin_slug"
 fi
 
-run_wp plugin install plugin-check --activate || true
+# The download runs inside the wp-cli container, and WordPress reports a DNS
+# miss there as 'Download failed. "A valid URL was not provided."'. One
+# attempt turned a single blip into a failed check, so retry with a pause.
+install_plugin_check() {
+  local attempt=1
+  while :; do
+    if run_wp plugin install plugin-check --activate; then
+      return 0
+    fi
+    if [[ "$attempt" -ge "$plugin_check_install_attempts" ]]; then
+      log_warn "plugin-check could not be installed after ${attempt} attempt(s)."
+      return 1
+    fi
+    log_warn "plugin-check install attempt ${attempt}/${plugin_check_install_attempts} failed; retrying in $((plugin_check_retry_delay * attempt))s."
+    sleep "$((plugin_check_retry_delay * attempt))"
+    attempt=$((attempt + 1))
+  done
+}
+
+# Whether it is usable is decided below by `wp help plugin check`.
+install_plugin_check || true
 
 plugin_check_available="false"
 if docker_compose -f "$compose_file" run --rm \
