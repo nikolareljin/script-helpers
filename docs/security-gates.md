@@ -509,4 +509,5 @@ restores the saved global `core.hooksPath`.
   `STALE` when it runs a file outside the installed copy, such as a checkout
   that a branch switch or pull changes or removes. `--doctor` fails on both;
   `--claude` fixes both. For scripts, `--status --porcelain --claude` prints
-  `claude_user=ok|absent|broken|stale`, `hook=` and `installed=`.
+  `claude_user=ok|absent|broken|stale|unknown` (unknown: no Python to read the
+  settings), `hook=` and `installed=`.

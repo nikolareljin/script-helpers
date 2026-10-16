@@ -116,11 +116,11 @@
 set -euo pipefail
 
 GLOBAL=false; CLAUDE=false; CLAUDE_REPO=false; MANAGED=false; UNINSTALL=false; STATUS=false; DOCTOR=false; GITLEAKS=false; FOXGUARD=false
-REPAIR=false; PORCELAIN=false; AGENT_REPO=""; AGENT_USER=""
+REPAIR=false; PORCELAIN=false; AGENT_REPO=""; AGENT_USER=""; CLAUDE_FLAG=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --global) GLOBAL=true ;;
-    --claude) CLAUDE=true ;;
+    --claude) CLAUDE=true; CLAUDE_FLAG=true ;;
     --claude-repo) CLAUDE_REPO=true ;;
     --all) GLOBAL=true; CLAUDE=true ;;
     --managed) MANAGED=true ;;
@@ -164,6 +164,11 @@ if [[ -n "$AGENT_REPO" || -n "$AGENT_USER" ]] && \
 fi
 if [[ "$PORCELAIN" == true && "$STATUS" != true ]]; then
   echo "[setup-hooks] --porcelain goes with --status" >&2; exit 2
+fi
+# A status call never writes: before, --global, --all or --managed with
+# --status --porcelain fell through to the install.
+if [[ "$PORCELAIN" == true ]] && [[ "$GLOBAL" == true || "$MANAGED" == true || "$CLAUDE_REPO" == true || "$UNINSTALL" == true || "$REPAIR" == true || "$DOCTOR" == true || ( "$CLAUDE" == true && "$CLAUDE_FLAG" != true ) ]]; then
+  echo "[setup-hooks] --status --porcelain takes only --claude" >&2; exit 2
 fi
 if [[ "$REPAIR" == true ]] && [[ "$GLOBAL" == true || "$CLAUDE" == true || "$MANAGED" == true || "$CLAUDE_REPO" == true || "$UNINSTALL" == true || "$STATUS" == true ]]; then
   echo "[setup-hooks] --repair is for this repository's git hooks; run it on its own" >&2; exit 2
@@ -603,10 +608,19 @@ claude_entry() {
   "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$1")" 2>/dev/null | head -1 || true
 }
 
-# claude_hook_path <entry>: the script an entry's command runs.
+# claude_hook_path <entry>: the script an entry's command runs. The forms
+# merge_settings.py counts as ours: optional "bash ", the path in double or
+# single quotes or bare, a leading ~/ or $HOME/, surrounding spaces.
 claude_hook_path() {
-  local hook="${1#bash }"
-  hook="${hook#\"}"; hook="${hook%\"}"
+  local hook="$1"
+  hook="${hook#"${hook%%[![:space:]]*}"}"; hook="${hook%"${hook##*[![:space:]]}"}"
+  hook="${hook#bash }"
+  hook="${hook#\"}"; hook="${hook%\"}"; hook="${hook#\'}"; hook="${hook%\'}"
+  case "$hook" in
+    \~/*) hook="${HOME:-}/${hook#\~/}" ;;
+    '$HOME/'*) hook="${HOME:-}/${hook#\$HOME/}" ;;
+    '${HOME}/'*) hook="${HOME:-}/${hook#\$\{HOME\}/}" ;;
+  esac
   unix_path "$hook"
 }
 
@@ -866,6 +880,12 @@ doctor() {
     echo "[setup-hooks] FAIL: the hook in settings is not the installed copy: $hook; run --claude again" >&2
     failed=1
   fi
+  # Both entries run; one in good order does not excuse the other.
+  if [[ "$settings" == "$claude_settings" ]]; then
+    case "$(claude_state "$managed_settings" "$managed_home")" in
+      broken|stale) echo "[setup-hooks] FAIL: the managed-settings hook is broken or stale; run --managed again" >&2; failed=1 ;;
+    esac
+  fi
   if [[ -z "$(configured_owners)" ]]; then
     echo "[setup-hooks] no owners configured: the hook acts in no repository, so nothing can be probed" >&2
     return 1
@@ -898,7 +918,7 @@ if [[ "$DOCTOR" == true ]]; then
   rc=0; doctor || rc=$?
   exit "$rc"
 fi
-if [[ "$STATUS" == true && "$PORCELAIN" == true && "$CLAUDE" == true ]]; then
+if [[ "$STATUS" == true && "$PORCELAIN" == true && "$CLAUDE_FLAG" == true ]]; then
   # The user's Claude hook, for scripts; works outside a repository.
   entry="$(claude_entry "$claude_settings")"
   printf 'claude_user=%s\thook=%s\tinstalled=%s\n' "$(claude_state "$claude_settings" "$claude_home")" \
@@ -1066,8 +1086,16 @@ read_setup_state() {
   broken=no
   if [[ -n "$cur_local" ]]; then
     local hp="$cur_local"
-    case "$hp" in \~/*) hp="$HOME/${hp#\~/}" ;; /*|[A-Za-z]:[\\/]*) ;; *) hp="$repo_root/$hp" ;; esac
-    if [[ ! -d "$hp" ]] || [[ "$setup_mode" != none && ! -f "$hp/pre-push" ]]; then broken=yes; fi
+    case "$hp" in
+      \~/*) hp="${HOME:-}/${hp#\~/}" ;;
+      /*|[A-Za-z]:[\\/]*) ;;
+      *) hp="$repo_root/$hp" ;;
+    esac
+    # Our setup's directory only: one another tool took over is taken_over,
+    # and whether it has a pre-push is that tool's choice.
+    if [[ ! -d "$hp" ]] || [[ "$setup_mode" != none && "$taken_over" == no && ! -f "$hp/pre-push" ]]; then
+      broken=yes
+    fi
   fi
 }
 
@@ -1110,6 +1138,13 @@ if [[ "$REPAIR" == true ]]; then
   fi
   if [[ "$broken" == yes && "$taken_over" == no ]]; then
     echo "[setup-hooks] core.hooksPath ${cur_local} is missing or has no pre-push, so no push checks run; setting up again."
+    # A direct setup pointed at the repository's own hooks. With no complete pair
+    # there on this branch, the lookup finds none; keep that directory as the
+    # target anyway, so its pre-commit still runs, and its pre-push once a
+    # branch has one (the dispatcher skips a hook file that is not there).
+    if [[ "$setup_mode" == direct && -z "$hooks_dir" && -n "$setup_expected" && "$setup_expected" != "$repo_hooks" ]]; then
+      hooks_dir="$setup_expected"
+    fi
   elif [[ "$taken_over" == no ]]; then
     # The value is still the one we set: the install below chains it as ours,
     # so --uninstall later leaves what was there before the first setup.

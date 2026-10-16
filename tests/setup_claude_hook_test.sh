@@ -201,6 +201,20 @@ grep -q 'STALE: the entry runs' "$tmp/out" && ok "--status says STALE and how to
 rc="$(run --doctor)"
 [[ "$rc" == 1 ]] && grep -q 'FAIL: the hook in settings is not the installed copy' "$tmp/out" \
   && ok "--doctor fails on a stale entry" || error "--doctor stale: rc=$rc $(cat "$tmp/out")"
+# Other forms of the same entry: single quotes, $HOME/, surrounding spaces.
+cp "$tmp/settings.keep" "$settings"
+set_command() { "$PY" -c 'import json,sys
+p=sys.argv[1]; d=json.load(open(p))
+for g in d["hooks"]["PreToolUse"]:
+    for h in g["hooks"]:
+        if "pretooluse_private_names.sh" in h["command"]: h["command"]=sys.argv[2]
+json.dump(d,open(p,"w"),indent=2)' "$(native "$settings")" "$1"; }
+if [[ "$ON_WINDOWS" != true ]]; then
+  set_command "bash '$hook_copy'"
+  [[ "$(porcelain_user)" == ok ]] && ok "a single-quoted entry: ok" || error "single quotes: $(bash "$SETUP" --status --porcelain --claude 2>&1)"
+  set_command "bash \"\$HOME/${hook_copy#"$HOME"/}\" "
+  [[ "${hook_copy#"$HOME"/}" == "$hook_copy" || "$(porcelain_user)" == ok ]] && ok "a \$HOME/ entry with a trailing space: ok" || error "\$HOME form: $(bash "$SETUP" --status --porcelain --claude 2>&1)"
+fi
 point_entry "$tmp/nowhere/scripts/claude-hooks/pretooluse_private_names.sh"
 [[ "$(porcelain_user)" == broken ]] && ok "an entry to a missing file: broken" || error "broken porcelain: $(bash "$SETUP" --status --porcelain --claude 2>&1)"
 rc="$(run --status)"

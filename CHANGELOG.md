@@ -7,11 +7,18 @@
   an entry into a working checkout passed until a branch switch removed the
   file; the hook then failed open. `--status` now says `BROKEN` (file missing)
   or `STALE` (not the installed copy), `--doctor` fails on both, and
-  `--status --porcelain --claude` reports `claude_user=ok|absent|broken|stale`.
+  `--status --porcelain --claude` reports `claude_user=ok|absent|broken|stale|unknown`.
+  Entries in single quotes or with `$HOME/` are read too, and `--doctor` also
+  fails on a broken or stale managed-settings entry.
 - **A setup whose hooks directory was gone was not reported.** When
   `core.hooksPath` names a missing directory, or our setup's directory has no
   `pre-push`, no push checks run and git says nothing. `--status --porcelain`
-  adds `broken=yes`; `--repair` sets the repository up again.
+  adds `broken=yes`; `--repair` sets the repository up again, and keeps the
+  repository's own hooks directory as the target, so its `pre-commit` still
+  runs. A directory another tool took over is `taken_over`, not `broken`.
+- **`--status --porcelain` with `--global`, `--all` or `--managed` installed.**
+  Those flags fell through to the install. It now exits 2 and writes nothing;
+  `--status --porcelain` takes only `--claude`.
 - **`--doctor` failed a working hook on a qualified-only name.** It probed with
   the bare name, which the gate allows when the name is also public elsewhere.
   It now probes with `namespace/name`.
