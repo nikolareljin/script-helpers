@@ -252,9 +252,11 @@ then restores the new tool's value: the setup that was there just before.
 `core_hooksPath`, `expected`, `previous`, `target`, `claude_repo`, `global`,
 `agents`, `unscanned`, `broken`) for tools that check many repositories.
 
-`broken=yes` means `core.hooksPath` names a directory with no `pre-push`: a
-branch without the hooks, or a deleted copy. Git then runs no hook and prints
-nothing. `--repair` sets it up again.
+`broken=yes` means `core.hooksPath` names a missing directory (a branch
+without the hooks, a deleted copy), or the directory our setup points at has no
+`pre-push`. No push checks run then, and git prints nothing. `--repair` sets it
+up again. A repository's own hooks directory with only a `pre-commit` is not
+broken.
 
 Not reachable from git: hooks an IDE runs itself (a JetBrains or VS Code
 pre-commit check) and server-side hooks. They are never touched, so they keep

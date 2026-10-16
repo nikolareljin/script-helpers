@@ -8,9 +8,10 @@
   file; the hook then failed open. `--status` now says `BROKEN` (file missing)
   or `STALE` (not the installed copy), `--doctor` fails on both, and
   `--status --porcelain --claude` reports `claude_user=ok|absent|broken|stale`.
-- **A `core.hooksPath` with no `pre-push` was not reported.** Git runs no hook
-  then and says nothing. `--status --porcelain` adds `broken=yes`; `--repair`
-  sets the repository up again.
+- **A setup whose hooks directory was gone was not reported.** When
+  `core.hooksPath` names a missing directory, or our setup's directory has no
+  `pre-push`, no push checks run and git says nothing. `--status --porcelain`
+  adds `broken=yes`; `--repair` sets the repository up again.
 - **`--doctor` failed a working hook on a qualified-only name.** It probed with
   the bare name, which the gate allows when the name is also public elsewhere.
   It now probes with `namespace/name`.

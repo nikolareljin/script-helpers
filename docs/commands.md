@@ -159,7 +159,7 @@ Usage: bash scripts/setup-hooks.sh [--claude-repo|--agent-repo <list>|--global|-
                 value it replaced is kept as script-helpers.previous-hooksPath-history.
                 Also chains a direct setup that runs the repository's own hooks
                 without the current security checks (unscanned=yes below).
-                Also sets up again a core.hooksPath with no pre-push (broken=yes).
+                Also sets up again a setup whose hooks directory is gone (broken=yes).
                 Nothing to repair: exit 0. Not set up here: exit 1.
   --status      Show what is installed, and the prerequisites.
   --porcelain   With --status, in a repository: one line of tab-separated key=value
@@ -170,11 +170,12 @@ Usage: bash scripts/setup-hooks.sh [--claude-repo|--agent-repo <list>|--global|-
                 a direct setup points at hooks other than this copy's own, such as
                 an older vendored script-helpers or .githooks, so the current
                 security checks do not run; --repair chains them), broken (yes when
-                core.hooksPath has no pre-push, so git runs no hook; --repair sets
-                it up again).
-                With --claude, anywhere: claude_user (ok, absent, broken: the
-                script it runs is missing, stale: it runs a file outside the
-                installed copy, such as a checkout), hook, installed (version).
+                core.hooksPath names a missing directory, or our setup's has no
+                pre-push, so no push checks run; --repair sets it up again).
+                With --claude, anywhere: claude_user (ok; absent; unknown: no
+                Python to read the settings; broken: the script it runs is
+                missing; stale: it runs a file outside the installed copy, such
+                as a checkout), hook, installed (version).
   --doctor      The prerequisites, then four probes through the installed Claude
                 hook, from a throwaway repository under the first owner: a private
                 name from your list, an SSN-shaped number, and git push --no-verify

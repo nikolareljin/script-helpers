@@ -53,7 +53,7 @@
 #                 value it replaced is kept as script-helpers.previous-hooksPath-history.
 #                 Also chains a direct setup that runs the repository's own hooks
 #                 without the current security checks (unscanned=yes below).
-#                 Also sets up again a core.hooksPath with no pre-push (broken=yes).
+#                 Also sets up again a setup whose hooks directory is gone (broken=yes).
 #                 Nothing to repair: exit 0. Not set up here: exit 1.
 #   --status      Show what is installed, and the prerequisites.
 #   --porcelain   With --status, in a repository: one line of tab-separated key=value
@@ -64,11 +64,12 @@
 #                 a direct setup points at hooks other than this copy's own, such as
 #                 an older vendored script-helpers or .githooks, so the current
 #                 security checks do not run; --repair chains them), broken (yes when
-#                 core.hooksPath has no pre-push, so git runs no hook; --repair sets
-#                 it up again).
-#                 With --claude, anywhere: claude_user (ok, absent, broken: the
-#                 script it runs is missing, stale: it runs a file outside the
-#                 installed copy, such as a checkout), hook, installed (version).
+#                 core.hooksPath names a missing directory, or our setup's has no
+#                 pre-push, so no push checks run; --repair sets it up again).
+#                 With --claude, anywhere: claude_user (ok; absent; unknown: no
+#                 Python to read the settings; broken: the script it runs is
+#                 missing; stale: it runs a file outside the installed copy, such
+#                 as a checkout), hook, installed (version).
 #   --doctor      The prerequisites, then four probes through the installed Claude
 #                 hook, from a throwaway repository under the first owner: a private
 #                 name from your list, an SSN-shaped number, and git push --no-verify
@@ -609,12 +610,13 @@ claude_hook_path() {
   unix_path "$hook"
 }
 
-# claude_state <settings> <copy dir>: ok, absent, broken (the script the entry
+# claude_state <settings> <copy dir>: unknown (no Python to read it), ok, absent, broken (the script the entry
 # runs does not exist, so the hook fails) or stale (it runs a file outside the
 # installed copy, such as a checkout, which a branch switch or pull changes or
 # removes).
 claude_state() {
   local entry hook home
+  [[ -n "$PY" ]] || { echo unknown; return; }       # the settings cannot be read
   entry="$(claude_entry "$1")"
   [[ -n "$entry" ]] || { echo absent; return; }
   hook="$(claude_hook_path "$entry")"
@@ -1057,13 +1059,15 @@ read_setup_state() {
   if [[ "$setup_mode" != none && "$cur_local" != "$setup_expected" ]]; then taken_over=yes; fi
   unscanned=no
   if [[ "$setup_mode" == direct ]] && ! direct_allowed "$setup_expected"; then unscanned=yes; fi
-  # broken: core.hooksPath names a directory with no pre-push (a branch without
-  # it, a deleted copy). Git then runs no hook at all, and says nothing.
+  # broken: core.hooksPath names a directory that is gone (a branch without it,
+  # a deleted copy), or our setup's directory lost its pre-push. Git then runs
+  # no push checks, and says nothing. A repository's own hooks directory with
+  # only a pre-commit is its choice, not broken.
   broken=no
   if [[ -n "$cur_local" ]]; then
     local hp="$cur_local"
     case "$hp" in \~/*) hp="$HOME/${hp#\~/}" ;; /*|[A-Za-z]:[\\/]*) ;; *) hp="$repo_root/$hp" ;; esac
-    [[ -f "$hp/pre-push" ]] || broken=yes
+    if [[ ! -d "$hp" ]] || [[ "$setup_mode" != none && ! -f "$hp/pre-push" ]]; then broken=yes; fi
   fi
 }
 
@@ -1105,7 +1109,7 @@ if [[ "$REPAIR" == true ]]; then
     echo "[setup-hooks] nothing to repair: core.hooksPath is still ${cur_local:-(unset)}"; exit 0
   fi
   if [[ "$broken" == yes && "$taken_over" == no ]]; then
-    echo "[setup-hooks] core.hooksPath ${cur_local} has no pre-push, so git runs no hook; setting up again."
+    echo "[setup-hooks] core.hooksPath ${cur_local} is missing or has no pre-push, so no push checks run; setting up again."
   elif [[ "$taken_over" == no ]]; then
     # The value is still the one we set: the install below chains it as ours,
     # so --uninstall later leaves what was there before the first setup.
