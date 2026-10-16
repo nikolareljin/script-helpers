@@ -212,8 +212,15 @@ json.dump(d,open(p,"w"),indent=2)' "$(native "$settings")" "$1"; }
 if [[ "$ON_WINDOWS" != true ]]; then
   set_command "bash '$hook_copy'"
   [[ "$(porcelain_user)" == ok ]] && ok "a single-quoted entry: ok" || error "single quotes: $(bash "$SETUP" --status --porcelain --claude 2>&1)"
-  set_command "bash \"\$HOME/${hook_copy#"$HOME"/}\" "
-  [[ "${hook_copy#"$HOME"/}" == "$hook_copy" || "$(porcelain_user)" == ok ]] && ok "a \$HOME/ entry with a trailing space: ok" || error "\$HOME form: $(bash "$SETUP" --status --porcelain --claude 2>&1)"
+  # $HOME is $tmp/home, so $HOME/../ reaches the copy under $tmp/data.
+  via_home="\$HOME/../${hook_copy#"$tmp"/}"
+  set_command "bash \"$via_home\" "
+  [[ "$(porcelain_user)" == ok ]] && ok "a \$HOME/ entry with a trailing space: ok" || error "\$HOME form: $(bash "$SETUP" --status --porcelain --claude 2>&1)"
+  set_command "bash   $via_home"
+  [[ "$(porcelain_user)" == ok ]] && ok "spaces after bash: ok" || error "spaces after bash: $(bash "$SETUP" --status --porcelain --claude 2>&1)"
+  # The shell leaves $HOME and ~ alone in single quotes, so that hook cannot run.
+  set_command "bash '$via_home'"
+  [[ "$(porcelain_user)" == broken ]] && ok "single-quoted \$HOME/: broken" || error "single-quoted \$HOME: $(bash "$SETUP" --status --porcelain --claude 2>&1)"
 fi
 point_entry "$tmp/nowhere/scripts/claude-hooks/pretooluse_private_names.sh"
 [[ "$(porcelain_user)" == broken ]] && ok "an entry to a missing file: broken" || error "broken porcelain: $(bash "$SETUP" --status --porcelain --claude 2>&1)"

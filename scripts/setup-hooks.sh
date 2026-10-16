@@ -610,16 +610,22 @@ claude_entry() {
 
 # claude_hook_path <entry>: the script an entry's command runs. The forms
 # merge_settings.py counts as ours: optional "bash ", the path in double or
-# single quotes or bare, a leading ~/ or $HOME/, surrounding spaces.
+# single quotes or bare, a leading ~/ or $HOME/, surrounding spaces. Expands
+# only what the shell would: ~/ when bare, $HOME/ when bare or double-quoted.
 claude_hook_path() {
-  local hook="$1"
+  local hook="$1" quote=""
   hook="${hook#"${hook%%[![:space:]]*}"}"; hook="${hook%"${hook##*[![:space:]]}"}"
-  hook="${hook#bash }"
-  hook="${hook#\"}"; hook="${hook%\"}"; hook="${hook#\'}"; hook="${hook%\'}"
   case "$hook" in
-    \~/*) hook="${HOME:-}/${hook#\~/}" ;;
-    '$HOME/'*) hook="${HOME:-}/${hook#\$HOME/}" ;;
-    '${HOME}/'*) hook="${HOME:-}/${hook#\$\{HOME\}/}" ;;
+    bash[[:space:]]*) hook="${hook#bash}"; hook="${hook#"${hook%%[![:space:]]*}"}" ;;
+  esac
+  case "$hook" in
+    \"*\") quote=d; hook="${hook#\"}"; hook="${hook%\"}" ;;
+    \'*\') quote=s; hook="${hook#\'}"; hook="${hook%\'}" ;;
+  esac
+  case "$quote:$hook" in
+    :\~/*) hook="${HOME:-}/${hook#\~/}" ;;
+    [d]:'$HOME/'*|:'$HOME/'*) hook="${HOME:-}/${hook#\$HOME/}" ;;
+    [d]:'${HOME}/'*|:'${HOME}/'*) hook="${HOME:-}/${hook#\$\{HOME\}/}" ;;
   esac
   unix_path "$hook"
 }
