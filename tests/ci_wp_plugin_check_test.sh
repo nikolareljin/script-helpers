@@ -138,6 +138,69 @@ EOF
 argv_case "with exclusions" yes --exclude-directories "vendor,test" --exclude-files ".gitignore"
 argv_case "without exclusions" no
 
+# 6. The plugin-check install retries. It downloads inside the container, where
+#    a DNS miss shows up as 'Download failed. "A valid URL was not provided."',
+#    and a single attempt turned that blip into a failed check. The function is
+#    extracted from the script and run against a stub run_wp, so the test runs
+#    the shipped code and needs no Docker.
+install_fn="$(sed -n '/^install_plugin_check() {$/,/^}$/p' "$SCRIPT")"
+if [[ -z "$install_fn" ]]; then
+  error "could not extract install_plugin_check from $SCRIPT; the retry is untested"
+else
+  retry_case() {
+    local label="$1" fail_first="$2" attempts="$3" want_rc="$4" want_calls="$5"
+    local calls_file rc calls
+    calls_file="$(mktemp)"
+    # The stubs and settings are read by the eval'd function, which shellcheck
+    # cannot see.
+    # shellcheck disable=SC2034,SC2317
+    rc="$(
+      calls=0
+      run_wp() { calls=$((calls + 1)); echo "$calls" > "$calls_file"; [[ "$calls" -gt "$fail_first" ]]; }
+      log_warn() { :; }
+      sleep() { :; }
+      plugin_check_install_attempts="$attempts"
+      plugin_check_retry_delay=5
+      eval "$install_fn"
+      install_plugin_check >/dev/null 2>&1
+      echo $?
+    )"
+    calls="$(cat "$calls_file")"; rm -f "$calls_file"
+    if [[ "$rc" == "$want_rc" && "$calls" == "$want_calls" ]]; then
+      note "plugin-check install: $label (rc $rc after $calls attempt(s))"
+    else
+      error "plugin-check install: $label: rc $rc after $calls attempt(s), want rc $want_rc after $want_calls"
+    fi
+  }
+  retry_case "first try works" 0 3 0 1
+  retry_case "two DNS misses, then works" 2 3 0 3
+  retry_case "always fails, stops at the limit" 9 3 1 3
+  retry_case "one attempt configured" 9 1 1 1
+fi
+
+# 7. Bad retry settings and numeric options exit 2 before anything runs.
+#    08 is the case that matters: bash arithmetic reads it as bad octal.
+for bad in "PLUGIN_CHECK_RETRY_DELAY=08" "PLUGIN_CHECK_RETRY_DELAY=-1" \
+           "PLUGIN_CHECK_INSTALL_ATTEMPTS=0" "PLUGIN_CHECK_INSTALL_ATTEMPTS=abc"; do
+  out="$(env "$bad" bash "$SCRIPT" --plugin-slug probe --compose-file /nonexistent 2>&1)"
+  rc=$?
+  if [[ $rc -eq 2 && "$out" == *PLUGIN_CHECK_INSTALL_ATTEMPTS* ]]; then
+    note "$bad refused (rc 2)"
+  else
+    error "$bad: rc $rc, want 2 with the retry-settings message; output: $out"
+  fi
+done
+for bad in "--host-port 08" "--db-wait-seconds 09" "--db-wait-seconds 0"; do
+  # shellcheck disable=SC2086 # split the option from its value on purpose
+  out="$(bash "$SCRIPT" --plugin-slug probe --compose-file /nonexistent $bad 2>&1)"
+  rc=$?
+  if [[ $rc -eq 2 && "$out" == *"Invalid value for ${bad%% *}"* ]]; then
+    note "$bad refused (rc 2)"
+  else
+    error "$bad: rc $rc, want 2 with 'Invalid value for ${bad%% *}'; output: $out"
+  fi
+done
+
 if [[ $failures -gt 0 ]]; then
   echo "[ci_wp_plugin_check_test] FAILED ($failures)" >&2
   exit 1

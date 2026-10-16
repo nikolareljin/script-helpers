@@ -1,3 +1,20 @@
+## Unreleased
+
+### Fixed
+
+- **`ci_wp_plugin_check.sh` retried nothing when the plugin-check download
+  failed.** It downloads inside the wp-cli container, where a DNS miss reads
+  `Download failed. "A valid URL was not provided."`, and one attempt with
+  `|| true` turned that blip into a failed check in strict mode. It now tries
+  3 times with a 5s, then 10s pause (`PLUGIN_CHECK_INSTALL_ATTEMPTS`,
+  `PLUGIN_CHECK_RETRY_DELAY`, 1-99 and 0-999, no leading zeros); a bad value
+  exits 2 before any other work.
+- **`ci_wp_plugin_check.sh --host-port 08` and `--db-wait-seconds 09` passed
+  validation.** Bash read them as bad octal, printed an arithmetic error and
+  carried on with the value. Numeric options now refuse leading zeros and exit 2.
+  `ci_pimcore_bundle_check.sh --db-wait-seconds` had the same check and is
+  fixed the same way.
+
 ## 2026-10-16 — v0.54.0
 
 ### Fixed
