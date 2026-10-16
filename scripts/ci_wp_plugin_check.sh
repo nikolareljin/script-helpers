@@ -129,17 +129,18 @@ validate_bool_option "--activate-network" "$activate_network"
 validate_bool_option "--fail-on-findings" "$fail_on_findings"
 validate_bool_option "--cleanup" "$cleanup"
 
-if [[ ! "$db_wait_seconds" =~ ^[0-9]+$ ]] || (( db_wait_seconds <= 0 )); then
+# Numbers below refuse leading zeros: bash arithmetic reads 08 as bad octal
+# and aborts the run instead of exiting 2.
+if [[ ! "$db_wait_seconds" =~ ^[1-9][0-9]{0,4}$ ]]; then
   log_error "Invalid value for --db-wait-seconds: '$db_wait_seconds'. Expected a positive integer."
   exit 2
 fi
 
-if [[ ! "$host_port" =~ ^[0-9]+$ ]] || (( host_port < 1 || host_port > 65535 )); then
+if [[ ! "$host_port" =~ ^[1-9][0-9]{0,4}$ ]] || (( host_port > 65535 )); then
   log_error "Invalid value for --host-port: '$host_port'. Expected an integer between 1 and 65535."
   exit 2
 fi
 
-# No leading zeros: bash arithmetic reads 08 as bad octal and aborts mid-run.
 plugin_check_install_attempts="${PLUGIN_CHECK_INSTALL_ATTEMPTS:-3}"
 plugin_check_retry_delay="${PLUGIN_CHECK_RETRY_DELAY:-5}"
 if [[ ! "$plugin_check_install_attempts" =~ ^[1-9][0-9]?$ || ! "$plugin_check_retry_delay" =~ ^(0|[1-9][0-9]{0,2})$ ]]; then
