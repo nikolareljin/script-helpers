@@ -309,7 +309,8 @@ rc="$(run --managed)"
 # Only a managed entry, and it is broken: the fix --doctor names is --managed.
 [[ -f "$settings" ]] && mv "$settings" "$tmp/user.off"
 cp "$SCRIPT_HELPERS_MANAGED_SETTINGS" "$tmp/managed.keep"
-sed "s#$tmp/managed/script-helpers/#$tmp/nowhere/#" "$tmp/managed.keep" > "$SCRIPT_HELPERS_MANAGED_SETTINGS"
+# Suffix only: on Windows the entry holds a native C:/ path, not $tmp.
+sed "s#/managed/script-helpers/#/nowhere/#" "$tmp/managed.keep" > "$SCRIPT_HELPERS_MANAGED_SETTINGS"
 rc="$(run --doctor)"
 [[ "$rc" == 1 ]] && grep -q 'does not exist: .*; run --managed again' "$tmp/out" \
   && ok "--doctor on a broken managed-only entry says run --managed" || error "--doctor managed fix: rc=$rc $(cat "$tmp/out")"
