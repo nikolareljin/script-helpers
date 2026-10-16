@@ -178,8 +178,8 @@ else
   retry_case "one attempt configured" 9 1 1 1
 fi
 
-# 7. Bad retry settings and numeric options exit 2 before anything runs. 08 is the case that
-#    matters: bash arithmetic reads it as octal and aborts the run mid-retry.
+# 7. Bad retry settings and numeric options exit 2 before anything runs.
+#    08 is the case that matters: bash arithmetic reads it as bad octal.
 for bad in "PLUGIN_CHECK_RETRY_DELAY=08" "PLUGIN_CHECK_RETRY_DELAY=-1" \
            "PLUGIN_CHECK_INSTALL_ATTEMPTS=0" "PLUGIN_CHECK_INSTALL_ATTEMPTS=abc"; do
   out="$(env "$bad" bash "$SCRIPT" --plugin-slug probe --compose-file /nonexistent 2>&1)"

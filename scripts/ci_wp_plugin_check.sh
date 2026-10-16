@@ -129,8 +129,8 @@ validate_bool_option "--activate-network" "$activate_network"
 validate_bool_option "--fail-on-findings" "$fail_on_findings"
 validate_bool_option "--cleanup" "$cleanup"
 
-# Numbers below refuse leading zeros: bash arithmetic reads 08 as bad octal
-# and aborts the run instead of exiting 2.
+# Numbers below refuse leading zeros: bash arithmetic reads 08 as bad octal,
+# so it slipped past a (( )) check here and broke arithmetic later in the run.
 if [[ ! "$db_wait_seconds" =~ ^[1-9][0-9]{0,4}$ ]]; then
   log_error "Invalid value for --db-wait-seconds: '$db_wait_seconds'. Expected a positive integer."
   exit 2
