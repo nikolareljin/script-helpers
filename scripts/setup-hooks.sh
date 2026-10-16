@@ -622,6 +622,7 @@ claude_hook_path() {
     \"*\") quote=d; hook="${hook#\"}"; hook="${hook%\"}" ;;
     \'*\') quote=s; hook="${hook#\'}"; hook="${hook%\'}" ;;
   esac
+  # shellcheck disable=SC2016 # the patterns match a literal $HOME in the entry
   case "$quote:$hook" in
     :\~/*) hook="${HOME:-}/${hook#\~/}" ;;
     [d]:'$HOME/'*|:'$HOME/'*) hook="${HOME:-}/${hook#\$HOME/}" ;;
