@@ -306,6 +306,15 @@ fi
 rc="$(run --managed)"
 [[ "$rc" == 0 && "$(ours_count "$SCRIPT_HELPERS_MANAGED_SETTINGS")" == 1 && -f "$tmp/managed/script-helpers/scripts/claude-hooks/pretooluse_private_names.sh" ]] \
   && ok "--managed writes the managed file and a copy beside it" || error "--managed: rc=$rc $(cat "$tmp/out")"
+# Only a managed entry, and it is broken: the fix --doctor names is --managed.
+[[ -f "$settings" ]] && mv "$settings" "$tmp/user.off"
+cp "$SCRIPT_HELPERS_MANAGED_SETTINGS" "$tmp/managed.keep"
+sed "s#$tmp/managed/script-helpers/#$tmp/nowhere/#" "$tmp/managed.keep" > "$SCRIPT_HELPERS_MANAGED_SETTINGS"
+rc="$(run --doctor)"
+[[ "$rc" == 1 ]] && grep -q 'does not exist: .*; run --managed again' "$tmp/out" \
+  && ok "--doctor on a broken managed-only entry says run --managed" || error "--doctor managed fix: rc=$rc $(cat "$tmp/out")"
+cp "$tmp/managed.keep" "$SCRIPT_HELPERS_MANAGED_SETTINGS"
+[[ -f "$tmp/user.off" ]] && mv "$tmp/user.off" "$settings"
 rc="$(run --managed --uninstall)"
 [[ "$rc" == 0 && "$(ours_count "$SCRIPT_HELPERS_MANAGED_SETTINGS")" == 0 && ! -e "$tmp/managed/script-helpers" ]] \
   && ok "--managed --uninstall removes it" || error "--managed --uninstall: rc=$rc $(cat "$tmp/out")"

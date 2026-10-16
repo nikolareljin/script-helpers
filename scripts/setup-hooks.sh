@@ -867,24 +867,24 @@ probe() {
 }
 
 doctor() {
-  local entry hook home settings failed=0 name ssn
+  local entry hook home settings failed=0 name ssn fix=--claude
   prereqs || failed=1
   show_claude_status
   settings="$claude_settings"; home="$claude_home"; entry="$(claude_entry "$settings")"
-  [[ -n "$entry" ]] || { settings="$managed_settings"; home="$managed_home"; entry="$(claude_entry "$settings")"; }
+  [[ -n "$entry" ]] || { settings="$managed_settings"; home="$managed_home"; fix=--managed; entry="$(claude_entry "$settings")"; }
   if [[ -z "$entry" || -z "$PY" ]]; then
     echo "[setup-hooks] no Claude hook installed; run: bash $src_root/scripts/setup-hooks.sh --claude" >&2
     return 1
   fi
   hook="$(claude_hook_path "$entry")"
   if [[ ! -f "$hook" ]]; then
-    echo "[setup-hooks] the hook in settings does not exist: $hook (it would fail open); run --claude again" >&2
+    echo "[setup-hooks] the hook in settings does not exist: $hook (it would fail open); run $fix again" >&2
     return 1
   fi
   # Probed anyway: it runs today. It fails the doctor because it will not
   # survive the next branch switch or pull in the place it points at.
   if [[ "$(claude_state "$settings" "$home")" == stale ]]; then
-    echo "[setup-hooks] FAIL: the hook in settings is not the installed copy: $hook; run --claude again" >&2
+    echo "[setup-hooks] FAIL: the hook in settings is not the installed copy: $hook; run $fix again" >&2
     failed=1
   fi
   # Both entries run; one in good order does not excuse the other.
