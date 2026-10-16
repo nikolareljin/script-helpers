@@ -12,6 +12,8 @@
 - **`ci_wp_plugin_check.sh --host-port 08` and `--db-wait-seconds 09` passed
   validation.** Bash read them as bad octal, printed an arithmetic error and
   carried on with the value. Numeric options now refuse leading zeros and exit 2.
+  `ci_pimcore_bundle_check.sh --db-wait-seconds` had the same check and is
+  fixed the same way.
 
 ## 2026-10-16 — v0.54.0
 
