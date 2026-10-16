@@ -171,6 +171,64 @@ rc="$(run --doctor)"
 [[ "$rc" == 1 ]] && grep -q 'does not exist' "$tmp/out" \
   && ok "--doctor reports a missing hook copy" || error "--doctor missing copy: rc=$rc $(cat "$tmp/out")"
 mv "$hook_copy.gone" "$hook_copy"
+# A qualified-only name (also public somewhere) is refused only as
+# namespace/name; the probe must use that form, or a working hook fails it.
+cp "$XDG_CONFIG_HOME/script-helpers/private-names.tsv" "$tmp/names.keep"
+printf '# visibility\tnamespace\tname\tcode\tflags\nprivate\texample\tzzqsharedbox\tR-904\tqualified-only\npublic\tother\tzzqsharedbox\t-\t\nprivate\texample\tzzqsecretbox\tR-901\t\n' \
+  > "$XDG_CONFIG_HOME/script-helpers/private-names.tsv"
+rc="$(run --doctor)"
+[[ "$rc" == 0 ]] && grep -q 'ok .*private name from your list.*exit 2' "$tmp/out" \
+  && ok "--doctor: a qualified-only name is probed as namespace/name" || error "--doctor qualified-only: rc=$rc $(cat "$tmp/out")"
+grep -q 'zzqsharedbox' "$tmp/out" && error "--doctor printed the qualified name it probed with"
+mv "$tmp/names.keep" "$XDG_CONFIG_HOME/script-helpers/private-names.tsv"
+
+# 4b. Where the entry points. ok: the installed copy. stale: another copy, such
+# as a checkout, which a branch switch removes. broken: nothing there.
+porcelain_user() { bash "$SETUP" --status --porcelain --claude 2>/dev/null | tr '\t' '\n' | sed -n 's/^claude_user=//p'; }
+[[ "$(porcelain_user)" == ok ]] && ok "--status --porcelain --claude: ok for the installed copy" || error "porcelain user: $(bash "$SETUP" --status --porcelain --claude 2>&1)"
+cp -R "$data_dir/script-helpers/claude-hooks" "$tmp/checkout"
+cp "$settings" "$tmp/settings.keep"
+point_entry() { "$PY" -c 'import json,sys
+p=sys.argv[1]; d=json.load(open(p))
+for g in d["hooks"]["PreToolUse"]:
+    for h in g["hooks"]:
+        if h["command"].rstrip(chr(34)).endswith("pretooluse_private_names.sh"): h["command"]="bash "+chr(34)+sys.argv[2]+chr(34)
+json.dump(d,open(p,"w"),indent=2)' "$(native "$settings")" "$(native "$1")"; }
+point_entry "$tmp/checkout/scripts/claude-hooks/pretooluse_private_names.sh"
+[[ "$(porcelain_user)" == stale ]] && ok "an entry into another copy: stale" || error "stale porcelain: $(bash "$SETUP" --status --porcelain --claude 2>&1)"
+rc="$(run --status)"
+grep -q 'STALE: the entry runs' "$tmp/out" && ok "--status says STALE and how to fix it" || error "stale status: $(cat "$tmp/out")"
+rc="$(run --doctor)"
+[[ "$rc" == 1 ]] && grep -q 'FAIL: the hook in settings is not the installed copy' "$tmp/out" \
+  && ok "--doctor fails on a stale entry" || error "--doctor stale: rc=$rc $(cat "$tmp/out")"
+# Other forms of the same entry: single quotes, $HOME/, surrounding spaces.
+cp "$tmp/settings.keep" "$settings"
+set_command() { "$PY" -c 'import json,sys
+p=sys.argv[1]; d=json.load(open(p))
+for g in d["hooks"]["PreToolUse"]:
+    for h in g["hooks"]:
+        if "pretooluse_private_names.sh" in h["command"]: h["command"]=sys.argv[2]
+json.dump(d,open(p,"w"),indent=2)' "$(native "$settings")" "$1"; }
+if [[ "$ON_WINDOWS" != true ]]; then
+  set_command "bash '$hook_copy'"
+  [[ "$(porcelain_user)" == ok ]] && ok "a single-quoted entry: ok" || error "single quotes: $(bash "$SETUP" --status --porcelain --claude 2>&1)"
+  # $HOME is $tmp/home, so $HOME/../ reaches the copy under $tmp/data.
+  via_home="\$HOME/../${hook_copy#"$tmp"/}"
+  set_command "bash \"$via_home\" "
+  [[ "$(porcelain_user)" == ok ]] && ok "a \$HOME/ entry with a trailing space: ok" || error "\$HOME form: $(bash "$SETUP" --status --porcelain --claude 2>&1)"
+  set_command "bash   $via_home"
+  [[ "$(porcelain_user)" == ok ]] && ok "spaces after bash: ok" || error "spaces after bash: $(bash "$SETUP" --status --porcelain --claude 2>&1)"
+  # The shell leaves $HOME and ~ alone in single quotes, so that hook cannot run.
+  set_command "bash '$via_home'"
+  [[ "$(porcelain_user)" == broken ]] && ok "single-quoted \$HOME/: broken" || error "single-quoted \$HOME: $(bash "$SETUP" --status --porcelain --claude 2>&1)"
+fi
+point_entry "$tmp/nowhere/scripts/claude-hooks/pretooluse_private_names.sh"
+[[ "$(porcelain_user)" == broken ]] && ok "an entry to a missing file: broken" || error "broken porcelain: $(bash "$SETUP" --status --porcelain --claude 2>&1)"
+rc="$(run --status)"
+grep -q 'BROKEN: .* does not exist' "$tmp/out" && ok "--status says BROKEN" || error "broken status: $(cat "$tmp/out")"
+rc="$(run --claude)"
+[[ "$rc" == 0 && "$(porcelain_user)" == ok && "$(ours_count "$settings")" == 1 ]] && ok "--claude again: back to ok, one entry" || error "re-install: rc=$rc $(cat "$tmp/out")"
+cp "$tmp/settings.keep" "$settings"; rm -rf "$tmp/checkout"
 
 # 5. Uninstall leaves the rest.
 rc="$(run --claude --uninstall)"
@@ -194,7 +252,8 @@ rc="$(run --claude)"
 bash "$SETUP" --claude --uninstall >/dev/null 2>&1
 rm -f "$settings"
 
-# 8. No settings.json yet: created.
+# 8. No settings.json yet: created. Before that, absent.
+[[ "$(porcelain_user)" == absent ]] && ok "--status --porcelain --claude: absent without an entry" || error "absent porcelain: $(bash "$SETUP" --status --porcelain --claude 2>&1)"
 rc="$(run --claude)"
 [[ "$rc" == 0 && "$(ours_count "$settings")" == 1 ]] && ok "a missing settings.json is created" || error "fresh: rc=$rc $(cat "$tmp/out")"
 bash "$SETUP" --claude --uninstall >/dev/null 2>&1
@@ -247,6 +306,16 @@ fi
 rc="$(run --managed)"
 [[ "$rc" == 0 && "$(ours_count "$SCRIPT_HELPERS_MANAGED_SETTINGS")" == 1 && -f "$tmp/managed/script-helpers/scripts/claude-hooks/pretooluse_private_names.sh" ]] \
   && ok "--managed writes the managed file and a copy beside it" || error "--managed: rc=$rc $(cat "$tmp/out")"
+# Only a managed entry, and it is broken: the fix --doctor names is --managed.
+[[ -f "$settings" ]] && mv "$settings" "$tmp/user.off"
+cp "$SCRIPT_HELPERS_MANAGED_SETTINGS" "$tmp/managed.keep"
+# Suffix only: on Windows the entry holds a native C:/ path, not $tmp.
+sed "s#/managed/script-helpers/#/nowhere/#" "$tmp/managed.keep" > "$SCRIPT_HELPERS_MANAGED_SETTINGS"
+rc="$(run --doctor)"
+[[ "$rc" == 1 ]] && grep -q 'does not exist: .*; run --managed again' "$tmp/out" \
+  && ok "--doctor on a broken managed-only entry says run --managed" || error "--doctor managed fix: rc=$rc $(cat "$tmp/out")"
+cp "$tmp/managed.keep" "$SCRIPT_HELPERS_MANAGED_SETTINGS"
+[[ -f "$tmp/user.off" ]] && mv "$tmp/user.off" "$settings"
 rc="$(run --managed --uninstall)"
 [[ "$rc" == 0 && "$(ours_count "$SCRIPT_HELPERS_MANAGED_SETTINGS")" == 0 && ! -e "$tmp/managed/script-helpers" ]] \
   && ok "--managed --uninstall removes it" || error "--managed --uninstall: rc=$rc $(cat "$tmp/out")"

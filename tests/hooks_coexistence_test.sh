@@ -261,6 +261,69 @@ r="$(new_repo porcelain-global)"
 [[ "$(field "$r" mode)" == none && "$(field "$r" global)" == yes ]] && ok "--porcelain: global=yes where the --global hooks run" || error "porcelain-global: '$(state "$r")'"
 (cd "$tmp" && bash "$setup" --global --uninstall >/dev/null 2>&1)
 
+# broken: core.hooksPath names a missing directory, or our setup's lost its
+# pre-push, so no push checks run and git says nothing. Reported, and --repair
+# sets it up again.
+r="$(new_repo broken-chained)"
+(cd "$r" && bash "$setup" >/dev/null 2>&1) || error "broken-chained: setup failed"
+[[ "$(field "$r" broken)" == no ]] && ok "a working chained setup: broken=no" || error "broken-chained: '$(state "$r")'"
+hp="$(git -C "$r" config --get core.hooksPath)"
+mv "$hp" "$hp.gone"
+[[ "$(field "$r" broken)" == yes ]] && ok "the shared copy deleted: broken=yes" || error "broken-chained: '$(state "$r")'"
+(cd "$r" && bash "$setup" --repair >/dev/null 2>&1) || error "broken-chained: repair failed"
+[[ "$(field "$r" broken)" == no ]] && ours_refuse "$r" && ok "--repair: broken=no, and the checks refuse again" || error "broken-chained after repair: '$(state "$r")'"
+rm -rf "$hp.gone"
+# A direct setup at the repository's own hooks, on a branch without them (the
+# script-helpers checkout on an old release branch).
+r="$(new_repo broken-direct)"
+git -C "$r" config core.hooksPath scripts/git-hooks
+git -C "$r" config script-helpers.set-hooksPath scripts/git-hooks
+git -C "$r" config script-helpers.mode direct
+git -C "$r" config script-helpers.expected-hooksPath scripts/git-hooks
+[[ "$(field "$r" broken)" == yes ]] && ok "direct at a missing directory: broken=yes" || error "broken-direct: '$(state "$r")'"
+(cd "$r" && bash "$setup" --repair >/dev/null 2>&1) || error "broken-direct: repair failed"
+[[ "$(field "$r" broken)" == no ]] && ours_refuse "$r" && ok "--repair: broken=no, and the checks refuse" || error "broken-direct after repair: '$(state "$r")'"
+# Our direct setup whose directory lost its pre-push (the script-helpers
+# checkout on a branch with only a pre-commit there): broken.
+r="$(new_repo broken-direct-precommit)"
+marker_hook "$r/scripts/git-hooks/pre-commit" old
+git -C "$r" config core.hooksPath scripts/git-hooks
+git -C "$r" config script-helpers.set-hooksPath scripts/git-hooks
+git -C "$r" config script-helpers.mode direct
+git -C "$r" config script-helpers.expected-hooksPath scripts/git-hooks
+[[ "$(field "$r" broken)" == yes ]] && ok "our direct setup with no pre-push: broken=yes" || error "broken-direct-precommit: '$(state "$r")'"
+git -C "$r" config script-helpers.trust-repo-hooks true
+(cd "$r" && bash "$setup" --repair >/dev/null 2>&1) || error "broken-direct-precommit: repair failed"
+[[ "$(field "$r" broken)" == no && "$(field "$r" target)" == scripts/git-hooks ]] \
+  && ok "--repair keeps the repository's own hooks as the target" || error "broken-direct-precommit after repair: '$(state "$r")'"
+clean_commit "$r" && [[ "$(ran)" == "old" ]] && ok "its pre-commit still runs after --repair" || error "broken-direct-precommit: ran '$(ran)'"
+# Taken over by a tool whose directory has only a pre-commit: taken_over, not broken.
+r="$(new_repo taken-precommit-only)"
+(cd "$r" && bash "$setup" >/dev/null 2>&1) || error "taken-precommit-only: setup failed"
+marker_hook "$r/.husky/pre-commit" husky
+git -C "$r" config core.hooksPath .husky
+[[ "$(field "$r" taken_over)" == yes && "$(field "$r" broken)" == no ]] && ok "taken over by a pre-commit-only tool: taken_over, not broken" || error "taken-precommit-only: '$(state "$r")'"
+# --status --porcelain never installs: with --global, --all or --managed it is
+# refused (exit 2), and nothing is written.
+r="$(new_repo status-never-writes)"
+for extra in --global --all --managed --claude-repo; do
+  before="$(git config --global --list 2>/dev/null; ls "$XDG_DATA_HOME" 2>/dev/null)"
+  (cd "$r" && bash "$setup" "$extra" --status --porcelain >/dev/null 2>&1); rc=$?
+  after="$(git config --global --list 2>/dev/null; ls "$XDG_DATA_HOME" 2>/dev/null)"
+  [[ $rc -eq 2 && "$before" == "$after" ]] && ok "$extra --status --porcelain: exit 2, nothing written" || error "$extra --status --porcelain: rc=$rc"
+done
+# The repository's own hooks with only a pre-commit: its choice, not broken.
+r="$(new_repo own-precommit-only)"
+marker_hook "$r/.githooks/pre-commit" own
+git -C "$r" config core.hooksPath .githooks
+[[ "$(field "$r" broken)" == no ]] && ok "own .githooks with only pre-commit: broken=no" || error "own-precommit-only: '$(state "$r")'"
+# Not set up by us, pointing nowhere: reported; --repair says to set up first.
+r="$(new_repo broken-foreign)"
+git -C "$r" config core.hooksPath .githooks
+[[ "$(field "$r" mode)" == none && "$(field "$r" broken)" == yes ]] && ok "a foreign value naming a missing directory: broken=yes" || error "broken-foreign: '$(state "$r")'"
+(cd "$r" && bash "$setup" --repair >/dev/null 2>&1); rc=$?
+[[ $rc -eq 1 ]] && ok "--repair where nothing was set up: exit 1" || error "broken-foreign repair rc=$rc"
+
 # Flags that do not go together are refused (exit 2).
 (cd "$r" && bash "$setup" --porcelain >/dev/null 2>&1); rc=$?
 [[ $rc -eq 2 ]] && ok "--porcelain without --status: exit 2" || error "porcelain alone rc=$rc"
