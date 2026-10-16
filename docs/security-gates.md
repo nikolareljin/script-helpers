@@ -249,8 +249,12 @@ bash <script-helpers>/scripts/setup-hooks.sh --repair               # chain agai
 value it replaced as `script-helpers.previous-hooksPath-history`. `--uninstall`
 then restores the new tool's value: the setup that was there just before.
 `--status --porcelain` prints one tab-separated line (`mode`, `taken_over`,
-`core_hooksPath`, `expected`, `previous`, `target`, `claude_repo`, `global`) for tools
-that check many repositories.
+`core_hooksPath`, `expected`, `previous`, `target`, `claude_repo`, `global`,
+`agents`, `unscanned`, `broken`) for tools that check many repositories.
+
+`broken=yes` means `core.hooksPath` names a directory with no `pre-push`: a
+branch without the hooks, or a deleted copy. Git then runs no hook and prints
+nothing. `--repair` sets it up again.
 
 Not reachable from git: hooks an IDE runs itself (a JetBrains or VS Code
 pre-commit check) and server-side hooks. They are never touched, so they keep
@@ -499,3 +503,8 @@ restores the saved global `core.hooksPath`.
 - `no owners configured` (exit 2): sign in to `gh` and run setup again, or set the owners (above).
 - A hook copy that was deleted fails open; `--doctor` reports it, and
   `--claude` reinstalls it.
+- `--status` says `BROKEN` when the entry runs a file that does not exist, and
+  `STALE` when it runs a file outside the installed copy, such as a checkout
+  that a branch switch or pull changes or removes. `--doctor` fails on both;
+  `--claude` fixes both. For scripts, `--status --porcelain --claude` prints
+  `claude_user=ok|absent|broken|stale`, `hook=` and `installed=`.

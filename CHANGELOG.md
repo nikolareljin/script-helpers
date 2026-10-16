@@ -1,3 +1,20 @@
+## Unreleased
+
+### Fixed
+
+- **A Claude hook entry that pointed into a checkout read as healthy.**
+  `--status` printed the installed copy's version, not what the entry runs, so
+  an entry into a working checkout passed until a branch switch removed the
+  file; the hook then failed open. `--status` now says `BROKEN` (file missing)
+  or `STALE` (not the installed copy), `--doctor` fails on both, and
+  `--status --porcelain --claude` reports `claude_user=ok|absent|broken|stale`.
+- **A `core.hooksPath` with no `pre-push` was not reported.** Git runs no hook
+  then and says nothing. `--status --porcelain` adds `broken=yes`; `--repair`
+  sets the repository up again.
+- **`--doctor` failed a working hook on a qualified-only name.** It probed with
+  the bare name, which the gate allows when the name is also public elsewhere.
+  It now probes with `namespace/name`.
+
 ## 2026-10-15 — v0.53.1
 
 ### Fixed

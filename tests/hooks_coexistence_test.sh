@@ -261,6 +261,34 @@ r="$(new_repo porcelain-global)"
 [[ "$(field "$r" mode)" == none && "$(field "$r" global)" == yes ]] && ok "--porcelain: global=yes where the --global hooks run" || error "porcelain-global: '$(state "$r")'"
 (cd "$tmp" && bash "$setup" --global --uninstall >/dev/null 2>&1)
 
+# broken: core.hooksPath names a directory with no pre-push, so git runs no
+# hook and says nothing. Reported, and --repair sets it up again.
+r="$(new_repo broken-chained)"
+(cd "$r" && bash "$setup" >/dev/null 2>&1) || error "broken-chained: setup failed"
+[[ "$(field "$r" broken)" == no ]] && ok "a working chained setup: broken=no" || error "broken-chained: '$(state "$r")'"
+hp="$(git -C "$r" config --get core.hooksPath)"
+mv "$hp" "$hp.gone"
+[[ "$(field "$r" broken)" == yes ]] && ok "the shared copy deleted: broken=yes" || error "broken-chained: '$(state "$r")'"
+(cd "$r" && bash "$setup" --repair >/dev/null 2>&1) || error "broken-chained: repair failed"
+[[ "$(field "$r" broken)" == no ]] && ours_refuse "$r" && ok "--repair: broken=no, and the checks refuse again" || error "broken-chained after repair: '$(state "$r")'"
+rm -rf "$hp.gone"
+# A direct setup at the repository's own hooks, on a branch without them (the
+# script-helpers checkout on an old release branch).
+r="$(new_repo broken-direct)"
+git -C "$r" config core.hooksPath scripts/git-hooks
+git -C "$r" config script-helpers.set-hooksPath scripts/git-hooks
+git -C "$r" config script-helpers.mode direct
+git -C "$r" config script-helpers.expected-hooksPath scripts/git-hooks
+[[ "$(field "$r" broken)" == yes ]] && ok "direct at a missing directory: broken=yes" || error "broken-direct: '$(state "$r")'"
+(cd "$r" && bash "$setup" --repair >/dev/null 2>&1) || error "broken-direct: repair failed"
+[[ "$(field "$r" broken)" == no ]] && ours_refuse "$r" && ok "--repair: broken=no, and the checks refuse" || error "broken-direct after repair: '$(state "$r")'"
+# Not set up by us, pointing nowhere: reported; --repair says to set up first.
+r="$(new_repo broken-foreign)"
+git -C "$r" config core.hooksPath .githooks
+[[ "$(field "$r" mode)" == none && "$(field "$r" broken)" == yes ]] && ok "a foreign value with no pre-push: broken=yes" || error "broken-foreign: '$(state "$r")'"
+(cd "$r" && bash "$setup" --repair >/dev/null 2>&1); rc=$?
+[[ $rc -eq 1 ]] && ok "--repair where nothing was set up: exit 1" || error "broken-foreign repair rc=$rc"
+
 # Flags that do not go together are refused (exit 2).
 (cd "$r" && bash "$setup" --porcelain >/dev/null 2>&1); rc=$?
 [[ $rc -eq 2 ]] && ok "--porcelain without --status: exit 2" || error "porcelain alone rc=$rc"

@@ -53,6 +53,7 @@
 #                 value it replaced is kept as script-helpers.previous-hooksPath-history.
 #                 Also chains a direct setup that runs the repository's own hooks
 #                 without the current security checks (unscanned=yes below).
+#                 Also sets up again a core.hooksPath with no pre-push (broken=yes).
 #                 Nothing to repair: exit 0. Not set up here: exit 1.
 #   --status      Show what is installed, and the prerequisites.
 #   --porcelain   With --status, in a repository: one line of tab-separated key=value
@@ -62,7 +63,12 @@
 #                 other agents with our hook here, comma-separated), unscanned (yes when
 #                 a direct setup points at hooks other than this copy's own, such as
 #                 an older vendored script-helpers or .githooks, so the current
-#                 security checks do not run; --repair chains them).
+#                 security checks do not run; --repair chains them), broken (yes when
+#                 core.hooksPath has no pre-push, so git runs no hook; --repair sets
+#                 it up again).
+#                 With --claude, anywhere: claude_user (ok, absent, broken: the
+#                 script it runs is missing, stale: it runs a file outside the
+#                 installed copy, such as a checkout), hook, installed (version).
 #   --doctor      The prerequisites, then four probes through the installed Claude
 #                 hook, from a throwaway repository under the first owner: a private
 #                 name from your list, an SSN-shaped number, and git push --no-verify
@@ -596,14 +602,42 @@ claude_entry() {
   "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$1")" 2>/dev/null | head -1 || true
 }
 
+# claude_hook_path <entry>: the script an entry's command runs.
+claude_hook_path() {
+  local hook="${1#bash }"
+  hook="${hook#\"}"; hook="${hook%\"}"
+  unix_path "$hook"
+}
+
+# claude_state <settings> <copy dir>: ok, absent, broken (the script the entry
+# runs does not exist, so the hook fails) or stale (it runs a file outside the
+# installed copy, such as a checkout, which a branch switch or pull changes or
+# removes).
+claude_state() {
+  local entry hook home
+  entry="$(claude_entry "$1")"
+  [[ -n "$entry" ]] || { echo absent; return; }
+  hook="$(claude_hook_path "$entry")"
+  home="$(cd "$2" 2>/dev/null && pwd -P || echo "$2")"
+  if [[ ! -f "$hook" ]]; then echo broken
+  elif [[ "$(cd "$(dirname "$hook")" && pwd -P)/$(basename "$hook")" != "$home/$HOOK_REL" ]]; then echo stale
+  else echo ok
+  fi
+}
+
 show_claude_status() {
-  local entry pair kind file home
+  local entry pair kind file home state
   for pair in "user|$claude_settings|$claude_home" "managed|$managed_settings|$managed_home"; do
     IFS='|' read -r kind file home <<<"$pair"
     entry="$(claude_entry "$file")"
     if [[ -n "$entry" ]]; then
       echo "[setup-hooks] claude hook ($kind): $file -> $entry"
       echo "[setup-hooks]   installed copy: $home ($(cat "$home/VERSION" 2>/dev/null || echo 'MISSING: the hook cannot run'))"
+      state="$(claude_state "$file" "$home")"
+      case "$state" in
+        broken) echo "[setup-hooks]   BROKEN: $(claude_hook_path "$entry") does not exist; the hook cannot run. Fix: setup-hooks.sh --$([[ "$kind" == user ]] && echo claude || echo managed)" ;;
+        stale)  echo "[setup-hooks]   STALE: the entry runs $(claude_hook_path "$entry"), not the installed copy; a branch switch or pull there changes or removes it. Fix: setup-hooks.sh --$([[ "$kind" == user ]] && echo claude || echo managed)" ;;
+      esac
       if [[ "$(claude_onfailure "$file")" == block ]]; then
         echo "[setup-hooks]   onFailure: block (a timeout or crash blocks the command)"
       else
@@ -749,7 +783,9 @@ now_ms() { "$PY" -I -c 'import time; print(int(time.time() * 1000))'; }
 # probe_name: a private name from the list the hook reads, for the name probe.
 # Read as check_private_names.sh reads it: columns by the header, else the v1
 # order (visibility, namespace, name, code, flags); only "private" rows; never
-# a name the machine allowlist or PRIVATE_NAMES_ALLOW lets through.
+# a name the machine allowlist or PRIVATE_NAMES_ALLOW lets through. Printed
+# as namespace/name: the gate matches a qualified-only or ambiguous name only in
+# that form, so a bare name would pass and fail the probe on a working hook.
 probe_name() {
   local list="${PRIVATE_NAMES_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names.tsv}"
   local allow="${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names-allow"
@@ -761,10 +797,12 @@ probe_name() {
     /^#/ || NF == 0 { next }
     {
       vi = ("visibility" in col) ? col["visibility"] : 1
+      ni = ("namespace" in col) ? col["namespace"] : 2
       mi = ("name" in col) ? col["name"] : 3
       fi = ("flags" in col) ? col["flags"] : 5
-      n = $mi
-      if ($vi == "private" && $fi !~ /ambiguous/ && n ~ /^[A-Za-z0-9._-]+$/ && length(n) > 4 && !(tolower(n) in skip)) { print n; exit }
+      n = $mi; ns = $ni
+      if ($vi == "private" && $fi !~ /ambiguous/ && n ~ /^[A-Za-z0-9._-]+$/ && length(n) > 4 && !(tolower(n) in skip) \
+          && ns ~ /^[A-Za-z0-9._-]+$/) { print ns "/" n; exit }
     }' - "$list"
 }
 
@@ -806,19 +844,25 @@ probe() {
 }
 
 doctor() {
-  local entry hook failed=0 name ssn
+  local entry hook home settings failed=0 name ssn
   prereqs || failed=1
   show_claude_status
-  entry="$(claude_entry "$claude_settings")"
-  [[ -n "$entry" ]] || entry="$(claude_entry "$managed_settings")"
+  settings="$claude_settings"; home="$claude_home"; entry="$(claude_entry "$settings")"
+  [[ -n "$entry" ]] || { settings="$managed_settings"; home="$managed_home"; entry="$(claude_entry "$settings")"; }
   if [[ -z "$entry" || -z "$PY" ]]; then
     echo "[setup-hooks] no Claude hook installed; run: bash $src_root/scripts/setup-hooks.sh --claude" >&2
     return 1
   fi
-  hook="${entry#bash }"; hook="${hook#\"}"; hook="${hook%\"}"; hook="$(unix_path "$hook")"
+  hook="$(claude_hook_path "$entry")"
   if [[ ! -f "$hook" ]]; then
     echo "[setup-hooks] the hook in settings does not exist: $hook (it would fail open); run --claude again" >&2
     return 1
+  fi
+  # Probed anyway: it runs today. It fails the doctor because it will not
+  # survive the next branch switch or pull in the place it points at.
+  if [[ "$(claude_state "$settings" "$home")" == stale ]]; then
+    echo "[setup-hooks] FAIL: the hook in settings is not the installed copy: $hook; run --claude again" >&2
+    failed=1
   fi
   if [[ -z "$(configured_owners)" ]]; then
     echo "[setup-hooks] no owners configured: the hook acts in no repository, so nothing can be probed" >&2
@@ -851,6 +895,13 @@ fi
 if [[ "$DOCTOR" == true ]]; then
   rc=0; doctor || rc=$?
   exit "$rc"
+fi
+if [[ "$STATUS" == true && "$PORCELAIN" == true && "$CLAUDE" == true ]]; then
+  # The user's Claude hook, for scripts; works outside a repository.
+  entry="$(claude_entry "$claude_settings")"
+  printf 'claude_user=%s\thook=%s\tinstalled=%s\n' "$(claude_state "$claude_settings" "$claude_home")" \
+    "$([[ -n "$entry" ]] && claude_hook_path "$entry")" "$(cat "$claude_home/VERSION" 2>/dev/null || true)"
+  exit 0
 fi
 if [[ "$STATUS" == true && "$PORCELAIN" != true ]]; then
   show_global_status
@@ -971,7 +1022,7 @@ unset_local() { git config --local --unset "$1" 2>/dev/null || true; }
 # core.hooksPath it set. A setup from 0.49.0 recorded neither; it is read from
 # the keys it did write. taken_over: the value is no longer the one we set
 # (another tool replaced or removed it), so our hooks no longer run.
-setup_mode=""; setup_expected=""; taken_over=no; unscanned=no
+setup_mode=""; setup_expected=""; taken_over=no; unscanned=no; broken=no
 # direct_allowed <hooks dir>: pointing git straight at the repository's hooks
 # keeps the current security checks only when those hooks are this copy's own.
 # Without a dispatcher to chain through, direct is the only way.
@@ -1006,6 +1057,14 @@ read_setup_state() {
   if [[ "$setup_mode" != none && "$cur_local" != "$setup_expected" ]]; then taken_over=yes; fi
   unscanned=no
   if [[ "$setup_mode" == direct ]] && ! direct_allowed "$setup_expected"; then unscanned=yes; fi
+  # broken: core.hooksPath names a directory with no pre-push (a branch without
+  # it, a deleted copy). Git then runs no hook at all, and says nothing.
+  broken=no
+  if [[ -n "$cur_local" ]]; then
+    local hp="$cur_local"
+    case "$hp" in \~/*) hp="$HOME/${hp#\~/}" ;; /*|[A-Za-z]:[\\/]*) ;; *) hp="$repo_root/$hp" ;; esac
+    [[ -f "$hp/pre-push" ]] || broken=yes
+  fi
 }
 
 # record_setup <mode> <value>: what this run set, for --status and --repair.
@@ -1032,20 +1091,22 @@ if [[ "$STATUS" == true && "$PORCELAIN" == true ]]; then
     f="$repo_root/$(agent_repo_rel "$a")"
     [[ -f "$f" && -n "$PY" ]] && agent_merge status "$a" "$(native_path "$f")" >/dev/null 2>&1 && agents="${agents:+$agents,}$a"
   done
-  printf 'mode=%s\ttaken_over=%s\tcore_hooksPath=%s\texpected=%s\tprevious=%s\ttarget=%s\tclaude_repo=%s\tglobal=%s\tagents=%s\tunscanned=%s\n' \
+  printf 'mode=%s\ttaken_over=%s\tcore_hooksPath=%s\texpected=%s\tprevious=%s\ttarget=%s\tclaude_repo=%s\tglobal=%s\tagents=%s\tunscanned=%s\tbroken=%s\n' \
     "$setup_mode" "$taken_over" "$cur_local" "$setup_expected" \
     "$(git config --local --get script-helpers.previous-hooksPath 2>/dev/null || true)" \
-    "$(git config --local --get script-helpers.hooks-target 2>/dev/null || true)" "$claude_repo" "$global" "$agents" "$unscanned"
+    "$(git config --local --get script-helpers.hooks-target 2>/dev/null || true)" "$claude_repo" "$global" "$agents" "$unscanned" "$broken"
   exit 0
 fi
 if [[ "$REPAIR" == true ]]; then
   if [[ "$setup_mode" == none ]]; then
     echo "[setup-hooks] not set up in this repository; run setup-hooks.sh first" >&2; exit 1
   fi
-  if [[ "$taken_over" == no && "$unscanned" == no ]]; then
+  if [[ "$taken_over" == no && "$unscanned" == no && "$broken" == no ]]; then
     echo "[setup-hooks] nothing to repair: core.hooksPath is still ${cur_local:-(unset)}"; exit 0
   fi
-  if [[ "$taken_over" == no ]]; then
+  if [[ "$broken" == yes && "$taken_over" == no ]]; then
+    echo "[setup-hooks] core.hooksPath ${cur_local} has no pre-push, so git runs no hook; setting up again."
+  elif [[ "$taken_over" == no ]]; then
     # The value is still the one we set: the install below chains it as ours,
     # so --uninstall later leaves what was there before the first setup.
     echo "[setup-hooks] $setup_expected runs without the current security checks; chaining them in front."
