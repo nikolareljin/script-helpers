@@ -1,4 +1,4 @@
-## Unreleased
+## 2026-10-16 — v0.54.0
 
 ### Fixed
 
@@ -8,8 +8,9 @@
   file; the hook then failed open. `--status` now says `BROKEN` (file missing)
   or `STALE` (not the installed copy), `--doctor` fails on both, and
   `--status --porcelain --claude` reports `claude_user=ok|absent|broken|stale|unknown`.
-  Entries in single quotes or with `$HOME/` are read too, and `--doctor` also
-  fails on a broken or stale managed-settings entry.
+  Entries are read the way the shell runs them (quotes, `~/`, `$HOME/`), and
+  `--doctor` also fails on a broken or stale managed-settings entry, naming
+  `--managed` as the fix when only that entry exists.
 - **A setup whose hooks directory was gone was not reported.** When
   `core.hooksPath` names a missing directory, or our setup's directory has no
   `pre-push`, no push checks run and git says nothing. `--status --porcelain`
