@@ -496,7 +496,8 @@ ui_menu() {
     none) return 1 ;;
     dialog)
       dialog_init
-      local -a items=() i
+      local -a items=()
+      local i
       for i in "${!keys[@]}"; do items+=("${keys[$i]}" "${labels[$i]}"); done
       local choice
       choice="$(dialog_capture --title "$title" --default-item "$default" --menu "$text" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0 "${items[@]}")" || return 1

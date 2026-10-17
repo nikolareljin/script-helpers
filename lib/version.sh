@@ -176,7 +176,7 @@ version_offer_update() {
   local label="" hint=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --label) [[ $# -ge 2 ]] || { log_error "version_offer_update: --label needs a value"; return 1; }; label="$2 "; shift 2 ;;
+      --label) [[ $# -ge 2 ]] || { log_error "version_offer_update: --label needs a value"; return 1; }; label="${2:+$2 }"; shift 2 ;;
       --hint) [[ $# -ge 2 ]] || { log_error "version_offer_update: --hint needs a value"; return 1; }; hint="$2"; shift 2 ;;
       *) break ;;
     esac

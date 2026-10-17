@@ -70,8 +70,10 @@ try:
 except Exception:
     sys.exit(0)
 v = d.get(key) if isinstance(d, dict) else None
-if v is not None and not isinstance(v, (dict, list)):
-    print(v)
+if v is None or isinstance(v, (dict, list)):
+    sys.exit(0)
+# Non-strings in JSON spelling: true and false, not True and False.
+print(v if isinstance(v, str) else json.dumps(v))
 ' "$key"
     return 0
   fi

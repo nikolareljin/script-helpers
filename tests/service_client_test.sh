@@ -128,6 +128,9 @@ if [[ "$(json_get_field "$body" version)" == 1.2.0 ]]; then ok "reads a string f
 if [[ "$(json_get_field "$body" api_version)" == v9 ]]; then ok "api_version is its own field"; else error "api_version"; fi
 if [[ -z "$(json_get_field "$body" nested)" ]]; then ok "an object field prints nothing"; else error "nested printed"; fi
 if [[ -z "$(json_get_field "$body" absent)" ]]; then ok "a missing field prints nothing, exit 0"; else error "missing field"; fi
+if [[ "$(json_get_field '{"ok":true,"off":false,"n":3}' ok)" == true ]]; then ok "a boolean prints as JSON true"; else error "boolean printed as $(json_get_field '{"ok":true}' ok)"; fi
+if [[ "$(json_get_field '{"off":false}' off)" == false ]]; then ok "false prints as JSON false"; else error "false"; fi
+if [[ "$(json_get_field '{"n":3}' n)" == 3 ]]; then ok "a number prints as written"; else error "number"; fi
 if [[ -z "$(json_get_field "not json" version)" ]]; then ok "not JSON prints nothing"; else error "not json"; fi
 if json_get_field "$body" 'ver.*' >/dev/null 2>&1; then error "a regex key accepted"; else ok "a key that is not a word is refused"; fi
 mkdir -p "$tmp/nopy"
@@ -182,6 +185,9 @@ rc=0; printf 'y\n' | SHLIB_UI=plain version_offer_update 1.0.0 1.1.0 fails >/dev
 if [[ $rc -eq 7 ]]; then ok "the command's failure is returned"; else error "command rc $rc, want 7"; fi
 if SHLIB_UI=plain version_offer_update 1.0.0 1.1.0 </dev/null >/dev/null 2>&1; then error "a missing COMMAND accepted"; else ok "COMMAND is required"; fi
 if SHLIB_UI=bogus version_offer_update 1.0.0 1.1.0 record a </dev/null >/dev/null 2>&1; then error "a bad SHLIB_UI passed silently"; else ok "a bad SHLIB_UI is an error"; fi
+out="$(SHLIB_UI=none version_offer_update --label "" 1.0.0 1.1.0 true 2>&1)"
+bare="$(SHLIB_UI=none version_offer_update 1.0.0 1.1.0 true 2>&1)"
+if [[ "$out" == "$bare" ]]; then ok "an empty --label adds no space"; else error "empty label: $out"; fi
 if version_offer_update --label </dev/null >/dev/null 2>&1; then error "--label without a value accepted"; else ok "--label needs a value"; fi
 
 # Imported alone, version loads the dialog module it needs.

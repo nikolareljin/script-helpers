@@ -18,7 +18,7 @@ Functions
   - Purpose: Strip triple backticks from a response blob for markdown-friendly output.
 
 - json_get_field BODY KEY
-  - Purpose: Print a top-level scalar field of a JSON object.
+  - Purpose: Print a top-level scalar field of a JSON object. Strings print raw; numbers and booleans print in JSON spelling (`true`, `false`).
   - Behavior: uses `python3` when present; without it, a `grep`/`sed` fallback reads string fields from compact or pretty JSON (`"version"` never matches `"api_version"`). An absent field, an object or list value, or a body that is not JSON prints nothing and returns 0.
   - Returns: 1 only when `KEY` is not `[A-Za-z0-9_]+`.
 
