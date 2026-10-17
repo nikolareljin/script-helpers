@@ -13,6 +13,7 @@ This index lists all modules and their functions. See the linked module pages fo
 - [docker](./modules/docker.md)
 - [docker_install](./modules/docker_install.md)
 - [json](./modules/json.md)
+- [http](./modules/http.md)
 - [svg](./modules/svg.md)
 - [webshot](./modules/webshot.md)
 - [python](./modules/python.md)

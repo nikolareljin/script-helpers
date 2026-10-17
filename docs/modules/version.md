@@ -27,6 +27,12 @@ Functions
     - `2` on missing args; `3` on invalid version format.
   - Notes: Supports multi-digit segments (e.g., `1.14.100`). Segments are compared as decimal numbers, so leading zeros are allowed: `2026.08.1` is lower than `2026.9.0`.
 
+- version_offer_update [--label TEXT] [--hint TEXT] RUNNING LATEST COMMAND [ARG...]
+  - Purpose: Offer, to a person, to run an updater when `RUNNING` is older than `LATEST`.
+  - Behavior: newer or equal or an empty version: nothing, 0. With `ui_mode` `none`: one line, `<label> RUNNING is running; LATEST is available: <hint>`, nothing run. Otherwise asks with `ui_yesno`; yes runs `COMMAND ARG...` in the calling shell and returns its status (a command that `exec`s replaces the caller), no prints the hint and returns 0. `--hint` defaults to the command line.
+  - Returns: 0, the command's status, or 1 for missing arguments or a bad `SHLIB_UI`.
+  - Dependencies: dialog module (`ui_mode`, `ui_yesno`).
+
 Examples
 --------
 

@@ -68,10 +68,30 @@ Functions
     - On errors, shows a dialog box with exit code and error details unless disabled by env.
   - Returns: 0 on success; non-zero on failure/cancel.
 
+- ui_mode
+  - Purpose: Pick how to ask a person: prints `dialog`, `plain` (read prompts) or `none`.
+  - Behavior: `SHLIB_UI` forces one (anything else is an error naming the variable). With no terminal on stdin or stdout it is `none`: nothing is ever asked, so a service or CI job fails naming what it wanted instead of hanging. `SHLIB_UI_PLAIN=1` downgrades `dialog` to `plain`. Otherwise `dialog` when installed, else `plain`.
+
+- ui_menu TITLE TEXT DEFAULT key1 label1 [key2 label2 ...]
+  - Prints the chosen key; an empty plain answer takes `DEFAULT`, a key not offered is refused. Returns 1 in `none` mode or on cancel.
+
+- ui_input TITLE TEXT [DEFAULT]
+  - Prints the answer, or `DEFAULT` when empty. Returns 1 in `none` mode, on cancel or at end of input.
+
+- ui_secret TITLE TEXT
+  - Like `ui_input`, never echoed while typed (dialog `--passwordbox`, `read -s` on a terminal).
+
+- ui_yesno TITLE TEXT
+  - 0 for `y` or `yes` (any case); 1 for anything else, including no answer and `none` mode. The dialog box defaults to No.
+
+- ui_note TITLE TEXT...
+  - Shows a message (a dialog box, or `log_info`). Never fails.
+
 Environment
 -----------
 
 - `DIALOG_WIDTH`, `DIALOG_HEIGHT` — set by `dialog_init`.
+- `SHLIB_UI` (`dialog`, `plain`, `none`) and `SHLIB_UI_PLAIN=1`: see `ui_mode`.
 - `SHLIB_DIALOG_TTY`: the terminal device the functions above draw on. Default `/dev/tty`. For tests, which give it a file. (`DIALOG_TTY` is a variable of `dialog`'s own and is not read here.)
 - `DIALOG_DOWNLOAD_SHOW_ERROR_DIALOG` — set to `0`, `false`, or `never` to suppress dialog error popups in `dialog_download_file`.
 
