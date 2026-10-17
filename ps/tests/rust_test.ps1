@@ -50,14 +50,18 @@ try {
     Remove-Item Env:RUST_TOOLCHAIN -ErrorAction SilentlyContinue
 
     Remove-Item Function:global:rustup
-    # The CI image also has rustup. Restrict PATH so this case proves the
-    # resolver refuses when neither the stub nor a real rustup is available.
-    $env:PATH = $distro
+    # PowerShell caches application discovery, so changing PATH alone does not
+    # hide the runner's rustup. Mock that lookup for this refusal case only.
+    function global:Get-Command {
+        param([string]$Name, [Parameter(ValueFromRemainingArguments = $true)][object[]]$Arguments)
+        if ($Name -eq 'rustup') { return $null }
+        Microsoft.PowerShell.Core\Get-Command $Name @Arguments
+    }
     $refused = $false
     try { rust_toolchain_ci_uses | Out-Null } catch { $refused = $_.Exception.Message -match 'rustup is not installed' }
     check 'missing rustup is refused with the next action' $refused
 
-    $env:PATH = "$distro$([System.IO.Path]::PathSeparator)$originalPath"
+    Remove-Item Function:global:Get-Command
     function global:rustup { param([Parameter(ValueFromRemainingArguments = $true)][string[]]$args) }
     $refused = $false
     try { rust_toolchain_ci_uses | Out-Null } catch { $refused = $_.Exception.Message -match 'toolchain install stable' }
@@ -69,6 +73,7 @@ finally {
     if ($null -eq $originalHelpersDir) { Remove-Item Env:SCRIPT_HELPERS_DIR -ErrorAction SilentlyContinue } else { $env:SCRIPT_HELPERS_DIR = $originalHelpersDir }
     Remove-Item Function:global:rustup -ErrorAction SilentlyContinue
     Remove-Item Function:global:cargo -ErrorAction SilentlyContinue
+    Remove-Item Function:global:Get-Command -ErrorAction SilentlyContinue
     Remove-Item -Recurse -Force $tmp
 }
 
