@@ -1,4 +1,16 @@
-## 2026-10-16 — v0.54.1
+## Unreleased
+
+### Added
+
+- **Building blocks for a client of any JSON service.** `http.sh` (new):
+  `http_probe_json URL PATH [TIMEOUT]` and `http_check_key URL PATH HEADER KEY`
+  (0 accepted, 2 refused on 401/403, 1 otherwise; the key reaches curl on
+  stdin, never argv). `json_get_field BODY KEY` in `json.sh`. `ui_mode`,
+  `ui_menu`, `ui_input`, `ui_secret`, `ui_yesno`, `ui_note` in `dialog.sh`:
+  dialog, plain and no-terminal renderers, never a prompt without a terminal,
+  `SHLIB_UI` / `SHLIB_UI_PLAIN` to force one. `version_offer_update` in
+  `version.sh`: offers an updater to a person, prints one line otherwise.
+  `env_set_value` already covers writing a `.env` value.
 
 ### Fixed
 
@@ -7,6 +19,20 @@
   so the test can prove gitleaks blocks it. `.gitleaksignore` now lists its
   fingerprint at line 58 and in the two older commits; the test still commits
   it into a repo with no ignore file and expects a block.
+
+### Changed
+
+- `hub.sh` is rebuilt on those functions; its functions and variables
+  (`HUB_UI`, `HUB_SETUP_PLAIN`) are unchanged. Three differences:
+  `hub_write_env` also replaces an `export KEY=` line and collapses duplicate
+  lines, as `env_set_value` does; `hub_offer_update` asks "Update available
+  ... Run cd DIR && ./update now?"; and when that `cd` fails after a yes it
+  returns the failure instead of 0.
+
+## 2026-10-16 — v0.54.1
+
+### Fixed
+
 - **`ci_wp_plugin_check.sh` retried nothing when the plugin-check download
   failed.** It downloads inside the wp-cli container, where a DNS miss reads
   `Download failed. "A valid URL was not provided."`, and one attempt with

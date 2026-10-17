@@ -31,7 +31,7 @@ Functions
 - hub_probe_field body key
   - Purpose: Print one top-level string field of a `/v1/service` body
     (`name`, `version`, `instance_id`); nothing when absent.
-  - Dependencies: python3 when present; a sed fallback otherwise.
+  - Dependencies: `json_get_field` (python3 when present; a sed fallback otherwise).
 
 - hub_check_key url key
   - Purpose: Prove an API key with an authenticated read,
@@ -116,9 +116,9 @@ Functions
   - Returns: 0 with the hub answering and the key accepted; 1 otherwise
     (nothing is written before the key is accepted); 2 on an unknown option
     or a flag missing its value.
-  - Dependencies: curl, git; `env` (`resolve_env_value`), `version`
-    (`version_compare`), `dialog` (`dialog_init`) -- sourced automatically
-    when not already imported.
+  - Dependencies: curl, git; `env` (`env_set_value`, `resolve_env_value`),
+    `version` (`version_offer_update`), `dialog` (`ui_*`), `http`, `json`
+    (`json_get_field`) -- sourced automatically when not already imported.
 
 Environment
 -----------

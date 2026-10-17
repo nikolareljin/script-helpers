@@ -56,16 +56,17 @@ Modules overview
 - os — OS detection and conditional sudo runner.
 - env — project root detection, .env loading, require envs.
 - file — file/dir checks, download with optional dialog gauge, ISO/checksum helpers.
-- dialog — `dialog` sizing, input, and a rich download progress gauge.
+- dialog — `dialog` sizing, input, prompts that fall back to plain or none without a terminal, and a rich download progress gauge.
 - docker — docker compose detection/wrapper, service wait, status inspection.
 - docker_install — install Docker Engine (Linux) / Docker Desktop (macOS, Windows); idempotent `ensure_docker` guard. Bash + PowerShell + `bin/install-docker` / `ps/scripts/install_docker.ps1`.
 - deps — install utilities and AI Runner tooling profile.
 - json — escape strings, extract fields, markdown-friendly formatting.
+- http — probe a JSON service, prove an API key without putting it in argv.
 - svg — rasterize SVG artwork to square PNGs and icon-size sets.
 - webshot: web page screenshots from a JSON spec (login, actions, element clips) and HTML-to-PDF, with Playwright.
 - python — resolve Python 3 executables and ensure local virtualenvs.
 - ports — list port listeners, detect conflicts from env variables.
-- version — semantic version helpers for bumping and comparing.
+- version — semantic version helpers for bumping, comparing, and offering an update to a person.
 - browser — open URLs and wait+open a frontend when ready.
 - certs — self‑signed certs and trust store installation.
 - hosts — /etc/hosts helpers.
