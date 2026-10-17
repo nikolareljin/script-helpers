@@ -186,6 +186,10 @@ version_offer_update() {
   shift 2
   [[ -n "$hint" ]] || hint="$*"
   [[ -n "$running" && -n "$latest" ]] || return 0
+  if ! declare -F ui_yesno >/dev/null 2>&1 && [[ -n "${_SHLIB_LIB_DIR:-}" ]]; then
+    # shellcheck source=/dev/null
+    source "$_SHLIB_LIB_DIR/dialog.sh" || return 1
+  fi
   local rc=0
   version_compare "$running" "$latest" >/dev/null 2>&1 || rc=$?
   # 255 means running < latest. 0 equal, 1 newer (a checkout ahead of its tags).

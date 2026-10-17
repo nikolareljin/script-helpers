@@ -184,9 +184,13 @@ if SHLIB_UI=plain version_offer_update 1.0.0 1.1.0 </dev/null >/dev/null 2>&1; t
 if SHLIB_UI=bogus version_offer_update 1.0.0 1.1.0 record a </dev/null >/dev/null 2>&1; then error "a bad SHLIB_UI passed silently"; else ok "a bad SHLIB_UI is an error"; fi
 if version_offer_update --label </dev/null >/dev/null 2>&1; then error "--label without a value accepted"; else ok "--label needs a value"; fi
 
+# Imported alone, version loads the dialog module it needs.
+out="$(bash -c 'cd "$1" && . ./helpers.sh && shlib_import version && SHLIB_UI=none version_offer_update 1.0.0 1.1.0 true' _ "$root_dir" 2>&1)" || true
+if [[ "$out" == *"1.1.0 is available"* ]]; then ok "version imported alone still offers"; else error "version alone: $out"; fi
+
 # --- the new modules name no service ----------------------------------------------
 note "neutral"
-if git grep -n -i -w hub -- lib/http.sh lib/json.sh lib/version.sh tests/service_client_test.sh docs/modules/http.md >/dev/null 2>&1; then
+if git grep -n -i -w hub -- lib/http.sh lib/json.sh lib/version.sh docs/modules/http.md >/dev/null 2>&1; then
   error "a neutral module names a service"
 else
   ok "no service named in the neutral modules"
