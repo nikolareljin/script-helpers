@@ -59,3 +59,24 @@ genuinely targets the system toolchain.
 it skips a Rust project when rustup is absent — `cargo` on `PATH` is not the
 precondition this gate actually has. `PREFLIGHT_RUST_ANY_CARGO=true` turns that
 skip into a real check against `PATH`'s cargo.
+
+PowerShell
+----------
+
+`ps/lib/rust.ps1` provides `rust_toolchain_ci_uses [-Toolchain <toolchain>]`.
+It defaults to `RUST_TOOLCHAIN`, then `stable`, asks rustup for Cargo by that
+name, verifies the returned file, and places its directory first on `PATH`.
+It throws with `rustup toolchain install <toolchain>` when rustup or the selected
+Cargo is unavailable; it never falls back to a shadowed Cargo.
+
+- Parameter: `-Toolchain` overrides `RUST_TOOLCHAIN` and `stable`.
+- Returns: `$true` after selecting Cargo. A missing rustup or selected Cargo throws.
+- Dependency: rustup and the requested installed toolchain.
+
+```powershell
+. "$env:SCRIPT_HELPERS_DIR\ps\helpers.ps1"
+Import-ScriptHelpers rust
+
+rust_toolchain_ci_uses
+cargo test --locked
+```
