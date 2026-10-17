@@ -50,10 +50,14 @@ try {
     Remove-Item Env:RUST_TOOLCHAIN -ErrorAction SilentlyContinue
 
     Remove-Item Function:global:rustup
+    # The CI image also has rustup. Restrict PATH so this case proves the
+    # resolver refuses when neither the stub nor a real rustup is available.
+    $env:PATH = $distro
     $refused = $false
     try { rust_toolchain_ci_uses | Out-Null } catch { $refused = $_.Exception.Message -match 'rustup is not installed' }
     check 'missing rustup is refused with the next action' $refused
 
+    $env:PATH = "$distro$([System.IO.Path]::PathSeparator)$originalPath"
     function global:rustup { param([Parameter(ValueFromRemainingArguments = $true)][string[]]$args) }
     $refused = $false
     try { rust_toolchain_ci_uses | Out-Null } catch { $refused = $_.Exception.Message -match 'toolchain install stable' }
