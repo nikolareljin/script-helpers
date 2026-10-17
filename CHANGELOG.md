@@ -2,6 +2,11 @@
 
 ### Fixed
 
+- **`gitleaks dir .` and `gitleaks git` failed on this repository.** They
+  flagged the fake AWS secret in `tests/security_gate_test.sh`, kept on purpose
+  so the test can prove gitleaks blocks it. `.gitleaksignore` now lists its
+  fingerprint at line 58 and in the two older commits; the test still commits
+  it into a repo with no ignore file and expects a block.
 - **`ci_wp_plugin_check.sh` retried nothing when the plugin-check download
   failed.** It downloads inside the wp-cli container, where a DNS miss reads
   `Download failed. "A valid URL was not provided."`, and one attempt with
