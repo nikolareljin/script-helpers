@@ -4,8 +4,8 @@
 # PARAMETERS: Arguments are passed unchanged to scripts/setup-hooks.sh.
 # EXIT_CODES:
 #   0  The Bash setup command completed successfully.
-#   1  The Bash setup command failed.
-#   2  Git Bash was not found on Windows.
+#   *  Any other code is scripts/setup-hooks.sh's own, passed through unchanged.
+#   2  Also returned when Git Bash was not found on Windows.
 # EXAMPLE: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\setup-hooks.ps1 --doctor
 # ----------------------------------------------------
 <#

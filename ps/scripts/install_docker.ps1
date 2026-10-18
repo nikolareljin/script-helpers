@@ -10,7 +10,7 @@
 # EXIT_CODES:
 #   0  Docker is usable or installation completed.
 #   1  Docker is unavailable, installation failed, or the user declined.
-#   2  Invalid arguments.
+#   2  Unsupported platform.
 #   3  Installation completed but the daemon did not become ready.
 # EXAMPLE: pwsh -File ps\scripts\install_docker.ps1 -Check
 # ----------------------------------------------------

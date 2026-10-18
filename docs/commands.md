@@ -128,8 +128,8 @@ Exit codes:
 
 ```text
 0  The Bash setup command completed successfully.
-1  The Bash setup command failed.
-2  Git Bash was not found on Windows.
+*  Any other code is scripts/setup-hooks.sh's own, passed through unchanged.
+2  Also returned when Git Bash was not found on Windows.
 ```
 
 Example:
@@ -1954,8 +1954,9 @@ Exit codes:
 
 ```text
 0  Keystore generated.
-1  Keystore generation failed.
-2  Invalid arguments.
+1  The output directory could not be created; a keytool failure exits with keytool's code.
+2  Invalid arguments, or the output path already exists.
+3  keytool was not found; install a JDK.
 ```
 
 Example:
@@ -2183,7 +2184,7 @@ Exit codes:
 ```text
 0  Docker is usable or installation completed.
 1  Docker is unavailable, installation failed, or the user declined.
-2  Invalid arguments.
+2  Unsupported platform.
 3  Installation completed but the daemon did not become ready.
 ```
 
@@ -2209,7 +2210,6 @@ Exit codes:
 ```text
 0  Installed, upgraded, or already current.
 1  Download, checksum, or install failure; -Check says installation is needed.
-2  Invalid arguments.
 3  No checkable archive is available for the platform.
 ```
 

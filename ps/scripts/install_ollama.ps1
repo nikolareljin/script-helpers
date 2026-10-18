@@ -8,7 +8,6 @@
 # EXIT_CODES:
 #   0  Installed, upgraded, or already current.
 #   1  Download, checksum, or install failure; -Check says installation is needed.
-#   2  Invalid arguments.
 #   3  No checkable archive is available for the platform.
 # EXAMPLE: pwsh -File ps\scripts\install_ollama.ps1 -Check
 # ----------------------------------------------------

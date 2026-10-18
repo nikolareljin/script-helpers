@@ -6,8 +6,9 @@
 #   <output.jks>  Required new keystore path. Existing files are refused.
 # EXIT_CODES:
 #   0  Keystore generated.
-#   1  Keystore generation failed.
-#   2  Invalid arguments.
+#   1  The output directory could not be created; a keytool failure exits with keytool's code.
+#   2  Invalid arguments, or the output path already exists.
+#   3  keytool was not found; install a JDK.
 # EXAMPLE: bash scripts/generate-android-keystore.sh ./release.jks
 # ----------------------------------------------------
 set -euo pipefail
