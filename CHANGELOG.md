@@ -6,7 +6,7 @@
 
 ### Changed
 
-- `docs/commands.md` now includes `ps/scripts`; Bash and PowerShell entry commands use the same structured header fields.
+- `docs/commands.md` now includes `ps/scripts`; Bash and PowerShell entry commands use the same structured header fields and publish their examples.
 
 ## 2026-10-17 — v0.55.0
 

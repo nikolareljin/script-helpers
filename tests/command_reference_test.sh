@@ -64,7 +64,9 @@ printf '%s\n' \
 "$py" "$tmp/scripts/gen_command_reference.py" || { echo "[command_reference_test][ERROR] PowerShell fixture generation failed" >&2; exit 1; }
 if grep -q '^### `ps/scripts/probe.ps1`' "$tmp/docs/commands.md" \
   && grep -q '^PowerShell command fixture\.$' "$tmp/docs/commands.md" \
-  && grep -q '^Usage: pwsh -File probe\.ps1$' "$tmp/docs/commands.md"; then
+  && grep -q '^Usage: pwsh -File probe\.ps1$' "$tmp/docs/commands.md" \
+  && grep -q '^Example:$' "$tmp/docs/commands.md" \
+  && grep -q '^pwsh -File probe\.ps1$' "$tmp/docs/commands.md"; then
   echo "[command_reference_test] PASS: PowerShell command headers are generated"
 else
   echo "[command_reference_test][ERROR] PowerShell command header is missing from the reference" >&2; exit 1

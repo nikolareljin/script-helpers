@@ -31,6 +31,12 @@ report could not be written, or a file could not be scanned (listed under
 "errors"); 3 foxguard not installed and not installable here.
 ```
 
+Example:
+
+```text
+bash scripts/script-helpers/scripts/foxguard_report.sh --base origin/main --output foxguard-report.json
+```
+
 ### `scripts/owner_scope.sh`
 
 Decide whether a repository belongs to a configured owner, failing closed. Sourced by the global hooks and the Claude Code hook.
@@ -56,6 +62,12 @@ Usage: source scripts/push_checks.sh; push_checks <refs-file> <remote-name> [<ur
 
 Exit codes: not in the header; the script exits with 0, 1, 3.
 
+Example:
+
+```text
+push_checks "$refs" origin git@github.com:owner/repo.git
+```
+
 ### `scripts/run_repo_tests.sh`
 
 Run a repository's test suite, detecting the stack (preflight --quick first, else PHP, Node, Python, Go, Gradle, Rust, Flutter, make test, bats, tests/*_test.sh).
@@ -75,6 +87,12 @@ Exit codes:
 1  tests failed (the runner's own exit code is in the message)
 2  usage error
 4  no tests found, with --require
+```
+
+Example:
+
+```text
+bash scripts/script-helpers/scripts/run_repo_tests.sh
 ```
 
 ### `scripts/security_hooks.sh`
@@ -112,6 +130,12 @@ Exit codes:
 0  The Bash setup command completed successfully.
 1  The Bash setup command failed.
 2  Git Bash was not found on Windows.
+```
+
+Example:
+
+```text
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\setup-hooks.ps1 --doctor
 ```
 
 ### `scripts/setup-hooks.sh`
@@ -246,6 +270,12 @@ Usage: source scripts/ssh_keepalive.sh; ssh_keepalive_note <remote-url> <prefix>
 
 Exit codes: not in the header; the script exits with 141.
 
+Example:
+
+```text
+ssh_keepalive_note "git@github.com:owner/repo.git" "[pre-push]"
+```
+
 ### `scripts/git-hooks/commit-msg`
 
 commit-msg hook: refuse a message that names a private repository or carries sensitive data.
@@ -366,6 +396,12 @@ Usage: ./bump_version.sh [major|minor|patch] [-f VERSION_FILE]
 ```
 
 Exit codes: not in the header; the script exits with 1.
+
+Example:
+
+```text
+./bump_version.sh minor
+```
 
 ### `scripts/check_changelog_section.sh`
 
@@ -580,6 +616,13 @@ Usage: scripts/pin_production.sh <tag> [--allow-rewind] [--remote <name>] [--bra
 
 Exit codes: not in the header; the script exits with 0, 1, 2.
 
+Example:
+
+```text
+  scripts/pin_production.sh 0.10.0                   # roll forward
+  scripts/pin_production.sh 0.9.0 --allow-rewind     # roll back, deliberately
+```
+
 ### `scripts/preflight.sh`
 
 Run every check CI would have run, locally, before pushing.
@@ -622,6 +665,14 @@ PREFLIGHT_NO_INSTALL=1  Do not install a missing gitleaks or foxguard (the
 pinned releases, into ~/.cache/script-helpers).
 ```
 
+Example:
+
+```text
+  bash scripts/preflight.sh                  # everything, on the host
+  bash scripts/preflight.sh --quick          # what pre-push runs
+  bash scripts/preflight.sh --stack flutter --docker
+```
+
 ### `scripts/prune_branches.sh`
 
 Remove branches whose work has already landed, and only those.
@@ -646,6 +697,12 @@ Usage: scripts/prune_branches.sh [--apply] [--remote] [OPTIONS]
 ```
 
 Exit codes: not in the header; the script exits with 0, 1, 2.
+
+Example:
+
+```text
+bash scripts/script-helpers/scripts/prune_branches.sh --remote --apply
+```
 
 ### `scripts/refresh_private_names.sh`
 
@@ -734,6 +791,12 @@ Exit codes:
 1  Bad arguments or version update failed.
 ```
 
+Example:
+
+```text
+pwsh -File ps\scripts\bump_version.ps1 patch
+```
+
 ### `ps/scripts/preflight.ps1`
 
 Run locally every project check CI would run before pushing.
@@ -758,6 +821,12 @@ Exit codes:
 3  No stack was detected.
 ```
 
+Example:
+
+```text
+pwsh -File ps\scripts\preflight.ps1 -Quick
+```
+
 ### `ps/scripts/tag_release.ps1`
 
 Create an annotated git tag from the current VERSION file and push it.
@@ -775,6 +844,12 @@ Exit codes:
 ```text
 0  Tag created and pushed, or reported with -DryRun.
 1  Validation, tag, or push failed.
+```
+
+Example:
+
+```text
+pwsh -File ps\scripts\tag_release.ps1 -DryRun
 ```
 
 ## CI runners
@@ -1149,6 +1224,12 @@ Exit codes:
 1  A check failed or a required command is unavailable.
 ```
 
+Example:
+
+```text
+pwsh -File ps\scripts\ci_go.ps1 -Quick
+```
+
 ### `ps/scripts/ci_node.ps1`
 
 Run Node.js CI steps (install, lint, test, build) on Windows.
@@ -1176,6 +1257,12 @@ Exit codes:
 1  A check failed or a required command is unavailable.
 ```
 
+Example:
+
+```text
+pwsh -File ps\scripts\ci_node.ps1 -TestCmd "npx","jest","--runInBand"
+```
+
 ### `ps/scripts/ci_python.ps1`
 
 Run Python CI steps (venv, install, test) on Windows.
@@ -1199,6 +1286,12 @@ Exit codes:
 1  A check failed or a required command is unavailable.
 ```
 
+Example:
+
+```text
+pwsh -File ps\scripts\ci_python.ps1 -TestCmd "pytest","-k","my test"
+```
+
 ### `ps/scripts/ci_rust.ps1`
 
 Run Rust CI steps (check, clippy, test) on Windows.
@@ -1218,6 +1311,12 @@ Exit codes:
 ```text
 0  Requested Rust checks passed.
 1  A check failed or a required command is unavailable.
+```
+
+Example:
+
+```text
+pwsh -File ps\scripts\ci_rust.ps1 -Quick
 ```
 
 ## Local test runners
@@ -1384,6 +1483,12 @@ Exit codes:
 1  A task failed, the directory is missing, or no Gradle is available.
 ```
 
+Example:
+
+```text
+pwsh -File ps\scripts\local_test_gradle.ps1 -Quick
+```
+
 ## Packaging
 
 ### `scripts/build_arch_artifacts.sh`
@@ -1401,6 +1506,12 @@ Usage: ./build_arch_artifacts.sh [--repo PATH] [--pkg-dir PATH] [--prebuild COMM
 
 Exit codes: not in the header; the script exits with 0, 1, 2.
 
+Example:
+
+```text
+./build_arch_artifacts.sh --repo .
+```
+
 ### `scripts/build_brew_tarball.sh`
 
 Build a Homebrew tarball for a repo.
@@ -1417,6 +1528,12 @@ Usage: ./build_brew_tarball.sh --name <name> [--repo PATH] [--version-file FILE]
 
 Exit codes: not in the header; the script exits with 0, 2.
 
+Example:
+
+```text
+./build_brew_tarball.sh --name isoforge --repo . --exclude dist --exclude .git
+```
+
 ### `scripts/build_deb_artifacts.sh`
 
 Build Debian packages and emit artifacts in the parent directory.
@@ -1430,6 +1547,12 @@ Usage: ./build_deb_artifacts.sh [--repo PATH] [--prebuild COMMAND] [--build COMM
 ```
 
 Exit codes: not in the header; the script exits with 0, 2.
+
+Example:
+
+```text
+./build_deb_artifacts.sh --repo . --prebuild "make man"
+```
 
 ### `scripts/build_rpm_artifacts.sh`
 
@@ -1445,6 +1568,12 @@ Usage: ./build_rpm_artifacts.sh [--repo PATH] [--spec PATH] [--prebuild COMMAND]
 ```
 
 Exit codes: not in the header; the script exits with 0, 1, 2.
+
+Example:
+
+```text
+./build_rpm_artifacts.sh --repo .
+```
 
 ### `scripts/gen_brew_formula.sh`
 
@@ -1471,6 +1600,12 @@ Usage: ./gen_brew_formula.sh --name <name> --desc <desc> --homepage <url> --tarb
 
 Exit codes: not in the header; the script exits with 0, 2.
 
+Example:
+
+```text
+./gen_brew_formula.sh --name isoforge --desc "ISO tool" --homepage https://example.com --tarball dist/isoforge-1.0.0.tar.gz --url https://example.com/isoforge-1.0.0.tar.gz
+```
+
 ### `scripts/packaging_init.sh`
 
 Scaffold packaging files (debian/, rpm spec, PKGBUILD, Homebrew formula) from templates.
@@ -1486,6 +1621,12 @@ Usage: ./packaging_init.sh [--repo PATH] [--config PATH] [--template-dir PATH] [
 ```
 
 Exit codes: not in the header; the script exits with 0, 1, 2.
+
+Example:
+
+```text
+./packaging_init.sh --repo .
+```
 
 ### `scripts/ppa_upload.sh`
 
@@ -1504,6 +1645,12 @@ Usage: ./ppa_upload.sh --ppa <ppa:owner/name> --key-id <gpg_key_id> [--series SE
 ```
 
 Exit codes: not in the header; the script exits with 0, 2.
+
+Example:
+
+```text
+./ppa_upload.sh --ppa ppa:owner/name --key-id ABC123 --series jammy
+```
 
 ### `scripts/publish_homebrew.sh`
 
@@ -1526,6 +1673,12 @@ Usage: ./publish_homebrew.sh [--repo PATH] [--formula PATH] [--name NAME] [--tap
 
 Exit codes: not in the header; the script exits with 0, 2.
 
+Example:
+
+```text
+./publish_homebrew.sh --formula packaging/brew/myapp.rb --tap-repo owner/homebrew-example
+```
+
 ### `scripts/render_brew_formula.sh`
 
 Render a Homebrew formula from packaging metadata.
@@ -1543,6 +1696,12 @@ Usage: ./render_brew_formula.sh [--repo PATH] [--config PATH] [--output PATH] [-
 
 Exit codes: not in the header; the script exits with 0, 1, 2.
 
+Example:
+
+```text
+./render_brew_formula.sh --repo . --output /tmp/myapp.rb --url "https://..." --sha256 "..."
+```
+
 ## Examples
 
 ### `scripts/example_dialog_input.sh`
@@ -1556,6 +1715,12 @@ No required parameters.
 
 Exit codes: not in the header; the script exits with 1.
 
+Example:
+
+```text
+./example_dialog_input.sh
+```
+
 ### `scripts/example_docker_compose_cmd.sh`
 
 Example script that detects and prints the available docker compose command.
@@ -1567,6 +1732,12 @@ No required parameters.
 
 Exit codes: not in the header; the script exits with 1.
 
+Example:
+
+```text
+./example_docker_compose_cmd.sh
+```
+
 ### `scripts/example_docker_status.sh`
 
 Example script that prints Docker runtime status using script-helpers.
@@ -1577,6 +1748,12 @@ No required parameters.
 ```
 
 Exit codes: not in the header; the script has no explicit `exit`.
+
+Example:
+
+```text
+./example_docker_status.sh
+```
 
 ### `scripts/example_download.sh`
 
@@ -1590,6 +1767,12 @@ Usage: ./example_download.sh [URL] [OUTPUT_PATH]
 
 Exit codes: not in the header; the script exits with 1.
 
+Example:
+
+```text
+./example_download.sh https://example.com/file.bin /tmp/file.bin
+```
+
 ### `scripts/example_env.sh`
 
 Example script that demonstrates environment helpers and validation.
@@ -1600,6 +1783,12 @@ No required parameters.
 ```
 
 Exit codes: not in the header; the script exits with 1.
+
+Example:
+
+```text
+EXAMPLE_FOO=myvalue ./example_env.sh
+```
 
 ### `scripts/example_json.sh`
 
@@ -1612,6 +1801,12 @@ No required parameters.
 
 Exit codes: not in the header; the script has no explicit `exit`.
 
+Example:
+
+```text
+./example_json.sh
+```
+
 ### `scripts/example_logging.sh`
 
 Example script that demonstrates logging and structured log helpers.
@@ -1622,6 +1817,12 @@ No required parameters.
 ```
 
 Exit codes: not in the header; the script has no explicit `exit`.
+
+Example:
+
+```text
+./example_logging.sh
+```
 
 ### `scripts/example_package_publish.sh`
 
@@ -1634,6 +1835,12 @@ No parameters.
 
 Exit codes: not in the header; the script has no explicit `exit`.
 
+Example:
+
+```text
+./example_package_publish.sh
+```
+
 ### `ps/scripts/example_logging.ps1`
 
 Demonstrates the logging module of the PowerShell script-helpers library.
@@ -1644,6 +1851,12 @@ No parameters.
 ```
 
 Exit codes: 0 after printing the example output.
+
+Example:
+
+```text
+pwsh -File ps\scripts\example_logging.ps1
+```
 
 ## Other tools
 
@@ -1676,6 +1889,12 @@ from install/push/pull) is propagated.
 CREATOR: Nik Reljin
 ```
 
+Example:
+
+```text
+scripts/adb_tool.sh list
+```
+
 ### `scripts/docs_site.sh`
 
 Build, serve, preview and verify a repository's documentation site (lib/docs_site.sh).
@@ -1703,6 +1922,12 @@ Exit codes:
 ```text
 0 ok; 1 build or check failed, or a taken port with nobody to ask;
 2 bad arguments or no site here; 3 no usable python3.
+```
+
+Example:
+
+```text
+scripts/script-helpers/scripts/docs_site.sh preview --port 8080
 ```
 
 ### `scripts/gen_command_reference.py`
@@ -1733,6 +1958,12 @@ Exit codes:
 2  Invalid arguments.
 ```
 
+Example:
+
+```text
+bash scripts/generate-android-keystore.sh ./release.jks
+```
+
 ### `scripts/install_dev_cli.sh`
 
 Install the shared ./dev entry point into a consumer repository.
@@ -1759,6 +1990,12 @@ Exit codes:
 2  Bad arguments.
 ```
 
+Example:
+
+```text
+  bash scripts/install_dev_cli.sh --repo ../my-project --shims build,test,update
+```
+
 ### `scripts/install_ollama.sh`
 
 Install or upgrade Ollama from a checked source (ollama_install): the pinned release checked against its SHA-256, Homebrew on macOS, winget on Windows.
@@ -1783,6 +2020,13 @@ Exit codes:
 3  a required tool is missing, or this platform has no checkable source
 ```
 
+Example:
+
+```text
+  scripts/install_ollama.sh --check
+  scripts/install_ollama.sh --prefix "$HOME/.local"
+```
+
 ### `scripts/install_ollama_model.sh`
 
 Wrapper to install Ollama CLI, prepare the model index from webfarmer/ollama-get-models, select a model/size, pull it, and optionally run it.
@@ -1800,6 +2044,12 @@ Usage: ./install_ollama_model.sh [-h] [-i] [-D] [-r <repo_dir>] [-e <env_file>] 
 
 Exit codes: not in the header; the script exits with 0, 1.
 
+Example:
+
+```text
+./install_ollama_model.sh -i -D -R -e .env
+```
+
 ### `scripts/lint_docs.sh`
 
 Validate docs coverage and API index consistency for script-helpers modules.
@@ -1810,6 +2060,12 @@ No required parameters.
 ```
 
 Exit codes: not in the header; the script exits with 1.
+
+Example:
+
+```text
+./lint_docs.sh
+```
 
 ### `scripts/ollama_models.sh`
 
@@ -1837,6 +2093,13 @@ Exit codes:
 0  done; with ensure, every model is there
 2  bad arguments, a NAME that is not a variable name, or a bad AI_MODEL_TIER
 1-9 with ensure: as ollama_project_ensure_models (docs/local-models.md)
+```
+
+Example:
+
+```text
+  scripts/ollama_models.sh class ai-models.env
+  OLLAMA_PULL_MISSING=1 scripts/ollama_models.sh ensure ai-models.env http://127.0.0.1:11434 OLLAMA_CODE_MODEL
 ```
 
 ### `scripts/prepare_public.sh`
@@ -1896,6 +2159,12 @@ Exit codes:
 1  Generation failed or the output path is unsafe.
 ```
 
+Example:
+
+```text
+pwsh -File ps\scripts\generate-android-keystore.ps1 -OutputPath .\release.jks
+```
+
 ### `ps/scripts/install_docker.ps1`
 
 Install or report Docker Desktop through the native PowerShell wrapper.
@@ -1918,6 +2187,12 @@ Exit codes:
 3  Installation completed but the daemon did not become ready.
 ```
 
+Example:
+
+```text
+pwsh -File ps\scripts\install_docker.ps1 -Check
+```
+
 ### `ps/scripts/install_ollama.ps1`
 
 Install or upgrade Ollama from a checked native PowerShell source.
@@ -1936,4 +2211,10 @@ Exit codes:
 1  Download, checksum, or install failure; -Check says installation is needed.
 2  Invalid arguments.
 3  No checkable archive is available for the platform.
+```
+
+Example:
+
+```text
+pwsh -File ps\scripts\install_ollama.ps1 -Check
 ```

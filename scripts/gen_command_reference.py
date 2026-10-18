@@ -155,6 +155,9 @@ def entry(rel, fields, text):
         found = exit_values(text)
         out += [("Exit codes: not in the header; the script exits with " + found + ".") if found
                 else "Exit codes: not in the header; the script has no explicit `exit`.", ""]
+    examples = block(fields.get("EXAMPLE", []))
+    if examples:
+        out += ["Example:", "", "```text"] + examples + ["```", ""]
     return out
 
 
