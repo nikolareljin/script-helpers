@@ -3,6 +3,7 @@
 ### Added
 
 - `ps/lib/rust.ps1` resolves the selected rustup Cargo before native Rust checks run.
+- `tests/machine/rust_resolver_check.sh` and `ps/tests/machine/rust_resolver_check.ps1` check the Rust resolver against the installed rustup and cargo: PATH order, the PATH-cargo-differs warning, `ErrorActionPreference = 'Stop'`, and preflight on a throwaway cargo project.
 
 ### Changed
 
