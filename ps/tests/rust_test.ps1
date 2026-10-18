@@ -51,6 +51,42 @@ try {
     check 'RUST_TOOLCHAIN selects the named toolchain' ($result -and $env:PATH.Split([System.IO.Path]::PathSeparator)[0] -eq $custom)
     Remove-Item Env:RUST_TOOLCHAIN -ErrorAction SilentlyContinue
 
+    # A real native rustup that prints a notice on stderr and exits 0. Windows
+    # PowerShell 5.1 turns redirected native stderr into errors, and a session
+    # ErrorActionPreference of Stop makes them terminating; pwsh 7.3+ does the
+    # same with PSNativeCommandUseErrorActionPreference. The path must survive.
+    if (-not $IsWindows) {
+        # Function statements later in this block are already defined here, so
+        # remove every rustup function until none shadows the native stub.
+        while (Get-Command rustup -CommandType Function -ErrorAction SilentlyContinue) { Remove-Item Function:rustup }
+        $nativeBin = Join-Path $tmp 'native'
+        New-Item -ItemType Directory -Path $nativeBin | Out-Null
+        $stub = Join-Path $nativeBin 'rustup'
+        Set-Content -Path $stub -Value "#!/bin/sh`necho 'info: syncing channel updates' >&2`necho '$stableCargo'`nexit 0" -Encoding ascii
+        & chmod +x $stub
+        $env:PATH = "$nativeBin$([System.IO.Path]::PathSeparator)$distro$([System.IO.Path]::PathSeparator)$originalPath"
+        $savedEap = $global:ErrorActionPreference
+        $savedNative = $global:PSNativeCommandUseErrorActionPreference
+        $global:ErrorActionPreference = 'Stop'
+        $global:PSNativeCommandUseErrorActionPreference = $true
+        $result = $false
+        try { $result = rust_toolchain_ci_uses } catch { note "  threw: $($_.Exception.Message)" }
+        finally {
+            $global:ErrorActionPreference = $savedEap
+            $global:PSNativeCommandUseErrorActionPreference = $savedNative
+        }
+        check 'rustup stderr under ErrorActionPreference Stop keeps the Cargo path' ($result -and $env:PATH.Split([System.IO.Path]::PathSeparator)[0] -eq $stable)
+
+        # Success is rustup's exit code, not whatever reached stdout.
+        Set-Content -Path $stub -Value "#!/bin/sh`necho '$stableCargo'`necho 'error: toolchain is broken' >&2`nexit 1" -Encoding ascii
+        $refused = $false
+        try { rust_toolchain_ci_uses | Out-Null } catch { $refused = $_.Exception.Message -match 'toolchain install stable' }
+        check 'a failing rustup is refused even when it printed a path' $refused
+        # Restore a function stub for the removal below. Set-Item, not a
+        # function statement: a statement here is defined when the block starts.
+        Set-Item -Path Function:global:rustup -Value { '' }
+    }
+
     Remove-Item Function:global:rustup
     # PowerShell caches application discovery, so changing PATH alone does not
     # hide the runner's rustup. Mock that lookup for this refusal case only.

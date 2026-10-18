@@ -11,6 +11,7 @@
 ### Fixed
 
 - `ps/scripts/preflight.ps1` checks Rust projects with the same preconditions as `preflight.sh`: a missing rustup or toolchain is a SKIP, not a failed step, and `PREFLIGHT_RUST_ANY_CARGO=true` passes `--any-cargo`.
+- `rust_toolchain_ci_uses` and `preflight.ps1` trust `rustup which` only on exit 0, and a stderr notice no longer discards its output when the session sets `ErrorActionPreference` to `Stop`.
 
 ## 2026-10-17 — v0.55.0
 

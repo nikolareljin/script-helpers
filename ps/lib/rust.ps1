@@ -20,9 +20,16 @@ function rust_toolchain_ci_uses {
         throw "[rust] rustup is not installed; CI compiles with rustup's $Toolchain. Install it from https://rustup.rs, then run: rustup toolchain install $Toolchain"
     }
 
+    # A rustup notice on stderr must not cost the path on stdout: Windows
+    # PowerShell 5.1 turns redirected native stderr into errors, and a caller's
+    # Stop preference makes them terminating. Success is the exit code.
+    $ErrorActionPreference = 'Continue'
+    $PSNativeCommandUseErrorActionPreference = $false
+    $rustupCargo = ''
+    $global:LASTEXITCODE = 0
     try {
-        $rustupCargo = & rustup which --toolchain $Toolchain cargo 2>$null | Select-Object -First 1
-        if ($null -ne $rustupCargo) { $rustupCargo = $rustupCargo.Trim() }
+        $out = @(& rustup which --toolchain $Toolchain cargo 2>$null) | Select-Object -First 1
+        if ($LASTEXITCODE -eq 0 -and $null -ne $out) { $rustupCargo = "$out".Trim() }
     } catch {
         $rustupCargo = ''
     }

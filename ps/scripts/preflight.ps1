@@ -297,8 +297,15 @@ function Check-Rust {
         Add-Skip $name "rustup is not installed; CI compiles with rustup's $toolchain. Install it from https://rustup.rs, or set PREFLIGHT_RUST_ANY_CARGO=true to check against PATH's cargo"
         return
     }
-    $rustupCargo = try { & rustup which --toolchain $toolchain cargo 2>$null | Select-Object -First 1 } catch { '' }
-    if ($rustupCargo) { $rustupCargo = "$rustupCargo".Trim() }
+    # Stderr notices must not hide the path (5.1 turns them into errors).
+    $ErrorActionPreference = 'Continue'
+    $PSNativeCommandUseErrorActionPreference = $false
+    $rustupCargo = ''
+    $global:LASTEXITCODE = 0
+    try {
+        $out = @(& rustup which --toolchain $toolchain cargo 2>$null) | Select-Object -First 1
+        if ($LASTEXITCODE -eq 0 -and $null -ne $out) { $rustupCargo = "$out".Trim() }
+    } catch { $rustupCargo = '' }
     if (-not $rustupCargo -or -not (Test-Path -LiteralPath $rustupCargo -PathType Leaf)) {
         Add-Skip $name "rustup has no cargo for '$toolchain'; run: rustup toolchain install $toolchain, or set PREFLIGHT_RUST_ANY_CARGO=true to check against PATH's cargo"
         return

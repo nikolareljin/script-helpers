@@ -124,6 +124,15 @@ try {
             note 'rust without rustup: SKIP naming rustup, PATH cargo not used'
         } else { fail "rust without rustup: rc=$($res.Rc) out=$($res.Out)" }
     } finally { $savedPath = $keep }
+
+    # 7. A rustup that fails is no toolchain, even when it printed a path.
+    Set-Content -Path (Join-Path $bin 'rustup') -Value "#!/bin/sh`necho '$(Join-Path $bin 'cargo')'`nexit 1" -Encoding ascii
+    & chmod +x (Join-Path $bin 'rustup')
+    $res = Invoke-Preflight $r @('-Quick', '-SkipSecurity')
+    if ($res.Out -match "SKIP  rust .*rustup has no cargo for 'stable'" -and $res.Out -notmatch 'FAIL') {
+        note 'rust with a failing rustup: SKIP naming the toolchain'
+    } else { fail "rust with a failing rustup: rc=$($res.Rc) out=$($res.Out)" }
+    Remove-Item (Join-Path $bin 'rustup')
 }
 finally {
     Remove-Item -Recurse -Force $tmp
