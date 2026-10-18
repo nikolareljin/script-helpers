@@ -250,7 +250,7 @@ function Check-Gradle {
 }
 
 function Check-Simple {
-    param([string]$Stack, [string]$Dir, [string]$Tool, [string]$ScriptName)
+    param([string]$Stack, [string]$Dir, [string]$Tool, [string]$ScriptName, [string[]]$Extra = @())
     $name = Get-Label $Stack $Dir
     if (-not (Get-Command $Tool -ErrorAction SilentlyContinue)) { Add-Skip $name "$Tool is not installed"; return }
     $script = Join-Path $SCRIPT_HELPERS_DIR "scripts/$ScriptName"
@@ -260,6 +260,7 @@ function Check-Simple {
     # root, so a cd alone ran it on the wrong tree (preflight.sh's in_dir says so).
     $target = (Resolve-Path (Join-Path $ProjectDir $Dir)).Path
     $a = @($script, '--dir', $target); if ($Quick) { $a += '--quick' }
+    $a += $Extra
     $label = "$name lint + test"
     log_info "preflight: $label"
     # Exit 3: the runner could not check (nothing to test, or a tool is missing)
@@ -279,6 +280,30 @@ function Check-Simple {
         $script:Failed = $true
         log_error "preflight: $label FAILED"
     }
+}
+
+# Same preconditions as preflight.sh check_rust: local_test_rust.sh compiles
+# with rustup's RUST_TOOLCHAIN (default stable), not PATH's cargo. A missing
+# rustup or toolchain is a SKIP; PREFLIGHT_RUST_ANY_CARGO=true uses PATH's cargo.
+function Check-Rust {
+    param([string]$Dir)
+    $name = Get-Label 'rust' $Dir
+    $toolchain = if ($env:RUST_TOOLCHAIN) { $env:RUST_TOOLCHAIN } else { 'stable' }
+    if ($env:PREFLIGHT_RUST_ANY_CARGO -eq 'true') {
+        Check-Simple 'rust' $Dir 'cargo' 'local_test_rust.sh' @('--any-cargo')
+        return
+    }
+    if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
+        Add-Skip $name "rustup is not installed; CI compiles with rustup's $toolchain. Install it from https://rustup.rs, or set PREFLIGHT_RUST_ANY_CARGO=true to check against PATH's cargo"
+        return
+    }
+    $rustupCargo = try { & rustup which --toolchain $toolchain cargo 2>$null | Select-Object -First 1 } catch { '' }
+    if ($rustupCargo) { $rustupCargo = "$rustupCargo".Trim() }
+    if (-not $rustupCargo -or -not (Test-Path -LiteralPath $rustupCargo -PathType Leaf)) {
+        Add-Skip $name "rustup has no cargo for '$toolchain'; run: rustup toolchain install $toolchain, or set PREFLIGHT_RUST_ANY_CARGO=true to check against PATH's cargo"
+        return
+    }
+    Check-Simple 'rust' $Dir 'rustup' 'local_test_rust.sh'
 }
 
 # One ci_security.sh run as a step. Exit 3 with a reason in PREFLIGHT_SKIP_FILE
@@ -372,7 +397,7 @@ foreach ($p in $pairs) {
         'node'    { Check-Simple 'node'   $p.Dir 'npm'     'local_test_node.sh' }
         'python'  { Check-Simple 'python' $p.Dir 'python3' 'local_test_python.sh' }
         'go'      { Check-Simple 'go'     $p.Dir 'go'      'local_test_go.sh' }
-        'rust'    { Check-Simple 'rust'   $p.Dir 'cargo'   'local_test_rust.sh' }
+        'rust'    { Check-Rust $p.Dir }
         'php'     { Check-Simple 'php'    $p.Dir 'php'     'local_test_php.sh' }
     }
 }

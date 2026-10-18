@@ -82,3 +82,5 @@ cargo test --locked
 ```
 
 `ps/scripts/ci_rust.ps1` uses the same resolver before its native Cargo steps.
+`ps/scripts/preflight.ps1` applies the same skip rules as `preflight.sh`,
+including `PREFLIGHT_RUST_ANY_CARGO=true`.

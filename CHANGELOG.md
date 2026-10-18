@@ -8,6 +8,10 @@
 
 - `docs/commands.md` now includes `ps/scripts`; Bash and PowerShell entry commands use the same structured header fields and publish their examples.
 
+### Fixed
+
+- `ps/scripts/preflight.ps1` checks Rust projects with the same preconditions as `preflight.sh`: a missing rustup or toolchain is a SKIP, not a failed step, and `PREFLIGHT_RUST_ANY_CARGO=true` passes `--any-cargo`.
+
 ## 2026-10-17 — v0.55.0
 
 ### Added
