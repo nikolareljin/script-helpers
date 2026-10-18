@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
-# Generate an Android signing keystore without placing passwords on a command line.
+# SCRIPT: generate-android-keystore.sh
+# DESCRIPTION: Generate an Android signing keystore without placing passwords on a command line.
+# USAGE: bash scripts/generate-android-keystore.sh <output.jks>
+# PARAMETERS:
+#   <output.jks>  Required new keystore path. Existing files are refused.
+# EXIT_CODES:
+#   0  Keystore generated.
+#   1  Keystore generation failed.
+#   2  Invalid arguments.
+# EXAMPLE: bash scripts/generate-android-keystore.sh ./release.jks
+# ----------------------------------------------------
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"

@@ -1,3 +1,13 @@
+## Unreleased
+
+### Added
+
+- `ps/lib/rust.ps1` resolves the selected rustup Cargo before native Rust checks run.
+
+### Changed
+
+- `docs/commands.md` now includes `ps/scripts`; Bash and PowerShell entry commands use the same structured header fields.
+
 ## 2026-10-17 — v0.55.0
 
 ### Added

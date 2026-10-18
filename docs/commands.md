@@ -1,6 +1,6 @@
 # Command reference
 
-Every script under `scripts/`, from its own header. In a repository that
+Every script under `scripts/` and `ps/scripts/`, from its own header. In a repository that
 vendors script-helpers, the paths start with `scripts/script-helpers/`.
 Most scripts print the same text with `-h` or `--help`.
 
@@ -99,9 +99,20 @@ Exit codes: not in the header; the script exits with 2.
 
 ### `scripts/setup-hooks.ps1`
 
-Native PowerShell entry for scripts/setup-hooks.sh: finds Git Bash and runs it with the same arguments.
+Run the Bash hook setup command through Git Bash from PowerShell.
 
-Exit codes: not in the header; the script exits with 2.
+```text
+Usage: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\setup-hooks.ps1 [setup-hooks options]
+Arguments are passed unchanged to scripts/setup-hooks.sh.
+```
+
+Exit codes:
+
+```text
+0  The Bash setup command completed successfully.
+1  The Bash setup command failed.
+2  Git Bash was not found on Windows.
+```
 
 ### `scripts/setup-hooks.sh`
 
@@ -700,9 +711,71 @@ Tag the current commit with the version from the VERSION file and push the tag t
 
 ```text
 Usage: ./tag_release.sh
+No parameters.
 ```
 
 Exit codes: not in the header; the script exits with 1.
+
+### `ps/scripts/bump_version.ps1`
+
+Bump the semantic version in the VERSION file.
+
+```text
+Usage: pwsh -File ps\scripts\bump_version.ps1 <major|minor|patch> [-File <path>]
+  BumpType         Required. One of: major, minor, patch.
+  -File <path>     Path to VERSION file (default: VERSION in project root).
+  -Help            Show this help message.
+```
+
+Exit codes:
+
+```text
+0  Version updated.
+1  Bad arguments or version update failed.
+```
+
+### `ps/scripts/preflight.ps1`
+
+Run locally every project check CI would run before pushing.
+
+```text
+Usage: pwsh -File ps\scripts\preflight.ps1 [-Quick] [-Stack <name>] [-Docker] [-SkipSecurity | -SecurityOnly] [-List] [-Dir <path>]
+  -Quick         Skip dependency audits.
+  -Stack <name>  Check one or more declared stacks.
+  -Docker        Run supported checks in Docker.
+  -SkipSecurity  Skip security checks.
+  -SecurityOnly  Run only security checks.
+  -List          Print detected stacks without running them.
+  -Dir <path>    Project directory (default: repository root or current directory).
+```
+
+Exit codes:
+
+```text
+0  Every check that ran passed.
+1  At least one check failed.
+2  Invalid arguments or unknown stack.
+3  No stack was detected.
+```
+
+### `ps/scripts/tag_release.ps1`
+
+Create an annotated git tag from the current VERSION file and push it.
+
+```text
+Usage: pwsh -File ps\scripts\tag_release.ps1 [-File <path>] [-Remote <remote>] [-DryRun]
+  -File <path>     Path to VERSION file (default: VERSION in project root).
+  -Remote <name>   Git remote to push to (default: origin).
+  -DryRun          Print the tag that would be created without actually tagging.
+  -Help            Show this help message.
+```
+
+Exit codes:
+
+```text
+0  Tag created and pushed, or reported with -DryRun.
+1  Validation, tag, or push failed.
+```
 
 ## CI runners
 
@@ -1055,6 +1128,98 @@ ENVIRONMENT:
 
 Exit codes: not in the header; the script exits with 0, 1, 2, 4, 5.
 
+### `ps/scripts/ci_go.ps1`
+
+Run Go CI steps (vet, test) on Windows.
+
+```text
+Usage: pwsh -File ps\scripts\ci_go.ps1 [-Workdir <path>] [-Quick] [-Module <path>]
+  -Workdir <path>   Working directory (default: current dir).
+  -Quick            Run go vet only, skip tests.
+  -Module <path>    Specific module path to test.
+  -UseDocker        Run inside Docker Desktop instead of natively.
+  -Image <img>      Docker image override (requires -UseDocker).
+  -Help             Show this help message.
+```
+
+Exit codes:
+
+```text
+0  Requested Go checks passed.
+1  A check failed or a required command is unavailable.
+```
+
+### `ps/scripts/ci_node.ps1`
+
+Run Node.js CI steps (install, lint, test, build) on Windows.
+
+```text
+Usage: pwsh -File ps\scripts\ci_node.ps1 [-Workdir <path>] [-NoInstall] [-SkipLint] [-SkipTest] [-SkipBuild]
+  -Workdir <path>          Working directory for npm commands (default: current dir).
+  -NoInstall               Skip npm install step.
+  -SkipLint                Skip lint command.
+  -SkipTest                Skip test command.
+  -SkipBuild               Skip build command.
+  -InstallCmd <tok...>     Override install command tokens (default: npm ci).
+  -LintCmd <tok...>        Override lint command tokens (default: npm run lint).
+  -TestCmd <tok...>        Override test command tokens (default: npm run test).
+  -BuildCmd <tok...>       Override build command tokens (default: npm run build).
+  -UseDocker               Run inside Docker Desktop instead of natively.
+  -Image <img>             Docker image override (requires -UseDocker).
+  -Help                    Show this help message.
+```
+
+Exit codes:
+
+```text
+0  Requested Node.js checks passed.
+1  A check failed or a required command is unavailable.
+```
+
+### `ps/scripts/ci_python.ps1`
+
+Run Python CI steps (venv, install, test) on Windows.
+
+```text
+Usage: pwsh -File ps\scripts\ci_python.ps1 [-Workdir <path>] [-SkipTest] [-Quick]
+  -Workdir <path>      Working directory (default: current dir).
+  -SkipTest            Skip pytest step.
+  -Quick               Skip install, only run tests.
+  -PythonBin <bin>     Python binary to use (auto-detected by default).
+  -TestCmd <tok...>    Override test command tokens (default: pytest).
+  -UseDocker           Run inside Docker Desktop instead of natively.
+  -Image <img>         Docker image override (requires -UseDocker).
+  -Help                Show this help message.
+```
+
+Exit codes:
+
+```text
+0  Requested Python checks passed.
+1  A check failed or a required command is unavailable.
+```
+
+### `ps/scripts/ci_rust.ps1`
+
+Run Rust CI steps (check, clippy, test) on Windows.
+
+```text
+Usage: pwsh -File ps\scripts\ci_rust.ps1 [-Workdir <path>] [-Quick] [-Manifest <path>]
+  -Workdir <path>     Working directory (default: current dir).
+  -Quick              Run cargo check only, skip clippy and tests.
+  -Manifest <path>    Path to Cargo.toml (default: Cargo.toml in workdir).
+  -UseDocker          Run inside Docker Desktop instead of natively.
+  -Image <img>        Docker image override (requires -UseDocker).
+  -Help               Show this help message.
+```
+
+Exit codes:
+
+```text
+0  Requested Rust checks passed.
+1  A check failed or a required command is unavailable.
+```
+
 ## Local test runners
 
 ### `scripts/local_test_bash32.sh`
@@ -1200,6 +1365,24 @@ resolved (default: stable).
 ```
 
 Exit codes: not in the header; the script exits with 1.
+
+### `ps/scripts/local_test_gradle.ps1`
+
+Lint, unit-test, and assemble a Gradle project on the host.
+
+```text
+Usage: pwsh -File ps\scripts\local_test_gradle.ps1 [-Quick] [-Dir <path>] [-Android]
+  -Quick       Run unit tests only; skip lint and assemble.
+  -Dir <path>  Project directory with the Gradle wrapper (default: .).
+  -Android     Use Android task names. Autodetected when omitted.
+```
+
+Exit codes:
+
+```text
+0  Requested Gradle tasks passed.
+1  A task failed, the directory is missing, or no Gradle is available.
+```
 
 ## Packaging
 
@@ -1446,9 +1629,21 @@ Demonstrate package_publish helpers in a safe, non-network way.
 
 ```text
 Usage: ./example_package_publish.sh
+No parameters.
 ```
 
 Exit codes: not in the header; the script has no explicit `exit`.
+
+### `ps/scripts/example_logging.ps1`
+
+Demonstrates the logging module of the PowerShell script-helpers library.
+
+```text
+Usage: pwsh -File ps\scripts\example_logging.ps1
+No parameters.
+```
+
+Exit codes: 0 after printing the example output.
 
 ## Other tools
 
@@ -1525,7 +1720,18 @@ Exit codes: 0 written or up to date; 1 out of date (--check); 2 bad arguments.
 
 Generate an Android signing keystore without placing passwords on a command line.
 
-Exit codes: not in the header; the script exits with 0, 2.
+```text
+Usage: bash scripts/generate-android-keystore.sh <output.jks>
+  <output.jks>  Required new keystore path. Existing files are refused.
+```
+
+Exit codes:
+
+```text
+0  Keystore generated.
+1  Keystore generation failed.
+2  Invalid arguments.
+```
 
 ### `scripts/install_dev_cli.sh`
 
@@ -1673,3 +1879,61 @@ Usage:
 ```
 
 Exit codes: 0 clean, 1 problems found (listed), 2 usage.
+
+### `ps/scripts/generate-android-keystore.ps1`
+
+Generate an Android signing keystore at a new output path.
+
+```text
+Usage: pwsh -File ps\scripts\generate-android-keystore.ps1 -OutputPath <path>
+  -OutputPath <path>  Required new keystore path. Existing files are refused.
+```
+
+Exit codes:
+
+```text
+0  Keystore generated.
+1  Generation failed or the output path is unsafe.
+```
+
+### `ps/scripts/install_docker.ps1`
+
+Install or report Docker Desktop through the native PowerShell wrapper.
+
+```text
+Usage: pwsh -File ps\scripts\install_docker.ps1 [-Check] [-Yes] [-DryRun] [-NoStart] [-TimeoutSec <seconds>]
+  -Check                 Report Docker state without installing.
+  -Yes                   Skip confirmation prompts.
+  -DryRun                Print the planned actions without changing the machine.
+  -NoStart               Install Docker Desktop without launching it.
+  -TimeoutSec <seconds>  Daemon wait time (default: 120).
+```
+
+Exit codes:
+
+```text
+0  Docker is usable or installation completed.
+1  Docker is unavailable, installation failed, or the user declined.
+2  Invalid arguments.
+3  Installation completed but the daemon did not become ready.
+```
+
+### `ps/scripts/install_ollama.ps1`
+
+Install or upgrade Ollama from a checked native PowerShell source.
+
+```text
+Usage: pwsh -File ps\scripts\install_ollama.ps1 [-Prefix <path>] [-Force] [-Check]
+  -Prefix <path>  Install the checked archive into this directory.
+  -Force          Reinstall even when the pinned version is present.
+  -Check          Report installed and pinned versions without changing the machine.
+```
+
+Exit codes:
+
+```text
+0  Installed, upgraded, or already current.
+1  Download, checksum, or install failure; -Check says installation is needed.
+2  Invalid arguments.
+3  No checkable archive is available for the platform.
+```

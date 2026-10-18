@@ -1,13 +1,15 @@
-# local_test_gradle.ps1 — lint, unit-test and assemble a Gradle project on the
-# host. PowerShell companion to scripts/local_test_gradle.sh.
-#
-#   pwsh ps/scripts/local_test_gradle.ps1 [-Quick] [-Dir <path>] [-Android]
-#
-#   -Quick     Run unit tests only; skip lint and the assemble step.
-#   -Dir       Project directory containing the Gradle wrapper (default: .).
-#   -Android   Use the Android task names (lintDebug, testDebugUnitTest,
-#              assembleDebug) instead of the plain JVM ones. Autodetected from
-#              the presence of an Android plugin when omitted.
+# SCRIPT: local_test_gradle.ps1
+# DESCRIPTION: Lint, unit-test, and assemble a Gradle project on the host.
+# USAGE: pwsh -File ps\scripts\local_test_gradle.ps1 [-Quick] [-Dir <path>] [-Android]
+# PARAMETERS:
+#   -Quick       Run unit tests only; skip lint and assemble.
+#   -Dir <path>  Project directory with the Gradle wrapper (default: .).
+#   -Android     Use Android task names. Autodetected when omitted.
+# EXIT_CODES:
+#   0  Requested Gradle tasks passed.
+#   1  A task failed, the directory is missing, or no Gradle is available.
+# EXAMPLE: pwsh -File ps\scripts\local_test_gradle.ps1 -Quick
+# ----------------------------------------------------
 
 param(
     [switch]$Quick,

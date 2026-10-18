@@ -1,10 +1,14 @@
 # SCRIPT: bump_version.ps1
 # DESCRIPTION: Bump the semantic version in the VERSION file.
-# USAGE: ps\scripts\bump_version.ps1 <major|minor|patch> [-File <path>]
+# USAGE: pwsh -File ps\scripts\bump_version.ps1 <major|minor|patch> [-File <path>]
 # PARAMETERS:
 #   BumpType         Required. One of: major, minor, patch.
 #   -File <path>     Path to VERSION file (default: VERSION in project root).
 #   -Help            Show this help message.
+# EXIT_CODES:
+#   0  Version updated.
+#   1  Bad arguments or version update failed.
+# EXAMPLE: pwsh -File ps\scripts\bump_version.ps1 patch
 # ----------------------------------------------------
 param(
     [Parameter(Position=0)]

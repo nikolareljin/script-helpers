@@ -1,6 +1,6 @@
 # SCRIPT: ci_python.ps1
 # DESCRIPTION: Run Python CI steps (venv, install, test) on Windows.
-# USAGE: ps\scripts\ci_python.ps1 [-Workdir <path>] [-SkipTest] [-Quick]
+# USAGE: pwsh -File ps\scripts\ci_python.ps1 [-Workdir <path>] [-SkipTest] [-Quick]
 # PARAMETERS:
 #   -Workdir <path>      Working directory (default: current dir).
 #   -SkipTest            Skip pytest step.
@@ -10,7 +10,10 @@
 #   -UseDocker           Run inside Docker Desktop instead of natively.
 #   -Image <img>         Docker image override (requires -UseDocker).
 #   -Help                Show this help message.
-# EXAMPLE: .\ci_python.ps1 -TestCmd "pytest","-k","my test"
+# EXIT_CODES:
+#   0  Requested Python checks passed.
+#   1  A check failed or a required command is unavailable.
+# EXAMPLE: pwsh -File ps\scripts\ci_python.ps1 -TestCmd "pytest","-k","my test"
 # ----------------------------------------------------
 param(
     [string]   $Workdir   = '.',

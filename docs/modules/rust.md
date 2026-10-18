@@ -80,3 +80,5 @@ Import-ScriptHelpers rust
 rust_toolchain_ci_uses
 cargo test --locked
 ```
+
+`ps/scripts/ci_rust.ps1` uses the same resolver before its native Cargo steps.

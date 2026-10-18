@@ -1,22 +1,21 @@
-# preflight.ps1 — run every check CI would have run, locally, before pushing.
-# PowerShell companion to scripts/preflight.sh. Same detection rules, same
-# flags, same exit codes, so `./dev preflight` behaves identically in either shell.
-#
-#   pwsh ps/scripts/preflight.ps1 [-Quick] [-Stack <name>] [-Docker]
-#                                 [-SkipSecurity | -SecurityOnly] [-List] [-Dir <path>]
-#
-# -SecurityOnly runs only the secret / dependency scan (`./dev scan`); no stack
-# is needed for it.
-#
-# Exit codes:
+# SCRIPT: preflight.ps1
+# DESCRIPTION: Run locally every project check CI would run before pushing.
+# USAGE: pwsh -File ps\scripts\preflight.ps1 [-Quick] [-Stack <name>] [-Docker] [-SkipSecurity | -SecurityOnly] [-List] [-Dir <path>]
+# PARAMETERS:
+#   -Quick         Skip dependency audits.
+#   -Stack <name>  Check one or more declared stacks.
+#   -Docker        Run supported checks in Docker.
+#   -SkipSecurity  Skip security checks.
+#   -SecurityOnly  Run only security checks.
+#   -List          Print detected stacks without running them.
+#   -Dir <path>    Project directory (default: repository root or current directory).
+# EXIT_CODES:
 #   0  Every check that ran passed.
 #   1  At least one check failed.
-#   2  Bad arguments, or an unknown -Stack.
-#   3  No stack could be detected in this directory.
-#
-# A repo may pin exactly what runs with a `.preflight` file at its root: one
-# "<stack> <dir>" per line, # comments allowed. When present it replaces
-# autodetection.
+#   2  Invalid arguments or unknown stack.
+#   3  No stack was detected.
+# EXAMPLE: pwsh -File ps\scripts\preflight.ps1 -Quick
+# ----------------------------------------------------
 
 param(
     [switch]$Quick,

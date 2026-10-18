@@ -38,6 +38,8 @@ function global:cargo { 'cargo 1.75.0 (distribution)' }
 
 try {
     check 'Import-ScriptHelpers rust exposes the resolver' ([bool](Get-Command rust_toolchain_ci_uses -ErrorAction SilentlyContinue))
+    $ciRust = Get-Content -Raw (Join-Path $repo 'ps/scripts/ci_rust.ps1')
+    check 'native Rust command resolves rustup Cargo before running' ($ciRust -match 'Import-ScriptHelpers help logging docker ci_defaults rust' -and $ciRust -match 'rust_toolchain_ci_uses')
 
     $env:PATH = "$distro$([System.IO.Path]::PathSeparator)$originalPath"
     $result = rust_toolchain_ci_uses
