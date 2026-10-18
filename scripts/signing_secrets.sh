@@ -54,6 +54,15 @@ mode="set"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --check|--dry-run|-h|--help) ;;
+    -*)
+      if [[ $# -lt 2 ]] || [[ "$2" == --* ]]; then
+        log_error "$1 needs a value"
+        exit 2
+      fi
+      ;;
+  esac
+  case "$1" in
     --repos) repos_csv="${2:-}"; shift 2;;
     --group) groups="${groups} ${2:-}"; shift 2;;
     --gpg-key) gpg_key="${2:-}"; shift 2;;

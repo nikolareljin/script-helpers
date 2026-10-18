@@ -101,6 +101,8 @@ refuse() { # name args...
   [ "$(wc -l < "$STORE/argv")" = "$before" ] || error "$name: gh was called"
 }
 refuse "no group" --repos o/a
+refuse "missing value at the end" --repos o/a --group gpg --gpg-key
+refuse "missing value before an option" --repos o/a --group --check
 refuse "bad group" --repos o/a --group deb
 refuse "bad repo" --repos a --group gpg --gpg-key "$fpr"
 refuse "short key id" --repos o/a --group gpg --gpg-key ABCD1234
