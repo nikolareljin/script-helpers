@@ -1,3 +1,17 @@
+## Unreleased
+
+### Added
+
+- **`scripts/signing_secrets.sh`: the package-signing secrets on a list of
+  repositories.** Sets the names ci-helpers `docs/packaging.md` uses
+  (`--group gpg`: `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`, `GPG_KEY_ID`, per-repo
+  `PPA_TARGET`, optional `LAUNCHPAD_SSH_PRIVATE_KEY`; `--group apple`: the six
+  `APPLE_*` secrets and `APPLE_SIGNING_ENABLED`) with `gh secret set` /
+  `gh variable set`. Values reach gh on stdin, never argv, and are never
+  printed; passphrases come from the environment or a prompt. `--check` lists
+  the missing names per repository and exits 1; `--dry-run` sets nothing.
+  The bash 3.2 test image now has gnupg, so its test runs there too.
+
 ## 2026-10-17 — v0.55.0
 
 ### Added
