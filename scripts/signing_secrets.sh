@@ -177,10 +177,14 @@ ask() { # var-name prompt
     if [[ "$mode" == "dry-run" ]]; then
       val="(prompted)"
     else
-      if ! { read -r -s -p "$2: " val </dev/tty; } 2>/dev/null; then
+      # Open the terminal first, so its absence is reported; the prompt
+      # itself goes to stderr and must stay visible.
+      if ! { exec 3</dev/tty; } 2>/dev/null; then
         log_error "$1 is not set and there is no terminal to prompt on"
         exit 2
       fi
+      read -r -s -p "$2: " val <&3 || val=""
+      exec 3<&-
       echo >&2
     fi
   fi

@@ -135,6 +135,17 @@ rc=0; out="$(PATH="$tmp/nogh" bash "$SCRIPT" --repos o/a --group gpg --check 2>&
 [ "$rc" = 2 ] || error "no gh: exit $rc, expected 2"
 printf '%s' "$out" | grep -q "gh is not installed" || error "no gh: message: $out"
 
+# 5b. no passphrase in the environment and no terminal: refused, exit 2.
+if command -v setsid >/dev/null 2>&1 && setsid -w true >/dev/null 2>&1; then
+  before="$(wc -l < "$STORE/argv")"
+  rc=0; out="$(env -u GPG_PASSPHRASE setsid -w bash "$SCRIPT" --repos o/a --group gpg --gpg-key "$fpr" </dev/null 2>&1)" || rc=$?
+  [ "$rc" = 2 ] || error "no terminal: exit $rc, expected 2"
+  printf '%s' "$out" | grep -q "no terminal to prompt on" || error "no terminal: message: $out"
+  [ "$(wc -l < "$STORE/argv")" = "$before" ] || error "no terminal: gh was called"
+else
+  note "SKIP no-terminal case: setsid -w not available"
+fi
+
 # 6. gh fails to set a name: reported, exit 1, the value still not printed.
 GH_FAIL=1; export GH_FAIL
 rc=0; out="$(GPG_PASSPHRASE="gpg-pw-value" bash "$SCRIPT" --repos o/e --group gpg --gpg-key "$fpr" 2>&1)" || rc=$?
