@@ -38,6 +38,7 @@ cat > "$tmp/bin/gh" <<'STUB'
 echo "$*" >> "$STORE/argv"
 kind="$1"; verb="$2"
 if [ "$verb" = "set" ]; then
+  [ -n "${GH_HANG:-}" ] && { echo $$ > "$GH_HANG"; exec sleep 30; }
   [ -n "${GH_FAIL:-}" ] && { cat >/dev/null; exit 1; }
   name="$3"; repo="$5"
   mkdir -p "$STORE/$repo/$kind"
@@ -56,6 +57,9 @@ exit 9
 STUB
 chmod +x "$tmp/bin/gh"
 export STORE="$tmp/store" PATH="$tmp/bin:$PATH"
+# The script's private directory lands here, so leftovers can be counted.
+mkdir -p "$tmp/tmpdir"
+export TMPDIR="$tmp/tmpdir"
 : > "$STORE/argv"
 
 printf 'p12-bytes' > "$tmp/cert.p12"
@@ -188,6 +192,28 @@ rc=0; out="$(GPG_PASSPHRASE="right-pw" bash "$SCRIPT" --repos o/f --group gpg --
 [ "$rc" = 0 ] || error "right passphrase: exit $rc: $out"
 grep -q "BEGIN PGP PRIVATE KEY BLOCK" "$STORE/o/f/secret/GPG_PRIVATE_KEY" 2>/dev/null || error "right passphrase: key not stored"
 grep -qF "right-pw" "$STORE/argv" && error "right passphrase: value reached gh's arguments"
+# The local agent now has right-pw cached; a wrong one must still be refused.
+before="$(wc -l < "$STORE/argv")"
+rc=0; out="$(GPG_PASSPHRASE="wrong-pw" bash "$SCRIPT" --repos o/g --group gpg --gpg-key "$lfpr" 2>&1)" || rc=$?
+[ "$rc" = 2 ] || error "wrong passphrase after a cached right one: exit $rc, expected 2: $out"
+grep -q "wrong GPG_PASSPHRASE" <<< "$out" || error "wrong passphrase after a cached one: message: $out"
+[ "$(wc -l < "$STORE/argv")" = "$before" ] || error "wrong passphrase after a cached one: gh was called"
+
+# 8. TERM while gh runs: the private directory and its values are removed.
+hang="$tmp/hang"
+GH_HANG="$hang" GPG_PASSPHRASE="right-pw" bash "$SCRIPT" --repos o/h --group gpg --gpg-key "$lfpr" >/dev/null 2>&1 &
+pid=$!
+for _ in $(seq 1 100); do [ -s "$hang" ] && break; sleep 0.1; done
+[ -s "$hang" ] || error "TERM: gh was never reached"
+# As on Ctrl-C: the script and the gh it runs both get the signal.
+kill -TERM "$pid" 2>/dev/null
+kill -TERM "$(cat "$hang")" 2>/dev/null
+rc=0; wait "$pid" || rc=$?
+[ "$rc" = 143 ] || error "TERM: exit $rc, expected 143"
+
+# Every run above, refused, failed or killed, removed its private directory.
+left="$(ls -A "$TMPDIR")"
+[ -z "$left" ] || error "private directories left behind: $left"
 
 if [ "$failures" -eq 0 ]; then
   note "ok"

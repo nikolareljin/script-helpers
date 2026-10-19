@@ -189,7 +189,16 @@ fi
 # reaches gh on stdin.
 work="$(mktemp -d)"
 chmod 700 "$work"
-trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$work"; fi' EXIT
+# Also stops the agent of the check keyring, so none is left running.
+cleanup() {
+  if [[ -d "$work/gnupg" ]]; then
+    gpgconf --homedir "$work/gnupg" --kill gpg-agent >/dev/null 2>&1 || true
+  fi
+  rm -rf "$work"
+}
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then cleanup; fi' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 ask() { # var-name prompt
   local val="${!1:-}"
@@ -224,24 +233,30 @@ if has_group gpg; then
   fi
   ask GPG_PASSPHRASE "GPG passphrase for $gpg_key"
   if [[ "$mode" != "dry-run" ]]; then
-    # Sign with the passphrase before storing it: a wrong one would only show
-    # up later as a failed release. The value is passed as a file, not argv.
     gpg_pw=(--batch --pinentry-mode loopback --passphrase-file "$work/GPG_PASSPHRASE")
-    printf 'check' | gpg "${gpg_pw[@]}" --local-user "$gpg_key" --sign >/dev/null 2>&1 \
-      || { log_error "cannot sign with $gpg_key: wrong GPG_PASSPHRASE, or the key is expired or cannot sign"; exit 2; }
     gpg "${gpg_pw[@]}" --armor --export-secret-keys "$gpg_key" > "$work/GPG_PRIVATE_KEY" 2>/dev/null \
-      || { log_error "gpg could not export $gpg_key"; exit 2; }
+      || { log_error "gpg could not export $gpg_key: wrong GPG_PASSPHRASE, or no secret part"; exit 2; }
     [[ -s "$work/GPG_PRIVATE_KEY" ]] || { log_error "gpg exported nothing for $gpg_key"; exit 2; }
+    # Sign with the exported key and the passphrase before storing them, in a
+    # fresh keyring: the local agent may have the passphrase cached and would
+    # accept a wrong one. The value is passed as a file, not argv.
+    check_home="$work/gnupg"
+    mkdir -m 700 "$check_home"
+    gpg --homedir "$check_home" "${gpg_pw[@]}" --import "$work/GPG_PRIVATE_KEY" >/dev/null 2>&1 \
+      || { log_error "the exported key for $gpg_key does not import"; exit 2; }
+    printf 'check' | gpg --homedir "$check_home" "${gpg_pw[@]}" --local-user "$gpg_key" --sign >/dev/null 2>&1 \
+      || { log_error "cannot sign with $gpg_key: wrong GPG_PASSPHRASE, or the key is expired or cannot sign"; exit 2; }
+    gpgconf --homedir "$check_home" --kill gpg-agent >/dev/null 2>&1 || true
   fi
   printf '%s' "$gpg_key" > "$work/GPG_KEY_ID"
   if [[ -n "$lp_ssh_key" ]]; then
-    [[ -s "$lp_ssh_key" ]] || { log_error "--launchpad-ssh-key $lp_ssh_key is missing or empty"; exit 2; }
+    [[ -s "$lp_ssh_key" && -r "$lp_ssh_key" ]] || { log_error "--launchpad-ssh-key $lp_ssh_key is missing, empty or unreadable"; exit 2; }
     cp "$lp_ssh_key" "$work/LAUNCHPAD_SSH_PRIVATE_KEY"
   fi
 fi
 
 if has_group apple; then
-  [[ -s "$apple_p12" ]] || { log_error "--apple-p12 is missing or empty"; exit 2; }
+  [[ -s "$apple_p12" && -r "$apple_p12" ]] || { log_error "--apple-p12 is missing, empty or unreadable"; exit 2; }
   [[ "$apple_identity" == "Developer ID Application: "* ]] || { log_error "--apple-identity must start with 'Developer ID Application: '"; exit 2; }
   [[ "$apple_team" =~ ^[A-Z0-9]{10}$ ]] || { log_error "--apple-team must be the 10-character team ID"; exit 2; }
   [[ "$apple_id" == *@* ]] || { log_error "--apple-id must be an e-mail address"; exit 2; }
