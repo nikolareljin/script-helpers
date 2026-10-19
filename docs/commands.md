@@ -2163,8 +2163,8 @@ Exit codes:
 0  Every name was set, or --check found every name on every repository.
 1  --check found a missing name or could not list a repository, or gh
 could not set a name.
-2  Bad arguments, a missing tool (gh, gpg), a key not in the keyring, or
-an empty value; nothing was set.
+2  Bad arguments, a missing tool (gh, gpg), a key not in the keyring, a
+passphrase that does not unlock it, or an empty value; nothing was set.
 ```
 
 Example:

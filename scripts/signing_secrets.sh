@@ -27,8 +27,8 @@
 #   0  Every name was set, or --check found every name on every repository.
 #   1  --check found a missing name or could not list a repository, or gh
 #      could not set a name.
-#   2  Bad arguments, a missing tool (gh, gpg), a key not in the keyring, or
-#      an empty value; nothing was set.
+#   2  Bad arguments, a missing tool (gh, gpg), a key not in the keyring, a
+#      passphrase that does not unlock it, or an empty value; nothing was set.
 # EXAMPLE: ./signing_secrets.sh --repos me/tool --group gpg --gpg-key <FPR> --ppa me/tool=ppa:me/tool
 # EXAMPLE: ./signing_secrets.sh --repos me/a,me/b --group gpg --group apple --check
 # ----------------------------------------------------
@@ -221,11 +221,18 @@ if has_group gpg; then
     command -v gpg >/dev/null 2>&1 || { log_error "gpg is not installed"; exit 2; }
     gpg --batch --list-secret-keys "$gpg_key" >/dev/null 2>&1 \
       || { log_error "no secret key $gpg_key in the local keyring"; exit 2; }
-    gpg --armor --export-secret-keys "$gpg_key" > "$work/GPG_PRIVATE_KEY" \
+  fi
+  ask GPG_PASSPHRASE "GPG passphrase for $gpg_key"
+  if [[ "$mode" != "dry-run" ]]; then
+    # Sign with the passphrase before storing it: a wrong one would only show
+    # up later as a failed release. The value is passed as a file, not argv.
+    gpg_pw=(--batch --pinentry-mode loopback --passphrase-file "$work/GPG_PASSPHRASE")
+    printf 'check' | gpg "${gpg_pw[@]}" --local-user "$gpg_key" --sign >/dev/null 2>&1 \
+      || { log_error "GPG_PASSPHRASE does not unlock $gpg_key"; exit 2; }
+    gpg "${gpg_pw[@]}" --armor --export-secret-keys "$gpg_key" > "$work/GPG_PRIVATE_KEY" 2>/dev/null \
       || { log_error "gpg could not export $gpg_key"; exit 2; }
     [[ -s "$work/GPG_PRIVATE_KEY" ]] || { log_error "gpg exported nothing for $gpg_key"; exit 2; }
   fi
-  ask GPG_PASSPHRASE "GPG passphrase for $gpg_key"
   printf '%s' "$gpg_key" > "$work/GPG_KEY_ID"
   if [[ -n "$lp_ssh_key" ]]; then
     [[ -s "$lp_ssh_key" ]] || { log_error "--launchpad-ssh-key $lp_ssh_key is missing or empty"; exit 2; }

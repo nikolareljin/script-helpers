@@ -28,7 +28,7 @@ export GNUPGHOME="$tmp/gnupg"
 mkdir -m 700 "$GNUPGHOME"
 gpg --batch --pinentry-mode loopback --passphrase "" \
   --quick-gen-key "CI Test <ci@example.invalid>" ed25519 sign never >/dev/null 2>&1
-fpr="$(gpg --batch --with-colons --list-secret-keys | awk -F: '/^fpr/{print $10; exit}')"
+fpr="$(gpg --batch --with-colons --list-secret-keys 2>/dev/null | awk -F: '/^fpr/{print $10; exit}')"
 
 # Stub gh: "secret|variable set NAME -R REPO" stores stdin; "list" prints the
 # names stored for that repo. Every argv is logged.
@@ -173,6 +173,21 @@ unset GH_FAIL
 [ "$rc" = 1 ] || error "gh failure: exit $rc, expected 1"
 grep -q "could not set secret GPG_PASSPHRASE" <<< "$out" || error "gh failure: message: $out"
 grep -qF "gpg-pw-value" <<< "$out" && error "gh failure: value printed"
+
+# 7. a protected key: a wrong GPG_PASSPHRASE is refused before anything is
+# set; the right one is stored. Wrong first, so the agent has nothing cached.
+gpg --batch --pinentry-mode loopback --passphrase "right-pw" \
+  --quick-gen-key "CI Locked <locked@example.invalid>" ed25519 sign never >/dev/null 2>&1
+lfpr="$(gpg --batch --with-colons --list-secret-keys locked@example.invalid 2>/dev/null | awk -F: '/^fpr/{print $10; exit}')"
+before="$(wc -l < "$STORE/argv")"
+rc=0; out="$(GPG_PASSPHRASE="wrong-pw" bash "$SCRIPT" --repos o/f --group gpg --gpg-key "$lfpr" 2>&1)" || rc=$?
+[ "$rc" = 2 ] || error "wrong passphrase: exit $rc, expected 2: $out"
+grep -q "does not unlock" <<< "$out" || error "wrong passphrase: message: $out"
+[ "$(wc -l < "$STORE/argv")" = "$before" ] || error "wrong passphrase: gh was called"
+rc=0; out="$(GPG_PASSPHRASE="right-pw" bash "$SCRIPT" --repos o/f --group gpg --gpg-key "$lfpr" 2>&1)" || rc=$?
+[ "$rc" = 0 ] || error "right passphrase: exit $rc: $out"
+grep -q "BEGIN PGP PRIVATE KEY BLOCK" "$STORE/o/f/secret/GPG_PRIVATE_KEY" 2>/dev/null || error "right passphrase: key not stored"
+grep -qF "right-pw" "$STORE/argv" && error "right passphrase: value reached gh's arguments"
 
 if [ "$failures" -eq 0 ]; then
   note "ok"
