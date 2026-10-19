@@ -179,6 +179,10 @@ check "AI_MODEL_TIER names it, any case" "xlarge" "$(AI_MODEL_TIER=' XLarge' oll
 check "a bad AI_MODEL_TIER is refused (3)" "3:" "$(AI_MODEL_TIER=huge ollama_host_tier 2>"$tmp/err"; echo "$?:")"
 said "naming the variable and the value" "$tmp/err" "AI_MODEL_TIER" "huge"
 check "the tier's model for a type" "tier-l:9b" "$(ollama_tier_model general large)"
+check "a type in any case" "tier-l:9b" "$(ollama_tier_model General large)"
+printf 'A=1\r\nOLD_CHOICE=x\r\n' >"$tmp/crlf.env"
+_ollama_ep_env_set "$tmp/crlf.env" OLD_CHOICE y
+check "storing an answer leaves the other lines' Windows line ends alone" "A=1" "$(grep $'\r$' "$tmp/crlf.env" | tr -d '\r')"
 check "an unknown type is refused (2), naming the known ones" "2" "$(ollama_tier_model chat 2>"$tmp/err"; echo $?)"
 said "the known types are named" "$tmp/err" "general embed"
 

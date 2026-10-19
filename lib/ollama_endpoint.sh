@@ -2131,6 +2131,7 @@ ollama_host_tier() {
 # tier argument.
 ollama_tier_model() {
   local _oep_type="${1:-}" _oep_tier="${2:-}" _oep_row _oep_rank _oep_model
+  _oep_type="$(printf '%s' "$_oep_type" | tr 'A-Z' 'a-z')" || true
   if [[ ! -f "$(ollama_model_tiers_file)" ]]; then
     print_error "No model tiers file at $(_ollama_ep_said "$(ollama_model_tiers_file)") (OLLAMA_MODEL_TIERS_FILE)." >&2
     return 2
@@ -2168,7 +2169,7 @@ _ollama_ep_env_set() {
   tmpf="$(mktemp "${TMPDIR:-/tmp}/ollama_env.XXXXXX")" || return 1
   if ! awk -v n="$name" -v v="$value" '
       BEGIN { re = "^[ \t]*(export[ \t]+)?" n "[ \t]*=" }
-      { sub(/\r$/, "") }
+      # Other lines are copied as they are, Windows line ends included.
       $0 ~ re { if (!done) print n "=" v; done = 1; next }
       { print }
       END { if (!done) print n "=" v }' "$file" >"$tmpf"; then
