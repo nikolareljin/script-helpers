@@ -2284,11 +2284,12 @@ _ollama_ep_env_set() {
   fi
   # ENVIRON, not -v: awk -v would read backslashes in a value as escapes.
   # LC_ALL=C: bytes, so the byte-order mark is matched the same by every awk.
-  if ! LC_ALL=C _OEP_NAMES="$names" _OEP_VALUES="$values" awk '
+  if ! LC_ALL=C _OEP_NAMES="$names" _OEP_VALUES="$values" _OEP_BOM=$'\xef\xbb\xbf' awk '
       BEGIN {
         n = split(ENVIRON["_OEP_NAMES"], name, "\n") - 1
         split(ENVIRON["_OEP_VALUES"], val, "\n")
-        bom = sprintf("%c%c%c", 239, 187, 191); eol = ""
+        # From the environment: sprintf("%c", 239) is not that byte in every awk.
+        bom = ENVIRON["_OEP_BOM"]; eol = ""
       }
       {
         line = $0; prefix = ""

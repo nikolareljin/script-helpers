@@ -206,7 +206,7 @@ check "and no line lacks one" "0" "$(grep -c -v $'\r$' "$tmp/crlf.env")"
 printf '\xef\xbb\xbfK_CHOICE=a\n# keep me\nB="x y" # c' >"$tmp/bom.env"
 _ollama_ep_env_set "$tmp/bom.env" K_CHOICE b K_CHOICE_FOR c
 check "a key on a first line with a byte-order mark is replaced, not added twice" "b 1 1" \
-  "$(ollama_models_file_get "$tmp/bom.env" K_CHOICE) $(grep -c 'K_CHOICE=' "$tmp/bom.env") $(head -c 3 "$tmp/bom.env" | od -An -tx1 | grep -c 'ef bb bf')"
+  "$(ollama_models_file_get "$tmp/bom.env" K_CHOICE) $(grep -c 'K_CHOICE=' "$tmp/bom.env") $(head -c 3 "$tmp/bom.env" | od -An -tx1 | tr -d ' \n' | grep -c '^efbbbf$')"
 check "comments, quoted values and a last line with no newline are kept" "x y|1|c" \
   "$(ollama_models_file_get "$tmp/bom.env" B)|$(grep -c '^# keep me$' "$tmp/bom.env")|$(ollama_models_file_get "$tmp/bom.env" K_CHOICE_FOR)"
 printf 'K_CHOICE=a\nexport K_CHOICE=b\nK_CHOICE = c\n' >"$tmp/dup.env"
