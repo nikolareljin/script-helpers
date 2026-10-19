@@ -895,7 +895,7 @@ check "every address and the gateway name are this machine too" "local local" "$
 check "a Kubernetes pod is a container too: the host is not this machine there" "other" "$( (unset _OLLAMA_EP_DOCKERENV; KUBERNETES_SERVICE_HOST=192.0.2.1 is_local http://host.docker.internal:1) )"
 check "inside a container, the host is not this machine" "other other local" "$( (_OLLAMA_EP_DOCKERENV="$tmp/dockerenv"; is_local http://host.docker.internal:11434; is_local http://gateway.docker.internal:1; is_local http://localhost:1) | one_line)"
 # One of the machine's own addresses, when a tool here lists any.
-own_address="$( { ip -o addr 2>/dev/null | awk '{ print $4 }'; ifconfig 2>/dev/null | awk '$1 == "inet" { print $2 }'; } | sed -E 's#/.*$##; s#^addr:##' | grep -E '^[0-9]+\.' | grep -v '^127\.' | head -n 1)"
+own_address="$( { ip -o addr 2>/dev/null | awk '{ print $4 }'; ifconfig 2>/dev/null | awk '$1 == "inet" { print $2 }'; } | sed -E 's#/.*$##; s#^addr:##' | grep -E '^[0-9]+\.' | grep -v '^127\.' | sed -n 1p)"
 if [[ -n "$own_address" ]]; then
   check "one of this machine's own addresses is this machine" "local" "$(is_local "http://$own_address:11434")"
   check "a part of one, or one with a digit more, is not" "other other" "$(is_local "http://${own_address%?}:1") $(is_local "http://${own_address}9:1" 2>/dev/null)"

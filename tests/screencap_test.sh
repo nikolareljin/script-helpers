@@ -101,7 +101,7 @@ if screencap_available 2>/dev/null; then
   if [[ -n "$out" && -s "$out" ]]; then
     note "captured $out"
     # The header of a PNG, so a truncated or text file is caught.
-    head -c 8 "$out" | od -An -tx1 | grep -q '89 50 4e 47' \
+    grep -q '89 50 4e 47' <<< "$(head -c 8 "$out" | od -An -tx1)" \
       || error "the captured file is not a PNG"
   else
     error "screencap_shot produced nothing with a device attached"

@@ -219,6 +219,8 @@ _ollama_ep_said() {
 # Usage: ollama_models_file_get <file> <NAME>; prints the value of NAME, or
 # nothing. If NAME is set twice, the last line wins. Returns 2 if NAME is not
 # a valid variable name.
+# Returns: 0 (also when the file or NAME is absent); 2 NAME not a variable name.
+# Output: stdout the value and a newline (empty line when NAME is absent; nothing when the file is missing).
 ollama_models_file_get() {
   local file="${1:-}" name="${2:-}" value bom=$'\xef\xbb\xbf'
   _ollama_ep_is_name "$name" || return 2
@@ -239,6 +241,8 @@ ollama_models_file_get() {
 
 # Usage: ollama_models_file_names <file>; prints every name the file assigns,
 # one per line, in file order, each once.
+# Returns: 0 (also when the file is missing).
+# Output: stdout one name per line.
 ollama_models_file_names() {
   local file="${1:-}" bom=$'\xef\xbb\xbf'
   [[ -f "$file" ]] || return 0
@@ -252,6 +256,8 @@ ollama_models_file_names() {
 # registry's host or "library/" prefix.
 # Only the part after the last "/" is checked for a tag:
 # "registry.example:5000/team/model" has a port, not a tag.
+# Returns: 0.
+# Output: stdout the tagged model; nothing for an empty argument.
 ollama_model_tagged() {
   local model="${1:-}" last
   [[ -n "$model" ]] || return 0
@@ -280,6 +286,8 @@ ollama_model_tagged() {
 # Returns 1 and prints nothing if a file is given and does not exist. A
 # mistyped path would otherwise mean "this project needs no models", and the
 # start would check nothing. Pass "" to use no file.
+# Returns: 0 printed; 1 file given but missing; 2 a NAME is not a variable name.
+# Output: stdout one model per line; stderr errors.
 ollama_models_required() {
   # Its own variables start with _oep_: a NAME is read through ${!NAME}, and a
   # local called "name" or "value" would be read in place of the caller's.
@@ -323,6 +331,8 @@ ollama_models_required() {
 # Usage: ollama_endpoint_models <base_url> [timeout_seconds=5]; prints the
 # models that Ollama has, one per line, as it names them (with tags).
 # Returns 1 when nothing answers there or what answers is not an Ollama.
+# Returns: 0 an Ollama answered (also with no models); 1 no answer or not an Ollama.
+# Output: stdout one model name per line.
 ollama_endpoint_models() {
   local url="${1:-}" timeout="${2:-5}" body names
   url="${url%/}"
@@ -346,6 +356,8 @@ ollama_endpoint_models() {
 # Only a whole name matches: "qwen:7b-instruct" does not count as "qwen:7b".
 # Upper and lower case are the same, as they are to Ollama ("Qwen:7B" is the
 # model it lists as "qwen:7b").
+# Returns: 0.
+# Output: stdout the missing models, one per line.
 ollama_models_missing() {
   local needed="${1:-}" present="${2:-}" model
   while IFS= read -r model; do
@@ -371,6 +383,8 @@ ollama_models_missing() {
 # The size is the sum of all layers in the manifest. Layers the machine
 # already has from another model are counted again, so the number can be too
 # high but never too low.
+# Returns: 0 printed; 1 no or bad answer, or bad reference; 2 another registry host; 3 no such model or tag.
+# Output: stdout the byte count; stderr nothing on success.
 ollama_registry_size_bytes() {
   local ref tag name path body first answer code
   local base="${OLLAMA_REGISTRY_URL:-https://registry.ollama.ai}"
@@ -424,6 +438,8 @@ ollama_registry_size_bytes() {
 # - else ~/.ollama/models (an Ollama started by hand, and macOS).
 # The directory need not exist yet: ollama_disk_free_bytes reads its nearest
 # existing parent. Not for an Ollama in a container: pass Docker's data root.
+# Returns: 0.
+# Output: stdout the directory.
 ollama_models_dir() {
   local service="${_OLLAMA_EP_SERVICE_MODELS:-/usr/share/ollama/.ollama/models}"
   if [[ -n "${OLLAMA_MODELS:-}" ]]; then
@@ -440,6 +456,8 @@ ollama_models_dir() {
 # Usage: ollama_disk_free_bytes <path>; prints the free bytes on the
 # filesystem that holds path (or its nearest existing parent). Prints nothing
 # if it cannot be read. OLLAMA_BUDGET_DISK_FREE_BYTES overrides.
+# Returns: 0, also when the value cannot be read.
+# Output: stdout the byte count, or nothing.
 ollama_disk_free_bytes() {
   local path="${1:-.}" stated
   if stated="$(_ollama_ep_uint "${OLLAMA_BUDGET_DISK_FREE_BYTES:-}")"; then
@@ -455,13 +473,15 @@ ollama_disk_free_bytes() {
     NR == 2 {
       for (i = NF; i > 1; i--) if ($i ~ /^[0-9]+%$/) {
         if ($(i - 1) ~ /^[0-9]+$/) printf "%.0f\n", $(i - 1) * 1024
-        exit
+        break
       }
     }'
 }
 
 # Usage: ollama_mem_total_bytes; prints the machine's memory in bytes, or
 # nothing when it cannot be told. OLLAMA_BUDGET_MEM_TOTAL_BYTES overrides.
+# Returns: 0, also when the value cannot be read.
+# Output: stdout the byte count, or nothing.
 ollama_mem_total_bytes() {
   local stated
   if stated="$(_ollama_ep_uint "${OLLAMA_BUDGET_MEM_TOTAL_BYTES:-}")"; then
@@ -476,6 +496,8 @@ ollama_mem_total_bytes() {
 # Usage: ollama_mem_available_bytes; prints the memory a new process could
 # have now, or nothing when it cannot be told.
 # OLLAMA_BUDGET_MEM_AVAILABLE_BYTES overrides.
+# Returns: 0, also when the value cannot be read.
+# Output: stdout the byte count, or nothing.
 ollama_mem_available_bytes() {
   local stated
   if stated="$(_ollama_ep_uint "${OLLAMA_BUDGET_MEM_AVAILABLE_BYTES:-}")"; then
@@ -495,6 +517,8 @@ ollama_mem_available_bytes() {
 # NVIDIA GPUs in bytes, or 0. The total, because Ollama spreads one model over
 # several GPUs. OLLAMA_BUDGET_GPU_BYTES overrides. On Apple silicon the GPU
 # shares the machine's memory, which ollama_mem_total_bytes already reports.
+# Returns: 0.
+# Output: stdout the byte count (0 with no NVIDIA GPU).
 ollama_gpu_mem_bytes() {
   local stated
   if stated="$(_ollama_ep_uint "${OLLAMA_BUDGET_GPU_BYTES:-}")"; then
@@ -583,6 +607,8 @@ _ollama_ep_gpu_list() {
 # 64 GB Mac can run what a 24 GB card can. (The budget check, which adds GPU
 # memory to the machine's, does not count it a second time: ollama_gpu_mem_bytes
 # stays 0 there.)
+# Returns: 0.
+# Output: stdout the byte count (0 with no GPU).
 ollama_gpu_mem_largest_bytes() {
   local stated
   if stated="$(_ollama_ep_uint "${OLLAMA_BUDGET_GPU_LARGEST_BYTES:-}")"; then
@@ -632,6 +658,8 @@ _ollama_ep_file_val() { [[ -n "${1:-}" ]] || return 0; ollama_models_file_get "$
 # Usage: ollama_machine_figures; prints "<memory GiB>:<largest GPU GiB>", the
 # two numbers the class is picked by. Memory is empty when it cannot be read
 # (":0"); the colon keeps that field when the line is split.
+# Returns: 0.
+# Output: stdout "<mem GiB>:<gpu GiB>".
 ollama_machine_figures() {
   local _oep_mem _oep_gpu
   _oep_mem="$(ollama_mem_total_bytes 2>/dev/null)" || _oep_mem=""
@@ -650,6 +678,8 @@ ollama_machine_figures() {
 # Memory that cannot be read picks the default column, never a guessed class.
 # Returns 2 for a NAME that is not a variable name or an AI_MODEL_TIER that is
 # not a class; prints nothing when neither NAME nor a column has a value.
+# Returns: 0 printed (or nothing to print); 2 bad NAME or AI_MODEL_TIER.
+# Output: stdout the model; stderr errors.
 ollama_model_for_class() {
   local _oep_file="${1:-}" _oep_name="${2:-}" _oep_value _oep_tier _oep_cap _oep_mem _oep_gpu
   local _oep_def _oep_small _oep_large _oep_xlarge _oep_large_vram _oep_xlarge_vram _oep_small_ram _oep_large_ram
@@ -730,6 +760,8 @@ ollama_model_for_class() {
 #
 # The numbers are this machine's. For an Ollama on another machine, set all
 # four OLLAMA_BUDGET_* variables.
+# Output: stderr what does not fit, and warnings; stdout nothing.
+# Returns: 0 fits (or OLLAMA_IGNORE_BUDGET=1); 1 disk; 2 memory; 3 both; 4 a size is not a whole number.
 ollama_budget_check() {
   local dir="${3:-.}" pull largest reserve_gb headroom
   local free total available gpu need reserve after capacity
@@ -800,6 +832,8 @@ ollama_budget_check() {
 # 100 MB or more, so a long download does not look like a hang.
 # Returns 1 if the pull did not end in success, and prints the last thing
 # Ollama said on stderr.
+# Returns: 0 pulled; 1 the pull did not end in success.
+# Output: stderr progress lines and the last error; stdout nothing.
 ollama_endpoint_pull() {
   local url="${1:-}" model="${2:-}" verdict stall
   url="${url%/}"
@@ -901,6 +935,7 @@ ollama_endpoint_pull() {
 #
 # Env: OLLAMA_PULL_MISSING (on, off or ask; default on), OLLAMA_IGNORE_BUDGET, and everything
 # ollama_budget_check, ollama_registry_size_bytes and ollama_endpoint_pull read.
+# Output: stderr progress, refusals and pull progress; stdout nothing.
 ollama_endpoint_ensure_models() {
   local url="${1:-}" dir="${2:-.}" present needed missing model size shown
   local pull_bytes=0 largest=0 unknown="" unsized="" nowhere="" status=0 ignore=0 asked
@@ -1048,6 +1083,8 @@ ollama_endpoint_ensure_models() {
 # "#". That last one is a password with such a character in it: it has to be
 # percent-encoded, curl refuses the URL, and read by halves it would be
 # printed.
+# Returns: 0 printed; 1 not an address.
+# Output: stdout the base URL.
 ollama_endpoint_base_url() {
   local LC_ALL=C
   local _oep_value="${1:-}" _oep_scheme _oep_rest _oep_authority _oep_path="" _oep_hostport _oep_user="" _oep_host _oep_port=""
@@ -1136,6 +1173,8 @@ _ollama_ep_in_container() {
 # Returns 1 for anything else, a name that only resolves to this machine
 # included: read as another machine, nothing is pulled into it unasked, which
 # is the safe way to be wrong.
+# Output: none.
+# Returns: 0 this machine; 1 anything else.
 ollama_endpoint_is_local() {
   local LC_ALL=C
   local _oep_host _oep_own
@@ -1177,7 +1216,7 @@ _ollama_ep_probe_image() {
   fi
   for _oep_repo in busybox alpine curlimages/curl; do
     _oep_ref="$(docker image ls --format '{{.Repository}}:{{.Tag}}' "$_oep_repo" 2>/dev/null \
-      | grep -v '<none>' | head -n 1)" || _oep_ref=""
+      | grep -v '<none>' | sed -n 1p)" || _oep_ref=""
     if [[ -n "$_oep_ref" ]]; then
       printf '%s\n' "$_oep_ref"
       return 0
@@ -1211,6 +1250,8 @@ _ollama_ep_probe_image() {
 # remote DOCKER_HOST), and says so.
 # Returns 4 when no Ollama answers from a container, 9 when <url> is not an
 # address.
+# Output: stderr notes and errors; stdout nothing.
+# Returns: 0 reachable or not checkable; 4 no Ollama answers from a container; 9 not an address.
 ollama_endpoint_container_reach() {
   local LC_ALL=C
   local _oep_url _oep_net="${2:-}" _oep_gw _oep_body _oep_image _oep_host _oep_where
@@ -1274,7 +1315,7 @@ ollama_endpoint_container_reach() {
   # The first IPv4 gateway of the default bridge: host-gateway is that address
   # unless the daemon sets host-gateway-ip.
   _oep_gw="$(docker network inspect bridge -f '{{range .IPAM.Config}}{{.Gateway}} {{end}}' 2>/dev/null \
-    | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)" || _oep_gw=""
+    | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | sed -n 1p)" || _oep_gw=""
   [[ -n "$_oep_gw" ]] || return 0
   # Only a bridge on this machine can be asked from here. Docker Desktop, a
   # VM (Colima, OrbStack), rootless Docker and a remote DOCKER_HOST keep theirs
@@ -1306,6 +1347,8 @@ ollama_endpoint_container_reach() {
 # value with a "$", a backquote or a space in it is only a value. A file that
 # is not there exports nothing.
 # Returns 2, exporting nothing, when a NAME is not a variable name.
+# Returns: 0 done (also with no file); 2 a NAME is not a variable name; 9 a read-only variable could not be set.
+# Output: stderr errors.
 ollama_env_file_export() {
   local _oep_file="${1:-}" _oep_name _oep_value
   [[ $# -eq 0 ]] || shift
@@ -1345,7 +1388,7 @@ _ollama_ep_docker_models_dir() {
     printf '%s\n' "$OLLAMA_MODELS"
     return 0
   fi
-  _oep_root="$(docker info -f '{{.DockerRootDir}}' 2>/dev/null | head -n 1)" || _oep_root=""
+  _oep_root="$(docker info -f '{{.DockerRootDir}}' 2>/dev/null | sed -n 1p)" || _oep_root=""
   case "$_oep_root" in /*) ;; *) _oep_root="/var/lib/docker" ;; esac
   printf '%s\n' "$_oep_root"
 }
@@ -1396,6 +1439,9 @@ _ollama_ep_docker_models_dir() {
 # OLLAMA_URL_VARS that is not a variable name, an address that is not one, an
 # OLLAMA_MODE that is not one of the three, or one the address contradicts.
 # Nothing it reads from .env is left in the caller's environment.
+# Runs in a subshell: it changes nothing in the caller's environment.
+# Output: stderr progress and refusals; stdout nothing.
+# Returns: 0-8 as ollama_endpoint_ensure_models; 9 bad configuration.
 ollama_project_ensure_models() (
   # The caller's IFS must not split the lists below: a caller in "strict mode"
   # has it set to newline and tab, and the names came out as one word.
@@ -1669,6 +1715,8 @@ _ollama_ep_abs() {
 # Usage: ollama_runtime [env_file]; prints host or container: OLLAMA_RUNTIME
 # from the environment, else from env_file, else host. Returns 9 for any other
 # value, which is named with the two it may be.
+# Returns: 0 printed; 9 an unknown value.
+# Output: stdout host|container; stderr the error.
 ollama_runtime() {
   local _oep_value
   _oep_value="$(_ollama_ep_setting OLLAMA_RUNTIME "${1:-}" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')" || true
@@ -1711,6 +1759,8 @@ _ollama_ep_project_paths() {
 # included only with OLLAMA_RUNTIME=container (from the environment or the
 # env file, default <root>/.env), for the other verbs.
 # Returns 9 for an unknown option or, with --by-runtime, an unknown runtime.
+# Returns: 0 printed; 9 unknown option or runtime.
+# Output: stdout the COMPOSE_FILE value; stderr errors.
 ollama_project_compose_files() {
   local _oep_root="${1:-}" _oep_compose="" _oep_override="" _oep_c="" _oep_o="" _oep_env="" _oep_by=0 _oep_rt
   if [[ -z "$_oep_root" || ! -d "$_oep_root" ]]; then
@@ -1830,6 +1880,8 @@ _ollama_ep_compose_network() {
 # compose path holding COMPOSE_PATH_SEPARATOR);
 # 10 when Docker is needed for the container and fails (absent, the volume,
 # compose up).
+# Output: exports COMPOSE_FILE and the --url-var/--model-var variables; stderr progress and errors.
+# Returns: 0 ready; 1-8 as ollama_project_ensure_models; 4 container unreachable; 9 bad call or configuration; 10 Docker failed.
 ollama_project_prepare() {
   local IFS=$' \t\n'
   local _oep_root="${1:-}" _oep_mode="" _oep_var="" _oep_suffix="" _oep_vol="" _oep_c="" _oep_o=""

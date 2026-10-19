@@ -9,6 +9,7 @@
 #   -SecurityOnly  Run only security checks.
 #   -List          Print detected stacks without running them.
 #   -Dir <path>    Project directory (default: repository root or current directory).
+#   -Help          Show this help message.
 # EXIT_CODES:
 #   0  Every check that ran passed.
 #   1  At least one check failed.
@@ -24,14 +25,17 @@ param(
     [switch]$SkipSecurity,
     [switch]$SecurityOnly,
     [switch]$List,
-    [string]$Dir
+    [string]$Dir,
+    [switch]$Help
 )
+# -Help: print the header above and stop, before anything runs.
+if ($Help) { foreach ($l in Get-Content -LiteralPath $PSCommandPath) { if ($l -match '^#\s*-{4,}') { break }; $l -replace '^# ?', '' }; exit 0 }
 
 Set-StrictMode -Version Latest
 
 if ($env:CI -eq 'true') {
     Write-Error 'This script is intended for local use only.'
-    Write-Error 'In CI, run the checks directly — preflight exists to replace CI, not to run inside it.'
+    Write-Error 'In CI, run the checks directly - preflight exists to replace CI, not to run inside it.'
     exit 1
 }
 
@@ -206,12 +210,13 @@ function Invoke-Step {
     }
 }
 
-# A skip is not a pass — it is reported separately so an absent toolchain cannot
+# A skip is not a pass - it is reported separately so an absent toolchain cannot
 # look green.
 function Add-Skip {
     param([string]$Label, [string]$Reason)
-    $Results.Add("SKIP  $Label — $Reason")
-    log_warn "preflight: skipping $Label — $Reason"
+    # Same separator as scripts/preflight.sh, built from its code point so this file stays ASCII.
+    $Results.Add("SKIP  $Label $([char]0x2014) $Reason")
+    log_warn "preflight: skipping $Label $([char]0x2014) $Reason"
 }
 
 function Get-Label {
@@ -352,7 +357,7 @@ function Check-Security {
         log_warn 'This is the one check the weekly scheduled sweep exists to backstop. Install gitleaks, or use -Docker.'
         # In the summary too: without it, "PASS  security scan" read as if secrets
         # had been scanned.
-        Add-Skip 'gitleaks secret scan' 'gitleaks is not installed — install it, or use -Docker'
+        Add-Skip 'gitleaks secret scan' 'gitleaks is not installed - install it, or use -Docker'
         $haveGitleaks = $false
     }
     # foxguard runs on the host in both modes; ci_security.sh knows where it looks.

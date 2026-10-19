@@ -149,7 +149,7 @@ fi
 # The database container must be removed with -v: the postgres and mysql images
 # declare a VOLUME, so `docker rm -f` alone leaves a data directory behind on
 # every run.
-if grep -A3 -x -- 'rm' "$tmp/argv" | grep -qx -- '-v'; then
+if grep -qx -- '-v' <<< "$(grep -A3 -x -- 'rm' "$tmp/argv")"; then
   note "the database container is removed with its anonymous volume"
 else
   error "docker rm ran without -v; the container's volume would be orphaned"

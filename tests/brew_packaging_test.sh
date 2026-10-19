@@ -146,10 +146,10 @@ if command -v rsync >/dev/null 2>&1; then
   if bash scripts/build_brew_tarball.sh --name myapp --repo "$src" >/dev/null 2>&1; then
     listing="$(tar -tzf "$src/dist/myapp-1.0.0.tar.gz" | sed 's|^myapp-1.0.0/||')"
     for bad in .git/HEAD .env .env.local app/.env.production dist/myapp-0.9.0.tar.gz; do
-      if printf '%s\n' "$listing" | grep -qxF "$bad"; then error "tarball contains $bad"; fi
+      if grep -qxF "$bad" <<< "$listing"; then error "tarball contains $bad"; fi
     done
     for good in app/main.sh VERSION .env.example .env.local.sample dist/bundle.js; do
-      if printf '%s\n' "$listing" | grep -qxF "$good"; then :; else error "tarball is missing $good"; fi
+      if grep -qxF "$good" <<< "$listing"; then :; else error "tarball is missing $good"; fi
     done
     note "build_brew_tarball: contents checked"
   else
@@ -159,7 +159,7 @@ if command -v rsync >/dev/null 2>&1; then
   rm -f "$src/dist/myapp-1.0.0.tar.gz"
   if bash scripts/build_brew_tarball.sh --name myapp --repo "$src" --exclude .env.example --exclude dist >/dev/null 2>&1; then
     listing="$(tar -tzf "$src/dist/myapp-1.0.0.tar.gz" | sed 's|^myapp-1.0.0/||')"
-    if printf '%s\n' "$listing" | grep -qE '^(\.env\.example|dist/.*)$'; then
+    if grep -qE '^(\.env\.example|dist/.*)$' <<< "$listing"; then
       error "caller --exclude was overridden: $listing"
     else
       note "build_brew_tarball: caller excludes still win"

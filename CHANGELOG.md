@@ -3,14 +3,77 @@
 ### Added
 
 - `scripts/ollama_models.sh select <type>` and `ai_model_resolve` pick a local model by type of work and host tier from `config/ollama_model_tiers.txt` (generated data), ask once on a terminal when the project's own model differs, and store the answer in the project's `.env`. `class` now prints the tier.
+- **`scripts/signing_secrets.sh`: the package-signing secrets on a list of
+  repositories.** Sets the names ci-helpers `docs/packaging.md` uses
+  (`--group gpg`: `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`, `GPG_KEY_ID`, per-repo
+  `PPA_TARGET`, optional `LAUNCHPAD_SSH_PRIVATE_KEY`; `--group apple`: the six
+  `APPLE_*` secrets and `APPLE_SIGNING_ENABLED`) with `gh secret set` /
+  `gh variable set`. Values reach gh on stdin, never argv, and are never
+  printed; passphrases come from the environment or a prompt, and the GPG one
+  must unlock the key before anything is set. `--check` lists
+  the missing names per repository and exits 1; `--dry-run` sets nothing.
+  The bash 3.2 test image now has gnupg, so its test runs there too.
 - `ps/lib/rust.ps1` resolves the selected rustup Cargo before native Rust checks run.
 - `tests/machine/rust_resolver_check.sh` and `ps/tests/machine/rust_resolver_check.ps1` check the Rust resolver against the installed rustup and cargo: PATH order, the PATH-cargo-differs warning, `ErrorActionPreference = 'Stop'`, and preflight on a throwaway cargo project.
 
 ### Changed
 
 - `docs/commands.md` now includes `ps/scripts`; Bash and PowerShell entry commands use the same structured header fields and publish their examples.
+- Exit and return codes a caller can see changed. Check `if`, `|| true`
+  and `$?` handling that depends on the old values:
+
+  | Command or function | Before | Now |
+  |---|---|---|
+  | any script, option given without its value | 1 | 2 |
+  | `check_release_version.sh`, unknown option | 1 | 2 |
+  | `check_release_version.sh` target | the script-helpers checkout it lives in | `--repo`, default the cwd |
+  | `ci_*.sh`, `preflight.sh`, `ci_*.ps1` `--help`/`-Help` under `CI=true` | 1 | 0 |
+  | `local_test_*.sh --help` | 1 | 0 |
+  | `ci_security.sh --check-foxguard`/`--install-gitleaks` | acted at once, later options ignored | all options parsed first; a bad later option exits 1 or 2 |
+  | `manifest_sync_version` on a missing directory | 0 | 2 |
+  | `version_bump`, VERSION not writable | 0 | 1 |
+  | `pkg_build_*`, failed prebuild or series step | carried on | returns that step's code |
+  | `ollama_install_model_flow`, failed env write | carried on | returns that code |
+  | `generate-android-keystore.ps1` without `-OutputPath` | prompted | exits 1 |
+  | `version_bump` relative `-f` | relative to the project root | relative to the cwd |
+  | `docker_status` log lines | emoji markers | `[ok]`, `[failed]`, `[stopped]` |
 
 ### Fixed
+
+- `printf ... | grep -q` and `cmd | grep -q` returned 141 under `set -o
+  pipefail` when grep matched early and the writer got SIGPIPE, so a present
+  match read as missing (`check_docker`, `_docker_service_running`,
+  `prune_branches` cherry check, the bash 3.2 runner's tool detection, and
+  more). These now use here-strings, and `| head -n N` / `| grep -m1` use
+  `sed -n 1,Np`, which reads all input; awk programs on a pipe no longer
+  `exit` early. `tests/pipefail_sigpipe_test.sh` flags any `| grep -q`,
+  `| grep -m`, `| head` or awk `exit` outside `END` (one-line or multi-line
+  program) in `lib/` and in any file that sets pipefail.
+  `changelog_has_entries` returned 141 on a section over 64 KiB.
+- `source lib/android.sh` or `lib/screencap.sh` without `helpers.sh` aborted
+  a `set -e` caller; both now load `adb`, `gradle` and `ios` from their own
+  directory. `download_file` looked for `lib/lib/dialog.sh` when
+  `SCRIPT_HELPERS_DIR` was unset. `ci_python.sh --env` without a value
+  exited 1 on an unbound `$2`; it now exits 2.
+- **Every script and library module documents itself and runs standalone.**
+  All command scripts carry SCRIPT, DESCRIPTION, USAGE, PARAMETERS,
+  EXIT_CODES and EXAMPLE, in order, with exit codes traced from the code;
+  every public function in `lib/*.sh` and `ps/lib/*.ps1` has Usage, Returns
+  and Output lines. `--help`/`-Help` now exits 0 everywhere, also under
+  `CI=true` (`tag_release.sh --help` used to tag and push; `example_*.sh`
+  ran the demo). Gates exit 2, not 1, on a missing option value;
+  `check_release_version.sh` checks the cwd instead of the vendored copy;
+  several functions returned 0 on failure or leaked output into return
+  values. An option missing its value now exits 2 with a message
+  (`require_value` in `help.sh`) instead of dying on an unbound `$2` with 1.
+  New tests: `script_headers_test.sh`, `script_help_test.sh`,
+  `script_missing_value_test.sh`, `lib_source_test.sh`.
+- **`bump_version.sh` bumped the vendored copy, not the project.** Run as
+  `scripts/script-helpers/scripts/bump_version.sh patch`, it wrote
+  `scripts/script-helpers/VERSION`. The default is now `VERSION` at the top
+  of the git work tree holding the cwd (the superproject when run inside the
+  vendored submodule), or the cwd outside git; a relative `-f` is relative to
+  the cwd. Same for `version_bump` in `version.sh` and `version.ps1`.
 
 - `ps/scripts/preflight.ps1` checks Rust projects with the same preconditions as `preflight.sh`: a missing rustup or toolchain is a SKIP, not a failed step, and `PREFLIGHT_RUST_ANY_CARGO=true` passes `--any-cargo`.
 - `rust_toolchain_ci_uses` and `preflight.ps1` trust `rustup which` only on exit 0, and a stderr notice no longer discards its output when the session sets `ErrorActionPreference` to `Stop`.

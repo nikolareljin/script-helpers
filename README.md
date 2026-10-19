@@ -293,9 +293,9 @@ Docker status utility
 - `docker_status` prints:
   - A table of running containers from `docker ps` (name, image, status, since, ports).
   - If a `docker-compose.yml` exists in the current directory, it checks each defined service and marks:
-    - `✅` running (shows "since" time when available)
-    - `💥` failed (e.g., exited/restarting)
-    - `✖️` not running
+    - `[ok]` running (shows "since" time when available)
+    - `[failed]` failed (e.g., exited/restarting)
+    - `[stopped]` not running
 - If no `docker-compose.yml` is found in the current directory, it prints a tip to `cd` into a directory that contains it.
 - Requirements: Docker CLI and either `docker compose` (v2) or `docker-compose` (v1).
 
@@ -357,7 +357,7 @@ Examples
 - `scripts/example_logging.sh` — Showcase logging helpers (`print_*`, `log_*`).
 - `scripts/example_env.sh` — Use env helpers (`get_project_root`, `resolve_env_value`, `require_env`).
 - `scripts/example_docker_compose_cmd.sh` — Detect the Docker Compose command.
-- `scripts/example_docker_status.sh` — Show Docker/Compose status with glyphs.
+- `scripts/example_docker_status.sh` - Show Docker/Compose status with [ok]/[failed]/[stopped] markers.
 - `scripts/example_json.sh` — JSON helpers demo (`json_escape`, `format_response`).
 - `scripts/example_package_publish.sh` — Package publishing helpers demo.
 
@@ -366,6 +366,7 @@ Packaging helpers
 
 - `scripts/build_deb_artifacts.sh` — Build Debian packages and emit artifacts.
 - `scripts/ppa_upload.sh` — Build and upload a Debian source package to a Launchpad PPA.
+- `scripts/signing_secrets.sh` - Set or check the package-signing secrets (GPG, PPA, Apple) on a list of GitHub repositories.
 - `scripts/build_rpm_artifacts.sh` — Build RPM packages and emit artifacts.
 - `scripts/build_brew_tarball.sh` — Build a Homebrew tarball from a repo checkout.
 - `scripts/gen_brew_formula.sh` — Generate a Homebrew formula from a tarball.

@@ -238,7 +238,7 @@ if ! grep -qx -- 'rm' "$tmp/argv"; then
 else
   # The recorded argv is flat, so check the removal line rather than the file:
   # -v anywhere in the run would otherwise satisfy this.
-  if grep -A2 -x -- 'rm' "$tmp/argv" | grep -qx -- '-v'; then
+  if grep -qx -- '-v' <<< "$(grep -A2 -x -- 'rm' "$tmp/argv")"; then
     note "the database container is removed with its anonymous volume"
   else
     error "docker rm ran without -v; the container's volume would be orphaned"

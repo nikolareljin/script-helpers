@@ -135,7 +135,7 @@ echo "other" > other.txt && git -c user.email=dev@build-box.local -c user.name=d
   && git -c user.email=dev@build-box.local -c user.name=dev -c commit.gpgsign=false commit -qm "from a laptop"
 parents_commit="$(git rev-parse HEAD)"
 cd "$tmp/out" || exit 1
-utf8="$(locale -a 2>/dev/null | grep -i -m1 -E '^(c|en_us)\.utf-?8$' || true)"
+utf8="$(locale -a 2>/dev/null | grep -i -E '^(c|en_us)\.utf-?8$' | sed -n 1p || true)"
 if [[ -n "$utf8" ]]; then
   rc=0; out="$(LC_ALL="$utf8" bash "$pp" audit --source "$tmp/src4" --work "$tmp/out/r10" "${names[@]}" 2>&1)" || rc=$?
   [[ $rc -eq 1 && "$out" != *"NOT read"* && "$out" != *INCOMPLETE* ]] \

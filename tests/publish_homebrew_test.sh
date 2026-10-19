@@ -96,7 +96,7 @@ run_publish "first publish"
 if [[ $rc -ne 0 ]]; then
   error "first publish exited $rc: $out"
 fi
-if tap_formula | grep -q 'version "1.0.0"'; then
+if grep -q 'version "1.0.0"' <<< "$(tap_formula)"; then
   note "first publish: formula landed in the tap"
 else
   error "first publish: formula not in the tap (the new file was treated as no change): $out"
@@ -121,7 +121,7 @@ if [[ "$out" == *"$TOKEN"* || "$out" == *"$TOKEN_B64"* ]]; then
   error "token appears in the script output"
 fi
 # Tracing must not be switched on for a caller that never asked for it.
-if printf '%s\n' "$out" | grep -q '^+'; then
+if grep -q '^+' <<< "$out"; then
   error "xtrace was turned on inside the script: $out"
 else
   note "xtrace stays off"
@@ -140,7 +140,7 @@ fi
 # --- a changed formula is committed ----------------------------------------
 printf 'class Myapp < Formula\n  version "1.1.0"\nend\n' > "$tmp/app/packaging/brew/myapp.rb"
 run_publish "updated publish"
-if [[ $rc -eq 0 ]] && tap_formula | grep -q 'version "1.1.0"'; then
+if [[ $rc -eq 0 ]] && grep -q 'version "1.1.0"' <<< "$(tap_formula)"; then
   note "updated formula: committed"
 else
   error "updated formula not published: rc=$rc out=$out"
@@ -149,7 +149,7 @@ fi
 # --- git older than 2.31 still gets the header, still no token in argv -----
 printf 'class Myapp < Formula\n  version "1.2.0"\nend\n' > "$tmp/app/packaging/brew/myapp.rb"
 run_publish "old git" FAKE_GIT_VERSION=2.30.0
-if [[ $rc -eq 0 ]] && tap_formula | grep -q 'version "1.2.0"' &&
+if [[ $rc -eq 0 ]] && grep -q 'version "1.2.0"' <<< "$(tap_formula)" &&
    grep -F -q "HEADER[push]: AUTHORIZATION: basic $TOKEN_B64" "$tmp/git.log" &&
    ! grep -F -q "$TOKEN" "$tmp/git.log"; then
   note "old git: header passed, token kept out of argv"
@@ -229,7 +229,7 @@ for how in env flag; do
   else
     note "bash -x ($how): token not printed"
   fi
-  if [[ $xrc -eq 0 ]] && printf '%s\n' "$xout" | grep -q '^+* git clone'; then
+  if [[ $xrc -eq 0 ]] && grep -q '^+* git clone' <<< "$xout"; then
     note "bash -x ($how): publish succeeded and tracing resumed after the header"
   else
     error "bash -x ($how): rc=$xrc or tracing not restored: $xout"

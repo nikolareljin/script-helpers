@@ -17,7 +17,7 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=../helpers.sh
 source "$ROOT_DIR/helpers.sh"
 shlib_import android
-if [[ "${1:-}" == "--help" ]]; then
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   echo "Usage: $0 <output.jks>"
   exit 0
 fi
