@@ -38,6 +38,7 @@ cat > "$tmp/bin/gh" <<'STUB'
 echo "$*" >> "$STORE/argv"
 kind="$1"; verb="$2"
 if [ "$verb" = "set" ]; then
+  [ -n "${GH_FAIL:-}" ] && { cat >/dev/null; exit 1; }
   name="$3"; repo="$5"
   mkdir -p "$STORE/$repo/$kind"
   cat > "$STORE/$repo/$kind/$name"
@@ -110,6 +111,37 @@ refuse "unknown key" --repos o/a --group gpg --gpg-key 0000000000000000000000000
 refuse "ppa for other repo" --repos o/a --group gpg --gpg-key "$fpr" --ppa o/z=ppa:me/x
 refuse "bad ppa" --repos o/a --group gpg --gpg-key "$fpr" --ppa "o/a=ppa:Me/x;y"
 refuse "bad apple team" --repos o/a --group apple --apple-p12 "$tmp/cert.p12" --apple-identity "Developer ID Application: Me (X)" --apple-team short --apple-id me@example.invalid
+refuse "unknown option" --repos o/a --group gpg --gpg-key "$fpr" --bogus
+refuse "ppa twice for one repo" --repos o/a --group gpg --gpg-key "$fpr" --ppa o/a=ppa:me/x --ppa o/a=ppa:me/y
+
+# 5. a PATH without gpg, then without gh: refused with exit 2, nothing set.
+mkdir -p "$tmp/nogpg" "$tmp/nogh"
+IFS=: read -r -a path_dirs <<< "$PATH"
+for d in "${path_dirs[@]}"; do
+  [ -d "$d" ] || continue
+  for f in "$d"/*; do
+    [ -e "$f" ] || continue
+    b="${f##*/}"
+    [ "$b" = gpg ] || [ -L "$tmp/nogpg/$b" ] || ln -s "$f" "$tmp/nogpg/$b"
+    [ "$b" = gh ] || [ -L "$tmp/nogh/$b" ] || ln -s "$f" "$tmp/nogh/$b"
+  done
+done
+before="$(wc -l < "$STORE/argv")"
+rc=0; out="$(PATH="$tmp/nogpg" GPG_PASSPHRASE=x bash "$SCRIPT" --repos o/a --group gpg --gpg-key "$fpr" 2>&1)" || rc=$?
+[ "$rc" = 2 ] || error "no gpg: exit $rc, expected 2"
+printf '%s' "$out" | grep -q "gpg is not installed" || error "no gpg: message: $out"
+[ "$(wc -l < "$STORE/argv")" = "$before" ] || error "no gpg: gh was called"
+rc=0; out="$(PATH="$tmp/nogh" bash "$SCRIPT" --repos o/a --group gpg --check 2>&1)" || rc=$?
+[ "$rc" = 2 ] || error "no gh: exit $rc, expected 2"
+printf '%s' "$out" | grep -q "gh is not installed" || error "no gh: message: $out"
+
+# 6. gh fails to set a name: reported, exit 1, the value still not printed.
+GH_FAIL=1; export GH_FAIL
+rc=0; out="$(GPG_PASSPHRASE="gpg-pw-value" bash "$SCRIPT" --repos o/e --group gpg --gpg-key "$fpr" 2>&1)" || rc=$?
+unset GH_FAIL
+[ "$rc" = 1 ] || error "gh failure: exit $rc, expected 1"
+printf '%s' "$out" | grep -q "could not set secret GPG_PASSPHRASE" || error "gh failure: message: $out"
+printf '%s' "$out" | grep -qF "gpg-pw-value" && error "gh failure: value printed"
 
 if [ "$failures" -eq 0 ]; then
   note "ok"

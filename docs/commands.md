@@ -2157,7 +2157,15 @@ Usage: ./signing_secrets.sh --repos <owner/a,owner/b> --group <gpg|apple> [--gro
   -h, --help                Show help.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1, 2.
+Exit codes:
+
+```text
+0  Every name was set, or --check found every name on every repository.
+1  --check found a missing name or could not list a repository, or gh
+could not set a name.
+2  Bad arguments, a missing tool (gh, gpg), a key not in the keyring, or
+an empty value; nothing was set.
+```
 
 Example:
 

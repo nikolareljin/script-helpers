@@ -5,8 +5,6 @@
 #              or check which repositories miss which name. Values go to gh on
 #              stdin, never on a command line, and are never printed.
 # USAGE: ./signing_secrets.sh --repos <owner/a,owner/b> --group <gpg|apple> [--group ...] [options] [--check|--dry-run]
-# EXAMPLE: ./signing_secrets.sh --repos me/tool --group gpg --gpg-key <FPR> --ppa me/tool=ppa:me/tool
-# EXAMPLE: ./signing_secrets.sh --repos me/a,me/b --group gpg --group apple --check
 # PARAMETERS:
 #   --repos <list>            Comma-separated owner/name list (required).
 #   --group <gpg|apple>       Names to set or check; repeat for both (required).
@@ -25,6 +23,14 @@
 #   --check                   Report missing names per repository; exit 1 if any.
 #   --dry-run                 Print the names that would be set; set nothing.
 #   -h, --help                Show help.
+# EXIT_CODES:
+#   0  Every name was set, or --check found every name on every repository.
+#   1  --check found a missing name or could not list a repository, or gh
+#      could not set a name.
+#   2  Bad arguments, a missing tool (gh, gpg), a key not in the keyring, or
+#      an empty value; nothing was set.
+# EXAMPLE: ./signing_secrets.sh --repos me/tool --group gpg --gpg-key <FPR> --ppa me/tool=ppa:me/tool
+# EXAMPLE: ./signing_secrets.sh --repos me/a,me/b --group gpg --group apple --check
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -54,8 +60,7 @@ mode="set"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --check|--dry-run|-h|--help) ;;
-    -*)
+    --repos|--group|--gpg-key|--ppa|--launchpad-ssh-key|--apple-p12|--apple-identity|--apple-team|--apple-id)
       if [[ $# -lt 2 ]] || [[ "$2" == --* ]]; then
         log_error "$1 needs a value"
         exit 2
@@ -109,6 +114,10 @@ for m in $ppa_map; do
     *" ${m%%=*} "*) ;;
     *) log_error "--ppa names ${m%%=*}, which is not in --repos"; exit 2;;
   esac
+  case " ${ppa_seen:-} " in
+    *" ${m%%=*} "*) log_error "--ppa names ${m%%=*} twice"; exit 2;;
+  esac
+  ppa_seen="${ppa_seen:-} ${m%%=*}"
 done
 
 # Names expected on one repository, one per line: "secret NAME" or "variable NAME".
@@ -128,6 +137,11 @@ expected_names() {
   fi
   return 0
 }
+
+if [[ "$mode" != "dry-run" ]] && ! command -v gh >/dev/null 2>&1; then
+  log_error "gh is not installed"
+  exit 2
+fi
 
 if [[ "$mode" == "check" ]]; then
   missing_total=0
@@ -163,7 +177,10 @@ ask() { # var-name prompt
     if [[ "$mode" == "dry-run" ]]; then
       val="(prompted)"
     else
-      read -r -s -p "$2: " val </dev/tty
+      if ! { read -r -s -p "$2: " val </dev/tty; } 2>/dev/null; then
+        log_error "$1 is not set and there is no terminal to prompt on"
+        exit 2
+      fi
       echo >&2
     fi
   fi
@@ -177,9 +194,11 @@ if has_group gpg; then
     exit 2
   fi
   if [[ "$mode" != "dry-run" ]]; then
+    command -v gpg >/dev/null 2>&1 || { log_error "gpg is not installed"; exit 2; }
     gpg --batch --list-secret-keys "$gpg_key" >/dev/null 2>&1 \
       || { log_error "no secret key $gpg_key in the local keyring"; exit 2; }
-    gpg --armor --export-secret-keys "$gpg_key" > "$work/GPG_PRIVATE_KEY"
+    gpg --armor --export-secret-keys "$gpg_key" > "$work/GPG_PRIVATE_KEY" \
+      || { log_error "gpg could not export $gpg_key"; exit 2; }
     [[ -s "$work/GPG_PRIVATE_KEY" ]] || { log_error "gpg exported nothing for $gpg_key"; exit 2; }
   fi
   ask GPG_PASSPHRASE "GPG passphrase for $gpg_key"
