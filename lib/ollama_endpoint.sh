@@ -2238,7 +2238,8 @@ ollama_tier_model() {
 
 # Usage: _ollama_ep_env_set <file> <NAME> <value> [<NAME> <value>...]; sets
 # each NAME=value in an env file in one write: an existing line is replaced in
-# place (later duplicates of it dropped), otherwise one is added. Other lines,
+# place (later duplicates of it dropped, an "export " kept), otherwise one is
+# added. A symlink loop is refused. Other lines,
 # comments and a byte-order mark are kept; in a file with Windows line ends the
 # written lines get them too. The new content goes to a temporary file next to
 # the target (a symlink is followed) that is then moved over it, so a reader
@@ -2249,7 +2250,7 @@ ollama_tier_model() {
 # created, read or written.
 # Output: none on stdout.
 _ollama_ep_env_set() {
-  local file="${1:-}" target link dir tmpf src names="" values=""
+  local file="${1:-}" target link hops dir tmpf src names="" values=""
   shift || return 1
   [[ -n "$file" && $# -ge 2 && $(($# % 2)) -eq 0 ]] || return 1
   while [[ $# -ge 2 ]]; do
@@ -2259,8 +2260,11 @@ _ollama_ep_env_set() {
     values="${values}${2}"$'\n'
     shift 2
   done
-  target="$file"
+  target="$file" hops=0
   while [[ -L "$target" ]]; do
+    # A symlink loop (a -> b -> a) would otherwise never end.
+    hops=$((hops + 1))
+    [[ "$hops" -le 40 ]] || return 1
     link="$(readlink "$target")" || return 1
     case "$link" in
       /*) target="$link" ;;
@@ -2293,7 +2297,9 @@ _ollama_ep_env_set() {
         if (cr != "") eol = "\r"
         for (i = 1; i <= n; i++) {
           if (line ~ ("^[ \t]*(export[ \t]+)?" name[i] "[ \t]*=")) {
-            if (!(i in done)) print prefix name[i] "=" val[i] cr
+            # An "export " the line had is kept.
+            ex = (line ~ /^[ \t]*export[ \t]/) ? "export " : ""
+            if (!(i in done)) print prefix ex name[i] "=" val[i] cr
             else if (prefix != "") printf "%s", prefix
             done[i] = 1
             next

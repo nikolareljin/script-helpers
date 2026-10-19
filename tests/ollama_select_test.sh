@@ -211,7 +211,12 @@ check "comments, quoted values and a last line with no newline are kept" "x y|1|
   "$(ollama_models_file_get "$tmp/bom.env" B)|$(grep -c '^# keep me$' "$tmp/bom.env")|$(ollama_models_file_get "$tmp/bom.env" K_CHOICE_FOR)"
 printf 'K_CHOICE=a\nexport K_CHOICE=b\nK_CHOICE = c\n' >"$tmp/dup.env"
 for _ in 1 2 3; do _ollama_ep_env_set "$tmp/dup.env" K_CHOICE d; done
-check "duplicate and export lines collapse to one, however often it runs" "K_CHOICE=d" "$(one_line <"$tmp/dup.env")"
+check "duplicate lines collapse to one, however often it runs" "K_CHOICE=d" "$(one_line <"$tmp/dup.env")"
+printf 'export K_CHOICE=a\nexport K_CHOICE=b\n' >"$tmp/exp.env"
+_ollama_ep_env_set "$tmp/exp.env" K_CHOICE d
+check "an export line stays an export line" "export K_CHOICE=d" "$(one_line <"$tmp/exp.env")"
+ln -sf loop-b.env "$tmp/loop-a.env"; ln -sf loop-a.env "$tmp/loop-b.env"
+check "a symlink loop is refused (1), not followed forever" "1" "$(_ollama_ep_env_set "$tmp/loop-a.env" A 1; echo $?)"
 printf 'A=1\n' >"$tmp/mode.env"; chmod 640 "$tmp/mode.env"
 _ollama_ep_env_set "$tmp/mode.env" A 2
 check "an existing file keeps its mode" "640" "$( (stat -c %a "$tmp/mode.env" 2>/dev/null || stat -f %Lp "$tmp/mode.env") | tr -d '\n')"
