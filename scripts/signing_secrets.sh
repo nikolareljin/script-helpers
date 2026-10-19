@@ -152,7 +152,9 @@ if [[ "$mode" == "check" ]]; then
     while read -r kind name; do
       [[ -z "$name" ]] && continue
       if [[ "$kind" == "secret" ]]; then have="$have_s"; else have="$have_v"; fi
-      printf '%s\n' "$have" | grep -qxF -- "$name" || missing="${missing} ${name}"
+      # A here-string, not printf | grep -q: under pipefail that pipe fails
+      # when grep stops reading early, and a present name reads as missing.
+      grep -qxF -- "$name" <<< "$have" || missing="${missing} ${name}"
     done <<< "$(expected_names "$repo")"
     if [[ -n "$missing" ]]; then
       echo "${repo}: missing${missing}"

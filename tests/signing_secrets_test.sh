@@ -47,6 +47,9 @@ fi
 if [ "$verb" = "list" ]; then
   repo="$4"
   ls "$STORE/$repo/$kind" 2>/dev/null
+  # GH_PAD: a long list after the real names, as on a repository with many
+  # secrets; a reader that stops early must not lose the match.
+  [ -n "${GH_PAD:-}" ] && seq 1 20000 | sed 's/^/PAD_/'
   exit 0
 fi
 exit 9
@@ -76,21 +79,28 @@ grep -q "BEGIN PGP PRIVATE KEY BLOCK" "$s/secret/GPG_PRIVATE_KEY" 2>/dev/null ||
 [ "$(cat "$STORE/o/b/variable/APPLE_SIGNING_ENABLED" 2>/dev/null)" = "true" ] || error "APPLE_SIGNING_ENABLED not true on o/b"
 for v in gpg-pw-value p12-pw-value app-pw-value ssh-key-body "PRIVATE KEY"; do
   grep -qF -- "$v" "$STORE/argv" && error "value '$v' reached gh's arguments"
-  printf '%s' "$out" | grep -qF -- "$v" && error "value '$v' printed"
+  grep -qF -- "$v" <<< "$out" && error "value '$v' printed"
 done
 
 # 2. --check: complete repo ok, a repo missing everything reported, exit 1.
 rc=0; out="$(bash "$SCRIPT" --repos o/a,o/c --group gpg --group apple --ppa o/a=ppa:me/tool --check 2>&1)" || rc=$?
 [ "$rc" = 1 ] || error "--check exit $rc, expected 1"
-printf '%s\n' "$out" | grep -qx "o/a: ok" || error "--check: o/a not ok: $out"
-printf '%s\n' "$out" | grep -q "^o/c: missing GPG_PRIVATE_KEY GPG_PASSPHRASE GPG_KEY_ID APPLE_CERTIFICATE" || error "--check: o/c missing list wrong: $out"
+grep -qx "o/a: ok" <<< "$out" || error "--check: o/a not ok: $out"
+grep -q "^o/c: missing GPG_PRIVATE_KEY GPG_PASSPHRASE GPG_KEY_ID APPLE_CERTIFICATE" <<< "$out" || error "--check: o/c missing list wrong: $out"
 rc=0; bash "$SCRIPT" --repos o/a --group gpg --check >/dev/null 2>&1 || rc=$?
 [ "$rc" = 0 ] || error "--check of a complete repo exit $rc"
+
+# 2b. --check on a repository with a long secret list: still ok, exit 0.
+# Under pipefail, `printf | grep -q` fails when grep exits before printf
+# finishes writing, which reported present names as missing.
+rc=0; out="$(GH_PAD=1 bash "$SCRIPT" --repos o/a --group gpg --group apple --ppa o/a=ppa:me/tool --check 2>&1)" || rc=$?
+[ "$rc" = 0 ] || error "--check with a long list: exit $rc, expected 0: $out"
+grep -qx "o/a: ok" <<< "$out" || error "--check with a long list: $out"
 
 # 3. dry-run sets nothing.
 before="$(wc -l < "$STORE/argv")"
 out="$(bash "$SCRIPT" --repos o/d --group gpg --gpg-key "$fpr" --dry-run 2>&1)" || error "dry-run failed: $out"
-printf '%s\n' "$out" | grep -qx "o/d: would set secret GPG_PRIVATE_KEY" || error "dry-run output: $out"
+grep -qx "o/d: would set secret GPG_PRIVATE_KEY" <<< "$out" || error "dry-run output: $out"
 [ "$(wc -l < "$STORE/argv")" = "$before" ] || error "dry-run called gh"
 
 # 4. refused input, nothing set.
@@ -129,18 +139,18 @@ done
 before="$(wc -l < "$STORE/argv")"
 rc=0; out="$(PATH="$tmp/nogpg" GPG_PASSPHRASE=x bash "$SCRIPT" --repos o/a --group gpg --gpg-key "$fpr" 2>&1)" || rc=$?
 [ "$rc" = 2 ] || error "no gpg: exit $rc, expected 2"
-printf '%s' "$out" | grep -q "gpg is not installed" || error "no gpg: message: $out"
+grep -q "gpg is not installed" <<< "$out" || error "no gpg: message: $out"
 [ "$(wc -l < "$STORE/argv")" = "$before" ] || error "no gpg: gh was called"
 rc=0; out="$(PATH="$tmp/nogh" bash "$SCRIPT" --repos o/a --group gpg --check 2>&1)" || rc=$?
 [ "$rc" = 2 ] || error "no gh: exit $rc, expected 2"
-printf '%s' "$out" | grep -q "gh is not installed" || error "no gh: message: $out"
+grep -q "gh is not installed" <<< "$out" || error "no gh: message: $out"
 
 # 5b. no passphrase in the environment and no terminal: refused, exit 2.
 if command -v setsid >/dev/null 2>&1 && setsid -w true >/dev/null 2>&1; then
   before="$(wc -l < "$STORE/argv")"
   rc=0; out="$(env -u GPG_PASSPHRASE setsid -w bash "$SCRIPT" --repos o/a --group gpg --gpg-key "$fpr" </dev/null 2>&1)" || rc=$?
   [ "$rc" = 2 ] || error "no terminal: exit $rc, expected 2"
-  printf '%s' "$out" | grep -q "no terminal to prompt on" || error "no terminal: message: $out"
+  grep -q "no terminal to prompt on" <<< "$out" || error "no terminal: message: $out"
   [ "$(wc -l < "$STORE/argv")" = "$before" ] || error "no terminal: gh was called"
 else
   note "SKIP no-terminal case: setsid -w not available"
@@ -151,8 +161,8 @@ GH_FAIL=1; export GH_FAIL
 rc=0; out="$(GPG_PASSPHRASE="gpg-pw-value" bash "$SCRIPT" --repos o/e --group gpg --gpg-key "$fpr" 2>&1)" || rc=$?
 unset GH_FAIL
 [ "$rc" = 1 ] || error "gh failure: exit $rc, expected 1"
-printf '%s' "$out" | grep -q "could not set secret GPG_PASSPHRASE" || error "gh failure: message: $out"
-printf '%s' "$out" | grep -qF "gpg-pw-value" && error "gh failure: value printed"
+grep -q "could not set secret GPG_PASSPHRASE" <<< "$out" || error "gh failure: message: $out"
+grep -qF "gpg-pw-value" <<< "$out" && error "gh failure: value printed"
 
 if [ "$failures" -eq 0 ]; then
   note "ok"
