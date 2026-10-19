@@ -25,7 +25,7 @@ for f in "$root_dir"/scripts/*.sh "$root_dir"/tests/machine/*.sh; do
     rc=0
     out="$(cd "$tmp/cwd" && CI=true HOME="$tmp/home" ${limit[@]+"${limit[@]}"} bash "$f" "$flag" </dev/null 2>&1)" || rc=$?
     if [[ $rc -ne 0 ]]; then
-      echo "[script_help_test][ERROR] ${f#"$root_dir"/} $flag exited $rc: $(printf '%s' "$out" | head -n 2)" >&2
+      echo "[script_help_test][ERROR] ${f#"$root_dir"/} $flag exited $rc: $(printf '%s' "$out" | sed -n 1,2p)" >&2
       fail=1
     elif ! grep -qi 'usage' <<< "$out"; then
       echo "[script_help_test][ERROR] ${f#"$root_dir"/} $flag printed no usage" >&2

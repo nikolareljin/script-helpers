@@ -47,7 +47,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "machine: $(uname -s) $(uname -m), bash $BASH_VERSION; $(rustup --version 2>/dev/null | head -n 1)"
+echo "machine: $(uname -s) $(uname -m), bash $BASH_VERSION; $(rustup --version 2>/dev/null | sed -n 1p)"
 echo "PATH cargo: $(command -v cargo 2>/dev/null || echo none); RUST_TOOLCHAIN=${RUST_TOOLCHAIN:-unset}"
 
 # resolve <toolchain or ""> <extra PATH dir or "">: rust_toolchain_ci_uses in a
@@ -93,7 +93,7 @@ printf '[package]\nname = "rcheck"\nversion = "0.1.0"\nedition = "2021"\n\n[depe
 printf 'pub fn two() -> u32 { 2 }\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn two() { assert_eq!(super::two(), 2); }\n}\n' > "$proj/src/lib.rs"
 rc=0
 env -u CI bash "$ROOT/scripts/preflight.sh" --quick --skip-security --stack rust --dir "$proj" >"$work/preflight.out" 2>&1 || rc=$?
-line="$(grep -E '^(PASS|FAIL|SKIP)  rust' "$work/preflight.out" | head -n 1 || true)"
+line="$(grep -E '^(PASS|FAIL|SKIP)  rust' "$work/preflight.out" | sed -n 1p || true)"
 echo "   preflight rc $rc: ${line:-no rust line}"
 verdict=bad
 case "$rc:$line" in

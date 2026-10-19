@@ -50,9 +50,9 @@ expect() {
   local label="$1" want="$2" text="$3" out rc
   out="$(run_checks "${4:-}" "${5:-}")"; rc=$?
   if [[ "$rc" -ne "$want" ]]; then
-    error "$label: exit $rc, expected $want: $(printf '%s' "$out" | grep -E 'REFUSED|refused' | head -3)"
+    error "$label: exit $rc, expected $want: $(printf '%s' "$out" | grep -E 'REFUSED|refused' | sed -n 1,3p)"
   elif [[ -n "$text" ]] && ! grep -qF -- "$text" <<<"$out"; then
-    error "$label: output lacks '$text': $(printf '%s' "$out" | head -5)"
+    error "$label: output lacks '$text': $(printf '%s' "$out" | sed -n 1,5p)"
   else
     ok "$label"
   fi
@@ -232,13 +232,13 @@ commit "syntax" broken.sh $'#!/usr/bin/env bash\nif then\n'
 out="$(PATH="$nobin" run_checks)"; rc=$?
 [[ $rc -eq 1 ]] && grep -q 'broken.sh' <<<"$out" && grep -q 'shellcheck not installed' <<<"$out" \
   && ok "without shellcheck, bash -n refuses a syntax error and the tool is named" \
-  || error "without shellcheck: exit $rc: $(grep -E 'REFUSED|lint' <<<"$out" | head -3)"
+  || error "without shellcheck: exit $rc: $(grep -E 'REFUSED|lint' <<<"$out" | sed -n 1,3p)"
 reset_main
 if PATH="$nobin" bash -c 'command -v python3 || command -v python' >/dev/null 2>&1; then
   commit "py" bad.py $'def f(:\n    pass\n'
   out="$(PATH="$nobin" run_checks)"; rc=$?
   [[ $rc -eq 1 ]] && grep -q 'bad.py' <<<"$out" && ok "without ruff, the Python parse refuses a syntax error" \
-    || error "without ruff: exit $rc: $(grep -E 'REFUSED|lint' <<<"$out" | head -3)"
+    || error "without ruff: exit $rc: $(grep -E 'REFUSED|lint' <<<"$out" | sed -n 1,3p)"
   reset_main
 fi
 
@@ -294,7 +294,7 @@ if [[ "$py_ok" == true ]]; then
     commit "yaml" bad.yml $'a: [1, 2\nb: 3\n'
     out="$(PYTHONPATH="$tmp/noyaml" run_checks)"; rc=$?
     [[ $rc -eq 0 ]] && grep -q 'PyYAML not installed' <<<"$out" && ok "without PyYAML, YAML is named as not checked" \
-      || error "without PyYAML: exit $rc: $(grep -iE 'yaml|REFUSED' <<<"$out" | head -3)"
+      || error "without PyYAML: exit $rc: $(grep -iE 'yaml|REFUSED' <<<"$out" | sed -n 1,3p)"
     reset_main
     commit "tags" cfn.yml $'Resources:\n  B:\n    Value: !Ref Thing\n'
     expect "YAML with custom tags passes" 0 ""
@@ -321,7 +321,7 @@ out="$(run_checks "refs/heads/other $other refs/heads/other $zeroes")"; rc=$?
 if [[ $rc -eq 1 ]] && grep -q 'other.sh' <<<"$out" && ! grep -q "$tmp" <<<"$out"; then
   ok "a ref that is not checked out is checked from its commit, paths shown plainly"
 else
-  error "branch not checked out: exit $rc: $(grep -E 'REFUSED|other' <<<"$out" | head -3)"
+  error "branch not checked out: exit $rc: $(grep -E 'REFUSED|other' <<<"$out" | sed -n 1,3p)"
 fi
 # A new branch sends only what the remote lacks: legacy.sh is on origin already.
 g checkout -q -b fresh origin/main
@@ -360,7 +360,7 @@ printf 'refs/heads/main %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$(git 
 rm -f "$tmp/lint-ran"
 out="$( source tools/push_checks.sh && push_checks "$tmp/refs" origin "$tmp/origin.git" 2>&1 )"
 [[ -e "$tmp/lint-ran" ]] && ok "a copy the repository tracks runs its lint-changed target" \
-  || error "the repository's own copy did not run lint-changed: $(grep -E 'lint|REFUSED' <<<"$out" | head -3)"
+  || error "the repository's own copy did not run lint-changed: $(grep -E 'lint|REFUSED' <<<"$out" | sed -n 1,3p)"
 reset_main
 
 # A committed json.py must not be imported by the JSON check.
@@ -412,7 +412,7 @@ before="$(git status --porcelain=v1 --ignored | LC_ALL=C sort)"
 out="$(TMPDIR="$tmp/emptytmp" run_checks "refs/heads/nowrite $nw refs/heads/nowrite $zeroes")"; rc=$?
 after="$(git status --porcelain=v1 --ignored | LC_ALL=C sort)"
 [[ $rc -eq 0 && -z "$(ls -A "$tmp/emptytmp")" ]] && ok "push_checks writes nothing to TMPDIR (read-only, and the run passed)" \
-  || error "push_checks needed TMPDIR: exit $rc: $(grep -E 'REFUSED|refused' <<<"$out" | head -3)"
+  || error "push_checks needed TMPDIR: exit $rc: $(grep -E 'REFUSED|refused' <<<"$out" | sed -n 1,3p)"
 chmod 755 "$tmp/emptytmp"
 [[ "$before" == "$after" ]] && ok "and nothing to the repository" \
   || error "the repository changed: $(diff <(printf '%s\n' "$before") <(printf '%s\n' "$after"))"
@@ -448,13 +448,13 @@ g rm -q Makefile && g commit -qm "no suite"
 out="$(hook)"; rc=$?
 [[ $rc -eq 1 ]] && grep -q 'no tests found' <<<"$out" && ! grep -q 'tests: passed' <<<"$out" \
   && ok "push-tests quick with no tests to run refuses" \
-  || error "push-tests quick, no tests: exit $rc: $(grep -E "tests|REFUSED|refused" <<<"$out" | head -5)"
+  || error "push-tests quick, no tests: exit $rc: $(grep -E "tests|REFUSED|refused" <<<"$out" | sed -n 1,5p)"
 # A suite that itself exits 4 is a failure, not "no tests found".
 commit "suite exits 4" tests/four_test.sh $'#!/usr/bin/env bash\necho SUITE-RAN; exit 4\n'
 out="$(hook)"; rc=$?
 [[ $rc -eq 1 ]] && grep -q SUITE-RAN <<<"$out" && grep -q 'push refused: tests failed' <<<"$out" && ! grep -q 'no tests found' <<<"$out" \
   && ok "push-tests quick: a suite exiting 4 is reported as a failure, not as no tests" \
-  || error "push-tests quick, suite exit 4: exit $rc: $(grep -E "tests|refused" <<<"$out" | head -5)"
+  || error "push-tests quick, suite exit 4: exit $rc: $(grep -E "tests|refused" <<<"$out" | sed -n 1,5p)"
 g rm -q tests/four_test.sh && g commit -qm "drop four"
 commit "suite ok" Makefile $'test:\n\t@echo SUITE-RAN; exit 0\n'
 git config script-helpers.push-tests qiuck

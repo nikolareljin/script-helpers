@@ -99,7 +99,7 @@ BOOTSTRAP='apk add --no-cache git python3 curl openssl make rsync zip jq >/dev/n
 # is skipped the same way for one file.
 RUNNER='
   set -u
-  bash --version | head -n1
+  bash --version | sed -n 1p
   case "${BASH_VERSINFO[0]}" in
     3) ;;
     *) echo "expected bash 3.x in this image, got ${BASH_VERSION}" >&2; exit 1 ;;

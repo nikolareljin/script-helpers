@@ -166,7 +166,7 @@ pc_hygiene() {
           pc_find hygiene "$path looks like a secret file (list it in .script-helpers-push-allow if it is not)" ;;
       esac
     fi
-    hits="$(pc_cat "$tip" "$path" 2>/dev/null | LC_ALL=C grep -I -n -E '^(<{7}|>{7})( |$)' | head -3 | cut -d: -f1 | tr '\n' ' ' || true)"
+    hits="$(pc_cat "$tip" "$path" 2>/dev/null | LC_ALL=C grep -I -n -E '^(<{7}|>{7})( |$)' | sed -n 1,3p | cut -d: -f1 | tr '\n' ' ' || true)"
     [[ -n "$hits" ]] && pc_find hygiene "$path has merge conflict markers (line ${hits% })"
   done < <(printf '%s' "$PC_FILES")
 
@@ -201,12 +201,12 @@ pc_hygiene() {
     [[ "$v" != "$rref" && "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
     # Only when the newest release heading is dated ("## YYYY-MM-DD ..."); another
     # changelog style is not this check's to judge, even above older dated ones.
-    top="$(git cat-file blob "$lsha:CHANGELOG.md" 2>/dev/null | grep -m1 -E '^##[[:space:]]+([0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]|\[?v?[0-9]+\.[0-9]+\.[0-9]+)' || true)"
+    top="$(git cat-file blob "$lsha:CHANGELOG.md" 2>/dev/null | grep -E '^##[[:space:]]+([0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]|\[?v?[0-9]+\.[0-9]+\.[0-9]+)' | sed -n 1p || true)"
     [[ "$top" =~ ^##[[:space:]]+[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]] ]] || continue
     # The format ci-helpers reads release notes from: "## YYYY-MM-DD <em-dash> vX.Y.Z".
     [[ "$top" =~ ^##[[:space:]]+[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+${PC_EMDASH}[[:space:]]+v?[0-9]+\.[0-9]+\.[0-9]+ ]] \
       || pc_find hygiene "release/$v CHANGELOG heading needs an em-dash: '## YYYY-MM-DD <em-dash> v$v', found '$top'"
-    out="$(printf '%s' "$top" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+    out="$(printf '%s' "$top" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || true)"
     [[ "$out" == "$v" ]] || pc_find hygiene "release/$v: the newest CHANGELOG release is '${out:-none}', not $v"
     if git cat-file -e "$lsha:VERSION" 2>/dev/null; then
       out="$(git cat-file blob "$lsha:VERSION" | tr -d '[:space:]')"; out="${out#v}"
@@ -300,7 +300,7 @@ pc_lint() {
       *.ps1|*.psm1) kind="ps" ;;
       *) kind="none"
          if [[ "${path##*/}" != *.* ]] && grep -qE '^#!.*[/ ](ba)?sh([[:space:]]|$)' \
-              <<< "$(pc_cat "$tip" "$path" 2>/dev/null | head -n1)"; then kind="sh"; fi ;;
+              <<< "$(pc_cat "$tip" "$path" 2>/dev/null | sed -n 1p)"; then kind="sh"; fi ;;
     esac
     case "$kind" in
       sh)
@@ -311,7 +311,7 @@ pc_lint() {
           # otherwise shellcheck refuses with SC2148 for any such file.
           local scsh=()
           # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
-          grep -q '^#!' <<< "$(pc_cat "$tip" "$path" | head -n1)" || scsh=(--shell=bash)
+          grep -q '^#!' <<< "$(pc_cat "$tip" "$path" | sed -n 1p)" || scsh=(--shell=bash)
           out="$(pc_cat "$tip" "$path" | shellcheck -S warning "${scsh[@]+"${scsh[@]}"}" - 2>&1)" || pc_find lint "shellcheck:$PC_NL$(pc_named "$path" "$out")"
         fi ;;
       py)

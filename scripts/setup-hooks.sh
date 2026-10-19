@@ -419,7 +419,7 @@ prereqs() {
   fi
   list="${PRIVATE_NAMES_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names.tsv}"
   if [[ -s "$list" ]]; then
-    stamp="$(sed -n 's/^# generated: \([0-9-]*\).*/\1/p' "$list" | head -1)"
+    stamp="$(sed -n 's/^# generated: \([0-9-]*\).*/\1/p' "$list" | sed -n 1p)"
     age="$(file_age_days "$stamp")"
     echo "  names     ok ($list, generated ${stamp:-at an unknown date}${age:+, $age days ago})"
   else
@@ -593,7 +593,7 @@ ONFAILURE_MIN="2.1.295"
 claude_supports_onfailure() {
   local v
   command -v claude >/dev/null 2>&1 && [[ -n "$PY" ]] || return 1
-  v="$(claude --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  v="$(claude --version 2>/dev/null | sed -n 1p | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p)"
   [[ -n "$v" ]] || return 1
   "$PY" -I -c 'import sys
 a = [int(x) for x in sys.argv[1].split(".")]; b = [int(x) for x in sys.argv[2].split(".")]
@@ -604,13 +604,13 @@ sys.exit(0 if a >= b else 1)' "$v" "$ONFAILURE_MIN"
 claude_onfailure() {
   [[ -n "$PY" && -f "$1" ]] || return 0
   "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$1")" 2>/dev/null \
-    | sed -n 's/^onFailure=//p' | head -1 || true
+    | sed -n 's/^onFailure=//p' | sed -n 1p || true
 }
 
 # claude_entry <settings>: the hook command in that file, or nothing.
 claude_entry() {
   [[ -n "$PY" && -f "$1" ]] || return 0
-  "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$1")" 2>/dev/null | head -1 || true
+  "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$1")" 2>/dev/null | sed -n 1p || true
 }
 
 # claude_hook_path <entry>: the script an entry's command runs. The forms
@@ -865,7 +865,7 @@ probe() {
   else
     printf '  FAIL  %-44s %s in %s ms\n' "$label" "$why" "$((t1 - t0))"
     # The hook's first lines say why. Never the probe text: it may be a private name.
-    [[ -s "$dir/err" ]] && grep -v '^[[:space:]]*$' "$dir/err" | head -4 | sed 's/^/          hook: /'
+    [[ -s "$dir/err" ]] && grep -v '^[[:space:]]*$' "$dir/err" | sed -n 1,4p | sed 's/^/          hook: /'
   fi
   rm -rf "$dir"
   [[ -z "$why" ]]

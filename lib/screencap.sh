@@ -381,7 +381,7 @@ screencap_gif() {
   if command -v ffprobe >/dev/null 2>&1; then
     local frames
     frames="$(ffprobe -v error -select_streams v:0 -count_packets \
-                -show_entries stream=nb_read_packets -of csv=p=0 "$video" 2>/dev/null | head -n1)"
+                -show_entries stream=nb_read_packets -of csv=p=0 "$video" 2>/dev/null | sed -n 1p)"
     if [[ "$frames" =~ ^[0-9]+$ && "$frames" -lt 2 ]]; then
       log_error "screencap_gif: $video has $frames frame(s) -- there is nothing to animate."
       log_error "A recording made with the device screen off looks like this. Wake the screen and record again."

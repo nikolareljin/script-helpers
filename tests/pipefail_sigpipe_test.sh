@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # SCRIPT: pipefail_sigpipe_test.sh
-# DESCRIPTION: Checks that no `... | grep -q` survives where pipefail is set,
-#   and that library helpers still find a match in large input under pipefail.
+# DESCRIPTION: Checks that no early-exit reader (`grep -q`, `grep -m`, `head`)
+#   sits on a pipe where pipefail is set, and that library helpers still find
+#   a match in large input under pipefail.
 #   `printf "$big" | grep -q x` exits 141 when grep quits before the writer is
 #   done, so a present match reads as missing.
 # USAGE: bash tests/pipefail_sigpipe_test.sh
@@ -22,16 +23,16 @@ error() { echo "[pipefail_sigpipe_test] FAIL: $*" >&2; fail=1; }
 hits=""
 while IFS= read -r f; do
   case "$f" in lib/*.sh) ;; *) grep -q 'pipefail' "$ROOT/$f" || continue ;; esac
-  h="$(grep -nE '(^|[^|])\|[[:space:]]*grep[[:space:]]+-[A-Za-z]*q' "$ROOT/$f" \
+  h="$(grep -nE '(^|[^|])\|[[:space:]]*(grep[[:space:]]+(-[A-Za-z]+[[:space:]]+)*-[A-Za-z]*[qm]|head([[:space:]]|$))' "$ROOT/$f" \
         | grep -vE '^[0-9]+:[[:space:]]*#' || true)"
   # This file names the pattern in its own lint regex and comments.
   [[ "$f" == tests/pipefail_sigpipe_test.sh ]] && continue
   [[ -n "$h" ]] && hits+="$(sed "s#^#$f:#" <<< "$h")"$'\n'
 done < <(cd "$ROOT" && git ls-files '*.sh')
 if [[ -n "$hits" ]]; then
-  error "pipe into grep -q under pipefail (use a here-string):"; printf '%s' "$hits" >&2
+  error "early-exit reader on a pipe under pipefail (use a here-string or sed -n 1p):"; printf '%s' "$hits" >&2
 else
-  note "ok  no '| grep -q' in lib/ or in files that set pipefail"
+  note "ok  no '| grep -q', '| grep -m' or '| head' in lib/ or in files that set pipefail"
 fi
 
 # --- behaviour: a match at the top of 200000 lines must still be found.

@@ -72,9 +72,9 @@ if [[ -z "$formula_path" ]]; then
       formula_path="$repo_dir/packaging/homebrew/${formula_name}.rb"
     fi
   else
-    formula_path="$(find "$repo_dir/packaging/brew" -maxdepth 1 -type f -name '*.rb' 2>/dev/null | head -n 1 || true)"
+    formula_path="$(find "$repo_dir/packaging/brew" -maxdepth 1 -type f -name '*.rb' 2>/dev/null | sed -n 1p || true)"
     if [[ -z "$formula_path" ]]; then
-      formula_path="$(find "$repo_dir/packaging/homebrew" -maxdepth 1 -type f -name '*.rb' 2>/dev/null | head -n 1 || true)"
+      formula_path="$(find "$repo_dir/packaging/homebrew" -maxdepth 1 -type f -name '*.rb' 2>/dev/null | sed -n 1p || true)"
     fi
   fi
 fi

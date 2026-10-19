@@ -104,9 +104,9 @@ ollama_installed_version() {
   local bin="${1:-ollama}" out client
   command -v "$bin" >/dev/null 2>&1 || return 1
   out="$(OLLAMA_HOST=127.0.0.1:9 "$bin" --version 2>&1)" || true
-  client="$(printf '%s\n' "$out" | sed -n 's/.*client version is \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n 1)" || true
+  client="$(printf '%s\n' "$out" | sed -n 's/.*client version is \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | sed -n 1p)" || true
   if [[ -z "$client" ]]; then
-    client="$(printf '%s\n' "$out" | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)" || true
+    client="$(printf '%s\n' "$out" | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p)" || true
   fi
   [[ -n "$client" ]] || return 1
   printf '%s\n' "$client"

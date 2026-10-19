@@ -42,7 +42,7 @@ ollama_update_env "$f" size 8b
 if [[ "$(tail -n 1 "$f")" == "size=8b" ]]; then ok "appends an absent key"; else error "append wrong: $(cat "$f")"; fi
 ollama_update_env "$f" CAMERA_DEVICE 'x'
 ollama_update_env "$f" CAMERA_DEVICE 'C:\new\dev'
-if [[ "$(grep '^CAMERA_DEVICE=' "$f")" == 'CAMERA_DEVICE=C:\new\dev' ]]; then ok "backslashes are written literally"; else error "backslashes mangled: $(grep -A1 CAMERA_DEVICE "$f" | od -c | head -3)"; fi
+if [[ "$(grep '^CAMERA_DEVICE=' "$f")" == 'CAMERA_DEVICE=C:\new\dev' ]]; then ok "backslashes are written literally"; else error "backslashes mangled: $(grep -A1 CAMERA_DEVICE "$f" | od -c | sed -n 1,3p)"; fi
 ollama_update_env "$f" website 'http://h/x?a=b'
 ollama_update_env "$f" website 'http://h/y?c=d'
 if [[ "$(grep -c '^website=' "$f")" == "1" && "$(grep '^website=' "$f")" == 'website=http://h/y?c=d' ]]; then ok "a value with = replaces cleanly"; else error "= in value: $(grep website "$f")"; fi
@@ -130,7 +130,7 @@ else
   git -C "$src" -c user.name=t -c user.email=t@example.org commit -q -m init
   rc=0; json_file="$(cd "$tmp" && ollama_prepare_models_index clone "$src" 2>/dev/null)" || rc=$?
   if [[ "$rc" == "0" && "$json_file" == "clone/code/ollama_models.json" ]]; then ok "stdout is exactly the path"; else error "captured rc=$rc $(printf '%q' "$json_file")"; fi
-  if [[ "$(cd "$tmp" && ollama_list_models "$json_file" | head -n 1)" == "gemma" ]]; then ok "the index is sorted by name and usable"; else error "list after prepare: $(cd "$tmp" && ollama_list_models "$json_file" 2>&1)"; fi
+  if [[ "$(cd "$tmp" && ollama_list_models "$json_file" | sed -n 1p)" == "gemma" ]]; then ok "the index is sorted by name and usable"; else error "list after prepare: $(cd "$tmp" && ollama_list_models "$json_file" 2>&1)"; fi
   # Second run: an existing clone is pulled; git's chatter must not reach stdout.
   rc=0; json_file="$(cd "$tmp" && ollama_prepare_models_index clone "$src" 2>/dev/null)" || rc=$?
   if [[ "$rc" == "0" && "$json_file" == "clone/code/ollama_models.json" ]]; then ok "an update run also prints only the path"; else error "update run captured rc=$rc $(printf '%q' "$json_file")"; fi

@@ -61,7 +61,7 @@ adb_device_ip() {
   adb_available || return 1
   [[ -n "$serial" ]] || return 1
   ip="$(adb -s "$serial" shell ip -f inet addr show "$iface" 2>/dev/null \
-        | grep -o 'inet [0-9.]*' | awk '{print $2}' | head -n1)"
+        | grep -o 'inet [0-9.]*' | awk '{print $2}' | sed -n 1p)"
   [[ -n "$ip" ]] || return 1
   printf '%s\n' "$ip"
 }
@@ -471,7 +471,7 @@ adb_wireless_enable() {
 adb_wireless_setup() {
   local serial="${1:-}" port="${2:-5555}" iface="${3:-wlan0}" ip="" addr=""
   adb_available || return 1
-  [[ -n "$serial" ]] || serial="$(adb_ready_serials | head -n1)"
+  [[ -n "$serial" ]] || serial="$(adb_ready_serials | sed -n 1p)"
   [[ -n "$serial" ]] || return 1
 
   ip="$(adb_device_ip "$serial" "$iface")" || return 1

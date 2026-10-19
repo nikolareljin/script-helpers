@@ -121,7 +121,7 @@ if v is not None and not isinstance(v, (dict, list)):
     return 0
   fi
   # The quoted key keeps "api_version" from matching "version".
-  printf '%s' "$body" | grep -o "\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -n 1 | sed 's/.*:[[:space:]]*"\([^"]*\)"/\1/' || true
+  printf '%s' "$body" | grep -o "\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | sed -n 1p | sed 's/.*:[[:space:]]*"\([^"]*\)"/\1/' || true
   return 0
 }
 
@@ -279,7 +279,7 @@ cloudflare_deploy_config() {
     log_error "cloudflare_deploy_config: cannot read '${config}'."
     return 1
   fi
-  name="$(sed -n 's/^[[:space:]]*name[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$config" | head -n 1)"
+  name="$(sed -n 's/^[[:space:]]*name[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$config" | sed -n 1p)"
   if [[ -z "$name" ]]; then
     log_error "cloudflare_deploy_config: no top-level name in '${config}'. Set CLOUDFLARE_DEPLOY_CONFIG to name the generated config directly."
     return 1

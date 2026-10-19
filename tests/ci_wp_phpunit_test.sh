@@ -116,7 +116,7 @@ out="$(PATH="$tmp/bin:$PATH" bash "$SCRIPT" \
   --wp-tests-dir "$tmp/lib" --wp-core-dir "$tmp/core" \
   --workdir "$tmp/proj" --test-command 'true' 2>&1)"
 if grep -qi "unbound variable" <<<"$out"; then
-  error "start_database expands an empty array unsafely: $(grep -i 'unbound' <<<"$out" | head -1)"
+  error "start_database expands an empty array unsafely: $(grep -i 'unbound' <<<"$out" | sed -n 1p)"
 elif grep -q -- "-d" "$tmp/argv" 2>/dev/null; then
   note "start_database runs with no network argument"
 else

@@ -648,7 +648,7 @@ cp "$ROOT_DIR/scripts/refresh_private_names.sh" "$consumer/" 2>/dev/null || true
 out="$( cd "$tmp/consumer" && bash scripts/script-helpers/scripts/check_private_names.sh \
         --tree --list /nonexistent 2>&1 )"
 suggested="$(printf '%s\n' "$out" | sed 's/\x1b\[[0-9;]*m//g' \
-             | grep -oE '[^ ]*refresh_private_names\.sh' | head -1)"
+             | grep -oE '[^ ]*refresh_private_names\.sh' | sed -n 1p)"
 if [[ -z "$suggested" ]]; then
   error "the missing-list message suggested no command at all"
 elif ( cd "$tmp/consumer" && [[ -f "$suggested" ]] ); then
@@ -661,7 +661,7 @@ fi
 # and pull request bodies; the line above it already collapses $HOME.
 out="$( cd "$tmp" && bash "$GATE" --stdin --list /nonexistent </dev/null 2>&1 )"
 if grep -qF "$HOME" <<<"$out"; then
-  error "the setup message printed an absolute home path: $(grep -F "$HOME" <<<"$out" | head -1)"
+  error "the setup message printed an absolute home path: $(grep -F "$HOME" <<<"$out" | sed -n 1p)"
 else
   ok "the setup message collapses \$HOME"
 fi
@@ -745,7 +745,7 @@ git -C "$inst_repo" init -q && git -C "$inst_repo" config core.hooksPath .employ
 for pass in install reinstall; do
   ( cd "$inst_repo" && HOME="$inst_home" XDG_CONFIG_HOME="$inst_home/.config" \
       bash "$ROOT_DIR/scripts/setup-hooks.sh" ) >/dev/null 2>&1 || error "setup-hooks.sh ($pass) failed"
-  copy="$(find "$inst_home" -path '*/scripts/check_private_names.sh' | head -1)"
+  copy="$(find "$inst_home" -path '*/scripts/check_private_names.sh' | sed -n 1p)"
   [[ -n "$copy" && -f "$(dirname "$copy")/../config/private-names-allow" ]] \
     && ok "the installed copy carries the default allow list ($pass)" \
     || error "the installed copy has no default allow list ($pass)"

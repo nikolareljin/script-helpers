@@ -59,7 +59,7 @@ fi
 # 4. Smoke test: the payload the helper actually ships, run in the real image.
 #    Extracted from the script rather than retyped, so editing the helper
 #    without editing this test cannot leave the test passing on old text.
-payload="$(sed -n "s/.*sh -lc '\(.*\)' -- \"\\\$@\".*/\1/p" "$SCRIPT" | head -1)"
+payload="$(sed -n "s/.*sh -lc '\(.*\)' -- \"\\\$@\".*/\1/p" "$SCRIPT" | sed -n 1p)"
 if [[ -z "$payload" ]]; then
   error "could not extract the wp payload from $SCRIPT; the test would assert nothing"
 elif ! docker info >/dev/null 2>&1; then

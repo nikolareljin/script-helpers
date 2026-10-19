@@ -338,7 +338,7 @@ port_choose() {
   fi
   port=$((10#$port))
   while ! port_is_free "$port"; do
-    owner="$(port_in_use_by "$port" 2>/dev/null | head -1)" || true
+    owner="$(port_in_use_by "$port" 2>/dev/null | sed -n 1p)" || true
     owner="${owner:-a process this user cannot see}"
     suggestion="$(port_next_free "$port")" || suggestion=""
     if ! _ports__can_ask; then

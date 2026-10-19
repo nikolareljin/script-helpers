@@ -32,7 +32,7 @@ for f in "$root_dir"/helpers.sh "$root_dir"/lib/*.sh; do
   fi
   rest="${out%%__SOURCED__*}"
   if [[ -n "$rest" ]]; then
-    echo "[lib_source_test][ERROR] $name: sourcing printed: $(printf '%s' "$rest" | head -n 2)" >&2; fail=1
+    echo "[lib_source_test][ERROR] $name: sourcing printed: $(printf '%s' "$rest" | sed -n 1,2p)" >&2; fail=1
   fi
 done
 if [[ $fail -ne 0 ]]; then exit 1; fi

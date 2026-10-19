@@ -1216,7 +1216,7 @@ _ollama_ep_probe_image() {
   fi
   for _oep_repo in busybox alpine curlimages/curl; do
     _oep_ref="$(docker image ls --format '{{.Repository}}:{{.Tag}}' "$_oep_repo" 2>/dev/null \
-      | grep -v '<none>' | head -n 1)" || _oep_ref=""
+      | grep -v '<none>' | sed -n 1p)" || _oep_ref=""
     if [[ -n "$_oep_ref" ]]; then
       printf '%s\n' "$_oep_ref"
       return 0
@@ -1315,7 +1315,7 @@ ollama_endpoint_container_reach() {
   # The first IPv4 gateway of the default bridge: host-gateway is that address
   # unless the daemon sets host-gateway-ip.
   _oep_gw="$(docker network inspect bridge -f '{{range .IPAM.Config}}{{.Gateway}} {{end}}' 2>/dev/null \
-    | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)" || _oep_gw=""
+    | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | sed -n 1p)" || _oep_gw=""
   [[ -n "$_oep_gw" ]] || return 0
   # Only a bridge on this machine can be asked from here. Docker Desktop, a
   # VM (Colima, OrbStack), rootless Docker and a remote DOCKER_HOST keep theirs
@@ -1388,7 +1388,7 @@ _ollama_ep_docker_models_dir() {
     printf '%s\n' "$OLLAMA_MODELS"
     return 0
   fi
-  _oep_root="$(docker info -f '{{.DockerRootDir}}' 2>/dev/null | head -n 1)" || _oep_root=""
+  _oep_root="$(docker info -f '{{.DockerRootDir}}' 2>/dev/null | sed -n 1p)" || _oep_root=""
   case "$_oep_root" in /*) ;; *) _oep_root="/var/lib/docker" ;; esac
   printf '%s\n' "$_oep_root"
 }

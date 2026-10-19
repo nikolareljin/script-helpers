@@ -113,20 +113,20 @@ manifest_read_version() {
 
   case "$kind" in
     pubspec)
-      version="$(sed -n 's/^version:[[:space:]]*\([0-9][^[:space:]]*\).*/\1/p' "$file" | head -n1)"
+      version="$(sed -n 's/^version:[[:space:]]*\([0-9][^[:space:]]*\).*/\1/p' "$file" | sed -n 1p)"
       version="${version%%+*}"
       ;;
     gradle)
-      version="$(sed -n 's/.*versionName[[:space:]]*[=(]*[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | head -n1)"
+      version="$(sed -n 's/.*versionName[[:space:]]*[=(]*[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | sed -n 1p)"
       ;;
     version_file)
       version="$(head -n1 "$file" | tr -d '[:space:]')"
       ;;
     package_json)
-      version="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | head -n1)"
+      version="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | sed -n 1p)"
       ;;
     pyproject)
-      version="$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | head -n1)"
+      version="$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | sed -n 1p)"
       ;;
   esac
 
@@ -212,7 +212,7 @@ manifest_write_version() {
       if [[ -n "$build" ]]; then
         version="${version%%+*}"
       elif [[ "$version" != *+* ]]; then
-        build="$(sed -n 's/^version:[[:space:]]*[0-9][^+[:space:]]*+\([0-9]*\).*/\1/p' "$file" | head -n1)"
+        build="$(sed -n 's/^version:[[:space:]]*[0-9][^+[:space:]]*+\([0-9]*\).*/\1/p' "$file" | sed -n 1p)"
       fi
       if [[ -n "$build" ]]; then
         esc="$(_manifest__sed_escape "${version}+${build}")"

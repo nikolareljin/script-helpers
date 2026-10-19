@@ -158,7 +158,7 @@ except Exception:
     print("")' "$payload_file" 2>/dev/null)"
 fi
 if [[ -z "$payload_cwd" ]]; then
-  payload_cwd="$(LC_ALL=C sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$payload_file" | head -1)"
+  payload_cwd="$(LC_ALL=C sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$payload_file" | sed -n 1p)"
 fi
 case "$payload_cwd" in
   /*|[A-Za-z]:[/\\]*)

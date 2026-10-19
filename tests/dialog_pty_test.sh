@@ -86,7 +86,7 @@ PY
 
 load="cd '$root_dir'; source ./helpers.sh; shlib_import logging dialog"
 in_pty() { python3 "$tmp/in_pty.py" "$1" "$load; $2" 2>&1; }
-field() { grep "^$1=" <<<"$result" | head -n 1 | cut -d= -f2-; }
+field() { grep "^$1=" <<<"$result" | sed -n 1p | cut -d= -f2-; }
 menu='--menu Pick 10 40 2 a First b Second'
 
 note "an answer"

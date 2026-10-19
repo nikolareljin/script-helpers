@@ -136,7 +136,7 @@ fi
 if [[ "$OUT" != *"dependency audit"* && "$OUT" != *"npm audit"* ]]; then
   note "no project: no dependency audit step"
 else
-  error "a dependency audit ran without a project: $(printf '%s' "$OUT" | grep -i audit | head -3)"
+  error "a dependency audit ran without a project: $(printf '%s' "$OUT" | grep -i audit | sed -n 1,3p)"
 fi
 
 # 5. Without gitleaks: a SKIP line, not a silent PASS for secrets.

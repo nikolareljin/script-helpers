@@ -90,6 +90,6 @@ print(v if isinstance(v, str) else json.dumps(v))
   # keeps "api_version" from matching "version". A missing field prints
   # nothing and still exits 0: grep's miss must not surface through a
   # caller's set -o pipefail.
-  printf '%s' "$body" | grep -o "\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -n 1 | sed 's/.*:[[:space:]]*"\([^"]*\)"/\1/' || true
+  printf '%s' "$body" | grep -o "\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | sed -n 1p | sed 's/.*:[[:space:]]*"\([^"]*\)"/\1/' || true
   return 0
 }

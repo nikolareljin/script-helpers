@@ -518,7 +518,7 @@ fi
 out="$(PATH="$tmp/bin:$PATH" bash "$SCRIPT" --workdir "$tmp/dk" --out-dir "$tmp/odk2" \
         --php-image php:8.3-cli --docker-user "" --zip false 2>&1)"
 if grep -qi "unbound variable" <<<"$out"; then
-  error "an empty --docker-user expands an empty array unsafely: $(grep -i unbound <<<"$out" | head -1)"
+  error "an empty --docker-user expands an empty array unsafely: $(grep -i unbound <<<"$out" | sed -n 1p)"
 elif [[ ! -s "$tmp/argv" ]]; then
   error "docker was never called with --docker-user ''"
 elif grep -qx -- '-u' "$tmp/argv"; then

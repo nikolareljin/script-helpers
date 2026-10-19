@@ -352,7 +352,7 @@ ios_artifact() {
   # `ls -t` rather than find, because newest-first is the point. These are build
   # outputs under a path the caller already controls.
   # shellcheck disable=SC2012
-  found="$(ls -1td "${globs[@]}" 2>/dev/null | head -n1)"
+  found="$(ls -1td "${globs[@]}" 2>/dev/null | sed -n 1p)"
   [[ -n "$found" ]] || return 1
   printf '%s\n' "$found"
 }

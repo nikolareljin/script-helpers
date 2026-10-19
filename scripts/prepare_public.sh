@@ -140,7 +140,7 @@ require_work() {
   [[ -f "$WORK/$MARKER" ]] || die "$WORK was not made by prepare_public.sh audit"
   WORK="$(abspath "$WORK")"
   [[ -d "$WORK/source.git" ]] || die "$WORK/source.git is missing"
-  if [[ -z "$SELF" ]]; then SELF="$(sed -n 's/^self=//p' "$WORK/$MARKER" | head -1)"; fi
+  if [[ -z "$SELF" ]]; then SELF="$(sed -n 's/^self=//p' "$WORK/$MARKER" | sed -n 1p)"; fi
 }
 
 # ---- the audit -------------------------------------------------------------
@@ -334,7 +334,7 @@ PY
   cut -f2 "$t/hits.tsv" | awk '{ print $1 }' | grep -E '^[0-9a-f]{7,40}$' | sort -u | while read -r c; do
     # The default branch when it has the commit, else the first ref that does.
     git -C "$g" for-each-ref --contains "$c" --format='%(refname)' 2>/dev/null > "$t/on" || true
-    r="$(grep -xF "$head_ref" "$t/on" || head -1 "$t/on")"
+    r="$(grep -xF "$head_ref" "$t/on" || sed -n 1p "$t/on")"
     printf '%s\t%s\n' "$c" "$r"
   done > "$t/commit-refs"
 

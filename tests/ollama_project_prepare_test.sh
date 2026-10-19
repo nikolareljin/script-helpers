@@ -95,7 +95,7 @@ got() { grep -c -F -e "$1" "${2:-$tmp/calls}" | tr -d ' '; }
 # order <file> <first> <second>: "yes" when first is said before second.
 order() {
   local a b
-  a="$(grep -n -F -e "$2" "$1" | head -n 1 | cut -d: -f1)"; b="$(grep -n -F -e "$3" "$1" | head -n 1 | cut -d: -f1)"
+  a="$(grep -n -F -e "$2" "$1" | sed -n 1p | cut -d: -f1)"; b="$(grep -n -F -e "$3" "$1" | sed -n 1p | cut -d: -f1)"
   if [[ -n "$a" && -n "$b" && "$a" -lt "$b" ]]; then echo yes; else echo no; fi
 }
 D=(--mode docker --url-var OLLAMA_BASE_URL --volume proj_ollama_data --model-var OLLAMA_MODEL)

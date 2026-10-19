@@ -110,7 +110,7 @@ docs_site_out() {
     dir="${DOCS_SITE_OUT:-site}"
   else
     # site_dir from mkdocs.yml when it is a plain value, else MkDocs' default.
-    dir="$(sed -n 's/^site_dir:[[:space:]]*["'\'']\{0,1\}\([^"'\''#]*\).*/\1/p' "$repo"/mkdocs.y*ml 2>/dev/null | head -1 | sed 's/[[:space:]]*$//')"
+    dir="$(sed -n 's/^site_dir:[[:space:]]*["'\'']\{0,1\}\([^"'\''#]*\).*/\1/p' "$repo"/mkdocs.y*ml 2>/dev/null | sed -n 1p | sed 's/[[:space:]]*$//')"
     dir="${dir:-site}"
   fi
   case "$dir" in /*) printf '%s\n' "$dir" ;; *) printf '%s\n' "$repo/$dir" ;; esac
@@ -149,7 +149,7 @@ docs_site_verify() {
 # Internal: the docs directory of a MkDocs site (docs_dir, default docs).
 _docs_site__docs_dir() {
   local repo="$1" dir
-  dir="$(sed -n 's/^docs_dir:[[:space:]]*["'\'']\{0,1\}\([^"'\''#]*\).*/\1/p' "$repo"/mkdocs.y*ml 2>/dev/null | head -1 | sed 's/[[:space:]]*$//')"
+  dir="$(sed -n 's/^docs_dir:[[:space:]]*["'\'']\{0,1\}\([^"'\''#]*\).*/\1/p' "$repo"/mkdocs.y*ml 2>/dev/null | sed -n 1p | sed 's/[[:space:]]*$//')"
   printf '%s\n' "$repo/${dir:-docs}"
 }
 
@@ -255,7 +255,7 @@ docs_site_serve() {
   mkdocs="$(docs_site_toolchain "$repo")" || return $?
   # mkdocs serve answers under site_url's path (/name/ for a project site), so
   # print that address, not one that is a 404.
-  path="$(sed -n 's#^site_url:[[:space:]]*["'\'']\{0,1\}[a-z]*://[^/]*\(/[^"'\''#[:space:]]*\).*#\1#p' "$repo"/mkdocs.y*ml 2>/dev/null | head -1)"
+  path="$(sed -n 's#^site_url:[[:space:]]*["'\'']\{0,1\}[a-z]*://[^/]*\(/[^"'\''#[:space:]]*\).*#\1#p' "$repo"/mkdocs.y*ml 2>/dev/null | sed -n 1p)"
   path="${path:-/}"; [[ "$path" == */ ]] || path="${path}/"
   log_info "docs_site: live reload on http://127.0.0.1:${port}${path} (Ctrl-C to stop)"
   (cd "$repo" && "$mkdocs" serve -a "127.0.0.1:${port}")

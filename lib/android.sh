@@ -194,7 +194,7 @@ android_artifact() {
   # `ls -t` rather than find, because newest-first is the point. These are build
   # outputs under a path the caller already controls.
   # shellcheck disable=SC2012
-  found="$(ls -1t "${globs[@]}" 2>/dev/null | head -n1)"
+  found="$(ls -1t "${globs[@]}" 2>/dev/null | sed -n 1p)"
   [[ -n "$found" ]] || return 1
   printf '%s\n' "$found"
 }
@@ -230,7 +230,7 @@ android_package_name() {
   # preferred above.
   pkg="$(grep -rhoE 'applicationId[[:space:]]*=?[[:space:]]*"[^"]+"' \
           "$dir" --include='build.gradle' --include='build.gradle.kts' 2>/dev/null \
-        | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')"
+        | sed -n 1p | sed -E 's/.*"([^"]+)".*/\1/')"
   [[ -n "$pkg" ]] || return 1
   printf '%s\n' "$pkg"
 }

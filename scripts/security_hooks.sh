@@ -477,7 +477,7 @@ sec_foxguard_push() {
         done < <(printf '%s\n' "$out") ;;
       *)
         failed=$((failed + 1)); frc="$rc"
-        while IFS= read -r r; do printf '[pre-push] foxguard (%s): %s\n' "$f" "$r" >&2; done < <(printf '%s\n' "$out" | head -3) ;;
+        while IFS= read -r r; do printf '[pre-push] foxguard (%s): %s\n' "$f" "$r" >&2; done < <(printf '%s\n' "$out" | sed -n 1,3p) ;;
     esac
   done
   [[ "$failed" -gt 0 ]] && sec_loud "the foxguard scan did NOT run on $failed of ${#files[@]} file(s) (exit $frc)."

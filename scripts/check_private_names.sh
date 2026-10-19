@@ -200,7 +200,7 @@ list_age_days() {
   # Read the generation date out of the file, never the mtime: a copy, a restore
   # or a backup tool rewrites mtime and would make a year-old list look fresh.
   local stamp
-  stamp="$(sed -n 's/^# generated: \([0-9-]*\).*/\1/p' "$1" | head -1)"
+  stamp="$(sed -n 's/^# generated: \([0-9-]*\).*/\1/p' "$1" | sed -n 1p)"
   [[ -z "$stamp" ]] && return 1
   local made now
   made="$(date_to_epoch "$stamp")" || return 1
@@ -731,7 +731,7 @@ if [[ "$found" -eq 1 ]]; then
   if [[ -n "${LIST:-}" && -f "${LIST:-}" ]]; then
     log_error "Checked against $(tilde "$LIST")$(
       awk -F'\t' '!/^#/ && $1=="private" {c++} END {printf " -- %d private names", c+0}' "$LIST")$(
-      sed -n 's/^# generated: \([0-9-]*\).*/, generated \1/p' "$LIST" | head -1)."
+      sed -n 's/^# generated: \([0-9-]*\).*/, generated \1/p' "$LIST" | sed -n 1p)."
   fi
   exit 1
 fi

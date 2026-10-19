@@ -51,7 +51,7 @@ if [[ -z "$spec_path" ]]; then
   if [[ -n "${APP_NAME:-}" ]]; then
     spec_path="$repo_dir/packaging/rpm/${APP_NAME}.spec"
   else
-    spec_path="$(find "$repo_dir/packaging/rpm" -maxdepth 1 -type f -name '*.spec' 2>/dev/null | head -n 1 || true)"
+    spec_path="$(find "$repo_dir/packaging/rpm" -maxdepth 1 -type f -name '*.spec' 2>/dev/null | sed -n 1p || true)"
   fi
 fi
 
