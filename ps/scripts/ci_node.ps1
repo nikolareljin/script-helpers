@@ -66,7 +66,7 @@ function _Run {
     }
 }
 
-log_info "Node CI — workdir: $absWorkdir"
+log_info "Node CI - workdir: $absWorkdir"
 if (-not $NoInstall) { log_info "Install: $($InstallCmd -join ' ')";  _Run $InstallCmd }
 if (-not $SkipLint)  { log_info "Lint:    $($LintCmd -join ' ')";     _Run $LintCmd    }
 if (-not $SkipTest)  { log_info "Test:    $($TestCmd -join ' ')";      _Run $TestCmd    }

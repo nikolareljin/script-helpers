@@ -42,7 +42,7 @@ if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { Write-Error "Inval
 log_info "Version: $version"
 
 if ($DryRun) {
-    print_info "Dry run — would create tag: $version"
+    print_info "Dry run - would create tag: $version"
     exit 0
 }
 

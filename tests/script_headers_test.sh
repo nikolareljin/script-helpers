@@ -3,7 +3,8 @@
 # DESCRIPTION: Every command script has the full header, in order, in ASCII, closed by a ---- line.
 # USAGE: bash tests/script_headers_test.sh
 # ----------------------------------------------------
-# Checks scripts/*.sh, scripts/*.ps1 and ps/scripts/*.ps1. Fields, in order:
+# Checks scripts/*.sh, scripts/*.ps1, ps/scripts/*.ps1 and the real-machine
+# checks in tests/machine and ps/tests/machine. Fields, in order:
 # SCRIPT, DESCRIPTION, USAGE, PARAMETERS, EXIT_CODES, EXAMPLE. The header is the
 # comment block at the top (after an optional #! line) up to a "# ----" line;
 # scripts/gen_command_reference.py builds docs/commands.md from it.
@@ -36,7 +37,8 @@ check_file() {
 }
 
 fail=0; count=0
-for f in "$root_dir"/scripts/*.sh "$root_dir"/scripts/*.ps1 "$root_dir"/ps/scripts/*.ps1; do
+for f in "$root_dir"/scripts/*.sh "$root_dir"/scripts/*.ps1 "$root_dir"/ps/scripts/*.ps1 \
+         "$root_dir"/tests/machine/*.sh "$root_dir"/ps/tests/machine/*.ps1; do
   [[ -f "$f" ]] || continue
   count=$((count + 1))
   if ! out="$(check_file "$f")"; then

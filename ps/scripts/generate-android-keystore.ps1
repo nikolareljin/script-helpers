@@ -3,6 +3,7 @@
 # USAGE: pwsh -File ps\scripts\generate-android-keystore.ps1 -OutputPath <path>
 # PARAMETERS:
 #   -OutputPath <path>  Required new keystore path. Existing files are refused.
+#   -Help               Show this help message.
 # EXIT_CODES:
 #   0  Keystore generated.
 #   1  Generation failed or the output path is unsafe.

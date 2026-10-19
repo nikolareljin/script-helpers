@@ -5,6 +5,7 @@
 #   -Quick       Run unit tests only; skip lint and assemble.
 #   -Dir <path>  Project directory with the Gradle wrapper (default: .).
 #   -Android     Use Android task names. Autodetected when omitted.
+#   -Help        Show this help message.
 # EXIT_CODES:
 #   0  Requested Gradle tasks passed.
 #   1  A task failed, the directory is missing, or no Gradle is available.

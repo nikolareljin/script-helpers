@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SCRIPT: script_help_test.sh
-# DESCRIPTION: Every scripts/*.sh answers --help with usage and exit 0, run from a foreign directory.
+# DESCRIPTION: Every scripts/*.sh and tests/machine/*.sh answers --help with usage and exit 0, run from a foreign directory.
 # USAGE: bash tests/script_help_test.sh
 # ----------------------------------------------------
 # A script that is run, not sourced, must find its own library from any cwd and
@@ -18,7 +18,7 @@ limit=()
 if command -v timeout >/dev/null 2>&1; then limit=(timeout 60); fi
 
 fail=0; count=0
-for f in "$root_dir"/scripts/*.sh; do
+for f in "$root_dir"/scripts/*.sh "$root_dir"/tests/machine/*.sh; do
   [[ -f "$f" ]] || continue
   count=$((count + 1))
   for flag in --help -h; do

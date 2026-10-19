@@ -5,9 +5,11 @@
 #   -Prefix <path>  Install the checked archive into this directory.
 #   -Force          Reinstall even when the pinned version is present.
 #   -Check          Report installed and pinned versions without changing the machine.
+#   -Help           Show this help message.
 # EXIT_CODES:
 #   0  Installed, upgraded, or already current.
-#   1  Download, checksum, or install failure; -Check says installation is needed.
+#   1  Download, checksum, or install failure; -Check says installation is
+#      needed; or a parameter is unknown.
 #   3  No checkable archive is available for the platform.
 # EXAMPLE: pwsh -File ps\scripts\install_ollama.ps1 -Check
 # ----------------------------------------------------
@@ -21,7 +23,7 @@ else the pinned release zip, checked against its SHA-256 and unpacked per user.
 
 Exit codes: 0 installed, upgraded or nothing to do (with -Check: nothing to do);
 1 the download failed or does not match the pin (with -Check: it would install or
-upgrade); 2 bad usage; 3 no checkable source for this platform.
+upgrade, or an unknown parameter); 3 no checkable source for this platform.
 
 .PARAMETER Prefix
 Install the release zip into this directory; winget is not used.
