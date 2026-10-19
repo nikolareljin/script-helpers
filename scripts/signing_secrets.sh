@@ -228,7 +228,7 @@ if has_group gpg; then
     # up later as a failed release. The value is passed as a file, not argv.
     gpg_pw=(--batch --pinentry-mode loopback --passphrase-file "$work/GPG_PASSPHRASE")
     printf 'check' | gpg "${gpg_pw[@]}" --local-user "$gpg_key" --sign >/dev/null 2>&1 \
-      || { log_error "GPG_PASSPHRASE does not unlock $gpg_key"; exit 2; }
+      || { log_error "cannot sign with $gpg_key: wrong GPG_PASSPHRASE, or the key is expired or cannot sign"; exit 2; }
     gpg "${gpg_pw[@]}" --armor --export-secret-keys "$gpg_key" > "$work/GPG_PRIVATE_KEY" 2>/dev/null \
       || { log_error "gpg could not export $gpg_key"; exit 2; }
     [[ -s "$work/GPG_PRIVATE_KEY" ]] || { log_error "gpg exported nothing for $gpg_key"; exit 2; }

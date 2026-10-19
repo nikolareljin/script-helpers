@@ -182,7 +182,7 @@ lfpr="$(gpg --batch --with-colons --list-secret-keys locked@example.invalid 2>/d
 before="$(wc -l < "$STORE/argv")"
 rc=0; out="$(GPG_PASSPHRASE="wrong-pw" bash "$SCRIPT" --repos o/f --group gpg --gpg-key "$lfpr" 2>&1)" || rc=$?
 [ "$rc" = 2 ] || error "wrong passphrase: exit $rc, expected 2: $out"
-grep -q "does not unlock" <<< "$out" || error "wrong passphrase: message: $out"
+grep -q "wrong GPG_PASSPHRASE" <<< "$out" || error "wrong passphrase: message: $out"
 [ "$(wc -l < "$STORE/argv")" = "$before" ] || error "wrong passphrase: gh was called"
 rc=0; out="$(GPG_PASSPHRASE="right-pw" bash "$SCRIPT" --repos o/f --group gpg --gpg-key "$lfpr" 2>&1)" || rc=$?
 [ "$rc" = 0 ] || error "right passphrase: exit $rc: $out"
