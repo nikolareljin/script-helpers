@@ -164,6 +164,13 @@ _ollama_ep_can_ask() { return 1; }
 # shellcheck disable=SC2317
 terminal()    { _ollama_ep_can_ask() { return 0; }; }
 no_terminal() { _ollama_ep_can_ask() { return 1; }; }
+# The Ollama is on another machine; this one has 32 GiB (a large host).
+# shellcheck disable=SC2317
+remote() {
+  ollama_endpoint_is_local() { return 1; }
+  ollama_mem_total_bytes() { echo $((32 * 1073741824)); }
+  unset OLLAMA_BUDGET_MEM_TOTAL_BYTES
+}
 GiB=1073741824
 
 # --- the data file and the tier ----------------------------------------------
@@ -227,11 +234,11 @@ check "a measured large host gets the large pick" "tier-l:9b" "$(reset tier-l:9b
 
 # An Ollama on another machine: its tier is not this one's (a 32 GiB host here).
 check "a remote Ollama with no stated figures: standard, not this host's large" "tier-m:4b" \
-  "$(reset tier-m:4b tier-l:9b; ollama_endpoint_is_local() { return 1; }; unset OLLAMA_BUDGET_MEM_TOTAL_BYTES; ollama_mem_total_bytes() { echo $((32 * GiB)); }; ai_model_resolve general "$URL" 2>/dev/null)"
+  "$(reset tier-m:4b tier-l:9b; remote; ai_model_resolve general "$URL" 2>/dev/null)"
 check "a remote Ollama with stated memory: measured from it" "tier-l:9b" \
-  "$(reset tier-m:4b tier-l:9b; ollama_endpoint_is_local() { return 1; }; OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((32 * GiB)) ai_model_resolve general "$URL" 2>/dev/null)"
+  "$(reset tier-m:4b tier-l:9b; remote; OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((32 * GiB)) ai_model_resolve general "$URL" 2>/dev/null)"
 check "a remote Ollama with AI_MODEL_TIER: that tier" "tier-s:1b" \
-  "$(reset tier-s:1b; ollama_endpoint_is_local() { return 1; }; AI_MODEL_TIER=small ai_model_resolve general "$URL" 2>/dev/null)"
+  "$(reset tier-s:1b; remote; AI_MODEL_TIER=small ai_model_resolve general "$URL" 2>/dev/null)"
 
 # --- pulling on demand ---------------------------------------------------------
 machine; reset
