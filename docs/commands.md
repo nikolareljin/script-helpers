@@ -2763,6 +2763,7 @@ Exit codes:
 could not set a name.
 2  Bad arguments, a missing tool (gh, gpg), a key not in the keyring, a
 passphrase that does not unlock it, or an empty value; nothing was set.
+130, 143  Interrupted (INT, TERM); the scratch directory is removed.
 ```
 
 Example:
