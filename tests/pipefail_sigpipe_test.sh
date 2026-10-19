@@ -36,11 +36,14 @@ while IFS= read -r f; do
   m="$(LC_ALL=C awk '
     inp && /^[[:space:]]*#/ { next }
     inp {
-      if ($0 ~ /(^|[^A-Za-z_])exit([^A-Za-z_]|$)/ && $0 !~ /END[[:space:]]*\{/) print NR ": " $0
+      # END runs after all input is read; an exit there, or anywhere after
+      # it, is safe. END is last in every program here.
+      if ($0 ~ /END[[:space:]]*\{/) inend = 1
+      if (!inend && $0 ~ /(^|[^A-Za-z_])exit([^A-Za-z_]|$)/) print NR ": " $0
       if (index($0, "\047")) inp = 0
       next
     }
-    /\|[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*awk([[:space:]]+-[A-Za-z]+([[:space:]]+[^[:space:]\047]+)?)*[[:space:]]+\047[^\047]*$/ { inp = 1 }
+    /\|[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*awk([[:space:]]+-[A-Za-z]+([[:space:]]+[^[:space:]\047]+)?)*[[:space:]]+\047[^\047]*$/ { inp = 1; inend = 0 }
   ' "$ROOT/$f")"
   [[ -n "$m" ]] && h+="${h:+$'\n'}$m"
   [[ -n "$h" ]] && hits+="$(sed "s#^#$f:#" <<< "$h")"$'\n'
