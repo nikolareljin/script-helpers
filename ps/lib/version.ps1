@@ -1,4 +1,4 @@
-# Semantic version helpers — PowerShell companion to lib/version.sh.
+# Semantic version helpers - PowerShell companion to lib/version.sh.
 
 function _Version_Parse {
     param([string]$Raw)
@@ -11,6 +11,10 @@ function _Version_Parse {
 }
 
 # Returns 0 (equal), 1 (a > b), -1 (a < b).
+# Usage: version_compare -VersionA <x.y.z> -VersionB <x.y.z>
+# A leading v and a -suffix are ignored.
+# Returns: 1 when A > B, 0 when equal, -1 when A < B.
+# Output: none; throws "Invalid version format" when either is not X.Y.Z.
 function version_compare {
     param([string]$VersionA, [string]$VersionB)
     $a = _Version_Parse $VersionA
@@ -20,6 +24,10 @@ function version_compare {
     return [math]::Sign($a.Patch - $b.Patch)
 }
 
+# Usage: version_bump -BumpType major|minor|patch [-VersionFile <path>]   (default: VERSION at the project root)
+# Bumps the version in the file (0.1.0 when missing), keeping a v prefix and -suffix.
+# Returns: the new version string.
+# Output: host "Bumped version: <old> -> <new>"; throws on a missing BumpType or a bad version.
 function version_bump {
     param(
         [ValidateSet('major','minor','patch')][string]$BumpType,
@@ -52,7 +60,7 @@ function version_bump {
     if ($parentDir -and -not (Test-Path $parentDir)) { New-Item -ItemType Directory -Path $parentDir -Force | Out-Null }
     Set-Content -Path $VersionFile -Value $newVersion -Encoding ascii
 
-    if (Get-Command print_success -ErrorAction SilentlyContinue) { print_success "Bumped version: $original -> $newVersion" }
+    if (Get-Command print_success -ErrorAction SilentlyContinue) { print_success "Bumped version: $original -> $newVersion" | Out-Host }
     else { Write-Host "Bumped version: $original -> $newVersion" }
     return $newVersion
 }

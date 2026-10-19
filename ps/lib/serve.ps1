@@ -1,4 +1,4 @@
-# Static-site preview server — PowerShell companion to lib/serve.sh.
+# Static-site preview server - PowerShell companion to lib/serve.sh.
 #
 # Serves a directory over HTTP for local preview of a static / GitHub-Pages
 # build. Prefers python3, then python, then `npx http-server`. Blocks until
@@ -50,6 +50,10 @@ serve_static_site ./_site
 .EXAMPLE
 serve_static_site ./public 4000
 #>
+# Usage: serve_static_site <directory> [port]   (default port 8000)
+# Returns: 2 bad directory or port; 3 no python3/python/npx; 4 no free port in 20 tries;
+#   otherwise the server's exit code (blocks until Ctrl-C).
+# Output: stderr [INFO] the URL; stderr [ERROR] on failure; the server's own output.
 function serve_static_site {
     param(
         [Parameter(Position = 0)][string]$Directory,
