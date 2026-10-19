@@ -2,6 +2,7 @@
 # SCRIPT: tag_release.sh
 # DESCRIPTION: Tag the current commit with the version from the VERSION file and push the tag to origin.
 # USAGE: ./tag_release.sh
+# PARAMETERS: No parameters.
 # ----------------------------------------------------
 set -euo pipefail
 

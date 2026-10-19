@@ -1,3 +1,19 @@
+# SCRIPT: install_docker.ps1
+# DESCRIPTION: Install or report Docker Desktop through the native PowerShell wrapper.
+# USAGE: pwsh -File ps\scripts\install_docker.ps1 [-Check] [-Yes] [-DryRun] [-NoStart] [-TimeoutSec <seconds>]
+# PARAMETERS:
+#   -Check                 Report Docker state without installing.
+#   -Yes                   Skip confirmation prompts.
+#   -DryRun                Print the planned actions without changing the machine.
+#   -NoStart               Install Docker Desktop without launching it.
+#   -TimeoutSec <seconds>  Daemon wait time (default: 120).
+# EXIT_CODES:
+#   0  Docker is usable or installation completed.
+#   1  Docker is unavailable, installation failed, or the user declined.
+#   2  Unsupported platform.
+#   3  Installation completed but the daemon did not become ready.
+# EXAMPLE: pwsh -File ps\scripts\install_docker.ps1 -Check
+# ----------------------------------------------------
 <#
 .SYNOPSIS
 Install Docker for the current platform — PowerShell counterpart to bin/install-docker.
