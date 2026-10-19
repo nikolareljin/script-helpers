@@ -1446,7 +1446,7 @@ ollama_update_env() {
 #   $2 - env_file to update (optional)
 # Side effects: updates env_file with model/size if provided.
 # Usage: ollama_install_model_flow [repo_dir] [env_file]
-# Returns: 0 pulled; 1 index, selection or pull failed (a failed .env write is only reported); else the pull's or dialog's code.
+# Returns: 0 pulled; 1 index, selection, .env write or pull failed; else the pull's or dialog's code.
 # Output: stdout pull progress; stderr errors; dialogs on the terminal.
 ollama_install_model_flow() {
   local repo_dir="${1:-ollama-get-models}" env_file="${2:-}"
@@ -1477,8 +1477,10 @@ ollama_install_model_flow() {
   done
 
   if [[ -n "$env_file" ]]; then
-    ollama_update_env "$env_file" model "$model"
-    ollama_update_env "$env_file" size "$size"
+    # A failed write stops the flow: pulling a model the .env does not name
+    # would leave the project pointing at the old one.
+    ollama_update_env "$env_file" model "$model" || return $?
+    ollama_update_env "$env_file" size "$size" || return $?
   fi
 
   ollama_pull_model "$model" "$size"

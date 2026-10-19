@@ -60,7 +60,10 @@ version_compare() {
 }
 
 # Usage: version_bump {major|minor|patch} [-f VERSION_FILE]; bumps version file.
-# VERSION_FILE defaults to VERSION under the project root (or cwd).
+# VERSION_FILE defaults to VERSION. A relative VERSION_FILE (the default too) is
+# resolved against get_project_root when that function is loaded (env module:
+# the parent of the script-helpers directory), else against the cwd. Pass an
+# absolute path to write relative to where the caller stands.
 # Returns: 0 bumped or help shown; 1 bad arguments, unparseable version, or the file could not be written.
 # Output: stdout success or error lines (print_success/print_error) and help.
 version_bump() {
