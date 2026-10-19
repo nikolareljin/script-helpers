@@ -28,7 +28,7 @@ export GNUPGHOME="$tmp/gnupg"
 mkdir -m 700 "$GNUPGHOME"
 gpg --batch --pinentry-mode loopback --passphrase "" \
   --quick-gen-key "CI Test <ci@example.invalid>" ed25519 sign never >/dev/null 2>&1
-fpr="$(gpg --batch --with-colons --list-secret-keys 2>/dev/null | awk -F: '/^fpr/{print $10; exit}')"
+fpr="$(gpg --batch --with-colons --list-secret-keys 2>/dev/null | awk -F: '/^fpr/ && !n++{print $10}')"
 
 # Stub gh: "secret|variable set NAME -R REPO" stores stdin; "list" prints the
 # names stored for that repo. Every argv is logged.
@@ -182,7 +182,7 @@ grep -qF "gpg-pw-value" <<< "$out" && error "gh failure: value printed"
 # set; the right one is stored. Wrong first, so the agent has nothing cached.
 gpg --batch --pinentry-mode loopback --passphrase "right-pw" \
   --quick-gen-key "CI Locked <locked@example.invalid>" ed25519 sign never >/dev/null 2>&1
-lfpr="$(gpg --batch --with-colons --list-secret-keys locked@example.invalid 2>/dev/null | awk -F: '/^fpr/{print $10; exit}')"
+lfpr="$(gpg --batch --with-colons --list-secret-keys locked@example.invalid 2>/dev/null | awk -F: '/^fpr/ && !n++{print $10}')"
 before="$(wc -l < "$STORE/argv")"
 rc=0; out="$(GPG_PASSPHRASE="wrong-pw" bash "$SCRIPT" --repos o/f --group gpg --gpg-key "$lfpr" 2>&1)" || rc=$?
 [ "$rc" = 2 ] || error "wrong passphrase: exit $rc, expected 2: $out"
