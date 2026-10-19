@@ -8,7 +8,8 @@
   `PPA_TARGET`, optional `LAUNCHPAD_SSH_PRIVATE_KEY`; `--group apple`: the six
   `APPLE_*` secrets and `APPLE_SIGNING_ENABLED`) with `gh secret set` /
   `gh variable set`. Values reach gh on stdin, never argv, and are never
-  printed; passphrases come from the environment or a prompt. `--check` lists
+  printed; passphrases come from the environment or a prompt, and the GPG one
+  must unlock the key before anything is set. `--check` lists
   the missing names per repository and exits 1; `--dry-run` sets nothing.
   The bash 3.2 test image now has gnupg, so its test runs there too.
 - `ps/lib/rust.ps1` resolves the selected rustup Cargo before native Rust checks run.
