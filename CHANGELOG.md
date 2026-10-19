@@ -11,6 +11,18 @@
 
 ### Fixed
 
+- **Every script and library module documents itself and runs standalone.**
+  All command scripts carry SCRIPT, DESCRIPTION, USAGE, PARAMETERS,
+  EXIT_CODES and EXAMPLE, in order, with exit codes traced from the code;
+  every public function in `lib/*.sh` and `ps/lib/*.ps1` has Usage, Returns
+  and Output lines. `--help`/`-Help` now exits 0 everywhere, also under
+  `CI=true` (`tag_release.sh --help` used to tag and push; `example_*.sh`
+  ran the demo). Gates exit 2, not 1, on a missing option value;
+  `check_release_version.sh` checks the cwd instead of the vendored copy;
+  several functions returned 0 on failure or leaked output into return
+  values. New tests: `script_headers_test.sh`, `script_help_test.sh`,
+  `lib_source_test.sh`.
+
 - `ps/scripts/preflight.ps1` checks Rust projects with the same preconditions as `preflight.sh`: a missing rustup or toolchain is a SKIP, not a failed step, and `PREFLIGHT_RUST_ANY_CARGO=true` passes `--any-cargo`.
 - `rust_toolchain_ci_uses` and `preflight.ps1` trust `rustup which` only on exit 0, and a stderr notice no longer discards its output when the session sets `ErrorActionPreference` to `Stop`.
 
