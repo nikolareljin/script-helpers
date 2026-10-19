@@ -23,6 +23,7 @@ Rules for a check here:
 | Check | Linux / macOS | Windows | What it runs | Last run by a person |
 |---|---|---|---|---|
 | Ollama install | `bash tests/machine/ollama_install_check.sh` | `pwsh -NoProfile -File ps/tests/machine/ollama_install_check.ps1` | the pinned release, downloaded and checked; install, nothing-to-do, mismatch, damaged archive, upgrade of a running older install, launcher prefix | Linux x86_64, 2026-10-07 |
+| Rust resolver | `bash tests/machine/rust_resolver_check.sh` | `pwsh -NoProfile -File ps/tests/machine/rust_resolver_check.ps1` | the installed rustup and cargo, no toolchain changes: `rust_toolchain_ci_uses` for stable and `RUST_TOOLCHAIN`, a different cargo earlier on PATH, `ErrorActionPreference = 'Stop'` (PowerShell), preflight `--quick --skip-security` on a throwaway cargo project | Linux x86_64, 2026-10-18; Windows, macOS: not yet |
 
 Entry scripts for the same feature: `scripts/install_ollama.sh --check`,
 `ps/scripts/install_ollama.ps1 -Check`.

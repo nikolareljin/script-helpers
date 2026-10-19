@@ -27,7 +27,7 @@ if ($env:CI -eq 'true' -and -not $Help) { Write-Error "This script is for local 
 $ScriptDir = $PSScriptRoot
 $env:SCRIPT_HELPERS_DIR = if ($env:SCRIPT_HELPERS_DIR) { $env:SCRIPT_HELPERS_DIR } else { Split-Path (Split-Path $ScriptDir -Parent) -Parent }
 . (Join-Path $env:SCRIPT_HELPERS_DIR 'ps\helpers.ps1')
-Import-ScriptHelpers help logging docker ci_defaults
+Import-ScriptHelpers help logging docker ci_defaults rust
 
 if ($Help) { display_help $PSCommandPath; exit 0 }
 
@@ -69,7 +69,12 @@ if ($UseDocker) {
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
 } else {
-    if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { Write-Error "cargo not found on PATH. Install Rust via https://rustup.rs"; exit 1 }
+    try {
+        rust_toolchain_ci_uses | Out-Null
+    } catch {
+        Write-Error $_.Exception.Message
+        exit 1
+    }
     Push-Location $absWorkdir
     try {
         log_info "cargo check"

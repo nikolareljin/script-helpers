@@ -21,8 +21,8 @@
 
 .EXAMPLE
   git config --global script-helpers.owners <user-or-org>
-  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup-hooks.ps1 --all
-  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup-hooks.ps1 --doctor
+  pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\setup-hooks.ps1 --all
+  pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\setup-hooks.ps1 --doctor
 #>
 $ErrorActionPreference = 'Stop'
 
