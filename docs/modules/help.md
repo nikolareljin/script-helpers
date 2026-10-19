@@ -73,6 +73,12 @@ Functions
     - `-d`, `--debug` — sets `DEBUG=true`.
   - Stops parsing on the first non-flag.
 
+- require_value "$@"
+  - Purpose: In an option loop, refuse an option whose value is missing.
+  - Usage: `--out) require_value "$@" || exit 2; out="$2"; shift 2 ;;`
+  - Behavior: an empty string counts as a value; only a missing argument is refused, with `<script>: <option> needs a value` on stderr.
+  - Returns: 0 when a value follows; 2 when the option is the last argument. Callers exit 2, the usage-error code, instead of dying on an unbound `$2` with exit 1.
+
 Dependencies
 ------------
 

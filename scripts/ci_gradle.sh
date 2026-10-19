@@ -19,8 +19,9 @@
 #   -h, --help         Show this help message.
 # EXIT_CODES:
 #   0  All requested steps passed (also -h/--help).
-#   1  CI=true (local use only), unknown argument or an option without a value,
-#      docker not found (Docker mode), or gradlew not found (--no-docker).
+#   1  CI=true (local use only), unknown argument, docker not found (Docker
+#      mode), or gradlew not found (--no-docker).
+#   2  An option without its value.
 #   N  The first failing step exits with its own code.
 # EXAMPLE:
 #   scripts/ci_gradle.sh --workdir android
@@ -50,18 +51,18 @@ IMAGE_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --workdir) WORKDIR="$2"; shift 2;;
+    --workdir) require_value "$@" || exit 2; WORKDIR="$2"; shift 2;;
     --skip-build) SKIP_BUILD=true; shift;;
     --skip-test) SKIP_TEST=true; shift;;
     --skip-lint) SKIP_LINT=true; shift;;
     --skip-detekt) SKIP_DETEKT=true; shift;;
-    --build-task) BUILD_TASK="$2"; shift 2;;
-    --test-task) TEST_TASK="$2"; shift 2;;
-    --lint-task) LINT_TASK="$2"; shift 2;;
-    --detekt-task) DETEKT_TASK="$2"; shift 2;;
+    --build-task) require_value "$@" || exit 2; BUILD_TASK="$2"; shift 2;;
+    --test-task) require_value "$@" || exit 2; TEST_TASK="$2"; shift 2;;
+    --lint-task) require_value "$@" || exit 2; LINT_TASK="$2"; shift 2;;
+    --detekt-task) require_value "$@" || exit 2; DETEKT_TASK="$2"; shift 2;;
     --no-daemon) NO_DAEMON=true; shift;;
-    --version) IMAGE_TAG="$2"; shift 2;;
-    --image) IMAGE_OVERRIDE="$2"; shift 2;;
+    --version) require_value "$@" || exit 2; IMAGE_TAG="$2"; shift 2;;
+    --image) require_value "$@" || exit 2; IMAGE_OVERRIDE="$2"; shift 2;;
     --no-docker) USE_DOCKER=false; shift;;
     -h|--help) show_help "${BASH_SOURCE[0]}"; exit 0;;
     *) echo "Unknown arg: $1" >&2; exit 1;;

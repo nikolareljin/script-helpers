@@ -10,8 +10,8 @@
 #   -h, --help            Show help.
 # EXIT_CODES:
 #   0  Packages built and copied to --artifact-dir (also -h/--help).
-#   1  PKGBUILD not found, an option is missing its value, or a step failed.
-#   2  Unknown argument.
+#   1  PKGBUILD not found, or a step failed.
+#   2  Unknown argument, or an option without its value.
 #   N  A failing --prebuild command or makepkg exits with its own code.
 # EXAMPLE:
 #   scripts/build_arch_artifacts.sh --repo . --artifact-dir dist
@@ -33,10 +33,10 @@ artifact_dir=".."
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --repo) repo_dir="$2"; shift 2;;
-    --pkg-dir) pkg_dir="$2"; shift 2;;
-    --prebuild) prebuild_cmd="$2"; shift 2;;
-    --artifact-dir) artifact_dir="$2"; shift 2;;
+    --repo) require_value "$@" || exit 2; repo_dir="$2"; shift 2;;
+    --pkg-dir) require_value "$@" || exit 2; pkg_dir="$2"; shift 2;;
+    --prebuild) require_value "$@" || exit 2; prebuild_cmd="$2"; shift 2;;
+    --artifact-dir) require_value "$@" || exit 2; artifact_dir="$2"; shift 2;;
     -h|--help) usage; exit 0;;
     *) log_error "Unknown argument: $1"; usage; exit 2;;
   esac

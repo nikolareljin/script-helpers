@@ -47,12 +47,6 @@ set -uo pipefail
 # failures, rather than stopping at the first one. A developer fixing three
 # things wants to see three things.
 
-# -h/--help still works in CI: reading the usage is not running the checks.
-if [[ "${CI:-}" == "true" && " $* " != *" -h "* && " $* " != *" --help "* ]]; then
-  echo "This script is intended for local use only." >&2
-  echo "In CI, run the checks directly - preflight exists to replace CI, not to run inside it." >&2
-  exit 1
-fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -87,6 +81,14 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown arg: $1" >&2; exit 2 ;;
   esac
 done
+
+# After the options, so -h/--help and a bad argument answer the same in CI
+# as anywhere; nothing above runs a check.
+if [[ "${CI:-}" == "true" ]]; then
+  echo "This script is intended for local use only." >&2
+  echo "In CI, run the checks directly - preflight exists to replace CI, not to run inside it." >&2
+  exit 1
+fi
 
 if [[ -z "$PROJECT_DIR" ]]; then
   PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"

@@ -12,8 +12,8 @@
 #   -h, --help             Show this help message.
 # EXIT_CODES:
 #   0  All requested steps passed (also -h/--help).
-#   1  Unknown argument, an option without a value, flutter not on PATH, or
-#      --workdir not found.
+#   1  Unknown argument, flutter not on PATH, or --workdir not found.
+#   2  An option without its value.
 #   3  Not macOS with Xcode: the Apple toolchain cannot run here.
 #   N  A failing flutter or xcodebuild step exits with its own code.
 # EXAMPLE:
@@ -39,13 +39,13 @@ EXPORT_PLIST=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --workdir)
-      [[ $# -ge 2 ]] || { echo "--workdir requires a path" >&2; exit 1; }
+      require_value "$@" || exit 2
       WORKDIR="$2"; shift 2;;
     --skip-analyze) SKIP_ANALYZE=true; shift;;
     --skip-test) SKIP_TEST=true; shift;;
     --skip-build) SKIP_BUILD=true; shift;;
     --export-plist)
-      [[ $# -ge 2 ]] || { echo "--export-plist requires a path" >&2; exit 1; }
+      require_value "$@" || exit 2
       EXPORT_PLIST="$2"; shift 2;;
     -h|--help) show_help "${BASH_SOURCE[0]}"; exit 0;;
     *) echo "Unknown arg: $1" >&2; exit 1;;

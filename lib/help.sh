@@ -336,3 +336,16 @@ parse_common_args() {
     shift
   done
 }
+
+# Usage: require_value "$@"   (inside an option loop, with $1 the option)
+# Checks that the option in $1 has a value after it. An empty string counts as
+# a value, so `--prebuild ""` still works; only a missing argument is refused.
+# Call it as `require_value "$@" || exit 2` so a missing value is a usage error
+# (exit 2) instead of an unbound-variable crash (exit 1) under set -u.
+# Returns: 0 when a value follows; 2 when $1 is the last argument.
+# Output: stdout nothing; stderr "<script>: <option> needs a value" on 2.
+require_value() {
+  if [[ $# -ge 2 ]]; then return 0; fi
+  echo "$(basename "${0:-script}"): ${1:-option} needs a value" >&2
+  return 2
+}

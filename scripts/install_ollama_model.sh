@@ -13,7 +13,8 @@
 # -h, --help        : show help
 # EXIT_CODES:
 #   0  The model was pulled (and started with -R).
-#   1  Bad option, -n without 'model' in the env file, or a helper failed.
+#   1  Unknown option, -n without 'model' in the env file, or a helper failed.
+#   2  -r or -e without its value.
 #   N  The exit code of a cancelled dialog or a failed ollama step, passed through.
 # EXAMPLE: ./install_ollama_model.sh -i -D -R -e .env
 # ----------------------------------------------------
@@ -46,7 +47,7 @@ while getopts ":hiDr:e:Rn" opt; do
     e) env_file="$OPTARG" ;;
     R) run_after=true ;;
     n) non_interactive=true ;;
-    :) print_error "Option -$OPTARG requires an argument"; exit 1 ;;
+    :) print_error "Option -$OPTARG requires an argument"; exit 2 ;;
     \?) print_error "Invalid option: -$OPTARG"; help; exit 1 ;;
   esac
 done

@@ -16,8 +16,9 @@
 #   -h, --help        Show this help message.
 # EXIT_CODES:
 #   0  All requested steps passed (also -h/--help).
-#   1  CI=true (local use only), unknown argument or an option without a value,
-#      or docker (Docker mode) or go (--no-docker) not found.
+#   1  CI=true (local use only), unknown argument, or docker (Docker mode)
+#      or go (--no-docker) not found.
+#   2  An option without its value.
 #   N  The first failing step (lint, test, build) exits with its own code.
 # EXAMPLE:
 #   scripts/ci_go.sh --skip-build
@@ -44,15 +45,15 @@ IMAGE_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --workdir) WORKDIR="$2"; shift 2;;
+    --workdir) require_value "$@" || exit 2; WORKDIR="$2"; shift 2;;
     --skip-lint) SKIP_LINT=true; shift;;
     --skip-test) SKIP_TEST=true; shift;;
     --skip-build) SKIP_BUILD=true; shift;;
-    --lint-cmd) LINT_CMD="$2"; shift 2;;
-    --test-cmd) TEST_CMD="$2"; shift 2;;
-    --build-cmd) BUILD_CMD="$2"; shift 2;;
-    --version) IMAGE_TAG="$2"; shift 2;;
-    --image) IMAGE_OVERRIDE="$2"; shift 2;;
+    --lint-cmd) require_value "$@" || exit 2; LINT_CMD="$2"; shift 2;;
+    --test-cmd) require_value "$@" || exit 2; TEST_CMD="$2"; shift 2;;
+    --build-cmd) require_value "$@" || exit 2; BUILD_CMD="$2"; shift 2;;
+    --version) require_value "$@" || exit 2; IMAGE_TAG="$2"; shift 2;;
+    --image) require_value "$@" || exit 2; IMAGE_OVERRIDE="$2"; shift 2;;
     --no-docker) USE_DOCKER=false; shift;;
     -h|--help) show_help "${BASH_SOURCE[0]}"; exit 0;;
     *) echo "Unknown arg: $1" >&2; exit 1;;

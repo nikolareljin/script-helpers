@@ -11,8 +11,8 @@
 #   -h, --help            Show help.
 # EXIT_CODES:
 #   0  Tarball written to <dist-dir>/<name>-<version>.tar.gz (also -h/--help).
-#   1  An option is missing its value, or rsync/tar failed.
-#   2  Unknown argument, --name missing, or the version file not found.
+#   1  rsync or tar failed.
+#   2  Unknown argument, an option without its value, --name missing, or the version file not found.
 # EXAMPLE:
 #   scripts/build_brew_tarball.sh --name isoforge --repo . --exclude dist
 # ----------------------------------------------------
@@ -34,11 +34,11 @@ excludes=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --name) name="$2"; shift 2;;
-    --repo) repo_dir="$2"; shift 2;;
-    --version-file) version_file="$2"; shift 2;;
-    --dist-dir) dist_dir="$2"; shift 2;;
-    --exclude) excludes+=("$2"); shift 2;;
+    --name) require_value "$@" || exit 2; name="$2"; shift 2;;
+    --repo) require_value "$@" || exit 2; repo_dir="$2"; shift 2;;
+    --version-file) require_value "$@" || exit 2; version_file="$2"; shift 2;;
+    --dist-dir) require_value "$@" || exit 2; dist_dir="$2"; shift 2;;
+    --exclude) require_value "$@" || exit 2; excludes+=("$2"); shift 2;;
     -h|--help) usage; exit 0;;
     *) log_error "Unknown argument: $1"; usage; exit 2;;
   esac

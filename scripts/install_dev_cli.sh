@@ -41,8 +41,8 @@ WIRE_HOOKS=true
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --repo) REPO="${2:-}"; shift 2 ;;
-    --shims) SHIMS="${2:-}"; shift 2 ;;
+    --repo) require_value "$@" || exit 2; REPO="$2"; shift 2 ;;
+    --shims) require_value "$@" || exit 2; SHIMS="$2"; shift 2 ;;
     --no-hooks) WIRE_HOOKS=false; shift ;;
     --force) FORCE=true; shift ;;
     --dry-run) DRY_RUN=true; shift ;;
