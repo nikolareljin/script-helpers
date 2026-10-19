@@ -40,7 +40,7 @@ _help__meta_get() {
   printf '%s' "${!_ref:-}"
 }
 
-# Usage: display_help [script_file]; renders concise help.
+# Usage: display_help [script_file]; renders concise help (usage, description, parameters, exit codes, example).
 # Returns: 0 rendered; 1 the script file does not exist. Sets SHLIB_HELP_SHOWN=true.
 # Output: stdout the help text; stderr an error when the file is missing.
 display_help() {
@@ -48,7 +48,7 @@ display_help() {
   _help__render "concise" "${1:-$0}"
 }
 
-# Usage: print_help [script_file]; renders full help.
+# Usage: print_help [script_file]; renders full help (adds author, created, version).
 # Returns: same as display_help.
 # Output: same as display_help.
 print_help() {
@@ -56,7 +56,7 @@ print_help() {
   _help__render "full" "${1:-$0}"
 }
 
-# Usage: show_help [script_file]; renders minimal help.
+# Usage: show_help [script_file]; renders minimal help (adds date, version, creator).
 # Returns: same as display_help.
 # Output: same as display_help.
 show_help() {
@@ -67,6 +67,8 @@ show_help() {
 # Usage: _help__print_inline <color> <label> <value>; internal inline renderer.
 _help__print_inline() {
   local color="$1" label="$2" value="$3"
+  # A field the header does not set is left out, not printed as "Label: ".
+  [[ -n "$value" ]] || return 0
   local line="${label}: ${value}"
   if declare -F print_color >/dev/null 2>&1; then
     print_color "$color" "$line"
@@ -156,9 +158,10 @@ _help__render() {
     _help__print_block "white" "Parameters" "$params"
   fi
 
-  if [[ "$mode" == "concise" || "$mode" == "minimal" ]]; then
-    _help__print_block "yellow" "Example" "$m_example"
-  fi
+  # Every mode shows the exit codes and the example: a script's contract is
+  # incomplete without them.
+  _help__print_block "white" "Exit Codes" "$m_exit_codes"
+  _help__print_block "yellow" "Example" "$m_example"
 
   if [[ "$mode" == "full" ]]; then
     _help__print_inline "white" "Author" "$m_author"
@@ -167,7 +170,6 @@ _help__render() {
   fi
 
   if [[ "$mode" == "minimal" ]]; then
-    _help__print_block "white" "Exit Codes" "$m_exit_codes"
     _help__print_inline "white" "Date" "$m_date"
     _help__print_inline "white" "Version" "$m_version"
     _help__print_inline "white" "Creator" "$m_creator"
@@ -239,7 +241,9 @@ get_script_metadata() {
         fi
         continue
       fi
-      if [[ $line =~ ^#[-]{3,}$ ]]; then
+      # The rule that ends the header: "#----" or "# ----". Checked before the
+      # fields, or a one-line EXAMPLE took "# ----" as its continuation.
+      if [[ $line =~ ^#[[:space:]]*-{3,}[[:space:]]*$ ]]; then
         break
       fi
     fi
