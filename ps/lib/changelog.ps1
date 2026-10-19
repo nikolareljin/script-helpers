@@ -13,6 +13,13 @@
 # shape entirely" and say which.
 # The em-dash is written as [char]0x2014 so this file stays plain ASCII.
 $script:ChangelogEmDash = [string][char]0x2014
+
+# Windows PowerShell 5.1 reads and writes ANSI by default, which garbles the
+# em-dash. Files are read with -Encoding UTF8 and written as UTF-8 without a BOM.
+function _Changelog_WriteUtf8([string]$Path, [string]$Text) {
+    $full = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+    [System.IO.File]::WriteAllText($full, $Text + "`n", (New-Object System.Text.UTF8Encoding $false))
+}
 $script:ChangelogHeaderRe = '^##\s+(\d{4}-\d{2}-\d{2})\s+(\u2014|-{1,2})\s+v?(\d+\.\d+\.\d+\S*)\s*$'
 
 # Verify the newest release header conforms. Returns the version on success and
@@ -29,7 +36,7 @@ function changelog_check_header {
         return $null
     }
     $first = $null
-    foreach ($line in (Get-Content $File)) {
+    foreach ($line in (Get-Content -Encoding UTF8 $File)) {
         if ($line -notmatch '^##\s') { continue }
         if ($line -match '^##\s+\[?[Uu]nreleased\]?') { continue }
         $first = $line
@@ -107,7 +114,7 @@ function _changelog__section {
     $want = '(?<![0-9.])' + [regex]::Escape($bare) + '(?![0-9A-Za-z.+-])'
     $found = $false
     $body = New-Object System.Collections.Generic.List[string]
-    foreach ($line in (Get-Content $File)) {
+    foreach ($line in (Get-Content -Encoding UTF8 $File)) {
         if ($line -match '^##\s') {
             if ($found) { break }
             if (($line -replace '^##\s+','') -match $want) { $found = $true }
@@ -142,10 +149,10 @@ function changelog_new_section {
 
     if (-not (Test-Path $File)) {
         if (Get-Command log_info -ErrorAction SilentlyContinue) { log_info "changelog: creating $File" }
-        Set-Content -Path $File -Value "# Changelog`n"
+        _Changelog_WriteUtf8 $File "# Changelog`n"
     }
 
-    $lines = @(Get-Content $File)
+    $lines = @(Get-Content -Encoding UTF8 $File)
     # The same whole-version rule as changelog_extract. `.*0\.2\.0(\D|$)` had no
     # leading boundary, so a v10.2.0 section made 0.2.0 look present.
     if ($null -ne (_changelog__section -File $File -Version $bare)) {
@@ -170,7 +177,7 @@ function changelog_new_section {
     # No existing release section: append after the title block.
     if (-not $inserted) { $block | ForEach-Object { $out.Add($_) } }
 
-    Set-Content -Path $File -Value ($out -join "`n")
+    _Changelog_WriteUtf8 $File ($out -join "`n")
     if (Get-Command log_info -ErrorAction SilentlyContinue) { log_info "changelog: added section $Date $($script:ChangelogEmDash) v$bare to $File" }
     return $true
 }

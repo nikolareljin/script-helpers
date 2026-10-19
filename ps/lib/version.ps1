@@ -10,7 +10,6 @@ function _Version_Parse {
     return @{ Major = [int]$parts[0]; Minor = [int]$parts[1]; Patch = [int]$parts[2] }
 }
 
-# Returns 0 (equal), 1 (a > b), -1 (a < b).
 # Usage: version_compare -VersionA <x.y.z> -VersionB <x.y.z>
 # A leading v and a -suffix are ignored.
 # Returns: 1 when A > B, 0 when equal, -1 when A < B.
