@@ -176,9 +176,9 @@ docker_status() {
       done
       if [[ ${#since_list[@]} -gt 0 ]]; then
         since=$(IFS=","; echo "${since_list[*]}")
-        log_info "[ok] ${service} -- running (since ${since})"
+        log_info "[ok] ${service} - running (since ${since})"
       else
-        log_info "[ok] ${service} -- running"
+        log_info "[ok] ${service} - running"
       fi
     else
       # Not running; inspect ps output to differentiate failed vs not started
@@ -189,9 +189,9 @@ docker_status() {
         local reason
         # sed -n 1p, not head: head exits early and can SIGPIPE the producer (141 under pipefail).
         reason=$(echo "$out" | grep -Eio '(Exit(ed)?[[:space:]]*\(?[0-9]*\)?|exited[[:space:]]*\(?[0-9]*\)?|dead|restarting[^ ]*)' | sed -n 1p)
-        log_error "[failed] ${service} -- failed (${reason:-last state unknown})"
+        log_error "[failed] ${service} - failed (${reason:-last state unknown})"
       else
-        log_warn "[stopped] ${service} -- not running"
+        log_warn "[stopped] ${service} - not running"
       fi
     fi
   done <<< "$services"

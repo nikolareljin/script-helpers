@@ -150,7 +150,7 @@ manifest_android_version_code() {
     || { log_error "manifest_android_version_code: not a semver version: '${version:-<empty>}'"; return 2; }
   major="${BASH_REMATCH[1]}"; minor="${BASH_REMATCH[2]}"; patch="${BASH_REMATCH[3]}"
   if [[ "$minor" -ge 100 || "$patch" -ge 100 ]]; then
-    log_warn "manifest_android_version_code: minor/patch >= 100 in $version -- the code is no longer monotonic"
+    log_warn "manifest_android_version_code: minor/patch >= 100 in $version - the code is no longer monotonic"
   fi
   printf '%d\n' $(( major * 10000 + minor * 100 + patch + offset ))
 }
@@ -243,7 +243,7 @@ manifest_write_version() {
 
   if [[ ! -s "$tmp" ]]; then
     rm -f "$tmp"
-    log_error "manifest_write_version: rewriting $file produced an empty file -- refusing to replace it"
+    log_error "manifest_write_version: rewriting $file produced an empty file - refusing to replace it"
     return 1
   fi
   # Not `cat && rm || return 1`: that reports failure when the write succeeded

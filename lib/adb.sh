@@ -82,7 +82,7 @@ adb_list_devices() {
   serials=()
   while IFS= read -r _sh_line; do serials+=("$_sh_line"); done < <(adb_ready_serials)
   if [[ ${#serials[@]} -eq 0 ]]; then
-    log_warn "No ready devices. Check the USB cable and 'adb devices' -- authorize the on-phone prompt if it shows 'unauthorized'."
+    log_warn "No ready devices. Check the USB cable and 'adb devices' - authorize the on-phone prompt if it shows 'unauthorized'."
     return 0
   fi
   printf '%-20s %-18s %-9s %-5s %s\n' "SERIAL" "MODEL" "ANDROID" "API" "IP ($iface)"
@@ -529,7 +529,7 @@ adb_wireless_write_env() {
   adb_wireless_valid_port "$port" || return 1
 
   if [[ ! -f "$file" ]]; then
-    printf '# Local environment. Gitignored -- do not commit.\n\n' >"$file" || return 1
+    printf '# Local environment. Gitignored - do not commit.\n\n' >"$file" || return 1
   fi
 
   tmp="$(mktemp)" || return 1
@@ -566,7 +566,7 @@ adb's tcpip mode does not survive a device reboot. To restore it:
   1. connect the device by USB
   2. adb tcpip $port      (or: adb_wireless_setup, which also stores the address)
   3. unplug, then reconnect
-On Android 11+ "Wireless debugging" the port is RANDOM per session -- read it
+On Android 11+ "Wireless debugging" the port is RANDOM per session - read it
 from Developer options -> Wireless debugging and update ANDROID_DEVICE_PORT.
 EOF
 }

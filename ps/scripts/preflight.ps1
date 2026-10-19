@@ -214,8 +214,9 @@ function Invoke-Step {
 # look green.
 function Add-Skip {
     param([string]$Label, [string]$Reason)
-    $Results.Add("SKIP  $Label - $Reason")
-    log_warn "preflight: skipping $Label - $Reason"
+    # Same separator as scripts/preflight.sh, built from its code point so this file stays ASCII.
+    $Results.Add("SKIP  $Label $([char]0x2014) $Reason")
+    log_warn "preflight: skipping $Label $([char]0x2014) $Reason"
 }
 
 function Get-Label {

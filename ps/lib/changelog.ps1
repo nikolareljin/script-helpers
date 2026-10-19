@@ -5,9 +5,10 @@
 # released. Any other header shape and the notes silently fall back to an
 # auto-generated commit list. The canonical form is
 #
-#     ## 2026-07-28 <em-dash> v0.19.0
+#     ## 2026-07-28 - v0.19.0
 #
-# YYYY-MM-DD, space, em-dash (U+2014), space, version with an optional `v` prefix.
+# YYYY-MM-DD, space, em-dash, space, version with an optional `v` prefix. The
+# separator the code expects is U+2014 (em-dash); comments here write it as "-".
 
 # Both dash styles are matched so the checker can tell "wrong dash" from "wrong
 # shape entirely" and say which.
@@ -26,7 +27,7 @@ $script:ChangelogHeaderRe = '^##\s+(\d{4}-\d{2}-\d{2})\s+(\u2014|-{1,2})\s+v?(\d
 # $null on failure, with an explanation. An `## [Unreleased]` section at the top
 # is allowed and skipped over.
 # Usage: changelog_check_header -File <CHANGELOG.md>
-# Checks the newest release header is "## YYYY-MM-DD <em-dash> vX.Y.Z" (an Unreleased section is skipped).
+# Checks the newest release header is "## YYYY-MM-DD - vX.Y.Z" (em-dash separator) (an Unreleased section is skipped).
 # Returns: the version on success; $null on failure.
 # Output: stderr [ERROR] explaining what is wrong and the expected form.
 function changelog_check_header {

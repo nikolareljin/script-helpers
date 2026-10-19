@@ -101,7 +101,7 @@ _shlib_docker_sudo() {
     _shlib_docker_run sudo "$@"
   else
     log_error "Root privileges needed for: $*"
-    log_error "sudo is unavailable -- re-run as root."
+    log_error "sudo is unavailable - re-run as root."
     return 1
   fi
 }
@@ -168,7 +168,7 @@ _shlib_docker_install_apt() {
       case " $(_shlib_docker_distro_field ID_LIKE) " in
         *" ubuntu "*) id="ubuntu" ;;
         *" debian "*) id="debian" ;;
-        *) log_warn "Unrecognised apt distribution '$id' -- assuming debian."; id="debian" ;;
+        *) log_warn "Unrecognised apt distribution '$id' - assuming debian."; id="debian" ;;
       esac
       ;;
   esac
@@ -245,7 +245,7 @@ _shlib_docker_install_dnf() {
 }
 
 _shlib_docker_install_zypper() {
-  log_warn "Docker publishes no official SUSE repository -- using the distribution package."
+  log_warn "Docker publishes no official SUSE repository - using the distribution package."
   _shlib_docker_sudo zypper --non-interactive install docker docker-compose
 }
 
@@ -263,7 +263,7 @@ docker_start_daemon() {
   elif command -v service >/dev/null 2>&1; then
     _shlib_docker_sudo service docker start
   else
-    log_warn "Neither systemd nor 'service' found -- start the Docker daemon manually."
+    log_warn "Neither systemd nor 'service' found - start the Docker daemon manually."
     return 1
   fi
 }
@@ -278,7 +278,7 @@ docker_add_user_to_group() {
   local user="${1:-${USER:-$(id -un)}}"
 
   if [[ "$(id -u)" -eq 0 ]]; then
-    log_info "Running as root -- no group change needed."
+    log_info "Running as root - no group change needed."
     return 0
   fi
   # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
@@ -304,7 +304,7 @@ _shlib_docker_install_linux() {
     log_warn "  1. Docker Desktop on Windows with WSL integration enabled (recommended)."
     log_warn "     Install from Windows, then Docker Desktop -> Settings -> Resources ->"
     log_warn "     WSL Integration. One Docker shared across Windows and every distro."
-    log_warn "  2. Docker Engine inside this distro -- what continuing will do. WSL1"
+    log_warn "  2. Docker Engine inside this distro - what continuing will do. WSL1"
     log_warn "     cannot run it; on WSL2 without systemd you must start the daemon"
     log_warn "     yourself each session ('sudo service docker start')."
     _shlib_docker_confirm "Install Docker Engine inside this WSL distro?" || {
@@ -352,11 +352,11 @@ _shlib_docker_install_mac() {
     # The cask was renamed from `docker` to `docker-desktop`; try the current
     # name first so this also works on older Homebrew installations.
     _shlib_docker_run brew install --cask docker-desktop || {
-      log_warn "Cask 'docker-desktop' unavailable -- trying legacy cask 'docker'."
+      log_warn "Cask 'docker-desktop' unavailable - trying legacy cask 'docker'."
       _shlib_docker_run brew install --cask docker || return 1
     }
   else
-    log_info "Homebrew not found -- downloading Docker Desktop directly ($dmg_arch)."
+    log_info "Homebrew not found - downloading Docker Desktop directly ($dmg_arch)."
     url="https://desktop.docker.com/mac/main/${dmg_arch}/Docker.dmg"
     dmg="$(mktemp -d)/Docker.dmg"
     _shlib_docker_run curl -fsSL --retry 3 -o "$dmg" "$url" || {
@@ -381,7 +381,7 @@ _shlib_docker_install_mac() {
   if [[ "$_shlib_docker_do_start" == true ]]; then
     log_info "Launching Docker Desktop."
     _shlib_docker_run open -a Docker \
-      || log_warn "Could not launch Docker Desktop -- open it from Applications."
+      || log_warn "Could not launch Docker Desktop - open it from Applications."
     log_info "First launch may ask for a password and takes a minute or two."
   fi
 }
@@ -395,7 +395,7 @@ _shlib_docker_install_windows_fallback() {
   if command -v choco >/dev/null 2>&1; then
     log_info "Installing via Chocolatey."
     _shlib_docker_run choco install docker-desktop -y && return 0
-    log_warn "Chocolatey install failed -- falling back to the official installer."
+    log_warn "Chocolatey install failed - falling back to the official installer."
   fi
 
   log_info "Downloading the official Docker Desktop installer."
@@ -422,7 +422,7 @@ _shlib_docker_install_windows() {
     log_info "Installing via winget."
     _shlib_docker_run winget install --id Docker.DockerDesktop -e --silent \
       --accept-package-agreements --accept-source-agreements || {
-      log_warn "winget install failed -- falling back."
+      log_warn "winget install failed - falling back."
       _shlib_docker_install_windows_fallback || return 1
     }
   else
@@ -434,7 +434,7 @@ _shlib_docker_install_windows() {
       log_info "Launching Docker Desktop."
       _shlib_docker_run "$desktop_exe" &
     else
-      log_warn "Docker Desktop not at the default path -- launch it from the Start menu."
+      log_warn "Docker Desktop not at the default path - launch it from the Start menu."
     fi
     log_info "A reboot may be needed to finish enabling WSL2 or Hyper-V."
   fi
@@ -485,7 +485,7 @@ install_docker() {
   done
 
   local os; os="$(get_os)"
-  log_info "Docker installer -- platform: $os$(is_wsl && echo ' (WSL)' || true)"
+  log_info "Docker installer - platform: $os$(is_wsl && echo ' (WSL)' || true)"
 
   if docker_ready; then
     docker_report_state
@@ -495,7 +495,7 @@ install_docker() {
 
   # CLI present but no daemon: try starting what is already there first.
   if docker_cli_installed && ! docker_daemon_running && [[ "$_shlib_docker_do_start" == true ]]; then
-    log_warn "Docker CLI found but the daemon is unreachable -- trying to start it."
+    log_warn "Docker CLI found but the daemon is unreachable - trying to start it."
     case "$os" in
       linux) docker_start_daemon || true ;;
       mac)   _shlib_docker_run open -a Docker >/dev/null 2>&1 || true ;;
@@ -505,10 +505,10 @@ install_docker() {
     esac
     if wait_for_docker_daemon && docker_ready; then
       docker_report_state
-      log_info "Docker is working now -- no installation needed."
+      log_info "Docker is working now - no installation needed."
       return 0
     fi
-    log_warn "Still unreachable -- proceeding with installation."
+    log_warn "Still unreachable - proceeding with installation."
   fi
 
   case "$os" in
@@ -524,7 +524,7 @@ install_docker() {
 
   log_warn "This modifies the system: package repositories, system packages, and on"
   log_warn "Linux group membership. Requires sudo or Administrator."
-  _shlib_docker_confirm "Continue?" || { log_info "Aborted -- nothing changed."; return 1; }
+  _shlib_docker_confirm "Continue?" || { log_info "Aborted - nothing changed."; return 1; }
 
   local rc=0 group_pending=false
   case "$os" in
@@ -542,7 +542,7 @@ install_docker() {
   fi
 
   if [[ "$_shlib_docker_dry_run" == true ]]; then
-    log_info "Dry run complete -- nothing was changed."
+    log_info "Dry run complete - nothing was changed."
     return 0
   fi
   if [[ "$_shlib_docker_do_start" != true ]]; then
@@ -575,7 +575,7 @@ install_docker() {
 # Output: same as install_docker; nothing when Docker is already usable (a debug line in debug mode).
 ensure_docker() {
   if docker_ready; then
-    log_debug "Docker already usable -- nothing to do."
+    log_debug "Docker already usable - nothing to do."
     return 0
   fi
   install_docker "$@"

@@ -79,7 +79,7 @@ _screencap__resolve() {
       log_error "screencap: no ready Android device and no booted iOS simulator"
       return 3
     else
-      log_error "screencap: both Android and iOS targets are present -- pass --platform"
+      log_error "screencap: both Android and iOS targets are present - pass --platform"
       return 2
     fi
   fi
@@ -91,7 +91,7 @@ _screencap__resolve() {
         while IFS= read -r _sh_line; do serials+=("$_sh_line"); done < <(adb_ready_serials 2>/dev/null)
         [[ ${#serials[@]} -gt 0 ]] || { log_error "screencap: no ready Android device"; return 3; }
         [[ ${#serials[@]} -eq 1 ]] || {
-          log_error "screencap: ${#serials[@]} Android devices ready -- pass --device"
+          log_error "screencap: ${#serials[@]} Android devices ready - pass --device"
           printf '  %s\n' "${serials[@]}" >&2
           return 2
         }
@@ -102,7 +102,7 @@ _screencap__resolve() {
         while IFS= read -r _sh_line; do sims+=("$_sh_line"); done < <(ios_booted_simulators 2>/dev/null)
         [[ ${#sims[@]} -gt 0 ]] || { log_error "screencap: no booted iOS simulator"; return 3; }
         [[ ${#sims[@]} -eq 1 ]] || {
-          log_error "screencap: ${#sims[@]} simulators booted -- pass --device"
+          log_error "screencap: ${#sims[@]} simulators booted - pass --device"
           printf '  %s\n' "${sims[@]}" >&2
           return 2
         }
@@ -248,7 +248,7 @@ _screencap__record_android() {
   if declare -f adb_screen_on >/dev/null 2>&1; then
     adb_screen_on "$serial" >/dev/null 2>&1
     if [[ $? -eq 1 ]]; then
-      log_warn "screencap: the screen on $serial is off -- the recording will be blank."
+      log_warn "screencap: the screen on $serial is off - the recording will be blank."
       log_warn "Wake it first: adb -s $serial shell input keyevent KEYCODE_WAKEUP"
     fi
   fi
@@ -386,7 +386,7 @@ screencap_gif() {
     frames="$(ffprobe -v error -select_streams v:0 -count_packets \
                 -show_entries stream=nb_read_packets -of csv=p=0 "$video" 2>/dev/null | sed -n 1p)"
     if [[ "$frames" =~ ^[0-9]+$ && "$frames" -lt 2 ]]; then
-      log_error "screencap_gif: $video has $frames frame(s) -- there is nothing to animate."
+      log_error "screencap_gif: $video has $frames frame(s) - there is nothing to animate."
       log_error "A recording made with the device screen off looks like this. Wake the screen and record again."
       return 1
     fi

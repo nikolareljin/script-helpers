@@ -194,7 +194,7 @@ flutter_resolve_device() {
     log_error "flutter_resolve_device: no devices connected"
     return 1
   fi
-  log_error "flutter_resolve_device: ${#devices[@]} devices connected -- pass one explicitly:"
+  log_error "flutter_resolve_device: ${#devices[@]} devices connected - pass one explicitly:"
   printf '  %s\n' "${devices[@]}" >&2
   return 1
 }

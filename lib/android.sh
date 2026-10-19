@@ -302,7 +302,7 @@ android_sign() {
   if [[ -z "$keystore" || ! -f "$keystore" ]]; then
     [[ -n "$tmp_keystore" ]] && rm -f "$tmp_keystore"
     if [[ "$allow_unsigned" -eq 1 ]]; then
-      log_warn "android_sign: no keystore -- leaving $artifact as built (debug-signed)."
+      log_warn "android_sign: no keystore - leaving $artifact as built (debug-signed)."
       return 0
     fi
     log_error "android_sign: no keystore. Pass --keystore, or --base64-env, or --allow-unsigned."
