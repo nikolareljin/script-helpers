@@ -80,6 +80,7 @@ PowerShell modules (mirrors each Bash lib/*.sh):
 | `adb.ps1`        | `adb_list_devices`, `adb_install`, `adb_push`, `adb_pull`, `adb_shell`, `adb_logcat` — multi-device safe |
 | `serve.ps1`      | `serve_static_site` — local static-site preview; python3 > python > `npx http-server` |
 | `svg.ps1`        | `svg_rasterizer`, `svg_rasterize`, `svg_rasterize_sizes` — Inkscape > ImageMagick |
+| `rust.ps1`       | `rust_toolchain_ci_uses` - resolve rustup's named Cargo before a native Windows gate runs |
 
 PowerShell CI scripts (`ps/scripts/`):
 

@@ -11,6 +11,17 @@
   printed; passphrases come from the environment or a prompt. `--check` lists
   the missing names per repository and exits 1; `--dry-run` sets nothing.
   The bash 3.2 test image now has gnupg, so its test runs there too.
+- `ps/lib/rust.ps1` resolves the selected rustup Cargo before native Rust checks run.
+- `tests/machine/rust_resolver_check.sh` and `ps/tests/machine/rust_resolver_check.ps1` check the Rust resolver against the installed rustup and cargo: PATH order, the PATH-cargo-differs warning, `ErrorActionPreference = 'Stop'`, and preflight on a throwaway cargo project.
+
+### Changed
+
+- `docs/commands.md` now includes `ps/scripts`; Bash and PowerShell entry commands use the same structured header fields and publish their examples.
+
+### Fixed
+
+- `ps/scripts/preflight.ps1` checks Rust projects with the same preconditions as `preflight.sh`: a missing rustup or toolchain is a SKIP, not a failed step, and `PREFLIGHT_RUST_ANY_CARGO=true` passes `--any-cargo`.
+- `rust_toolchain_ci_uses` and `preflight.ps1` trust `rustup which` only on exit 0, and a stderr notice no longer discards its output when the session sets `ErrorActionPreference` to `Stop`.
 
 ## 2026-10-17 — v0.55.0
 

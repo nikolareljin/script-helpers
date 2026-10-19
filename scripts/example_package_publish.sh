@@ -2,6 +2,7 @@
 # SCRIPT: example_package_publish.sh
 # DESCRIPTION: Demonstrate package_publish helpers in a safe, non-network way.
 # USAGE: ./example_package_publish.sh
+# PARAMETERS: No parameters.
 # EXAMPLE: ./example_package_publish.sh
 # ----------------------------------------------------
 set -euo pipefail

@@ -17,11 +17,27 @@ rc=0; "$py" "$root_dir/scripts/gen_command_reference.py" --bogus 2>/dev/null || 
 [[ $rc -eq 2 ]] || { echo "[command_reference_test][ERROR] bad argument gave $rc, not 2" >&2; exit 1; }
 echo "[command_reference_test] PASS: a bad argument is exit 2"
 
+# Entry commands on both shells publish the same core fields. Libraries and
+# hook internals are intentionally excluded: callers source or dispatch them,
+# rather than run them as stable command-line interfaces.
+header_rc=0
+for f in "$root_dir"/scripts/*.sh "$root_dir"/scripts/*.ps1 "$root_dir"/ps/scripts/*.ps1; do
+  [[ -f "$f" ]] || continue
+  for field in SCRIPT DESCRIPTION USAGE PARAMETERS; do
+    if ! grep -q "^# $field:" "$f"; then
+      echo "[command_reference_test][ERROR] $f is missing $field" >&2
+      header_rc=1
+    fi
+  done
+done
+[[ $header_rc -eq 0 ]] || exit 1
+echo "[command_reference_test] PASS: Bash and PowerShell entry commands have structured headers"
+
 # One file name in scripts/ and in a hook directory: both get an entry. The page used to
 # key entries by file name alone, so the second one vanished from it.
 tmp="$(mktemp -d)"
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
-mkdir -p "$tmp/scripts/git-hooks" "$tmp/docs"
+mkdir -p "$tmp/scripts/git-hooks" "$tmp/ps/scripts" "$tmp/docs"
 cp "$root_dir/scripts/gen_command_reference.py" "$tmp/scripts/"
 printf '#!/usr/bin/env bash\n# DESCRIPTION: repo hook\nexit 0\n' > "$tmp/scripts/git-hooks/pre-push"
 printf '#!/usr/bin/env bash\n# DESCRIPTION: global hook\nexit 0\n' > "$tmp/scripts/pre-push"
@@ -31,6 +47,29 @@ if grep -q '^### `scripts/git-hooks/pre-push`' "$tmp/docs/commands.md" \
   echo "[command_reference_test] PASS: one name in two directories gets two entries"
 else
   echo "[command_reference_test][ERROR] a script sharing a name with another directory's is missing" >&2; exit 1
+fi
+
+# PowerShell commands use the same structured header. The command reference
+# used to parse their comment-help only when they happened to be under scripts/,
+# leaving every native ps/scripts command undocumented.
+printf '%s\n' \
+  '# SCRIPT: probe.ps1' \
+  '# DESCRIPTION: PowerShell command fixture.' \
+  '# USAGE: pwsh -File probe.ps1' \
+  '# PARAMETERS: No parameters.' \
+  '# EXIT_CODES: 0 success.' \
+  '# EXAMPLE: pwsh -File probe.ps1' \
+  '# ----------------------------------------------------' \
+  'exit 0' > "$tmp/ps/scripts/probe.ps1"
+"$py" "$tmp/scripts/gen_command_reference.py" || { echo "[command_reference_test][ERROR] PowerShell fixture generation failed" >&2; exit 1; }
+if grep -q '^### `ps/scripts/probe.ps1`' "$tmp/docs/commands.md" \
+  && grep -q '^PowerShell command fixture\.$' "$tmp/docs/commands.md" \
+  && grep -q '^Usage: pwsh -File probe\.ps1$' "$tmp/docs/commands.md" \
+  && grep -q '^Example:$' "$tmp/docs/commands.md" \
+  && grep -q '^pwsh -File probe\.ps1$' "$tmp/docs/commands.md"; then
+  echo "[command_reference_test] PASS: PowerShell command headers are generated"
+else
+  echo "[command_reference_test][ERROR] PowerShell command header is missing from the reference" >&2; exit 1
 fi
 
 # A file that is not UTF-8 (a Latin-1 comment, a binary someone drops in scripts/)
