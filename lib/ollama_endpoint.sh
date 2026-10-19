@@ -2486,7 +2486,7 @@ ai_model_resolve() (
           print_error "Could not store the answer in $(_ollama_ep_said "$_oep_env")." >&2
           exit 10
         fi
-        print_info "Stored $_oep_key=$_oep_pick in $(_ollama_ep_said "$_oep_env"); asked again when the approved model changes." >&2
+        print_info "Stored $_oep_key=$_oep_pick in $(_ollama_ep_said "$_oep_env"); asked again if the approved model changes, or the stored answer is neither model." >&2
       fi
     else
       if ! _oep_present="$(ollama_endpoint_models "$_oep_url")"; then
