@@ -124,6 +124,9 @@ refuse "bad apple team" --repos o/a --group apple --apple-p12 "$tmp/cert.p12" --
 refuse "unknown option" --repos o/a --group gpg --gpg-key "$fpr" --bogus
 refuse "ppa twice for one repo" --repos o/a --group gpg --gpg-key "$fpr" --ppa o/a=ppa:me/x --ppa o/a=ppa:me/y
 refuse "repo twice" --repos o/a,o/a --group gpg --gpg-key "$fpr"
+refuse "no repo in list" --repos , --group gpg --gpg-key "$fpr"
+refuse "apple option without apple group" --repos o/a --group gpg --gpg-key "$fpr" --apple-team ABCDEFGHIJ
+APPLE_CERTIFICATE_PASSWORD=a APPLE_APP_PASSWORD=b refuse "gpg option without gpg group" --repos o/a --group apple --apple-p12 "$tmp/cert.p12" --apple-identity "Developer ID Application: Me (ABCDEFGHIJ)" --apple-team ABCDEFGHIJ --apple-id me@example.invalid --ppa o/a=ppa:me/x
 # "o/*" must not glob to a matching path in the working directory.
 mkdir -p "$tmp/globdir/o/a"
 # Not in a subshell: refuse counts failures in this shell.

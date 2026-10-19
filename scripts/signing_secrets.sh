@@ -110,6 +110,19 @@ for r in ${repos_csv//,/ }; do
   esac
   repos="${repos} ${r}"
 done
+if [[ -z "$repos" ]]; then
+  log_error "--repos names no repository"
+  exit 2
+fi
+# An option for a group that was not asked for would be ignored silently.
+if ! has_group gpg && [[ -n "${gpg_key}${ppa_map}${lp_ssh_key}" ]]; then
+  log_error "--gpg-key, --ppa and --launchpad-ssh-key need --group gpg"
+  exit 2
+fi
+if ! has_group apple && [[ -n "${apple_p12}${apple_identity}${apple_team}${apple_id}" ]]; then
+  log_error "--apple-* options need --group apple"
+  exit 2
+fi
 for m in $ppa_map; do
   if [[ ! "$m" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+=ppa:[a-z0-9][a-z0-9.+-]*/[a-z0-9][a-z0-9.+-]*$ ]]; then
     log_error "--ppa '$m' is not owner/name=ppa:<id>/<name>"
