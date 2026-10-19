@@ -177,6 +177,12 @@ check "16 GiB, no GPU: standard" "standard" "$(ollama_host_tier)"
 check "8 GiB, no GPU: small" "small" "$(OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((8 * GiB)) ollama_host_tier)"
 check "8 GiB with a 12 GB card: large, not small" "large" "$(OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((8 * GiB)) OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((12 * GiB)) ollama_host_tier)"
 check "32 GiB memory: large" "large" "$(OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((32 * GiB)) ollama_host_tier)"
+check "memory at the large floor (30 GiB): large" "large" "$(OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((30 * GiB)) ollama_host_tier)"
+check "one GiB under it (29): standard" "standard" "$(OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((30 * GiB - 1)) ollama_host_tier)"
+check "memory at the small floor (11 GiB): standard" "standard" "$(OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((11 * GiB)) ollama_host_tier)"
+check "just under it: small" "small" "$(OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((11 * GiB - 1)) ollama_host_tier)"
+check "a card at the xlarge floor (23 GiB): xlarge; under it: large" "xlarge large" \
+  "$(OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((23 * GiB)) ollama_host_tier) $(OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((23 * GiB - 1)) ollama_host_tier)"
 check "a 24 GB card: xlarge" "xlarge" "$(OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((24 * GiB)) ollama_host_tier)"
 check "AI_MODEL_TIER names it, any case" "xlarge" "$(AI_MODEL_TIER=' XLarge' ollama_host_tier)"
 check "a bad AI_MODEL_TIER is refused (3)" "3:" "$(AI_MODEL_TIER=huge ollama_host_tier 2>"$tmp/err"; echo "$?:")"
@@ -187,7 +193,27 @@ check "the tier's model for a type" "tier-l:9b" "$(ollama_tier_model general lar
 check "a type in any case" "tier-l:9b" "$(ollama_tier_model General large)"
 printf 'A=1\r\nOLD_CHOICE=x\r\n' >"$tmp/crlf.env"
 _ollama_ep_env_set "$tmp/crlf.env" OLD_CHOICE y
-check "storing an answer leaves the other lines' Windows line ends alone" "A=1" "$(grep $'\r$' "$tmp/crlf.env" | tr -d '\r')"
+check "storing in a file with Windows line ends keeps them on every line" "A=1 OLD_CHOICE=y NEW=z" \
+  "$(_ollama_ep_env_set "$tmp/crlf.env" NEW z; grep $'\r$' "$tmp/crlf.env" | one_line)"
+check "and no line lacks one" "0" "$(grep -c -v $'\r$' "$tmp/crlf.env")"
+printf '\xef\xbb\xbfK_CHOICE=a\n# keep me\nB="x y" # c' >"$tmp/bom.env"
+_ollama_ep_env_set "$tmp/bom.env" K_CHOICE b K_CHOICE_FOR c
+check "a key on a first line with a byte-order mark is replaced, not added twice" "b 1 1" \
+  "$(ollama_models_file_get "$tmp/bom.env" K_CHOICE) $(grep -c 'K_CHOICE=' "$tmp/bom.env") $(head -c 3 "$tmp/bom.env" | od -An -tx1 | grep -c 'ef bb bf')"
+check "comments, quoted values and a last line with no newline are kept" "x y|1|c" \
+  "$(ollama_models_file_get "$tmp/bom.env" B)|$(grep -c '^# keep me$' "$tmp/bom.env")|$(ollama_models_file_get "$tmp/bom.env" K_CHOICE_FOR)"
+printf 'K_CHOICE=a\nexport K_CHOICE=b\nK_CHOICE = c\n' >"$tmp/dup.env"
+for _ in 1 2 3; do _ollama_ep_env_set "$tmp/dup.env" K_CHOICE d; done
+check "duplicate and export lines collapse to one, however often it runs" "K_CHOICE=d" "$(one_line <"$tmp/dup.env")"
+printf 'A=1\n' >"$tmp/mode.env"; chmod 640 "$tmp/mode.env"
+_ollama_ep_env_set "$tmp/mode.env" A 2
+check "an existing file keeps its mode" "640" "$( (stat -c %a "$tmp/mode.env" 2>/dev/null || stat -f %Lp "$tmp/mode.env") | tr -d '\n')"
+mkdir -p "$tmp/real"; printf 'A=1\n' >"$tmp/real/target.env"; ln -sf real/target.env "$tmp/link.env"
+_ollama_ep_env_set "$tmp/link.env" A 2
+check "a symlinked .env stays a symlink; its target is written" "link A=2" \
+  "$([[ -L "$tmp/link.env" ]] && echo link) $(one_line <"$tmp/real/target.env")"
+check "no temporary file is left next to it" "" "$(find "$tmp/real" -name '.target.env.*')"
+check "a bad name is refused (1), the file untouched" "1:A=2" "$(_ollama_ep_env_set "$tmp/mode.env" 'A-B' 3; echo "$?:$(one_line <"$tmp/mode.env")")"
 check "an unknown type is refused (2), naming the known ones" "2" "$(ollama_tier_model chat 2>"$tmp/err"; echo $?)"
 said "the known types are named" "$tmp/err" "general embed"
 
@@ -227,6 +253,13 @@ check "the approved model changes: asked again; answer 2 takes it" "tier-l:9b:1"
   "$(terminal; reset tier-m:4b envmodel:7b tier-l:9b; AI_MODEL_TIER=large ai_model_resolve general "$URL" "$env_file" OLLAMA_MODEL <<<"2" 2>"$tmp/err"):$(grep -c 'Choose' "$tmp/err")"
 check "and the new answer replaced the old lines, not added to them" "tier-l:9b tier-l:9b 1 1" \
   "$(ollama_models_file_get "$env_file" OLLAMA_MODEL_CHOICE) $(ollama_models_file_get "$env_file" OLLAMA_MODEL_CHOICE_FOR) $(grep -c '^OLLAMA_MODEL_CHOICE=' "$env_file") $(grep -c '^OLLAMA_MODEL_CHOICE_FOR=' "$env_file")"
+check "the project's model changes: asked again" "newer:4b:1" \
+  "$(terminal; reset tier-m:4b envmodel:7b newer:4b tier-l:9b; printf 'OLLAMA_MODEL=newer:4b\nOLLAMA_MODEL_CHOICE=envmodel:7b\nOLLAMA_MODEL_CHOICE_FOR=tier-m:4b\n' >"$tmp/xchg.env"; ai_model_resolve general "$URL" "$tmp/xchg.env" OLLAMA_MODEL <<<"1" 2>"$tmp/err"):$(grep -c 'Choose' "$tmp/err")"
+check "an invalid answer is asked again, then taken" "envmodel:7b:1" \
+  "$(terminal; reset tier-m:4b envmodel:7b; ai_model_resolve general "$URL" "" "" envmodel:7b <<<$'3\n1' 2>"$tmp/err"):$(grep -c 'answer 1 or 2' "$tmp/err")"
+check "three invalid answers: the approved model, with a warning" "tier-m:4b:1" \
+  "$(terminal; ai_model_resolve general "$URL" "" "" envmodel:7b <<<$'a\nb\nc\n1' 2>"$tmp/err"):$(grep -c 'No valid answer' "$tmp/err")"
+check "end of input is the approved model" "tier-m:4b" "$(terminal; ai_model_resolve general "$URL" "" "" envmodel:7b </dev/null 2>/dev/null)"
 check "an empty answer is the approved model" "tier-m:4b" "$(terminal; rm -f "$tmp/e2"; ai_model_resolve general "$URL" "$tmp/e2" "" envmodel:7b <<<"" 2>/dev/null)"
 check "a new .env is created for the owner only, with the type's key" "600 tier-m:4b" \
   "$( (stat -c %a "$tmp/e2" 2>/dev/null || stat -f %Lp "$tmp/e2") | tr -d '\n') $(ollama_models_file_get "$tmp/e2" AI_MODEL_GENERAL_CHOICE)"

@@ -2236,31 +2236,77 @@ ollama_tier_model() {
   printf '%s\n' "$_oep_model"
 }
 
-# Usage: _ollama_ep_env_set <file> <NAME> <value>; sets NAME=value in an env
-# file: the existing line is replaced in place, otherwise one is added. A new
-# file is created readable by its owner only, as a .env may hold secrets.
-# Returns: 0 written; 1 NAME is not a variable name, or the file could not be
+# Usage: _ollama_ep_env_set <file> <NAME> <value> [<NAME> <value>...]; sets
+# each NAME=value in an env file in one write: an existing line is replaced in
+# place (later duplicates of it dropped), otherwise one is added. Other lines,
+# comments and a byte-order mark are kept; in a file with Windows line ends the
+# written lines get them too. The new content goes to a temporary file next to
+# the target (a symlink is followed) that is then moved over it, so a reader
+# never sees half a file and an interrupted run leaves the old one. A new file
+# is created readable by its owner only, as a .env may hold secrets; an
+# existing one keeps its mode.
+# Returns: 0 written; 1 a NAME is not a variable name, or the file could not be
 # created, read or written.
 # Output: none on stdout.
 _ollama_ep_env_set() {
-  local file="${1:-}" name="${2:-}" value="${3:-}" tmpf
-  _ollama_ep_is_name "$name" || return 1
-  if [[ ! -e "$file" ]]; then
-    ( umask 077; : >"$file" ) || return 1
+  local file="${1:-}" target link dir tmpf src names="" values=""
+  shift || return 1
+  [[ -n "$file" && $# -ge 2 && $(($# % 2)) -eq 0 ]] || return 1
+  while [[ $# -ge 2 ]]; do
+    _ollama_ep_is_name "$1" || return 1
+    case "$2" in *$'\n'*|*$'\r'*) return 1 ;; esac
+    names="${names}${1}"$'\n'
+    values="${values}${2}"$'\n'
+    shift 2
+  done
+  target="$file"
+  while [[ -L "$target" ]]; do
+    link="$(readlink "$target")" || return 1
+    case "$link" in
+      /*) target="$link" ;;
+      *)  target="$(dirname "$target")/$link" ;;
+    esac
+  done
+  dir="$(dirname "$target")"
+  tmpf="$(mktemp "$dir/.$(basename "$target").XXXXXX")" || return 1
+  if [[ -e "$target" ]]; then
+    # cp -p first: the temporary file takes the target's mode.
+    cp -p "$target" "$tmpf" 2>/dev/null || { rm -f "$tmpf"; return 1; }
+    src="$target"
+  else
+    src=/dev/null
+    chmod 600 "$tmpf" || { rm -f "$tmpf"; return 1; }
+    : >"$tmpf"
   fi
-  tmpf="$(mktemp "${TMPDIR:-/tmp}/ollama_env.XXXXXX")" || return 1
-  if ! awk -v n="$name" -v v="$value" '
-      BEGIN { re = "^[ \t]*(export[ \t]+)?" n "[ \t]*=" }
-      # Other lines are copied as they are, Windows line ends included.
-      $0 ~ re { if (!done) print n "=" v; done = 1; next }
-      { print }
-      END { if (!done) print n "=" v }' "$file" >"$tmpf"; then
+  # ENVIRON, not -v: awk -v would read backslashes in a value as escapes.
+  # LC_ALL=C: bytes, so the byte-order mark is matched the same by every awk.
+  if ! LC_ALL=C _OEP_NAMES="$names" _OEP_VALUES="$values" awk '
+      BEGIN {
+        n = split(ENVIRON["_OEP_NAMES"], name, "\n") - 1
+        split(ENVIRON["_OEP_VALUES"], val, "\n")
+        bom = sprintf("%c%c%c", 239, 187, 191); eol = ""
+      }
+      {
+        line = $0; prefix = ""
+        if (NR == 1 && substr(line, 1, 3) == bom) { prefix = bom; line = substr(line, 4) }
+        cr = (line ~ /\r$/) ? "\r" : ""
+        if (cr != "") eol = "\r"
+        for (i = 1; i <= n; i++) {
+          if (line ~ ("^[ \t]*(export[ \t]+)?" name[i] "[ \t]*=")) {
+            if (!(i in done)) print prefix name[i] "=" val[i] cr
+            else if (prefix != "") printf "%s", prefix
+            done[i] = 1
+            next
+          }
+        }
+        print $0
+      }
+      END { for (i = 1; i <= n; i++) if (!(i in done)) print name[i] "=" val[i] eol }' \
+      "$src" >"$tmpf" 2>/dev/null </dev/null; then
     rm -f "$tmpf"
     return 1
   fi
-  # Written through, not moved: the file keeps its owner and mode.
-  cat "$tmpf" >"$file" || { rm -f "$tmpf"; return 1; }
-  rm -f "$tmpf"
+  mv -f "$tmpf" "$target" || { rm -f "$tmpf"; return 1; }
 }
 
 # Usage: _ollama_ep_same_model <a> <b>; the same model however it is written:
@@ -2343,7 +2389,7 @@ ai_model_resolve() (
   local IFS=$' \t\n'
   local _oep_type="${1:-}" _oep_url="${2:-}" _oep_env="${3:-}" _oep_name="${4:-}" _oep_default="${5:-}"
   local _oep_tier _oep_y _oep_x _oep_key _oep_choice _oep_for _oep_pick="" _oep_dir _oep_present
-  local _oep_asked=0 _oep_answer _oep_status=0 _oep_shown _oep_pm _oep_xsrc="your env"
+  local _oep_asked=0 _oep_answer _oep_tries _oep_status=0 _oep_shown _oep_pm _oep_xsrc="your env"
   _oep_url="${_oep_url%/}"
   if [[ -z "$_oep_type" || -z "$_oep_url" ]]; then
     print_error "ai_model_resolve needs a model type and an Ollama address." >&2
@@ -2406,17 +2452,31 @@ ai_model_resolve() (
     elif ! _ollama_ep_in_ci && _ollama_ep_can_ask; then
       printf 'Model for %s: %s has %s; the approved model for this host'"'"'s tier (%s) is %s.\n  1) pull %s (%s)\n  2) use %s (approved for this tier)\nChoose [1/2, default 2]: ' \
         "$_oep_type" "$_oep_xsrc" "$_oep_x" "$_oep_tier" "$_oep_y" "$_oep_x" "$_oep_xsrc" "$_oep_y" >&2
-      IFS= read -r _oep_answer || _oep_answer=""
-      case "$(printf '%s' "$_oep_answer" | tr '[:upper:]' '[:lower:]' | tr -d ' \t\r')" in
-        1|x|env) _oep_pick="$_oep_x" ;;
-        *) _oep_pick="$_oep_y" ;;
-      esac
+      # 1 or 2; empty or end of input is the default, 2. Anything else is
+      # asked again, up to three times, then the default.
+      _oep_tries=0
+      while [[ -z "$_oep_pick" ]]; do
+        IFS= read -r _oep_answer || _oep_answer=""
+        case "$(printf '%s' "$_oep_answer" | tr '[:upper:]' '[:lower:]' | tr -d ' \t\r')" in
+          1) _oep_pick="$_oep_x" ;;
+          2|"") _oep_pick="$_oep_y" ;;
+          *)
+            _oep_tries=$((_oep_tries + 1))
+            if [[ "$_oep_tries" -ge 3 ]]; then
+              _oep_pick="$_oep_y"
+              print_warning "No valid answer: using $_oep_y." >&2
+            else
+              printf 'Please answer 1 or 2 [default 2]: ' >&2
+            fi
+            ;;
+        esac
+      done
       _oep_asked=1
       if [[ -n "$_oep_env" ]] && ! _ollama_ep_env_private "$_oep_env"; then
         print_warning "Not stored: $(_ollama_ep_said "$_oep_env") is in a git work tree and not git-ignored. Add it to .gitignore to be asked only once." >&2
       elif [[ -n "$_oep_env" ]]; then
-        if ! _ollama_ep_env_set "$_oep_env" "$_oep_key" "$_oep_pick" \
-           || ! _ollama_ep_env_set "$_oep_env" "${_oep_key}_FOR" "$_oep_y"; then
+        # One write: a choice stored without its _FOR line would read as set by hand.
+        if ! _ollama_ep_env_set "$_oep_env" "$_oep_key" "$_oep_pick" "${_oep_key}_FOR" "$_oep_y"; then
           print_error "Could not store the answer in $(_ollama_ep_said "$_oep_env")." >&2
           exit 10
         fi
