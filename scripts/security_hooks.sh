@@ -13,7 +13,21 @@
 #                                SENSITIVE_ALLOW_UNCHECKED=1 is the same.
 #   FOXGUARD_CMD                 foxguard command to run (default: the pinned
 #                                binary in the cache, else foxguard on PATH).
+# EXIT_CODES:
+#   Sourced: no output, no exit. Each sec_* function returns 0 to let the
+#   commit or push continue and 1 to refuse; sec_find returns 127 when a
+#   check script is missing.
+#   Executed: 0 for -h/--help; 2 for anything else (it must be sourced).
+# EXAMPLE: source scripts/security_hooks.sh && sec_pre_push "$refs_file" origin "$url" || exit 1
 # ----------------------------------------------------
+# Run directly instead of sourced: -h/--help prints this header; anything else
+# is a usage error, because the functions only make sense inside a hook.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  case "${1:-}" in
+    -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "security_hooks.sh: source this file from a hook; see --help" >&2; exit 2 ;;
+  esac
+fi
 #
 # Order, in pre-push: private names (block) -> credentials, then personal
 # identifiers and PII, both in check_sensitive.sh (block) -> foxguard (warn only). The caller handles the deletions-only shortcut and the

@@ -218,7 +218,7 @@ if [[ -n "$SHIMS" ]]; then
       start|stop|restart|status|logs)
         note="# Service shim. Use ./dev $name -- kept: systemd units and scripts call ./$name." ;;
       *)
-        note="# Compatibility shim. Use ./dev $name — this is removed one minor version on." ;;
+        note="# Compatibility shim. Use ./dev $name - this is removed one minor version on." ;;
     esac
     cat > "$dest" <<EOF
 #!/usr/bin/env bash
@@ -235,13 +235,13 @@ if [[ "$WIRE_HOOKS" == "true" ]]; then
   say "wire: core.hooksPath -> the shared pre-commit/pre-push hooks"
   if [[ "$DRY_RUN" == "false" ]]; then
     ( cd "$REPO" && bash "$SCRIPT_HELPERS_DIR/scripts/setup-hooks.sh" ) || \
-      log_warn "setup-hooks.sh failed — wire it by hand before relying on the local gate"
+      log_warn "setup-hooks.sh failed - wire it by hand before relying on the local gate"
   fi
 fi
 
 echo
 if [[ "$DRY_RUN" == "true" ]]; then
-  log_info "dry run — nothing written."
+  log_info "dry run - nothing written."
   exit 0
 fi
 

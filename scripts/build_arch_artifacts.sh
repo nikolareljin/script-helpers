@@ -2,13 +2,19 @@
 # SCRIPT: build_arch_artifacts.sh
 # DESCRIPTION: Build Arch package via PKGBUILD and emit artifacts in the parent directory.
 # USAGE: ./build_arch_artifacts.sh [--repo PATH] [--pkg-dir PATH] [--prebuild COMMAND] [--artifact-dir PATH]
-# EXAMPLE: ./build_arch_artifacts.sh --repo .
 # PARAMETERS:
 #   --repo <path>         Repo path (default: GITHUB_WORKSPACE or cwd).
 #   --pkg-dir <path>      PKGBUILD directory (default: packaging/arch).
 #   --prebuild <command>  Command to run before build.
 #   --artifact-dir <path> Output directory for packages (default: ..).
 #   -h, --help            Show help.
+# EXIT_CODES:
+#   0  Packages built and copied to --artifact-dir (also -h/--help).
+#   1  PKGBUILD not found, an option is missing its value, or a step failed.
+#   2  Unknown argument.
+#   N  A failing --prebuild command or makepkg exits with its own code.
+# EXAMPLE:
+#   scripts/build_arch_artifacts.sh --repo . --artifact-dir dist
 # ----------------------------------------------------
 set -euo pipefail
 

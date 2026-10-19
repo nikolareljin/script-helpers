@@ -29,7 +29,7 @@
 #
 # EXIT_CODES:
 #   0  Every check that ran passed.
-#   1  At least one check failed.
+#   1  At least one check failed, or run with CI=true (preflight is local only).
 #   2  Bad arguments, or an unknown --stack.
 #   3  No stack could be detected in this directory.
 #
@@ -47,9 +47,10 @@ set -uo pipefail
 # failures, rather than stopping at the first one. A developer fixing three
 # things wants to see three things.
 
-if [[ "${CI:-}" == "true" ]]; then
+# -h/--help still works in CI: reading the usage is not running the checks.
+if [[ "${CI:-}" == "true" && " $* " != *" -h "* && " $* " != *" --help "* ]]; then
   echo "This script is intended for local use only." >&2
-  echo "In CI, run the checks directly — preflight exists to replace CI, not to run inside it." >&2
+  echo "In CI, run the checks directly - preflight exists to replace CI, not to run inside it." >&2
   exit 1
 fi
 
@@ -321,7 +322,7 @@ detect_stacks() {
   #    built by `flutter build`, not by a second Gradle pass; running both
   #    doubles the slowest step for no extra coverage.
   #  * A same-stack project nested inside another. A Cargo workspace member, or
-  #    a package inside an npm workspace, is built by its root — checking both
+  #    a package inside an npm workspace, is built by its root - checking both
   #    runs the same tests twice.
   local pair stack pdir other odir ostack skip
   local -a seen=() kept=()
@@ -500,7 +501,7 @@ run_step() {
 }
 
 # skip_step <label> <reason>; record a check that could not run. A skip is not a
-# pass — it is reported separately so an absent toolchain cannot look green.
+# pass - it is reported separately so an absent toolchain cannot look green.
 skip_step() {
   RESULTS+=("SKIP  $1 — $2")
   log_warn "preflight: skipping $1 — $2"
@@ -511,7 +512,7 @@ helper_script() { printf '%s/scripts/%s\n' "$SCRIPT_HELPERS_DIR" "$1"; }
 # in_dir <dir> <command...>; run a command from inside its project directory.
 # Used only for tools invoked directly (a raw `flutter build`); the
 # local_test_*.sh runners take --dir instead, because each of them resolves its
-# directory against the repository root rather than the current one — cd alone
+# directory against the repository root rather than the current one - cd alone
 # silently ran them against the wrong tree, and a runner that finds nothing
 # reports success.
 # Invoked indirectly, as the command argument to run_step.
@@ -593,7 +594,7 @@ check_ios() {
     return
   fi
   if ! command -v xcrun >/dev/null 2>&1; then
-    skip_step "$name" "xcrun not found — install Xcode and its command line tools"
+    skip_step "$name" "xcrun not found - install Xcode and its command line tools"
     return
   fi
   if [[ ! -f "$PROJECT_DIR/$dir/pubspec.yaml" ]]; then
@@ -639,7 +640,7 @@ check_gradle() {
 check_node() {
   local dir="$1" name; name="$(label node "$dir")"
   if ! command -v npm >/dev/null 2>&1; then
-    skip_step "$name" "npm is not installed — $(install_hint node nodejs)"
+    skip_step "$name" "npm is not installed - $(install_hint node nodejs)"
     return
   fi
   local args=()
@@ -650,7 +651,7 @@ check_node() {
 check_python() {
   local dir="$1" name; name="$(label python "$dir")"
   if ! command -v python3 >/dev/null 2>&1 && ! command -v python >/dev/null 2>&1; then
-    skip_step "$name" "no python interpreter found — $(install_hint python python3)"
+    skip_step "$name" "no python interpreter found - $(install_hint python python3)"
     return
   fi
   local args=()
@@ -661,7 +662,7 @@ check_python() {
 check_go() {
   local dir="$1" name; name="$(label go "$dir")"
   if ! command -v go >/dev/null 2>&1; then
-    skip_step "$name" "go is not installed — $(install_hint go golang)"
+    skip_step "$name" "go is not installed - $(install_hint go golang)"
     return
   fi
   local args=()
@@ -685,12 +686,12 @@ check_rust() {
   # way to pass on.
   if [[ "${PREFLIGHT_RUST_ANY_CARGO:-false}" == "true" ]]; then
     if ! command -v cargo >/dev/null 2>&1; then
-      skip_step "$name" "cargo is not installed — $(install_hint rust rustc)"
+      skip_step "$name" "cargo is not installed - $(install_hint rust rustc)"
       return
     fi
     args+=(--any-cargo)
   elif ! command -v rustup >/dev/null 2>&1; then
-    skip_step "$name" "rustup is not installed — CI compiles with rustup's ${RUST_TOOLCHAIN:-stable}; install it from https://rustup.rs, or set PREFLIGHT_RUST_ANY_CARGO=true to check against PATH's cargo"
+    skip_step "$name" "rustup is not installed - CI compiles with rustup's ${RUST_TOOLCHAIN:-stable}; install it from https://rustup.rs, or set PREFLIGHT_RUST_ANY_CARGO=true to check against PATH's cargo"
     return
   else
     # rustup being present is still not the runner's precondition: it asks
@@ -700,7 +701,7 @@ check_rust() {
     local rustup_cargo
     rustup_cargo="$(rustup which --toolchain "${RUST_TOOLCHAIN:-stable}" cargo 2>/dev/null || true)"
     if [[ -z "$rustup_cargo" || ! -x "$rustup_cargo" ]]; then
-      skip_step "$name" "rustup has no cargo for '${RUST_TOOLCHAIN:-stable}' — run: rustup toolchain install ${RUST_TOOLCHAIN:-stable}, or set PREFLIGHT_RUST_ANY_CARGO=true to check against PATH's cargo"
+      skip_step "$name" "rustup has no cargo for '${RUST_TOOLCHAIN:-stable}' - run: rustup toolchain install ${RUST_TOOLCHAIN:-stable}, or set PREFLIGHT_RUST_ANY_CARGO=true to check against PATH's cargo"
       return
     fi
   fi
@@ -710,7 +711,7 @@ check_rust() {
 check_php() {
   local dir="$1" name; name="$(label php "$dir")"
   if ! command -v php >/dev/null 2>&1; then
-    skip_step "$name" "php is not installed — $(install_hint php php-cli)"
+    skip_step "$name" "php is not installed - $(install_hint php php-cli)"
     return
   fi
   local args=()
@@ -749,7 +750,7 @@ check_security() {
     log_warn "This is the one check the weekly scheduled sweep exists to backstop. Install gitleaks, or run with --docker."
     # In the summary too: without it, "PASS  security scan" read as if secrets
     # had been scanned.
-    skip_step "gitleaks secret scan" "gitleaks is not installed — bash $scanner --install-gitleaks, $(install_hint gitleaks gitleaks), or run with --docker"
+    skip_step "gitleaks secret scan" "gitleaks is not installed - bash $scanner --install-gitleaks, $(install_hint gitleaks gitleaks), or run with --docker"
     have_gitleaks=false
   fi
   # foxguard runs on the host in both modes; there is no image of it.

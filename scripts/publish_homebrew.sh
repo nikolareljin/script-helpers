@@ -2,7 +2,6 @@
 # SCRIPT: publish_homebrew.sh
 # DESCRIPTION: Publish a Homebrew formula to a tap repository.
 # USAGE: ./publish_homebrew.sh [--repo PATH] [--formula PATH] [--name NAME] [--tap-repo OWNER/REPO] [--tap-token TOKEN] [--tap-branch BRANCH] [--tap-dir DIR] [--commit-message MESSAGE]
-# EXAMPLE: ./publish_homebrew.sh --formula packaging/brew/myapp.rb --tap-repo owner/homebrew-example
 # PARAMETERS:
 #   --repo <path>            Repo path (default: GITHUB_WORKSPACE or cwd).
 #   --formula <path>         Formula path (default: packaging/brew/<name>.rb).
@@ -15,6 +14,12 @@
 #   --tap-dir <dir>          Destination directory in tap (default: Formula).
 #   --commit-message <msg>   Commit message (default: "Update <name> formula").
 #   -h, --help               Show help.
+# EXIT_CODES:
+#   0  Published, already up to date, or skipped because no tap repo/token is set.
+#   2  Unknown argument, or the formula file was not found.
+#   N  A failing git command's own exit code (clone, commit, push), passed through.
+# EXAMPLE:
+#   ./publish_homebrew.sh --formula packaging/brew/myapp.rb --tap-repo owner/homebrew-example
 # ----------------------------------------------------
 set -euo pipefail
 

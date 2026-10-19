@@ -6,11 +6,15 @@
 # PARAMETERS:
 #   --test    Run a single test file instead of the whole suite.
 #   --shell   Drop into an interactive bash 3.2 shell in the container.
+#   -h, --help  Show this help and exit.
 #
 # EXIT_CODES:
 #   0  every test passed under bash 3.2
-#   1  a test failed
+#   1  a test failed, or run with CI=true (this is a local gate)
+#   2  bad arguments
 #   3  docker is unavailable
+# EXAMPLE:
+#   bash scripts/local_test_bash32.sh --test tests/version_test.sh
 # ----------------------------------------------------
 #
 # macOS ships bash 3.2 as /bin/bash and, for licensing reasons, always will.
@@ -29,6 +33,8 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 # shellcheck source=/dev/null
 source "$SCRIPT_HELPERS_DIR/helpers.sh"
 shlib_import help logging ci_defaults
+
+case "${1:-}" in -h|--help) parse_common_args --help ;; esac
 
 # In line with every other local_test_* runner: this replaces a CI job, it does
 # not run inside one.
@@ -60,7 +66,7 @@ IMAGE="${CI_DEFAULT_BASH32_IMAGE}:${CI_DEFAULT_BASH32_VERSION}"
 # Desktop is reported as an image that could not be fetched, and the reader goes
 # looking at the network.
 if ! docker info >/dev/null 2>&1; then
-  log_error "local_test_bash32: the docker daemon is not reachable — start Docker and retry"
+  log_error "local_test_bash32: the docker daemon is not reachable - start Docker and retry"
   exit 3
 fi
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then

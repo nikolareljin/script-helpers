@@ -24,6 +24,17 @@
 #   --fail-on-findings <true|false>       Whether findings should fail the script (default: true).
 #   --cleanup <true|false>                Whether Docker resources should be cleaned up after execution (default: true).
 #   -h, --help                            Show this help message.
+# EXIT_CODES:
+#   0  All checks passed, or findings reported only with --fail-on-findings false
+#      (also -h/--help).
+#   1  PHPCS, PHPStan or PHPUnit findings (with --fail-on-findings true), the
+#      database did not become ready, docker compose not found, or an option is
+#      missing its value.
+#   2  Unknown argument, a bad true/false or --db-wait-seconds value, compose
+#      file or bundle source not found, or a bad --bundle-src-env name.
+#   N  A failing composer, lint or standalone command exits with its own code.
+# EXAMPLE:
+#   scripts/ci_pimcore_bundle_check.sh --compose-file test/docker-compose.yml --phpstan-command "vendor/bin/phpstan analyse"
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -198,7 +209,9 @@ if [[ -n "$phpcs_command" ]]; then
   else
     docker_compose -f "$compose_file" cp "${php_service}:/tmp/phpcs.xml" "${out_dir}/phpcs.xml" 2>/dev/null || true
     log_error "PHPCS: violations found. Report saved to ${out_dir}/phpcs.xml"
-    [[ "$fail_on_findings" == "true" ]] && exit 1
+    # if/fi, not `&& exit 1`: as the last command run, a false test made
+    # the whole script exit 1 in report-only mode.
+    if [[ "$fail_on_findings" == "true" ]]; then exit 1; fi
   fi
 fi
 
@@ -208,7 +221,7 @@ if [[ -n "$phpstan_command" ]]; then
   else
     docker_compose -f "$compose_file" cp "${php_service}:/tmp/phpstan.xml" "${out_dir}/phpstan.xml" 2>/dev/null || true
     log_error "PHPStan: issues found. Report saved to ${out_dir}/phpstan.xml"
-    [[ "$fail_on_findings" == "true" ]] && exit 1
+    if [[ "$fail_on_findings" == "true" ]]; then exit 1; fi
   fi
 fi
 
@@ -218,7 +231,7 @@ if [[ -n "$phpunit_command" ]]; then
   else
     docker_compose -f "$compose_file" cp "${php_service}:/tmp/phpunit.xml" "${out_dir}/phpunit.xml" 2>/dev/null || true
     log_error "PHPUnit: test failures. Report saved to ${out_dir}/phpunit.xml"
-    [[ "$fail_on_findings" == "true" ]] && exit 1
+    if [[ "$fail_on_findings" == "true" ]]; then exit 1; fi
   fi
 fi
 

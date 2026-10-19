@@ -2,7 +2,6 @@
 # SCRIPT: packaging_init.sh
 # DESCRIPTION: Scaffold packaging files (debian/, rpm spec, PKGBUILD, Homebrew formula) from templates.
 # USAGE: ./packaging_init.sh [--repo PATH] [--config PATH] [--template-dir PATH] [--force] [--init-only]
-# EXAMPLE: ./packaging_init.sh --repo .
 # PARAMETERS:
 #   --repo <path>         Repo path (default: GITHUB_WORKSPACE or cwd).
 #   --config <path>       Packaging env file (default: packaging/packaging.env).
@@ -10,6 +9,12 @@
 #   --force               Overwrite existing files.
 #   --init-only            Only create packaging/packaging.env if missing.
 #   -h, --help            Show help.
+# EXIT_CODES:
+#   0  Files rendered, or packaging.env created (with --init-only, or on a first run).
+#   1  Template metadata missing, or APP_NAME/MAINTAINER_* unset in the config.
+#   2  Unknown argument.
+# EXAMPLE:
+#   ./packaging_init.sh --repo .
 # ----------------------------------------------------
 set -euo pipefail
 

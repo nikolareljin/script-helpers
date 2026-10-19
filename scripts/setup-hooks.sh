@@ -109,8 +109,13 @@
 #   (one repository), or GIT_SSH_COMMAND="ssh -o ServerAliveInterval=20" git push
 #   (one push). HTTPS remotes are not affected. The hook and --status say so.
 # EXIT_CODES:
-#   0 done; 1 failed (or a --doctor probe failed); 2 refused (no owners, no
-#   Python 3, no write access, bad arguments); 3 settings.json is not valid JSON
+#   0  done
+#   1  failed (or a --doctor probe failed)
+#   2  refused: no owners, no Python 3, no write access, bad arguments
+#   3  a settings/hooks JSON file is not valid JSON; with --install-gitleaks or
+#      --install-foxguard: no release binary for this platform, or curl/wget or
+#      a SHA-256 tool is missing
+# EXAMPLE: bash scripts/setup-hooks.sh --status
 # ----------------------------------------------------
 # After running, hooks are active for all subsequent git operations in this repo.
 set -euo pipefail
@@ -1008,7 +1013,7 @@ resolve_hooks_dir() {
   fi
 }
 
-hooks_dir="$(resolve_hooks_dir)"   # relative — portable across clones
+hooks_dir="$(resolve_hooks_dir)"   # relative - portable across clones
 common_dir="$(git rev-parse --git-common-dir)"
 case "$common_dir" in /*|[A-Za-z]:[\\/]*) ;; *) common_dir="$repo_root/$common_dir" ;; esac
 cur_local="$(git config --local --get core.hooksPath 2>/dev/null || true)"

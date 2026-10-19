@@ -2,13 +2,19 @@
 # SCRIPT: build_rpm_artifacts.sh
 # DESCRIPTION: Build RPM packages and emit artifacts in the parent directory.
 # USAGE: ./build_rpm_artifacts.sh [--repo PATH] [--spec PATH] [--prebuild COMMAND] [--artifact-dir PATH]
-# EXAMPLE: ./build_rpm_artifacts.sh --repo .
 # PARAMETERS:
 #   --repo <path>        Repo path (default: GITHUB_WORKSPACE or cwd).
 #   --spec <path>        Spec file path (default: packaging/rpm/<app>.spec).
 #   --prebuild <command> Command to run before build.
 #   --artifact-dir <path> Output directory for built RPMs (default: ..).
 #   -h, --help           Show help.
+# EXIT_CODES:
+#   0  RPMs built and copied to --artifact-dir (also -h/--help).
+#   1  Spec file not found, an option is missing its value, or a step failed.
+#   2  Unknown argument.
+#   N  A failing --prebuild command or rpmbuild exits with its own code.
+# EXAMPLE:
+#   scripts/build_rpm_artifacts.sh --repo . --artifact-dir dist
 # ----------------------------------------------------
 set -euo pipefail
 

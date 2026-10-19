@@ -2,7 +2,6 @@
 # SCRIPT: build_brew_tarball.sh
 # DESCRIPTION: Build a Homebrew tarball for a repo.
 # USAGE: ./build_brew_tarball.sh --name <name> [--repo PATH] [--version-file FILE] [--dist-dir DIR] [--exclude PATTERN]
-# EXAMPLE: ./build_brew_tarball.sh --name isoforge --repo . --exclude dist --exclude .git
 # PARAMETERS:
 #   --name <name>         Package name (required).
 #   --repo <path>         Repo path (default: GITHUB_WORKSPACE or cwd).
@@ -10,6 +9,12 @@
 #   --dist-dir <dir>      Output directory (default: repo/dist).
 #   --exclude <pattern>   Exclude path (repeatable).
 #   -h, --help            Show help.
+# EXIT_CODES:
+#   0  Tarball written to <dist-dir>/<name>-<version>.tar.gz (also -h/--help).
+#   1  An option is missing its value, or rsync/tar failed.
+#   2  Unknown argument, --name missing, or the version file not found.
+# EXAMPLE:
+#   scripts/build_brew_tarball.sh --name isoforge --repo . --exclude dist
 # ----------------------------------------------------
 set -euo pipefail
 

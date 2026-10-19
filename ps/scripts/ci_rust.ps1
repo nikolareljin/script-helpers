@@ -1,6 +1,6 @@
 # SCRIPT: ci_rust.ps1
 # DESCRIPTION: Run Rust CI steps (check, clippy, test) on Windows.
-# USAGE: ps\scripts\ci_rust.ps1 [-Workdir <path>] [-Quick] [-Manifest <path>]
+# USAGE: pwsh -File ps\scripts\ci_rust.ps1 [-Workdir <path>] [-Quick] [-Manifest <path>]
 # PARAMETERS:
 #   -Workdir <path>     Working directory (default: current dir).
 #   -Quick              Run cargo check only, skip clippy and tests.
@@ -8,6 +8,10 @@
 #   -UseDocker          Run inside Docker Desktop instead of natively.
 #   -Image <img>        Docker image override (requires -UseDocker).
 #   -Help               Show this help message.
+# EXIT_CODES:
+#   0  Requested Rust checks passed.
+#   1  A check failed or a required command is unavailable.
+# EXAMPLE: pwsh -File ps\scripts\ci_rust.ps1 -Quick
 # ----------------------------------------------------
 param(
     [string] $Workdir  = '.',
@@ -18,7 +22,7 @@ param(
     [switch] $Help
 )
 
-if ($env:CI -eq 'true') { Write-Error "This script is for local use only."; exit 1 }
+if ($env:CI -eq 'true' -and -not $Help) { Write-Error "This script is for local use only."; exit 1 }
 
 $ScriptDir = $PSScriptRoot
 $env:SCRIPT_HELPERS_DIR = if ($env:SCRIPT_HELPERS_DIR) { $env:SCRIPT_HELPERS_DIR } else { Split-Path (Split-Path $ScriptDir -Parent) -Parent }

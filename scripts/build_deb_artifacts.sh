@@ -2,12 +2,18 @@
 # SCRIPT: build_deb_artifacts.sh
 # DESCRIPTION: Build Debian packages and emit artifacts in the parent directory.
 # USAGE: ./build_deb_artifacts.sh [--repo PATH] [--prebuild COMMAND] [--build COMMAND]
-# EXAMPLE: ./build_deb_artifacts.sh --repo . --prebuild "make man"
 # PARAMETERS:
 #   --repo <path>        Repo path (default: GITHUB_WORKSPACE or cwd).
 #   --prebuild <command> Command to run before build (default: "make man").
 #   --build <command>    Build command override (default: dpkg-buildpackage -us -uc).
 #   -h, --help           Show help.
+# EXIT_CODES:
+#   0  Packages built (also -h/--help).
+#   1  --repo is not a directory, or an option is missing its value.
+#   2  Unknown argument, or dpkg-buildpackage not on PATH.
+#   N  A failing --prebuild, --build or dpkg-buildpackage exits with its own code.
+# EXAMPLE:
+#   scripts/build_deb_artifacts.sh --repo . --prebuild "make man"
 # ----------------------------------------------------
 set -euo pipefail
 

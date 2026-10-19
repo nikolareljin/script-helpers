@@ -20,6 +20,16 @@
 #   --docker-user <user>          User for those images, as uid:gid (default: the invoking user).
 #   --zip <true|false>            Also produce <out-dir>/<slug>-<version>.zip (default: true).
 #   -h, --help                    Show this help message.
+# EXIT_CODES:
+#   0  Tree (and zip) built (also -h/--help).
+#   1  Symlinks that cannot be packaged, no PHP file at the staged root, an
+#      option missing its value, or a packaging step failed.
+#   2  Bad arguments: unknown option, missing --workdir, a bad --slug,
+#      --version or --zip, a tool missing on PATH, an --out-dir inside the
+#      plugin, no usable Version: header, or --exclude-from not found.
+#   N  A failing composer or asset command exits with its own code.
+# EXAMPLE:
+#   scripts/ci_wp_build.sh --workdir . --out-dir build
 # ----------------------------------------------------
 #
 # What ships is not what is in the repository. A plugin needs its production

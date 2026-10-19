@@ -6,7 +6,14 @@
 #   <refs-file>    The ref lines git gave pre-push, saved to a file.
 #   <remote-name>  git's first pre-push argument.
 #   <url>          git's second pre-push argument.
-# EXAMPLE: push_checks "$refs" origin git@github.com:owner/repo.git
+#   -h, --help     Executed directly: show this help.
+# EXIT_CODES:
+#   push_checks returns 0 when the push is clean and 1 on any finding (each
+#   finding on stderr); push_tests returns 1 when tests fail or none are found.
+#   Executed directly: 0 for -h/--help, 2 otherwise (the file must be sourced).
+# EXAMPLE:
+#   source scripts/push_checks.sh
+#   push_checks "$refs" origin git@github.com:owner/repo.git
 # ----------------------------------------------------
 # Checks the content being pushed (each ref's tip), not the work tree, and only
 # the files the push adds or changes. Every check runs to the end; a large push
@@ -437,3 +444,12 @@ push_checks() {
   fi
   return 0
 }
+
+# Executed rather than sourced: this file only defines functions, so print the
+# header and stop (0 for -h/--help, 2 otherwise).
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  case "${1:-}" in
+    -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+  esac
+fi

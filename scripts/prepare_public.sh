@@ -20,6 +20,9 @@
 #   0  nothing found (audit, verify); done (clean)
 #   1  something found
 #   2  usage error, or a check could not run: the result is NOT clean
+#   130, 143  interrupted (INT, TERM); scratch directories are removed
+# EXAMPLE:
+#   scripts/prepare_public.sh audit --source ../my-repo --work /tmp/pub-audit
 # ----------------------------------------------------
 #
 # Every commit, message, tag and file a repository ever held is audited, on

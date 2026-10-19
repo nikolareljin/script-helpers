@@ -1,11 +1,15 @@
 # SCRIPT: tag_release.ps1
 # DESCRIPTION: Create an annotated git tag from the current VERSION file and push it.
-# USAGE: ps\scripts\tag_release.ps1 [-File <path>] [-Remote <remote>] [-DryRun]
+# USAGE: pwsh -File ps\scripts\tag_release.ps1 [-File <path>] [-Remote <remote>] [-DryRun]
 # PARAMETERS:
 #   -File <path>     Path to VERSION file (default: VERSION in project root).
 #   -Remote <name>   Git remote to push to (default: origin).
 #   -DryRun          Print the tag that would be created without actually tagging.
 #   -Help            Show this help message.
+# EXIT_CODES:
+#   0  Tag created and pushed, or reported with -DryRun.
+#   1  Validation, tag, or push failed.
+# EXAMPLE: pwsh -File ps\scripts\tag_release.ps1 -DryRun
 # ----------------------------------------------------
 param(
     [string] $File    = 'VERSION',

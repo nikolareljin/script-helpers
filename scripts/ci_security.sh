@@ -39,13 +39,25 @@
 #                          foxguard.yml, foxguard.yaml); elsewhere they are
 #                          reported, not counted.
 #   -h, --help             Show this help message.
-# EXIT CODES: 0 clean (or reported only); 1 findings with --fail-on-findings;
-#   3 only under preflight (PREFLIGHT_SKIP_FILE set): nothing it was asked for
-#   could run (a missing tool, no manifest, no lockfile), reason in that file.
+# EXIT_CODES:
+#   0  Clean, or findings reported only (also -h/--help, --check-foxguard when
+#      foxguard is available, and a successful --install-*).
+#   1  Findings with --fail-on-findings; CI=true (local use only); unknown
+#      argument or an option without a value; bad --gitleaks-digest; docker
+#      missing in Docker mode; a temp directory could not be made; or an
+#      --install-* download or checksum failed.
+#   3  --check-foxguard: foxguard not available. --install-*: no release binary
+#      for this platform, or no curl/wget/sha256 tool. Under preflight
+#      (PREFLIGHT_SKIP_FILE set): nothing it was asked for could run, reason in
+#      that file.
+# EXAMPLE:
+#   scripts/ci_security.sh --fail-on-findings
 # ----------------------------------------------------
 set -euo pipefail
 
-if [[ "${CI:-}" == "true" ]]; then
+# Before the options, so the install and check verbs stay local-only too; only
+# -h/--help is let through, so the usage can be read anywhere.
+if [[ "${CI:-}" == "true" && " $* " != *" -h "* && " $* " != *" --help "* ]]; then
   echo "This script is intended for local use only." >&2
   exit 1
 fi

@@ -14,13 +14,15 @@
 #   --image <img>     Docker image override (default: golang:<version>).
 #   --no-docker       Run on the host instead of Docker.
 #   -h, --help        Show this help message.
+# EXIT_CODES:
+#   0  All requested steps passed (also -h/--help).
+#   1  CI=true (local use only), unknown argument or an option without a value,
+#      or docker (Docker mode) or go (--no-docker) not found.
+#   N  The first failing step (lint, test, build) exits with its own code.
+# EXAMPLE:
+#   scripts/ci_go.sh --skip-build
 # ----------------------------------------------------
 set -euo pipefail
-
-if [[ "${CI:-}" == "true" ]]; then
-  echo "This script is intended for local use only." >&2
-  exit 1
-fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -56,6 +58,12 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown arg: $1" >&2; exit 1;;
   esac
 done
+
+# After argument parsing, so -h/--help still works under CI=true.
+if [[ "${CI:-}" == "true" ]]; then
+  echo "This script is intended for local use only." >&2
+  exit 1
+fi
 
 if [[ -n "$IMAGE_OVERRIDE" ]]; then
   IMAGE="$IMAGE_OVERRIDE"

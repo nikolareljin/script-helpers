@@ -32,6 +32,19 @@
 #   --fail-on-findings <true|false>          Fail on plugin-check errors (default: false).
 #   --cleanup <true|false>                   Clean up Docker resources on exit (default: true).
 #   -h, --help                               Show this help message.
+# EXIT_CODES:
+#   0  No plugin-check errors, or findings reported only with --fail-on-findings
+#      false (also -h/--help).
+#   1  The database did not become ready, an option is missing its value, or a
+#      setup step failed.
+#   2  Bad arguments: unknown option, a bad true/false, port or wait value,
+#      missing --plugin-slug, compose file or plugin source not found, a bad
+#      --plugin-src-env name, or python3 missing with --fail-on-findings true.
+#   4  Plugin-check reported errors, or wp plugin check is unavailable, with
+#      --fail-on-findings true.
+#   5  The plugin-check or meta-check JSON could not be parsed.
+# EXAMPLE:
+#   scripts/ci_wp_plugin_check.sh --plugin-slug my-plugin --compose-file test/docker-compose.yml
 # ENVIRONMENT:
 #   PLUGIN_CHECK_INSTALL_ATTEMPTS  Tries to install plugin-check, 1-99 (default: 3).
 #   PLUGIN_CHECK_RETRY_DELAY       Seconds before retry n is n x this, 0-999 (default: 5).

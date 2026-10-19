@@ -2,7 +2,6 @@
 # SCRIPT: gen_brew_formula.sh
 # DESCRIPTION: Generate a Homebrew formula for a tarball release.
 # USAGE: ./gen_brew_formula.sh --name <name> --desc <desc> --homepage <url> --tarball <path> [options]
-# EXAMPLE: ./gen_brew_formula.sh --name isoforge --desc "ISO tool" --homepage https://example.com --tarball dist/isoforge-1.0.0.tar.gz --url https://example.com/isoforge-1.0.0.tar.gz
 # PARAMETERS:
 #   --name <name>          Formula/package name (required).
 #   --desc <desc>          Short description (required).
@@ -19,6 +18,13 @@
 #   --use-libexec          Install into libexec and generate wrapper (default: false).
 #   --env-var <name>       Env var for wrapper (used with --use-libexec).
 #   -h, --help             Show help.
+# EXIT_CODES:
+#   0  Formula written (or help shown).
+#   1  The formula could not be written (mkdir or write failed).
+#   2  Unknown argument, a required option missing, tarball not found, or
+#      --use-libexec without --env-var.
+# EXAMPLE:
+#   ./gen_brew_formula.sh --name isoforge --desc "ISO tool" --homepage https://example.com --tarball dist/isoforge-1.0.0.tar.gz --url https://example.com/isoforge-1.0.0.tar.gz
 # ----------------------------------------------------
 set -euo pipefail
 

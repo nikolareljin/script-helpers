@@ -8,11 +8,14 @@
 #                    paths are given: the upstream branch, else origin/HEAD.
 #   --output <file>  Where to write the JSON (default: foxguard-report.json).
 #   <path>...        Scan these files instead of a range.
-# EXAMPLE: bash scripts/script-helpers/scripts/foxguard_report.sh --base origin/main --output foxguard-report.json
 # EXIT_CODES:
-#   0 no findings; 1 findings (written to the file); 2 usage or git error, the
-#   report could not be written, or a file could not be scanned (listed under
-#   "errors"); 3 foxguard not installed and not installable here.
+#   0  No findings.
+#   1  Findings (written to the file).
+#   2  Usage or git error, the report could not be written, or a file could not
+#      be scanned (listed under "errors").
+#   3  foxguard not installed and not installable here.
+# EXAMPLE:
+#   bash scripts/script-helpers/scripts/foxguard_report.sh --base origin/main --output foxguard-report.json
 # ----------------------------------------------------
 set -euo pipefail
 

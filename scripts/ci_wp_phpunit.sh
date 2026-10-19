@@ -23,6 +23,15 @@
 #   --test-command <command>      Command that runs the tests (default: ./vendor/bin/phpunit).
 #   --skip-provision <true|false> Reuse an existing test library rather than downloading (default: false).
 #   -h, --help                    Show this help message.
+# EXIT_CODES:
+#   0  The tests passed (also -h/--help).
+#   1  The database did not start, the WordPress test library could not be
+#      provisioned, an option is missing its value, or a step failed.
+#   2  Bad arguments: unknown option, a relative or unsafe --wp-tests-dir or
+#      --wp-core-dir, missing --workdir, or a database host a container cannot reach.
+#   N  The PHPUnit command exits with its own code.
+# EXAMPLE:
+#   scripts/ci_wp_phpunit.sh --db-image mysql:8.0 --wp-version 6.5
 # ----------------------------------------------------
 #
 # A plugin's tests/bootstrap.php is written against the WordPress test library,

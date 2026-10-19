@@ -25,6 +25,14 @@
 #   --db-wait-seconds <n>   How long to wait for it to answer (default: 60).
 #   --env NAME=VALUE     Extra environment for every step. Repeatable.
 #   -h, --help           Show this help message.
+# EXIT_CODES:
+#   0  Install and tests passed (also -h/--help).
+#   1  CI=true (local use only), unknown argument, an option without a value, a
+#      bad --env, an unknown database engine, the database did not start, or
+#      docker (Docker mode) or python (--no-docker) not found.
+#   N  The failing install or test command exits with its own code.
+# EXAMPLE:
+#   scripts/ci_python.sh --requirements requirements-dev.txt
 # ----------------------------------------------------
 #
 # No database is started unless --db-image says so, because most Python projects
@@ -40,11 +48,6 @@
 # scripts/ci_django.sh remains the runner for a Django project: it also creates
 # the database, applies migrations and knows what manage.py is.
 set -euo pipefail
-
-if [[ "${CI:-}" == "true" ]]; then
-  echo "This script is intended for local use only." >&2
-  exit 1
-fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -103,6 +106,12 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown arg: $1" >&2; exit 1;;
   esac
 done
+
+# After argument parsing, so -h/--help still works under CI=true.
+if [[ "${CI:-}" == "true" ]]; then
+  echo "This script is intended for local use only." >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # The database, when one is asked for. lib/ci_stack.sh is the one copy of this;

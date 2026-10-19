@@ -10,6 +10,14 @@
 #   --export-plist <path>  ExportOptions.plist, relative to --workdir, for a signed IPA
 #                          (default: build an unsigned iOS app).
 #   -h, --help             Show this help message.
+# EXIT_CODES:
+#   0  All requested steps passed (also -h/--help).
+#   1  Unknown argument, an option without a value, flutter not on PATH, or
+#      --workdir not found.
+#   3  Not macOS with Xcode: the Apple toolchain cannot run here.
+#   N  A failing flutter or xcodebuild step exits with its own code.
+# EXAMPLE:
+#   scripts/ci_ios.sh --skip-build
 # NOTE: Apple's toolchain runs only on macOS, so unlike the Docker-based ci_*.sh
 #       helpers this runs on the host with no image. It exits early elsewhere.
 # ----------------------------------------------------

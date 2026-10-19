@@ -10,6 +10,16 @@
 #   --config-path <path>         Requested config path; logged when unsupported.
 #   --fail-on-findings <bool>    Exit non-zero when findings exist. Optional; defaults to false.
 #   -h, --help                   Show this help message.
+# EXIT_CODES:
+#   0  Report read; no findings, or findings with --fail-on-findings false (also
+#      -h/--help).
+#   1  Report missing, empty, not JSON, not the SARIF shape expected, an
+#      unsupported --report-format, or an option is missing its value.
+#   2  Unknown argument, a bad --fail-on-findings, an empty --output or
+#      --requested-output, or python3 not found.
+#   3  Findings present and --fail-on-findings true.
+# EXAMPLE:
+#   scripts/ci_gitleaks_report.sh --output results.sarif --fail-on-findings true
 # ----------------------------------------------------
 set -euo pipefail
 

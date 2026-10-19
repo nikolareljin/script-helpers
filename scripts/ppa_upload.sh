@@ -2,7 +2,6 @@
 # SCRIPT: ppa_upload.sh
 # DESCRIPTION: Build a Debian source package and upload to Launchpad PPA.
 # USAGE: ./ppa_upload.sh --ppa <ppa:owner/name> --key-id <gpg_key_id> [--series SERIES] [--repo PATH] [--prebuild COMMAND] [--build COMMAND] [--dry-run]
-# EXAMPLE: ./ppa_upload.sh --ppa ppa:owner/name --key-id ABC123 --series jammy
 # PARAMETERS:
 #   --ppa <ppa:owner/name>   Launchpad PPA target (required).
 #   --key-id <gpg_key_id>    GPG key ID or fingerprint (required).
@@ -12,6 +11,13 @@
 #   --build <command>        Command to build source package (default: debuild -S -sa).
 #   --dry-run                Do not upload, just print the .changes file.
 #   -h, --help               Show help.
+# EXIT_CODES:
+#   0  Uploaded, or the dry run printed the .changes file.
+#   1  The build failed, or no .changes file was found.
+#   2  --ppa or --key-id missing, an unknown argument, or debuild, gpg or dput missing.
+#   N  The prebuild, build or dput command's own exit code, passed through.
+# EXAMPLE:
+#   ./ppa_upload.sh --ppa ppa:owner/name --key-id ABC123 --series jammy
 # ----------------------------------------------------
 set -euo pipefail
 
