@@ -9,7 +9,8 @@
 #                       the top of the git work tree holding the cwd (the
 #                       superproject when run inside a vendored script-helpers
 #                       submodule), or the cwd outside git. Never the vendored
-#                       copy's own VERSION.
+#                       copy's own VERSION. A missing file is created,
+#                       starting from 0.1.0.
 #   -h, --help          Show this help.
 # EXIT_CODES:
 #   0  Version bumped and written (also -h/--help).

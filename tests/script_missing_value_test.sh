@@ -24,7 +24,7 @@ value_options() { # value_options <script>: one option per line
     !/^#/ { exit }
     /^#[ \t]*-----*/ { exit }
     /^#[ \t]*[A-Z_]+:/ { inp = ($0 ~ /^#[ \t]*PARAMETERS:/); next }
-    inp && match($0, /^#[ \t]+-[-A-Za-z0-9]+(,[ \t]*--[-A-Za-z0-9]+)?[ =]+(<[^>]+>|[A-Z][A-Z_]+([ \t]|$))/) {
+    inp && match($0, /^#[ \t]+-[-A-Za-z0-9]+(,[ \t]*--[-A-Za-z0-9]+)?[ =]+(<[^>]+>|[A-Z][A-Z_]+(=[A-Z][A-Z_]+)?([ \t]|$))/) {
       s = substr($0, RSTART, RLENGTH); sub(/^#[ \t]+/, "", s)
       n = split(s, a, /[ ,=\t]+/); opt = a[1]
       for (i = 1; i <= n; i++) if (a[i] ~ /^--/) { opt = a[i]; break }

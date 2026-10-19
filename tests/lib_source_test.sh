@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SCRIPT: lib_source_test.sh
-# DESCRIPTION: Sourcing helpers.sh or any lib/*.sh module prints nothing, does not exit, and leaves shell options alone.
+# DESCRIPTION: Sourcing helpers.sh or any lib/*.sh module under set -euo pipefail prints nothing, does not exit, and leaves shell options alone.
 # USAGE: bash tests/lib_source_test.sh
 # ----------------------------------------------------
 # A library is sourced into someone else's shell. An `exit` at top level kills
@@ -15,8 +15,11 @@ for f in "$root_dir"/helpers.sh "$root_dir"/lib/*.sh; do
   [[ -f "$f" ]] || continue
   count=$((count + 1))
   # The subshell prints a marker after sourcing; no marker means the module exited.
+  # It runs under set -euo pipefail, as most callers do, so a module whose last
+  # top-level command returns non-zero aborts the caller and is caught here.
   # shellcheck disable=SC2016
   out="$(bash -c '
+    set -euo pipefail
     before="$-|$(set -o | grep -E "^(errexit|nounset|pipefail)")"
     source "$1" </dev/null
     after="$-|$(set -o | grep -E "^(errexit|nounset|pipefail)")"
@@ -36,4 +39,4 @@ for f in "$root_dir"/helpers.sh "$root_dir"/lib/*.sh; do
   fi
 done
 if [[ $fail -ne 0 ]]; then exit 1; fi
-echo "[lib_source_test] PASS: $count modules source silently, without exit or option changes"
+echo "[lib_source_test] PASS: $count modules source silently under set -euo pipefail, without exit or option changes"

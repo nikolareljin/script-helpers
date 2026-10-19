@@ -98,6 +98,7 @@ while [[ $# -gt 0 ]]; do
     --db-port) require_value "$@" || exit 2; DB_PORT="$2"; shift 2;;
     --db-wait-seconds) require_value "$@" || exit 2; DB_WAIT_SECONDS="$2"; shift 2;;
     --env)
+      require_value "$@" || exit 2
       case "$2" in
         *=*) EXTRA_ENV+=("$2") ;;
         *) log_error "--env expects NAME=VALUE, got: $2"; exit 1 ;;

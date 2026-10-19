@@ -78,7 +78,8 @@ version_project_root() {
 
 # Usage: version_bump {major|minor|patch} [-f VERSION_FILE]; bumps version file.
 # Without -f: VERSION at version_project_root (the project's, never a vendored
-# script-helpers copy's). A relative -f is relative to the cwd.
+# script-helpers copy's). A relative -f is relative to the cwd. A missing file
+# is created, bumped from 0.1.0.
 # Returns: 0 bumped or help shown; 1 bad arguments, unparseable version, or the file could not be written.
 # Output: stdout success or error lines (print_success/print_error) and help.
 version_bump() {

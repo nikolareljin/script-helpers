@@ -22,9 +22,12 @@
 _screencap__require_module() {
   local module="$1" probe="$2"
   declare -f "$probe" >/dev/null 2>&1 && return 0
-  [[ -n "${_SHLIB_LIB_DIR:-}" && -f "${_SHLIB_LIB_DIR}/${module}.sh" ]] || return 1
+  # Fall back to this file's directory so a direct `source lib/<module>.sh`
+  # under `set -e` loads its dependencies instead of aborting the caller.
+  local dir="${_SHLIB_LIB_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+  [[ -f "${dir}/${module}.sh" ]] || return 1
   # shellcheck source=/dev/null
-  source "${_SHLIB_LIB_DIR}/${module}.sh"
+  source "${dir}/${module}.sh"
 }
 
 _screencap__require_module adb adb_ready_serials

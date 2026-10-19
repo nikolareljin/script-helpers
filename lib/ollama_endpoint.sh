@@ -473,7 +473,7 @@ ollama_disk_free_bytes() {
     NR == 2 {
       for (i = NF; i > 1; i--) if ($i ~ /^[0-9]+%$/) {
         if ($(i - 1) ~ /^[0-9]+$/) printf "%.0f\n", $(i - 1) * 1024
-        exit
+        break
       }
     }'
 }

@@ -216,12 +216,12 @@ _ios__booted_udid_for() {
   out=$(xcrun simctl list devices booted 2>/dev/null) || return 1
   printf '%s\n' "$out" \
     | awk -v want="$want" '
-        match($0, /\([0-9A-Fa-f-]{8,}\)/) {
+        !found && match($0, /\([0-9A-Fa-f-]{8,}\)/) {
           udid = substr($0, RSTART + 1, RLENGTH - 2)
           name = substr($0, 1, RSTART - 1)
           sub(/^[[:space:]]+/, "", name)
           sub(/[[:space:]]+$/, "", name)
-          if (want == name || want == udid) { print udid; exit }
+          if (want == name || want == udid) { print udid; found = 1 }
         }
       '
 }

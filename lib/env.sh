@@ -136,11 +136,11 @@ _env__parse_value() {
             c = substr($0, i, 1)
             nx = substr($0, i + 1, 1)
             if (c == "\\" && (nx == "\"" || nx == "\\")) { out = out nx; i += 2; continue }
-            if (c == q) { print 1; print out; print substr($0, i + 1); exit }
+            if (c == q) { print 1; print out; print substr($0, i + 1); closed = 1; break }
             out = out c
             i++
           }
-          print 0; print out; print ""
+          if (!closed) { print 0; print out; print "" }
         }')"
       # Each read tolerates end-of-input. Command substitution strips trailing
       # newlines, so when nothing follows the closing quote -- the ordinary case

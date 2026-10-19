@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # SCRIPT: pipefail_sigpipe_test.sh
-# DESCRIPTION: Checks that no early-exit reader (`grep -q`, `grep -m`, `head`)
+# DESCRIPTION: Checks that no early-exit reader (`grep -q`, `grep -m`, `head`,
+#   awk `exit` outside END)
 #   sits on a pipe where pipefail is set, and that library helpers still find
 #   a match in large input under pipefail.
 #   `printf "$big" | grep -q x` exits 141 when grep quits before the writer is
@@ -29,6 +30,19 @@ while IFS= read -r f; do
         | grep -vE '^[0-9]+:[[:space:]]*#|END[[:space:]]*\{[[:space:]]*exit' || true)"
   # This file names the pattern in its own lint regex and comments.
   [[ "$f" == tests/pipefail_sigpipe_test.sh ]] && continue
+  # A multi-line awk program opened on a pipe (`| awk '` with the quote left
+  # open) is checked line by line until its closing quote: an `exit` outside
+  # END stops reading early just like the one-line form.
+  m="$(LC_ALL=C awk '
+    inp && /^[[:space:]]*#/ { next }
+    inp {
+      if ($0 ~ /(^|[^A-Za-z_])exit([^A-Za-z_]|$)/ && $0 !~ /END[[:space:]]*\{/) print NR ": " $0
+      if (index($0, "\047")) inp = 0
+      next
+    }
+    /\|[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*awk([[:space:]]+-[A-Za-z]+([[:space:]]+[^[:space:]\047]+)?)*[[:space:]]+\047[^\047]*$/ { inp = 1 }
+  ' "$ROOT/$f")"
+  [[ -n "$m" ]] && h+="${h:+$'\n'}$m"
   [[ -n "$h" ]] && hits+="$(sed "s#^#$f:#" <<< "$h")"$'\n'
 done < <(cd "$ROOT" && git ls-files '*.sh')
 if [[ -n "$hits" ]]; then
@@ -66,6 +80,17 @@ if PATH="$tmp/bin:$PATH" bash -c 'set -euo pipefail
   note "ok  _docker_service_running finds 'Up' at the top of large output"
 else
   error "_docker_service_running missed 'Up' under pipefail"
+fi
+
+# changelog_has_entries on a section larger than the pipe buffer: an awk that
+# exits at the first entry left printf to die of SIGPIPE, and pipefail turned a
+# written-up release into "no entries" (141).
+if bash -c 'set -euo pipefail
+  source "$1/lib/changelog.sh"
+  changelog_has_entries "- entry"$'"'"'\n'"'"'"$(seq 1 200000)"' _ "$ROOT"; then
+  note "ok  changelog_has_entries finds an entry at the top of a large section"
+else
+  error "changelog_has_entries missed the entry in a large section under pipefail"
 fi
 
 exit "$fail"

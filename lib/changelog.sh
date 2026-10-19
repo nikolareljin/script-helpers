@@ -92,7 +92,7 @@ changelog_has_entries() {
   printf '%s\n' "${1:-}" | awk '
     /^[[:space:]]*$/ { next }
     /^[[:space:]]*#+[[:space:]]/ || /^[[:space:]]*#+[[:space:]]*$/ { next }
-    { found = 1; exit }
+    { found = 1 }
     END { exit found ? 0 : 1 }
   '
 }

@@ -274,7 +274,7 @@ git_branches_worktree_of() {
   [[ -n "$branch" ]] || return 2
   git worktree list --porcelain 2>/dev/null | awk -v want="refs/heads/${branch}" '
     /^worktree /  { wt = substr($0, 10) }
-    /^branch /    { if (substr($0, 8) == want) { print wt; exit } }
+    !found && /^branch / { if (substr($0, 8) == want) { print wt; found = 1 } }
   '
 }
 

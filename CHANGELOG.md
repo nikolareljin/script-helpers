@@ -36,8 +36,14 @@
   more). These now use here-strings, and `| head -n N` / `| grep -m1` use
   `sed -n 1,Np`, which reads all input; awk programs on a pipe no longer
   `exit` early. `tests/pipefail_sigpipe_test.sh` flags any `| grep -q`,
-  `| grep -m`, `| head` or one-line awk `exit` in `lib/` and in any file that
-  sets pipefail.
+  `| grep -m`, `| head` or awk `exit` outside `END` (one-line or multi-line
+  program) in `lib/` and in any file that sets pipefail.
+  `changelog_has_entries` returned 141 on a section over 64 KiB.
+- `source lib/android.sh` or `lib/screencap.sh` without `helpers.sh` aborted
+  a `set -e` caller; both now load `adb`, `gradle` and `ios` from their own
+  directory. `download_file` looked for `lib/lib/dialog.sh` when
+  `SCRIPT_HELPERS_DIR` was unset. `ci_python.sh --env` without a value
+  exited 1 on an unbound `$2`; it now exits 2.
 - **Every script and library module documents itself and runs standalone.**
   All command scripts carry SCRIPT, DESCRIPTION, USAGE, PARAMETERS,
   EXIT_CODES and EXAMPLE, in order, with exit codes traced from the code;
