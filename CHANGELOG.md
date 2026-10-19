@@ -8,6 +8,24 @@
 ### Changed
 
 - `docs/commands.md` now includes `ps/scripts`; Bash and PowerShell entry commands use the same structured header fields and publish their examples.
+- Exit and return codes a caller can see changed. Check `if`, `|| true`
+  and `$?` handling that depends on the old values:
+
+  | Command or function | Before | Now |
+  |---|---|---|
+  | any script, option given without its value | 1 | 2 |
+  | `check_release_version.sh`, unknown option | 1 | 2 |
+  | `check_release_version.sh` target | the script-helpers checkout it lives in | `--repo`, default the cwd |
+  | `ci_*.sh`, `preflight.sh`, `ci_*.ps1` `--help`/`-Help` under `CI=true` | 1 | 0 |
+  | `local_test_*.sh --help` | 1 | 0 |
+  | `ci_security.sh --check-foxguard`/`--install-gitleaks` | acted at once, later options ignored | all options parsed first; a bad later option exits 1 or 2 |
+  | `manifest_sync_version` on a missing directory | 0 | 2 |
+  | `version_bump`, VERSION not writable | 0 | 1 |
+  | `pkg_build_*`, failed prebuild or series step | carried on | returns that step's code |
+  | `ollama_install_model_flow`, failed env write | carried on | returns that code |
+  | `generate-android-keystore.ps1` without `-OutputPath` | prompted | exits 1 |
+  | `version_bump` relative `-f` | relative to the project root | relative to the cwd |
+  | `docker_status` log lines | emoji markers | `[ok]`, `[failed]`, `[stopped]` |
 
 ### Fixed
 
