@@ -448,8 +448,11 @@ Bump the semantic version in a VERSION file using script-helpers.
 Usage: ./bump_version.sh [major|minor|patch] [-f VERSION_FILE]
   major|minor|patch   Which part of the version to increment.
   -f, --file PATH     Version file path; a relative path is taken from the
-                      current directory (default: VERSION in the parent of the
-                      script-helpers directory).
+                      current directory. Default: VERSION at the project root,
+                      the top of the git work tree holding the cwd (the
+                      superproject when run inside a vendored script-helpers
+                      submodule), or the cwd outside git. Never the vendored
+                      copy's own VERSION.
   -h, --help          Show this help.
 ```
 
@@ -457,8 +460,9 @@ Exit codes:
 
 ```text
 0  Version bumped and written (also -h/--help).
-1  No arguments, unknown or repeated argument, -f without a path, a version
-that is not X.Y.Z, or the version file directory could not be created.
+1  No arguments, unknown or repeated argument, a version that is not X.Y.Z,
+or the version file or its directory could not be written.
+2  -f/--file without its value.
 ```
 
 Example:
@@ -580,8 +584,8 @@ Exit codes:
 
 ```text
 0  Tag is free, or the branch is not a release branch (also -h/--help).
-1  Tag already exists, fetching tags failed, or an option is missing its value.
-2  Unknown argument, no branch given or in the environment, or --repo is not
+1  Tag already exists, or fetching tags failed.
+2  Unknown argument, an option without its value, no branch given or in the environment, or --repo is not
 a git work tree.
 ```
 
@@ -685,8 +689,8 @@ Exit codes:
 0  Report read; no findings, or findings with --fail-on-findings false (also
 -h/--help).
 1  Report missing, empty, not JSON, not the SARIF shape expected, an
-unsupported --report-format, or an option is missing its value.
-2  Unknown argument, a bad --fail-on-findings, an empty --output or
+unsupported --report-format.
+2  Unknown argument, an option without its value, a bad --fail-on-findings, an empty --output or
 --requested-output, or python3 not found.
 3  Findings present and --fail-on-findings true.
 ```
@@ -747,9 +751,10 @@ Exit codes:
 0  Clean, or findings reported only (also -h/--help, --check-foxguard when
 foxguard is available, and a successful --install-*).
 1  Findings with --fail-on-findings; CI=true (local use only); unknown
-argument or an option without a value; bad --gitleaks-digest; docker
+argument; bad --gitleaks-digest; docker
 missing in Docker mode; a temp directory could not be made; or an
 --install-* download or checksum failed.
+2  An option without its value.
 3  --check-foxguard: foxguard not available. --install-*: no release binary
 for this platform, or no curl/wget/sha256 tool. Under preflight
 (PREFLIGHT_SKIP_FILE set): nothing it was asked for could run, reason in
@@ -877,7 +882,7 @@ Exit codes:
 0  Report printed, or every deletable branch was deleted.
 1  Setup failed (not a repository, no base, failed fetch), a refused
 --remote --apply --no-fetch, or at least one deletion failed.
-2  Unknown argument.
+2  Unknown argument, or an option without its value.
 ```
 
 Example:
@@ -999,7 +1004,10 @@ Bump the semantic version in the VERSION file.
 ```text
 Usage: pwsh -File ps\scripts\bump_version.ps1 <major|minor|patch> [-File <path>]
   BumpType         Required. One of: major, minor, patch.
-  -File <path>     Path to VERSION file (default: VERSION in project root).
+  -File <path>     Path to the VERSION file; relative to the current directory.
+                   Default: VERSION at the project root (top of the git work
+                   tree holding the cwd, the superproject when run inside a
+                   vendored script-helpers submodule, else the cwd).
   -Help            Show this help message.
 ```
 
@@ -1143,8 +1151,9 @@ Exit codes:
 
 ```text
 0  All requested steps passed (also -h/--help).
-1  CI=true (local use only), unknown argument or an option without a value,
-bad --digest, or docker (Docker mode) or flutter (--no-docker) not found.
+1  CI=true (local use only), unknown argument, bad --digest, or docker
+(Docker mode) or flutter (--no-docker) not found.
+2  An option without its value.
 N  The first failing step exits with its own code.
 ```
 
@@ -1177,8 +1186,9 @@ Exit codes:
 
 ```text
 0  All requested steps passed (also -h/--help).
-1  CI=true (local use only), unknown argument or an option without a value,
-or docker (Docker mode) or go (--no-docker) not found.
+1  CI=true (local use only), unknown argument, or docker (Docker mode)
+or go (--no-docker) not found.
+2  An option without its value.
 N  The first failing step (lint, test, build) exits with its own code.
 ```
 
@@ -1214,8 +1224,9 @@ Exit codes:
 
 ```text
 0  All requested steps passed (also -h/--help).
-1  CI=true (local use only), unknown argument or an option without a value,
-docker not found (Docker mode), or gradlew not found (--no-docker).
+1  CI=true (local use only), unknown argument, docker not found (Docker
+mode), or gradlew not found (--no-docker).
+2  An option without its value.
 N  The first failing step exits with its own code.
 ```
 
@@ -1244,8 +1255,8 @@ Exit codes:
 
 ```text
 0  All requested steps passed (also -h/--help).
-1  Unknown argument, an option without a value, flutter not on PATH, or
---workdir not found.
+1  Unknown argument, flutter not on PATH, or --workdir not found.
+2  An option without its value.
 3  Not macOS with Xcode: the Apple toolchain cannot run here.
 N  A failing flutter or xcodebuild step exits with its own code.
 ```
@@ -1330,8 +1341,9 @@ Exit codes:
 
 ```text
 0  All requested steps passed (also -h/--help).
-1  CI=true (local use only), unknown argument or an option without a value,
-or docker (Docker mode) or npm (--no-docker) not found.
+1  CI=true (local use only), unknown argument, or docker (Docker mode)
+or npm (--no-docker) not found.
+2  An option without its value.
 N  The first failing step exits with its own code.
 ```
 
@@ -1376,9 +1388,8 @@ Exit codes:
 0  All checks passed, or findings reported only with --fail-on-findings false
 (also -h/--help).
 1  PHPCS, PHPStan or PHPUnit findings (with --fail-on-findings true), the
-database did not become ready, docker compose not found, or an option is
-missing its value.
-2  Unknown argument, a bad true/false or --db-wait-seconds value, compose
+database did not become ready, or docker compose not found.
+2  Unknown argument, an option without its value, a bad true/false or --db-wait-seconds value, compose
 file or bundle source not found, or a bad --bundle-src-env name.
 N  A failing composer, lint or standalone command exits with its own code.
 ```
@@ -1423,9 +1434,10 @@ Exit codes:
 
 ```text
 0  Install and tests passed (also -h/--help).
-1  CI=true (local use only), unknown argument, an option without a value, a
-bad --env, an unknown database engine, the database did not start, or
-docker (Docker mode) or python (--no-docker) not found.
+1  CI=true (local use only), unknown argument, a bad --env, an unknown
+database engine, the database did not start, or docker (Docker mode) or
+python (--no-docker) not found.
+2  An option without its value.
 N  The failing install or test command exits with its own code.
 ```
 
@@ -1464,11 +1476,12 @@ Exit codes:
 
 ```text
 0  Tree (and zip) built (also -h/--help).
-1  Symlinks that cannot be packaged, no PHP file at the staged root, an
-option missing its value, or a packaging step failed.
-2  Bad arguments: unknown option, missing --workdir, a bad --slug,
---version or --zip, a tool missing on PATH, an --out-dir inside the
-plugin, no usable Version: header, or --exclude-from not found.
+1  Symlinks that cannot be packaged, no PHP file at the staged root, or a
+packaging step failed.
+2  Bad arguments: unknown option, an option without its value, missing
+--workdir, a bad --slug, --version or --zip, a tool missing on PATH, an
+--out-dir inside the plugin, no usable Version: header, or --exclude-
+from not found.
 N  A failing composer or asset command exits with its own code.
 ```
 
@@ -1511,9 +1524,10 @@ Exit codes:
 ```text
 0  The tests passed (also -h/--help).
 1  The database did not start, the WordPress test library could not be
-provisioned, an option is missing its value, or a step failed.
-2  Bad arguments: unknown option, a relative or unsafe --wp-tests-dir or
---wp-core-dir, missing --workdir, or a database host a container cannot reach.
+provisioned, or a step failed.
+2  Bad arguments: unknown option, an option without its value, a relative
+or unsafe --wp-tests-dir or --wp-core-dir, missing --workdir, or a
+database host a container cannot reach.
 N  The PHPUnit command exits with its own code.
 ```
 
@@ -1565,11 +1579,11 @@ Exit codes:
 ```text
 0  No plugin-check errors, or findings reported only with --fail-on-findings
 false (also -h/--help).
-1  The database did not become ready, an option is missing its value, or a
-setup step failed.
-2  Bad arguments: unknown option, a bad true/false, port or wait value,
-missing --plugin-slug, compose file or plugin source not found, a bad
---plugin-src-env name, or python3 missing with --fail-on-findings true.
+1  The database did not become ready, or a setup step failed.
+2  Bad arguments: unknown option, an option without its value, a bad
+true/false, port or wait value, missing --plugin-slug, compose file or
+plugin source not found, a bad --plugin-src-env name, or python3 missing
+with --fail-on-findings true.
 4  Plugin-check reported errors, or wp plugin check is unavailable, with
 --fail-on-findings true.
 5  The plugin-check or meta-check JSON could not be parsed.
@@ -1961,8 +1975,8 @@ Exit codes:
 
 ```text
 0  Packages built and copied to --artifact-dir (also -h/--help).
-1  PKGBUILD not found, an option is missing its value, or a step failed.
-2  Unknown argument.
+1  PKGBUILD not found, or a step failed.
+2  Unknown argument, or an option without its value.
 N  A failing --prebuild command or makepkg exits with its own code.
 ```
 
@@ -1990,8 +2004,8 @@ Exit codes:
 
 ```text
 0  Tarball written to <dist-dir>/<name>-<version>.tar.gz (also -h/--help).
-1  An option is missing its value, or rsync/tar failed.
-2  Unknown argument, --name missing, or the version file not found.
+1  rsync or tar failed.
+2  Unknown argument, an option without its value, --name missing, or the version file not found.
 ```
 
 Example:
@@ -2016,8 +2030,8 @@ Exit codes:
 
 ```text
 0  Packages built (also -h/--help).
-1  --repo is not a directory, or an option is missing its value.
-2  Unknown argument, or dpkg-buildpackage not on PATH.
+1  --repo is not a directory.
+2  Unknown argument, an option without its value, or dpkg-buildpackage not on PATH.
 N  A failing --prebuild, --build or dpkg-buildpackage exits with its own code.
 ```
 
@@ -2044,8 +2058,8 @@ Exit codes:
 
 ```text
 0  RPMs built and copied to --artifact-dir (also -h/--help).
-1  Spec file not found, an option is missing its value, or a step failed.
-2  Unknown argument.
+1  Spec file not found, or a step failed.
+2  Unknown argument, or an option without its value.
 N  A failing --prebuild command or rpmbuild exits with its own code.
 ```
 
@@ -2083,8 +2097,8 @@ Exit codes:
 ```text
 0  Formula written (or help shown).
 1  The formula could not be written (mkdir or write failed).
-2  Unknown argument, a required option missing, tarball not found, or
---use-libexec without --env-var.
+2  Unknown argument, an option without its value, a required option
+missing, tarball not found, or --use-libexec without --env-var.
 ```
 
 Example:
@@ -2112,7 +2126,7 @@ Exit codes:
 ```text
 0  Files rendered, or packaging.env created (with --init-only, or on a first run).
 1  Template metadata missing, or APP_NAME/MAINTAINER_* unset in the config.
-2  Unknown argument.
+2  Unknown argument, or an option without its value.
 ```
 
 Example:
@@ -2142,7 +2156,8 @@ Exit codes:
 ```text
 0  Uploaded, or the dry run printed the .changes file.
 1  The build failed, or no .changes file was found.
-2  --ppa or --key-id missing, an unknown argument, or debuild, gpg or dput missing.
+2  --ppa or --key-id missing, an unknown argument, an option without its
+value, or debuild, gpg or dput missing.
 N  The prebuild, build or dput command's own exit code, passed through.
 ```
 
@@ -2176,7 +2191,8 @@ Exit codes:
 ```text
 0  Published, already up to date, or skipped because no tap repo/token is set.
 1  Copying the formula into the tap checkout failed.
-2  Unknown argument, or the formula file was not found.
+2  Unknown argument, an option without its value, or the formula file was
+not found.
 N  A failing git command's own exit code (clone, commit, push), passed through.
 ```
 
@@ -2609,7 +2625,8 @@ Exit codes:
 
 ```text
 0  The model was pulled (and started with -R).
-1  Bad option, -n without 'model' in the env file, or a helper failed.
+1  Unknown option, -n without 'model' in the env file, or a helper failed.
+2  -r or -e without its value.
 N  The exit code of a cancelled dialog or a failed ollama step, passed through.
 ```
 

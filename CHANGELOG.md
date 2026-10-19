@@ -20,8 +20,16 @@
   ran the demo). Gates exit 2, not 1, on a missing option value;
   `check_release_version.sh` checks the cwd instead of the vendored copy;
   several functions returned 0 on failure or leaked output into return
-  values. New tests: `script_headers_test.sh`, `script_help_test.sh`,
-  `lib_source_test.sh`.
+  values. An option missing its value now exits 2 with a message
+  (`require_value` in `help.sh`) instead of dying on an unbound `$2` with 1.
+  New tests: `script_headers_test.sh`, `script_help_test.sh`,
+  `script_missing_value_test.sh`, `lib_source_test.sh`.
+- **`bump_version.sh` bumped the vendored copy, not the project.** Run as
+  `scripts/script-helpers/scripts/bump_version.sh patch`, it wrote
+  `scripts/script-helpers/VERSION`. The default is now `VERSION` at the top
+  of the git work tree holding the cwd (the superproject when run inside the
+  vendored submodule), or the cwd outside git; a relative `-f` is relative to
+  the cwd. Same for `version_bump` in `version.sh` and `version.ps1`.
 
 - `ps/scripts/preflight.ps1` checks Rust projects with the same preconditions as `preflight.sh`: a missing rustup or toolchain is a SKIP, not a failed step, and `PREFLIGHT_RUST_ANY_CARGO=true` passes `--any-cargo`.
 - `rust_toolchain_ci_uses` and `preflight.ps1` trust `rustup which` only on exit 0, and a stderr notice no longer discards its output when the session sets `ErrorActionPreference` to `Stop`.
