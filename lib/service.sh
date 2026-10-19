@@ -180,7 +180,8 @@ _svc_running() {
 _svc_port_owner() {
   local port="$1" owner
   if owner="$(port_in_use_by "$port" 2>/dev/null)" && [[ -n "$owner" ]]; then
-    printf '%s\n' "$owner" | head -n 1
+    # First line without head: an early-exiting reader can SIGPIPE printf (141 under pipefail).
+    printf '%s\n' "${owner%%$'\n'*}"
     return 0
   fi
   # No lsof/ss/netstat (or no permission to see the owner): a connect still

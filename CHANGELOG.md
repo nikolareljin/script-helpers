@@ -29,6 +29,12 @@
 
 ### Fixed
 
+- `printf ... | grep -q` and `cmd | grep -q` returned 141 under `set -o
+  pipefail` when grep matched early and the writer got SIGPIPE, so a present
+  match read as missing (`check_docker`, `_docker_service_running`,
+  `prune_branches` cherry check, the bash 3.2 runner's tool detection, and
+  more). These now use here-strings; `tests/pipefail_sigpipe_test.sh` flags
+  the pattern in `lib/` and in any file that sets pipefail.
 - **Every script and library module documents itself and runs standalone.**
   All command scripts carry SCRIPT, DESCRIPTION, USAGE, PARAMETERS,
   EXIT_CODES and EXAMPLE, in order, with exit codes traced from the code;

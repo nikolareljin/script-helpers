@@ -74,7 +74,7 @@ out="$(run git@github.com:me/x.git)"; rc=$?
 # gives the hook a terminal; elsewhere (BSD script) this part is skipped.
 out="$(run git@github.com:me/x.git)"
 [[ "$out" != *$'\033[1;33m'* ]] && ok "no color when stderr is not a terminal" || error "color codes in non-terminal output"
-if script --version 2>/dev/null | grep -q util-linux; then
+if grep -q util-linux <<< "$(script --version 2>/dev/null)"; then
   sha="$(git -C "$repo" rev-parse HEAD)"
   printf 'refs/heads/main %s refs/heads/main %s\n' "$sha" "$zeroes" > "$tmp/refs"
   tty_run() { (cd "$repo" && env -u CI -u NO_COLOR TERM=xterm "$@" script -qec "bash '$HOOK' origin git@github.com:me/x.git < '$tmp/refs'" /dev/null 2>&1); }

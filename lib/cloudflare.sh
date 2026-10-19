@@ -394,7 +394,8 @@ cloudflare_smoke_test() {
   # stderr discarded, read as "the service did not answer" and failed a deploy
   # that had worked. Probe once and drop the flag rather than mis-report.
   local retry_all=""
-  if curl --help all 2>/dev/null | grep -q -- '--retry-all-errors'; then
+  # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+  if grep -q -- '--retry-all-errors' <<< "$(curl --help all 2>/dev/null)"; then
     retry_all="--retry-all-errors"
   fi
   local curl_err=""

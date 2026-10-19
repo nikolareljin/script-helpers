@@ -281,7 +281,8 @@ docker_add_user_to_group() {
     log_info "Running as root -- no group change needed."
     return 0
   fi
-  if id -nG "$user" 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
+  # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+  if grep -qx docker <<< "$(id -nG "$user" 2>/dev/null | tr ' ' '\n')"; then
     log_info "User '$user' is already in the docker group."
     return 0
   fi

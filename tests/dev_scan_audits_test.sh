@@ -78,8 +78,8 @@ summary() { printf '%s\n' "$OUT" | sed -n '/^preflight summary/,$p'; }
 # 1. pyproject.toml in backend/, a lockfile in frontend/: each audited where it is.
 r="$(new_repo pyproj)"; two_projects "$r"
 scan "$r"
-if [[ $RC -eq 0 ]] && summary | grep -q "PASS  python (backend/) dependency audit" \
-   && summary | grep -q "PASS  node (frontend/) dependency audit" \
+if [[ $RC -eq 0 ]] && grep -q "PASS  python (backend/) dependency audit" <<< "$(summary)" \
+   && grep -q "PASS  node (frontend/) dependency audit" <<< "$(summary)" \
    && grep -q "^pip-audit backend \.$" "$AUDIT_LOG" && grep -q "^npm frontend audit --audit-level=high$" "$AUDIT_LOG" \
    && ! grep -q "^safety" "$AUDIT_LOG"; then
   note "backend/ and frontend/: pip-audit . and npm audit run in each; safety not run for pyproject.toml"
@@ -105,8 +105,8 @@ fi
 r="$(new_repo finding)"; two_projects "$r"
 : > "$AUDIT_LOG"; RC=0
 OUT="$(cd "$r" && NPM_FAIL=1 CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/preflight.sh" --security-only 2>&1)" || RC=$?
-if [[ $RC -eq 1 ]] && summary | grep -q "FAIL  node (frontend/) dependency audit" \
-   && summary | grep -q "PASS  python (backend/) dependency audit"; then
+if [[ $RC -eq 1 ]] && grep -q "FAIL  node (frontend/) dependency audit" <<< "$(summary)" \
+   && grep -q "PASS  python (backend/) dependency audit" <<< "$(summary)"; then
   note "npm audit finding in frontend/: that step fails, exit 1"
 else
   error "finding: rc=$RC summary='$(summary)'"
@@ -115,7 +115,7 @@ fi
 # 5. No lockfile: the npm audit is a SKIP with its reason, not a PASS.
 rm -f "$r/frontend/package-lock.json"
 scan "$r"
-if [[ $RC -eq 0 ]] && summary | grep -q "SKIP  node (frontend/) dependency audit — No package-lock.json; npm audit needs one and did not run." \
+if [[ $RC -eq 0 ]] && grep -q "SKIP  node (frontend/) dependency audit — No package-lock.json; npm audit needs one and did not run." <<< "$(summary)" \
    && ! grep -q "^npm" "$AUDIT_LOG"; then
   note "no package-lock.json: SKIP with the reason, npm not run"
 else
@@ -130,7 +130,7 @@ done
 for c in bandit npm gitleaks; do ln -sf "$tmp/bin/$c" "$tmp/nopa/$c"; done
 r="$(new_repo nopipaudit)"; two_projects "$r"
 scan "$r" "$tmp/nopa"
-if [[ $RC -eq 0 ]] && summary | grep -q "SKIP  python (backend/) dependency audit — pip-audit is not installed" \
+if [[ $RC -eq 0 ]] && grep -q "SKIP  python (backend/) dependency audit — pip-audit is not installed" <<< "$(summary)" \
    && grep -q "^bandit backend" "$AUDIT_LOG"; then
   note "pip-audit missing: SKIP with the reason (bandit alone is not an audit)"
 else
@@ -140,7 +140,7 @@ fi
 # 7. A Python project with neither requirements.txt nor pyproject.toml: SKIP.
 r="$(new_repo nomanifest)"; two_projects "$r" none; printf 'from setuptools import setup\nsetup()\n' > "$r/backend/setup.py"
 scan "$r"
-summary | grep -q "SKIP  python (backend/) dependency audit — No requirements.txt or pyproject.toml" \
+grep -q "SKIP  python (backend/) dependency audit — No requirements.txt or pyproject.toml" <<< "$(summary)" \
   && note "no Python manifest pip-audit reads: SKIP with the reason" || error "no manifest: summary='$(summary)'"
 
 # 8. Without .preflight, detected projects are audited the same way.
@@ -173,14 +173,14 @@ printf '{"name":"f","version":"1.0.0"}\n' > "$r/frontend/package.json"; printf '
 printf 'node frontend\n' > "$r/.preflight"
 : > "$AUDIT_LOG"; RC=0
 OUT="$(cd "$r" && CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/preflight.sh" --quick 2>&1)" || RC=$?
-if summary | grep -q "SKIP  dependency audits — not run with --quick; ./dev scan runs them" && ! grep -q " audit --audit-level" "$AUDIT_LOG"; then
+if grep -q "SKIP  dependency audits — not run with --quick; ./dev scan runs them" <<< "$(summary)" && ! grep -q " audit --audit-level" "$AUDIT_LOG"; then
   note "--quick (pre-push): no audit, one SKIP line naming ./dev scan"
 else
   error "quick: rc=$RC log='$(cat "$AUDIT_LOG")' summary='$(summary)'"
 fi
 : > "$AUDIT_LOG"; RC=0
 OUT="$(cd "$r" && CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/preflight.sh" 2>&1)" || RC=$?
-if summary | grep -q "node (frontend/) dependency audit (report only)" && grep -q "^npm frontend audit" "$AUDIT_LOG"; then
+if grep -q "node (frontend/) dependency audit (report only)" <<< "$(summary)" && grep -q "^npm frontend audit" "$AUDIT_LOG"; then
   note "full preflight: audits, labelled report only"
 else
   error "full: rc=$RC log='$(cat "$AUDIT_LOG")' summary='$(summary)'"

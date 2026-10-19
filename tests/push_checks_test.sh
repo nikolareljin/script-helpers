@@ -381,7 +381,7 @@ evil="$(printf '040000 tree %s\t..\n' "$sub" | git hash-object -t tree -w --lite
 if [[ -n "$evil" ]] && evil_c="$(g commit-tree "$evil" -p "$(git rev-parse HEAD)" -m evil 2>/dev/null)"; then
   rm -f "$tmp"/escaped.sh
   run_checks "refs/heads/evil $evil_c refs/heads/evil $zeroes" >/dev/null 2>&1
-  if find "$tmp" -maxdepth 3 -name escaped.sh -newer "$tmp/refs" -not -path "*/.git/*" | grep -q .; then
+  if grep -q . <<< "$(find "$tmp" -maxdepth 3 -name escaped.sh -newer "$tmp/refs" -not -path "*/.git/*")"; then
     error "a ../ path in a crafted tree was written outside the check's directory"
   else
     ok "a ../ path in a crafted tree is not written outside the check's directory"

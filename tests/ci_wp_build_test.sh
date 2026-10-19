@@ -398,7 +398,7 @@ rc=$?
 if [[ $rc -ne 0 ]] && grep -q "outside the plugin" <<<"$out"; then
   note "a symlink leaving the plugin is refused"
 elif [[ -f "$tmp/olnk/lnk-1.2.3.zip" ]] \
-     && unzip -p "$tmp/olnk/lnk-1.2.3.zip" 'lnk/lib/config.txt' 2>/dev/null | grep -q OUTSIDE; then
+     && grep -q OUTSIDE <<< "$(unzip -p "$tmp/olnk/lnk-1.2.3.zip" 'lnk/lib/config.txt' 2>/dev/null)"; then
   error "the zip carries the content of a file from outside the plugin"
 else
   error "a symlink leaving the plugin was not refused (exit ${rc})"
@@ -423,7 +423,7 @@ if [[ ! -f "$tmp/olnk3/lnk-1.2.3.zip" ]]; then
   error "a plugin with an internal symlink did not build: ${out##*$'\n'}"
 elif [[ -L "$tmp/olnk3/lnk/lib/alias.php" ]]; then
   error "the package still contains a symlink; ZipArchive would write it as a text file"
-elif ! unzip -p "$tmp/olnk3/lnk-1.2.3.zip" 'lnk/lib/alias.php' 2>/dev/null | grep -q "Plugin Name"; then
+elif ! grep -q "Plugin Name" <<< "$(unzip -p "$tmp/olnk3/lnk-1.2.3.zip" 'lnk/lib/alias.php' 2>/dev/null)"; then
   error "the zip entry for the resolved link does not carry the file's content"
 else
   note "an internal symlink is resolved into a regular file in both the tree and the zip"

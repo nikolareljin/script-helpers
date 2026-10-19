@@ -299,8 +299,8 @@ pc_lint() {
       *.yml|*.yaml) kind="yaml" ;;
       *.ps1|*.psm1) kind="ps" ;;
       *) kind="none"
-         if [[ "${path##*/}" != *.* ]] && pc_cat "$tip" "$path" 2>/dev/null | head -n1 \
-              | grep -qE '^#!.*[/ ](ba)?sh([[:space:]]|$)'; then kind="sh"; fi ;;
+         if [[ "${path##*/}" != *.* ]] && grep -qE '^#!.*[/ ](ba)?sh([[:space:]]|$)' \
+              <<< "$(pc_cat "$tip" "$path" 2>/dev/null | head -n1)"; then kind="sh"; fi ;;
     esac
     case "$kind" in
       sh)
@@ -310,7 +310,8 @@ pc_lint() {
           # No shebang (a sourced library): bash, as bash -n above reads it;
           # otherwise shellcheck refuses with SC2148 for any such file.
           local scsh=()
-          pc_cat "$tip" "$path" | head -n1 | grep -q '^#!' || scsh=(--shell=bash)
+          # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+          grep -q '^#!' <<< "$(pc_cat "$tip" "$path" | head -n1)" || scsh=(--shell=bash)
           out="$(pc_cat "$tip" "$path" | shellcheck -S warning "${scsh[@]+"${scsh[@]}"}" - 2>&1)" || pc_find lint "shellcheck:$PC_NL$(pc_named "$path" "$out")"
         fi ;;
       py)

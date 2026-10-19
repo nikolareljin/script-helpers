@@ -395,7 +395,8 @@ case "$MODE" in
         # New branch, or a remote tip this clone has never seen: everything the
         # target remote's refs do not have. Only that remote counts: a commit
         # already on another remote (a private one) is still new to this one.
-        if [[ -n "$PUSH_REMOTE" ]] && git -C "$TOP" remote 2>/dev/null | grep -qxF -- "$PUSH_REMOTE"; then
+        # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+        if [[ -n "$PUSH_REMOTE" ]] && grep -qxF -- "$PUSH_REMOTE" <<< "$(git -C "$TOP" remote 2>/dev/null)"; then
           add_revs "$lsha --not --remotes=$PUSH_REMOTE"
         else
           add_revs "$lsha"

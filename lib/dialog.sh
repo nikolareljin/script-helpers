@@ -103,7 +103,8 @@ _dialog_call_ok() {
 # dialog prints it, and exits 0, for a box given no arguments. It must not be
 # taken for an answer.
 _dialog_is_help_text() {
-  [[ "${1:-}" == *"Usage: dialog"* ]] && head -n 1 <<<"${1:-}" | grep -q 'version'
+  # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+  [[ "${1:-}" == *"Usage: dialog"* ]] && grep -q 'version' <<< "$(head -n 1 <<<"${1:-}")"
 }
 
 # Usage: dialog_run <dialog args...>; runs dialog for a box with no answer to

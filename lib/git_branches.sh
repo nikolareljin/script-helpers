@@ -125,7 +125,8 @@ git_branches_merge_state() {
   cherry="$(git cherry "$base" "$synth" 2>/dev/null)" || { printf 'unknown\n'; return 0; }
   [[ -n "$cherry" ]] || { printf 'unknown\n'; return 0; }
 
-  if ! printf '%s\n' "$cherry" | grep -q '^-'; then
+  # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+  if ! grep -q '^-' <<< "$cherry"; then
     printf 'unmerged\n'; return 0
   fi
 

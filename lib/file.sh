@@ -100,11 +100,13 @@ download_file() {
 # Usage: is_valid_iso <path>; returns 0 if ISO signature is detected.
 # Returns: 0 file(1) reports ISO 9660; 1 otherwise.
 # Output: nothing.
-is_valid_iso() { file "$1" | grep -q "ISO 9660"; }
+# Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+is_valid_iso() { grep -q "ISO 9660" <<< "$(file "$1")"; }
 # Usage: is_valid_checksum <path>; returns 0 if checksum file looks like text.
 # Returns: 0 file(1) reports ASCII text; 1 otherwise.
 # Output: nothing.
-is_valid_checksum() { file "$1" | grep -q "ASCII text"; }
+# Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+is_valid_checksum() { grep -q "ASCII text" <<< "$(file "$1")"; }
 
 # Usage: verify_checksum <iso_file> <checksum_file> [checksum_type]; checks hashes.
 # Returns: 0 the hash matches the entry for this file; 1 not an ISO, not a checksum file, no entry, mismatch, or hash tool missing.

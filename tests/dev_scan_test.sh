@@ -42,7 +42,7 @@ if [[ " $* " == *" --log-opts "* ]]; then
   # Only the commits git log selects: the lines they add.
   all="$*"; opts="${all##*--log-opts }"
   # shellcheck disable=SC2086
-  if git log -p $opts | grep -q '^+.*LEAKME'; then echo "leaks found: 1"; exit 1; fi
+  if grep -q '^+.*LEAKME' <<< "$(git log -p $opts)"; then echo "leaks found: 1"; exit 1; fi
   echo "no leaks found"; exit 0
 elif [[ " $* " == *" --no-git "* ]]; then
   files="$(find . -type f -not -path './.git/*')"

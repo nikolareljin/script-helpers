@@ -121,9 +121,10 @@ RUNNER='
     # single quote anywhere: this function is carried inside a single-quoted
     # RUNNER string, and one quote here ends it and breaks the embedded script.
     body="$(grep -v "^[[:space:]]*#" "$1" 2>/dev/null)"
-    printf "%s" "$body" | grep -qE "(^|[^[:alnum:]_-])git " && need="$need git"
-    printf "%s" "$body" | grep -qE "(^|[^[:alnum:]_])python3?( |$)" && need="$need python3"
-    printf "%s" "$body" | grep -qE "(^|[^[:alnum:]_])curl( |$)" && need="$need curl"
+    # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+    grep -qE "(^|[^[:alnum:]_-])git " <<< "$body" && need="$need git"
+    grep -qE "(^|[^[:alnum:]_])python3?( |$)" <<< "$body" && need="$need python3"
+    grep -qE "(^|[^[:alnum:]_])curl( |$)" <<< "$body" && need="$need curl"
     case "$1" in
       # docker_install supports apt/dnf/pacman, not apk, so on this Alpine-based
       # image the installer correctly refuses and the test correctly fails.

@@ -964,11 +964,13 @@ ollama_runtime_ensure_docker_container() {
   base_url="$(ollama_runtime_api_base_url "$env_file")"
   host_port="$(ollama_runtime_host_port "$base_url")"
 
-  if docker ps --filter "name=^/${container}$" --filter "status=running" -q | grep -q .; then
+  # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+  if grep -q . <<< "$(docker ps --filter "name=^/${container}$" --filter "status=running" -q)"; then
     return 0
   fi
 
-  if docker ps -a --filter "name=^/${container}$" -q | grep -q .; then
+  # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+  if grep -q . <<< "$(docker ps -a --filter "name=^/${container}$" -q)"; then
     print_info "Starting Docker Ollama container: ${container}"
     if ! docker start "$container" >/dev/null; then
       print_error "Failed to start Docker Ollama container: ${container}"

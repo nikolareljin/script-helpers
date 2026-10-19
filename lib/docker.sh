@@ -64,9 +64,10 @@ check_docker() {
 
   local info_output
   if ! info_output=$(docker info 2>&1); then
-    if echo "$info_output" | grep -qi "permission denied"; then
+    # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+    if grep -qi "permission denied" <<< "$info_output"; then
       log_error "Docker daemon reachable but permission denied. Add your user to the docker group or run with sudo."
-    elif echo "$info_output" | grep -qi "Cannot connect to the Docker daemon"; then
+    elif grep -qi "Cannot connect to the Docker daemon" <<< "$info_output"; then
       log_error "Docker daemon is not running. Start Docker and try again."
     else
       log_error "Docker daemon is not running or unreachable: $info_output"
@@ -95,7 +96,8 @@ _docker_service_running() {
     [[ -n "$ids" ]]
     return
   fi
-  docker_compose ps "$service_name" 2>/dev/null | grep -Eq '(^|[[:space:]])(Up|running)([[:space:]]|$)'
+  # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+  grep -Eq '(^|[[:space:]])(Up|running)([[:space:]]|$)' <<< "$(docker_compose ps "$service_name" 2>/dev/null)"
 }
 
 # Usage: wait_for_service <service_name> [max_wait_seconds]; waits until running.
@@ -169,7 +171,7 @@ docker_status() {
       since_list=()
       local cid rf
       for cid in $ids; do
-        rf=$(docker ps --filter "id=$cid" --format '{{.RunningFor}}' 2>/dev/null | head -n1)
+        rf=$(docker ps --filter "id=$cid" --format '{{.RunningFor}}' 2>/dev/null | sed -n 1p)
         [[ -n "$rf" ]] && since_list+=("$rf")
       done
       if [[ ${#since_list[@]} -gt 0 ]]; then
@@ -181,10 +183,12 @@ docker_status() {
     else
       # Not running; inspect ps output to differentiate failed vs not started
       out=$(docker_compose ps "$service" 2>/dev/null || true)
-      if echo "$out" | grep -Eqi '(^|[^A-Za-z])(Exit|Exited|exited|dead|restarting)([^A-Za-z]|$)'; then
+      # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+      if grep -Eqi '(^|[^A-Za-z])(Exit|Exited|exited|dead|restarting)([^A-Za-z]|$)' <<< "$out"; then
         # Extract a short status phrase if possible
         local reason
-        reason=$(echo "$out" | grep -Eio '(Exit(ed)?[[:space:]]*\(?[0-9]*\)?|exited[[:space:]]*\(?[0-9]*\)?|dead|restarting[^ ]*)' | head -n1)
+        # sed -n 1p, not head: head exits early and can SIGPIPE the producer (141 under pipefail).
+        reason=$(echo "$out" | grep -Eio '(Exit(ed)?[[:space:]]*\(?[0-9]*\)?|exited[[:space:]]*\(?[0-9]*\)?|dead|restarting[^ ]*)' | sed -n 1p)
         log_error "[failed] ${service} -- failed (${reason:-last state unknown})"
       else
         log_warn "[stopped] ${service} -- not running"

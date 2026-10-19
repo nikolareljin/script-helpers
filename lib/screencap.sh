@@ -302,7 +302,8 @@ _screencap__record_android() {
 _screencap__record_ios() {
   local udid="$1" out="$2" seconds="$3" pid rc=0
   if declare -f ios_booted_simulators >/dev/null 2>&1; then
-    if ! ios_booted_simulators 2>/dev/null | grep -qx "$udid"; then
+    # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+    if ! grep -qx "$udid" <<< "$(ios_booted_simulators 2>/dev/null)"; then
       log_error "screencap_record: '$udid' is not a booted simulator."
       log_error "Recording a physical iOS device needs Xcode or QuickTime driving it; simctl cannot do it."
       return 3

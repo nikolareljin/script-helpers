@@ -196,7 +196,7 @@ PATH="$tmp/bin:$PATH" bash "$SCRIPT" \
   --workdir "$tmp/proj" --test-command 'true' >/dev/null 2>&1
 if ! grep -qx -- 'rm' "$tmp/argv"; then
   error "docker rm was never called, so the cleanup assertion proves nothing"
-elif grep -A2 -x -- 'rm' "$tmp/argv" | grep -qx -- '-v'; then
+elif grep -qx -- '-v' <<< "$(grep -A2 -x -- 'rm' "$tmp/argv")"; then
   note "the database container is removed with its anonymous volume"
 else
   error "docker rm ran without -v; the container's volume would be orphaned"

@@ -373,7 +373,8 @@ android_avd_create() {
   local name="${1:-}" api="${2:-34}" abi="${3:-x86_64}" avdmanager
   [[ -n "$name" ]] || { log_error "android_avd_create: need <name>"; return 2; }
   avdmanager="$(android_sdk_tool avdmanager)" || return 3
-  if android_avd_list 2>/dev/null | grep -qx "$name"; then
+  # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+  if grep -qx "$name" <<< "$(android_avd_list 2>/dev/null)"; then
     log_info "android: AVD '$name' already exists"
     return 0
   fi

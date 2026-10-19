@@ -27,7 +27,7 @@ for f in "$root_dir"/scripts/*.sh "$root_dir"/tests/machine/*.sh; do
     if [[ $rc -ne 0 ]]; then
       echo "[script_help_test][ERROR] ${f#"$root_dir"/} $flag exited $rc: $(printf '%s' "$out" | head -n 2)" >&2
       fail=1
-    elif ! printf '%s' "$out" | grep -qi 'usage'; then
+    elif ! grep -qi 'usage' <<< "$out"; then
       echo "[script_help_test][ERROR] ${f#"$root_dir"/} $flag printed no usage" >&2
       fail=1
     fi

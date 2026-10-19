@@ -176,7 +176,7 @@ gc -C "$repo" rm -q --cached staged.txt; rm -f "$repo/staged.txt"
 # GIT_INDEX_FILE=.git/index (relative), -a and -- <path> a temporary index, a
 # linked worktree its own. Real commits, so each OS checks what its git sets.
 # The stand-in finds "idx.txt" only where gitleaks would look for it.
-printf '#!/usr/bin/env bash\nr=""; while [[ $# -gt 0 ]]; do [[ "$1" == --report-path ]] && r="$2"; shift; done\ngit diff --cached --name-only | grep -q idx.txt || exit 0\nprintf %%s "[{\\"RuleID\\": \\"x\\"}]" > "$r"; exit 1\n' > "$tmp/gl-index"; chmod +x "$tmp/gl-index"
+printf '#!/usr/bin/env bash\nr=""; while [[ $# -gt 0 ]]; do [[ "$1" == --report-path ]] && r="$2"; shift; done\ngrep -q idx.txt <<< \"$(git diff --cached --name-only)\" || exit 0\nprintf %%s "[{\\"RuleID\\": \\"x\\"}]" > "$r"; exit 1\n' > "$tmp/gl-index"; chmod +x "$tmp/gl-index"
 mkdir -p "$tmp/idx-hooks"
 printf '#!/usr/bin/env bash\nGITLEAKS_BIN="%s" exec bash "%s" --staged --no-machine\n' "$tmp/gl-index" "$CHECK" > "$tmp/idx-hooks/pre-commit"
 chmod +x "$tmp/idx-hooks/pre-commit"
