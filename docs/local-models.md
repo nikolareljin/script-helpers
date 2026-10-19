@@ -151,6 +151,31 @@ What goes into a repository
    try one), and so do the settings below. The start script does not have to
    source it: it is read as data.
 
+Choosing a model by type of work
+--------------------------------
+
+A project can name, per role, a **type** of work instead of a model per class
+of machine: `general`, `reasoning`, `classify`, `extract`, `vision`, `embed`,
+`code` (and the other types in `config/ollama_model_tiers.txt`), with an
+optional default model of its own. The approved model for each type and tier
+is in `config/ollama_model_tiers.txt`, generated data shipped with this
+library.
+
+```bash
+model="$(scripts/ollama_models.sh select general "$OLLAMA_URL" .env OLLAMA_MODEL qwen2.5:7b)" || exit $?
+```
+
+| Case | Result |
+|---|---|
+| no project model, or the same as the tier's | the tier's model |
+| they differ, on a terminal | asked once: pull the project's model, or use the tier's; the answer goes into `.env` (`OLLAMA_MODEL_CHOICE`, and `OLLAMA_MODEL_CHOICE_FOR` = the tier's model it was asked about); asked again only when the tier's model changes |
+| they differ, no terminal or CI | the tier's model if installed, else the project's if installed, else exit 12 naming both, nothing pulled |
+| chosen model missing | pulled after the disk and memory check; `OLLAMA_PULL_MISSING=1` pulls, `0` never, unset asks on a terminal |
+| `AI_MODEL_TIER` not a tier | exit 11, naming the value |
+
+Only the model is printed on stdout. Nothing is ever removed.
+`scripts/ollama_models.sh class` prints the host's tier.
+
 The start script
 ----------------
 

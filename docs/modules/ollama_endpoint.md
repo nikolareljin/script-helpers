@@ -252,6 +252,33 @@ OLLAMA_PORT=11435                  # the port published on this machine
   - Behavior: The file is read as the models file is, as data: it is never sourced, so `$`, a backquote or a space in a value is only a value. A file that is not there exports nothing. A `NAME` may be any variable name, also one this module uses itself (`name`, `value`, `file`).
   - Returns: 0; 2, exporting nothing, when a `NAME` is not a variable name; 9 when the file sets a `NAME` the caller holds read-only (its blank would otherwise stand for the file's value, silently).
 
+- ollama_model_tiers_file
+  - Purpose: Print the path of the type x tier data file: `OLLAMA_MODEL_TIERS_FILE`, else `config/ollama_model_tiers.txt` in this library.
+  - Format: `threshold <key> <GiB>` and `type <type> <small> <standard> <large> <xlarge>`, one per line; `#` comments. The file is generated data: every type names a model for all four tiers.
+
+- ollama_model_tier_types
+  - Purpose: Print every type the data file names (`general`, `reasoning`, `classify`, `extract`, `vision`, `embed`, `code`, ...), one per line.
+
+- ollama_host_tier
+  - Purpose: Print this host's tier: `small`, `standard`, `large` or `xlarge`.
+  - Behavior: `AI_MODEL_TIER` names it (any case). Otherwise memory and the largest GPU (`ollama_machine_figures`) against the data file's thresholds: xlarge when the GPU has `xlarge_vram_gb`; large when the GPU has `large_vram_gb` or memory `large_ram_gb`; small when memory and GPU are both below `small_below_ram_gb`; else standard. Memory that cannot be read is standard.
+  - Returns: 0; 3, printing nothing, for an `AI_MODEL_TIER` that is not a tier (the message names the variable and the value).
+
+- ollama_tier_model type [tier]
+  - Purpose: Print the approved model for `type` on `tier` (default: `ollama_host_tier`).
+  - Returns: 0; 2 for an unknown type (the known ones are named), a row with no valid model for the tier, or no data file; 3 for a bad tier.
+
+- ai_model_resolve type ollama_url [env_file] [NAME] [default_model]
+  - Purpose: Print the one model a project uses for a role, on stdout alone (messages on stderr), so `model="$(ai_model_resolve ...)"` captures it.
+  - Y is `ollama_tier_model type`; X is `NAME` from the environment, else from `env_file`, else `default_model`.
+  - X empty or the same as Y (case and an omitted `:latest` do not count): Y.
+  - X differs, on a terminal (never in CI): asks once, "1) pull X (your env) 2) use Y (approved for this tier)", default 2. The answer is stored in `env_file` as `NAME_CHOICE=<model>` and `NAME_CHOICE_FOR=<Y>` (with no `NAME`: `AI_MODEL_<TYPE>_CHOICE`). It is asked again only when Y changes, or when the stored choice is neither X nor Y. A new `env_file` is created with mode 600; an existing one keeps its mode and other lines.
+  - X differs, no terminal: Y if the Ollama has it, else X if it has it, else 12, naming both and pulling nothing.
+  - The chosen model is pulled if missing through `ollama_endpoint_ensure_models` (disk and memory check first). `OLLAMA_PULL_MISSING`: `1` pulls without asking, `0` never pulls, `ask` (the default here) asks on a terminal and pulls nothing without one. A model just chosen on the terminal is pulled without a second question unless `OLLAMA_PULL_MISSING=0`. No model is ever removed.
+  - An Ollama on another machine: the tier is `AI_MODEL_TIER`, else measured from a stated `OLLAMA_BUDGET_MEM_TOTAL_BYTES`, else standard.
+  - Returns: 0; 1-8 as `ollama_endpoint_ensure_models` (4 no Ollama answers, 5 missing and not pulled); 10 bad arguments (unknown type, a `NAME` that is not a variable name, a model that is not a model reference, no data file, an `env_file` that cannot be written); 11 a bad `AI_MODEL_TIER`; 12 no terminal and the Ollama has neither model.
+  - Example: `model="$(ai_model_resolve general http://127.0.0.1:11434 .env OLLAMA_MODEL qwen2.5:7b)" || exit $?`
+
 What this module does not do
 ----------------------------
 

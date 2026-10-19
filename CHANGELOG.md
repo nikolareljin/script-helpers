@@ -2,6 +2,7 @@
 
 ### Added
 
+- `scripts/ollama_models.sh select <type>` and `ai_model_resolve` pick a local model by type of work and host tier from `config/ollama_model_tiers.txt` (generated data), ask once on a terminal when the project's own model differs, and store the answer in the project's `.env`. `class` now prints the tier.
 - `ps/lib/rust.ps1` resolves the selected rustup Cargo before native Rust checks run.
 - `tests/machine/rust_resolver_check.sh` and `ps/tests/machine/rust_resolver_check.ps1` check the Rust resolver against the installed rustup and cargo: PATH order, the PATH-cargo-differs warning, `ErrorActionPreference = 'Stop'`, and preflight on a throwaway cargo project.
 

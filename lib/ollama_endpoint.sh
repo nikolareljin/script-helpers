@@ -2044,3 +2044,280 @@ ollama_project_prepare() {
     [[ -n "$(_ollama_ep_setting OLLAMA_PULL_MISSING "$_oep_env")" ]] || export OLLAMA_PULL_MISSING=ask
     ollama_project_ensure_models "$_oep_mf" "$_oep_env" ${_oep_vars[@]+"${_oep_vars[@]}"} )
 }
+
+# --- a model by type of work and tier of host --------------------------------
+#
+# A project names, per role, the type of work (general, reasoning, classify,
+# extract, vision, embed, code, ...) and, optionally, a default model. The
+# approved model for each type and tier of host is data shipped with this
+# library (config/ollama_model_tiers.txt, generated). ai_model_resolve picks
+# between that and the project's own model, asks once on a terminal, and
+# remembers the answer in the project's .env.
+
+# This library's root, found when the module is sourced: the data file is
+# under it whether or not helpers.sh loaded the module.
+_OLLAMA_EP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)" || _OLLAMA_EP_ROOT=""
+
+# Usage: ollama_model_tiers_file; prints the path of the type x tier data
+# file: OLLAMA_MODEL_TIERS_FILE, else config/ollama_model_tiers.txt here.
+ollama_model_tiers_file() {
+  printf '%s\n' "${OLLAMA_MODEL_TIERS_FILE:-${_OLLAMA_EP_ROOT}/config/ollama_model_tiers.txt}"
+}
+
+# Usage: _ollama_ep_tiers_get <kind> <key>; prints the fields after
+# "<kind> <key>" in the data file (the last such line wins), or nothing.
+_ollama_ep_tiers_get() {
+  local file
+  file="$(ollama_model_tiers_file)"
+  [[ -f "$file" ]] || return 0
+  awk -v k="${1:-}" -v n="${2:-}" '
+    { sub(/\r$/, "") }
+    /^[ \t]*#/ || NF == 0 { next }
+    $1 == k && $2 == n { line = ""; for (i = 3; i <= NF; i++) line = line (i > 3 ? " " : "") $i; found = line }
+    END { if (found != "") print found }' "$file" 2>/dev/null || true
+}
+
+# Usage: ollama_model_tier_types; prints every type the data file names, one
+# per line, in file order.
+ollama_model_tier_types() {
+  local file
+  file="$(ollama_model_tiers_file)"
+  [[ -f "$file" ]] || return 0
+  awk '{ sub(/\r$/, "") } $1 == "type" && NF >= 3 && !seen[$2]++ { print $2 }' "$file" 2>/dev/null || true
+}
+
+# Usage: ollama_host_tier; prints this host's tier: small, standard, large or
+# xlarge. AI_MODEL_TIER names it instead of measuring (any case, spaces
+# ignored). Otherwise memory and the largest GPU (ollama_machine_figures, so
+# OLLAMA_BUDGET_MEM_TOTAL_BYTES and OLLAMA_BUDGET_GPU_LARGEST_BYTES state them)
+# are compared with the data file's thresholds. Memory that cannot be read is
+# standard, never a guessed tier.
+# Returns 3 and prints nothing for an AI_MODEL_TIER that is not a tier.
+ollama_host_tier() {
+  local _oep_tier _oep_mem _oep_gpu _oep_small _oep_lram _oep_lvram _oep_xvram
+  _oep_tier="$(printf '%s' "${AI_MODEL_TIER:-}" | tr 'A-Z' 'a-z' | tr -d ' \t\r')" || true
+  if [[ -n "$_oep_tier" ]]; then
+    if ! _ollama_ep_tier_rank "$_oep_tier" >/dev/null; then
+      print_error "AI_MODEL_TIER is one of small, standard, large, xlarge; not '$(_ollama_ep_said "${AI_MODEL_TIER:-}")'" >&2
+      return 3
+    fi
+    printf '%s\n' "$_oep_tier"
+    return 0
+  fi
+  IFS=: read -r _oep_mem _oep_gpu <<<"$(ollama_machine_figures)"
+  _oep_small="$(_ollama_ep_uint "$(_ollama_ep_tiers_get threshold small_below_ram_gb)")" || _oep_small=""
+  _oep_lram="$(_ollama_ep_uint "$(_ollama_ep_tiers_get threshold large_ram_gb)")" || _oep_lram=""
+  _oep_lvram="$(_ollama_ep_uint "$(_ollama_ep_tiers_get threshold large_vram_gb)")" || _oep_lvram=""
+  _oep_xvram="$(_ollama_ep_uint "$(_ollama_ep_tiers_get threshold xlarge_vram_gb)")" || _oep_xvram=""
+  _oep_gpu="${_oep_gpu:-0}"
+  if [[ -z "$_oep_mem" ]]; then
+    _oep_tier=standard
+  elif [[ -n "$_oep_xvram" && "$_oep_gpu" -ge "$_oep_xvram" ]]; then
+    _oep_tier=xlarge
+  elif [[ -n "$_oep_lvram" && "$_oep_gpu" -ge "$_oep_lvram" ]] || [[ -n "$_oep_lram" && "$_oep_mem" -ge "$_oep_lram" ]]; then
+    _oep_tier=large
+  elif [[ -n "$_oep_small" && "$_oep_mem" -lt "$_oep_small" && "$_oep_gpu" -lt "$_oep_small" ]]; then
+    _oep_tier=small
+  else
+    _oep_tier=standard
+  fi
+  printf '%s\n' "$_oep_tier"
+}
+
+# Usage: ollama_tier_model <type> [tier]; prints the approved model for the
+# type on that tier (default: ollama_host_tier).
+# Returns 2 for a type the data file does not name, a type row without a
+# model for the tier, or a missing data file; 3 for a bad AI_MODEL_TIER or
+# tier argument.
+ollama_tier_model() {
+  local _oep_type="${1:-}" _oep_tier="${2:-}" _oep_row _oep_rank _oep_model
+  if [[ ! -f "$(ollama_model_tiers_file)" ]]; then
+    print_error "No model tiers file at $(_ollama_ep_said "$(ollama_model_tiers_file)") (OLLAMA_MODEL_TIERS_FILE)." >&2
+    return 2
+  fi
+  if [[ -z "$_oep_tier" ]]; then
+    _oep_tier="$(ollama_host_tier)" || return 3
+  fi
+  if ! _oep_rank="$(_ollama_ep_tier_rank "$_oep_tier")"; then
+    print_error "A tier is one of small, standard, large, xlarge; not '$(_ollama_ep_said "$_oep_tier")'" >&2
+    return 3
+  fi
+  _oep_row=""
+  [[ ! "$_oep_type" =~ ^[a-z][a-z0-9_-]*$ ]] || _oep_row="$(_ollama_ep_tiers_get type "$_oep_type")"
+  if [[ -z "$_oep_row" ]]; then
+    print_error "Unknown model type '$(_ollama_ep_said "$_oep_type")'. Known: $(ollama_model_tier_types | tr '\n' ' ' | sed 's/ $//')." >&2
+    return 2
+  fi
+  _oep_model="$(printf '%s\n' "$_oep_row" | awk -v i=$((_oep_rank + 1)) '{ print $i }')" || _oep_model=""
+  if [[ -z "$_oep_model" ]] || ! _ollama_ep_is_model "$_oep_model"; then
+    print_error "The model tiers file has no valid $_oep_tier model for type $_oep_type." >&2
+    return 2
+  fi
+  printf '%s\n' "$_oep_model"
+}
+
+# Usage: _ollama_ep_env_set <file> <NAME> <value>; sets NAME=value in an env
+# file: the existing line is replaced in place, otherwise one is added. A new
+# file is created readable by its owner only, as a .env may hold secrets.
+_ollama_ep_env_set() {
+  local file="${1:-}" name="${2:-}" value="${3:-}" tmpf
+  _ollama_ep_is_name "$name" || return 1
+  if [[ ! -e "$file" ]]; then
+    ( umask 077; : >"$file" ) || return 1
+  fi
+  tmpf="$(mktemp "${TMPDIR:-/tmp}/ollama_env.XXXXXX")" || return 1
+  if ! awk -v n="$name" -v v="$value" '
+      BEGIN { re = "^[ \t]*(export[ \t]+)?" n "[ \t]*=" }
+      { sub(/\r$/, "") }
+      $0 ~ re { if (!done) print n "=" v; done = 1; next }
+      { print }
+      END { if (!done) print n "=" v }' "$file" >"$tmpf"; then
+    rm -f "$tmpf"
+    return 1
+  fi
+  # Written through, not moved: the file keeps its owner and mode.
+  cat "$tmpf" >"$file" || { rm -f "$tmpf"; return 1; }
+  rm -f "$tmpf"
+}
+
+# The same model however it is written: case, and an omitted :latest.
+_ollama_ep_same_model() {
+  [[ "$(ollama_model_tagged "${1:-}" | tr 'A-Z' 'a-z')" == "$(ollama_model_tagged "${2:-}" | tr 'A-Z' 'a-z')" ]]
+}
+
+# Usage: ai_model_resolve <type> <ollama_url> [env_file] [NAME] [default_model]
+#
+# Prints, on stdout and alone, the model the project uses for one role. All
+# messages go to stderr, so `model="$(ai_model_resolve ...)"` captures it.
+#
+#   Y  the approved model for <type> on this host's tier (ollama_tier_model)
+#   X  the project's model: NAME from the environment, else from env_file,
+#      else default_model
+#
+# - X empty or the same as Y: Y.
+# - X differs, on a terminal (stdin and stderr; never in CI): asks "pull X or
+#   use Y?" once. The answer is stored in env_file as NAME_CHOICE=<model>,
+#   with NAME_CHOICE_FOR=<Y> (the approved model it was asked about). It is
+#   asked again only when Y changes, or the stored choice is neither X nor Y.
+#   With no NAME the keys are AI_MODEL_<TYPE>_CHOICE(_FOR); with no env_file
+#   nothing is stored.
+# - X differs, no terminal: Y if that Ollama has it, else X if it has it, else
+#   stop (12), naming both and pulling nothing.
+# The chosen model is then pulled if missing, after the disk and memory check
+# (ollama_endpoint_ensure_models). OLLAMA_PULL_MISSING: 1 pulls without asking,
+# 0 never pulls, ask (the default here) asks on a terminal and pulls nothing
+# without one. A model chosen on the terminal is pulled without a second
+# question unless OLLAMA_PULL_MISSING=0. No model is ever removed.
+#
+# The tier of an Ollama on another machine is not this machine's: there it is
+# AI_MODEL_TIER, else measured from OLLAMA_BUDGET_MEM_TOTAL_BYTES if stated,
+# else standard.
+#
+# Returns:
+#   0    a model was chosen and that Ollama has it
+#   1-8  as ollama_endpoint_ensure_models (4: no Ollama answers; 5: missing
+#        and not pulled under OLLAMA_PULL_MISSING)
+#   10   bad arguments: unknown type, NAME not a variable name, a model that is
+#        not a model reference, no data file, env_file not writable
+#   11   AI_MODEL_TIER is not small, standard, large or xlarge
+#   12   no terminal, the two differ, and that Ollama has neither
+ai_model_resolve() (
+  local IFS=$' \t\n'
+  local _oep_type="${1:-}" _oep_url="${2:-}" _oep_env="${3:-}" _oep_name="${4:-}" _oep_default="${5:-}"
+  local _oep_tier _oep_y _oep_x _oep_key _oep_choice _oep_for _oep_pick="" _oep_dir _oep_present
+  local _oep_asked=0 _oep_answer _oep_status=0 _oep_shown _oep_rc
+  _oep_url="${_oep_url%/}"
+  if [[ -z "$_oep_type" || -z "$_oep_url" ]]; then
+    print_error "ai_model_resolve needs a model type and an Ollama address." >&2
+    exit 10
+  fi
+  if [[ -n "$_oep_name" ]] && ! _ollama_ep_is_name "$_oep_name"; then
+    print_error "Not a variable name: $(_ollama_ep_said "$_oep_name")" >&2
+    exit 10
+  fi
+  _oep_shown="$(_ollama_ep_shown_url "$_oep_url")"
+
+  # Another machine's Ollama: its tier is not this machine's.
+  if ! ollama_endpoint_is_local "$_oep_url" && [[ -z "$(printf '%s' "${AI_MODEL_TIER:-}" | tr -d ' \t\r')" ]]; then
+    if _ollama_ep_uint "${OLLAMA_BUDGET_MEM_TOTAL_BYTES:-}" >/dev/null; then
+      _ollama_ep_uint "${OLLAMA_BUDGET_GPU_LARGEST_BYTES:-}" >/dev/null || export OLLAMA_BUDGET_GPU_LARGEST_BYTES=0
+    else
+      export AI_MODEL_TIER=standard
+    fi
+  fi
+  _oep_tier="$(ollama_host_tier)" || exit 11
+  _oep_y="$(ollama_tier_model "$_oep_type" "$_oep_tier")" || exit 10
+
+  _oep_x=""
+  if [[ -n "$_oep_name" ]]; then
+    _oep_x="$(printf '%s' "${!_oep_name:-}" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')" || true
+    [[ -n "$_oep_x" || -z "$_oep_env" ]] || _oep_x="$(ollama_models_file_get "$_oep_env" "$_oep_name")"
+  fi
+  [[ -n "$_oep_x" ]] || _oep_x="$(printf '%s' "$_oep_default" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+  if [[ -n "$_oep_x" ]] && ! _ollama_ep_is_model "$_oep_x"; then
+    print_error "Not a model reference: $(_ollama_ep_shown "$_oep_x")" >&2
+    exit 10
+  fi
+
+  if [[ -n "$_oep_name" ]]; then
+    _oep_key="${_oep_name}_CHOICE"
+  else
+    _oep_key="AI_MODEL_$(printf '%s' "$_oep_type" | tr 'a-z-' 'A-Z_')_CHOICE"
+  fi
+
+  if [[ -z "$_oep_x" ]] || _ollama_ep_same_model "$_oep_x" "$_oep_y"; then
+    _oep_pick="$_oep_y"
+  else
+    _oep_choice="" _oep_for=""
+    if [[ -n "$_oep_env" ]]; then
+      _oep_choice="$(ollama_models_file_get "$_oep_env" "$_oep_key")"
+      _oep_for="$(ollama_models_file_get "$_oep_env" "${_oep_key}_FOR")"
+    fi
+    if [[ -n "$_oep_choice" && -n "$_oep_for" ]] && _ollama_ep_same_model "$_oep_for" "$_oep_y" \
+       && { _ollama_ep_same_model "$_oep_choice" "$_oep_x" || _ollama_ep_same_model "$_oep_choice" "$_oep_y"; }; then
+      _oep_pick="$_oep_choice"
+      print_info "Using $_oep_pick for $_oep_type, as answered before ($_oep_key in $(_ollama_ep_said "$_oep_env"))." >&2
+    elif [[ "${CI:-}" != "true" && -z "${GITHUB_ACTIONS:-}" ]] && _ollama_ep_can_ask; then
+      printf 'Model for %s: your env has %s; the approved model for this host'"'"'s tier (%s) is %s.\n  1) pull %s (your env)\n  2) use %s (approved for this tier)\nChoose [1/2, default 2]: ' \
+        "$_oep_type" "$_oep_x" "$_oep_tier" "$_oep_y" "$_oep_x" "$_oep_y" >&2
+      IFS= read -r _oep_answer || _oep_answer=""
+      case "$(printf '%s' "$_oep_answer" | tr 'A-Z' 'a-z' | tr -d ' \t\r')" in
+        1|x|env) _oep_pick="$_oep_x" ;;
+        *) _oep_pick="$_oep_y" ;;
+      esac
+      _oep_asked=1
+      if [[ -n "$_oep_env" ]]; then
+        if ! _ollama_ep_env_set "$_oep_env" "$_oep_key" "$_oep_pick" \
+           || ! _ollama_ep_env_set "$_oep_env" "${_oep_key}_FOR" "$_oep_y"; then
+          print_error "Could not store the answer in $(_ollama_ep_said "$_oep_env")." >&2
+          exit 10
+        fi
+        print_info "Stored $_oep_key=$_oep_pick in $(_ollama_ep_said "$_oep_env"); asked again when the approved model changes." >&2
+      fi
+    else
+      if ! _oep_present="$(ollama_endpoint_models "$_oep_url")"; then
+        print_error "No Ollama answers at ${_oep_shown}." >&2
+        exit 4
+      fi
+      if [[ -z "$(ollama_models_missing "$(ollama_model_tagged "$_oep_y")" "$_oep_present")" ]]; then
+        _oep_pick="$_oep_y"
+      elif [[ -z "$(ollama_models_missing "$(ollama_model_tagged "$_oep_x")" "$_oep_present")" ]]; then
+        _oep_pick="$_oep_x"
+      else
+        print_error "No terminal to ask, and the Ollama at ${_oep_shown} has neither ${_oep_x} (your env) nor ${_oep_y} (approved for the ${_oep_tier} tier) for ${_oep_type}. Nothing was pulled. Pull one of them, or run this from a terminal." >&2
+        exit 12
+      fi
+    fi
+  fi
+
+  if ollama_endpoint_is_local "$_oep_url"; then _oep_dir="$(ollama_models_dir)"; else _oep_dir="/"; fi
+  if [[ "$_oep_asked" -eq 1 && "$(_ollama_ep_pull_mode 2>/dev/null)" != "off" ]]; then
+    # The person has just chosen this model: no second question.
+    OLLAMA_PULL_MISSING=1 ollama_endpoint_ensure_models "$_oep_url" "$_oep_dir" "$_oep_pick" || _oep_status=$?
+  else
+    _oep_rc="$(printf '%s' "${OLLAMA_PULL_MISSING:-}" | tr -d ' \t\r')" || true
+    OLLAMA_PULL_MISSING="${_oep_rc:-ask}" ollama_endpoint_ensure_models "$_oep_url" "$_oep_dir" "$_oep_pick" || _oep_status=$?
+  fi
+  [[ "$_oep_status" -eq 0 ]] || exit "$_oep_status"
+  printf '%s\n' "$_oep_pick"
+)

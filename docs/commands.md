@@ -2074,10 +2074,21 @@ The models this machine gets from a models file (ai-models.env), by its class (m
 
 ```text
 Usage: scripts/ollama_models.sh class [models_file]
+       scripts/ollama_models.sh select <type> <ollama_url> [env_file] [NAME] [default_model]
        scripts/ollama_models.sh pick <models_file> [NAME...]
        scripts/ollama_models.sh ensure <models_file> <ollama_url> [NAME...]
-  class   Print this machine's memory and largest GPU in GiB and, given a models
-          file, the model each NAME gets.
+  class   Print this machine's memory and largest GPU in GiB, its tier (small,
+          standard, large, xlarge) and, given a models file, the model each NAME gets.
+  select  Print the one model to use for a type of work (general, reasoning,
+          classify, extract, vision, embed, code, ...): the approved model for this
+          host's tier (config/ollama_model_tiers.txt), or the project's own model
+          (NAME from the environment, else from env_file, else default_model). When
+          they differ, a terminal is asked once and the answer is stored in env_file
+          (NAME_CHOICE, NAME_CHOICE_FOR); with no terminal: the tier's model if the
+          Ollama has it, else the project's, else exit 12. Pulls the chosen model if
+          missing, after the disk and memory check (OLLAMA_PULL_MISSING: 1 pull,
+          0 never, ask the default). Never removes a model. Only the model is
+          printed on stdout.
   pick    Print the models this machine gets, one per line: every NAME in the file,
           or only the NAMEs given. A NAME set in the environment wins.
   ensure  Pull the picked models into the Ollama at <ollama_url> when missing, after
@@ -2094,12 +2105,16 @@ Exit codes:
 0  done; with ensure, every model is there
 2  bad arguments, a NAME that is not a variable name, or a bad AI_MODEL_TIER
 1-9 with ensure: as ollama_project_ensure_models (docs/local-models.md)
+with select: 0 chosen and present; 1-8 as ollama_endpoint_ensure_models
+(4 no Ollama, 5 missing and not pulled); 10 bad arguments or data file;
+11 bad AI_MODEL_TIER; 12 no terminal and the Ollama has neither model
 ```
 
 Example:
 
 ```text
   scripts/ollama_models.sh class ai-models.env
+  model="$(scripts/ollama_models.sh select general http://127.0.0.1:11434 .env OLLAMA_MODEL qwen2.5:7b)"
   OLLAMA_PULL_MISSING=1 scripts/ollama_models.sh ensure ai-models.env http://127.0.0.1:11434 OLLAMA_CODE_MODEL
 ```
 
