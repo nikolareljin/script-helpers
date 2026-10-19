@@ -366,6 +366,7 @@ Packaging helpers
 
 - `scripts/build_deb_artifacts.sh` — Build Debian packages and emit artifacts.
 - `scripts/ppa_upload.sh` — Build and upload a Debian source package to a Launchpad PPA.
+- `scripts/signing_secrets.sh` - Set or check the package-signing secrets (GPG, PPA, Apple) on a list of GitHub repositories.
 - `scripts/build_rpm_artifacts.sh` — Build RPM packages and emit artifacts.
 - `scripts/build_brew_tarball.sh` — Build a Homebrew tarball from a repo checkout.
 - `scripts/gen_brew_formula.sh` — Generate a Homebrew formula from a tarball.
