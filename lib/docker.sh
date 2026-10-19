@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Docker/Docker Compose helpers
 
+# Usage: get_docker_compose_cmd
 # Prefer 'docker compose' (V2) over 'docker-compose' (V1); print error if neither.
+# Returns: 0 found; 1 neither docker compose nor docker-compose is available.
+# Output: stdout "docker compose" or "docker-compose"; stderr an error when neither is found.
 get_docker_compose_cmd() {
   if docker compose version >/dev/null 2>&1; then
     echo "docker compose"
@@ -15,18 +18,27 @@ get_docker_compose_cmd() {
   fi
 }
 
+# Usage: docker_compose <compose-args...>
 # Execute docker compose with auto-detected command
+# Returns: 1 no compose command; otherwise the exit code of docker compose.
+# Output: stdout/stderr whatever docker compose prints; stderr the command line when debug logging is on.
 docker_compose() {
   local cmd; cmd=$(get_docker_compose_cmd) || return 1
   log_debug "Executing: $cmd $*"
   $cmd "$@"
 }
 
+# Usage: run_docker_compose <compose-args...>
 # Compatibility: takes the same argument list as `docker compose` itself.
+# Returns: same as docker_compose.
+# Output: same as docker_compose.
 run_docker_compose() { docker_compose "$@"; }
 
+# Usage: run_docker_compose_command "<args as one string>" or <args...>
 # Compatibility: accepts one whitespace-separated command string. Quotes and
 # escapes in that string are not parsed; pass separate arguments when needed.
+# Returns: 1 no compose command; otherwise the exit code of docker compose.
+# Output: stdout/stderr whatever docker compose prints.
 run_docker_compose_command() {
   local cmd; cmd=$(get_docker_compose_cmd) || return 1
   if [[ $# -eq 1 ]]; then
@@ -42,6 +54,8 @@ run_docker_compose_command() {
 }
 
 # Usage: check_docker; validates Docker CLI and daemon availability.
+# Returns: 0 CLI present and daemon reachable; 1 otherwise.
+# Output: stdout nothing; stderr the reason on failure.
 check_docker() {
   if ! command -v docker >/dev/null 2>&1; then
     log_error "Docker CLI not found. Install Docker and ensure it is on PATH."
@@ -62,6 +76,8 @@ check_docker() {
 }
 
 # Usage: check_project_root; errors if docker-compose.yml is missing in CWD.
+# Returns: 0 ./docker-compose.yml exists; 1 it does not.
+# Output: stdout nothing; stderr an error on failure.
 check_project_root() {
   if [[ ! -f "docker-compose.yml" ]]; then
     log_error "docker-compose.yml not found. Run from the project root."
@@ -83,6 +99,8 @@ _docker_service_running() {
 }
 
 # Usage: wait_for_service <service_name> [max_wait_seconds]; waits until running.
+# Returns: 0 the service is running; 1 timed out (default 60s).
+# Output: stdout nothing; stderr progress and the timeout error.
 wait_for_service() {
   local service_name="$1"; local max_wait="${2:-60}"; local wait_time=0
   log_info "Waiting for service '$service_name' to be ready..."
@@ -100,11 +118,14 @@ wait_for_service() {
   return 1
 }
 
+# Usage: docker_status
 # Show running Docker containers and status of services from docker-compose.yml
 # - Prints a table of currently running containers (name, image, status, running for, ports)
 # - If docker-compose.yml is present in CWD, lists defined services and marks:
-#   ✅ running (with since), 💥 failed (exited/restarting), ✖️ not running
+#   [ok] running (with since), [failed] failed (exited/restarting), [stopped] not running
 # - If no docker-compose.yml is found, prints a tip to cd into a directory that has it.
+# Returns: 0 status shown (also when no compose file or no services); 1 Docker unavailable, or the compose services could not be parsed; otherwise the status of the last log line (0).
+# Output: stdout the docker ps table; stderr status lines per service.
 docker_status() {
   # Verify Docker engine
   if ! check_docker; then
@@ -153,9 +174,9 @@ docker_status() {
       done
       if [[ ${#since_list[@]} -gt 0 ]]; then
         since=$(IFS=","; echo "${since_list[*]}")
-        log_info "✅ ${service} — running (since ${since})"
+        log_info "[ok] ${service} -- running (since ${since})"
       else
-        log_info "✅ ${service} — running"
+        log_info "[ok] ${service} -- running"
       fi
     else
       # Not running; inspect ps output to differentiate failed vs not started
@@ -164,9 +185,9 @@ docker_status() {
         # Extract a short status phrase if possible
         local reason
         reason=$(echo "$out" | grep -Eio '(Exit(ed)?[[:space:]]*\(?[0-9]*\)?|exited[[:space:]]*\(?[0-9]*\)?|dead|restarting[^ ]*)' | head -n1)
-        log_error "💥 ${service} — failed (${reason:-last state unknown})"
+        log_error "[failed] ${service} -- failed (${reason:-last state unknown})"
       else
-        log_warn "✖️ ${service} — not running"
+        log_warn "[stopped] ${service} -- not running"
       fi
     fi
   done <<< "$services"

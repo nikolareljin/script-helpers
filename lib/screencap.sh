@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Screen capture — screenshots and screen video off a phone, tablet, emulator or
+# Screen capture -- screenshots and screen video off a phone, tablet, emulator or
 # simulator, for README media, store listings and bug reports.
 #
 # One surface, two backends, chosen by platform:
@@ -33,8 +33,10 @@ _screencap__require_module ios ios_available
 # Longest single clip `adb shell screenrecord` will produce.
 _SCREENCAP_ANDROID_MAX_SECONDS=180
 
-# Usage: screencap_available; returns 0 when at least one backend can capture —
+# Usage: screencap_available; returns 0 when at least one backend can capture --
 # adb with a ready device, or a booted iOS simulator.
+# Returns: 0 a backend can capture; 1 none.
+# Output: none.
 screencap_available() {
   if declare -f adb_available >/dev/null 2>&1 && adb_available; then
     [[ -n "$(adb_ready_serials 2>/dev/null)" ]] && return 0
@@ -74,7 +76,7 @@ _screencap__resolve() {
       log_error "screencap: no ready Android device and no booted iOS simulator"
       return 3
     else
-      log_error "screencap: both Android and iOS targets are present — pass --platform"
+      log_error "screencap: both Android and iOS targets are present -- pass --platform"
       return 2
     fi
   fi
@@ -86,7 +88,7 @@ _screencap__resolve() {
         while IFS= read -r _sh_line; do serials+=("$_sh_line"); done < <(adb_ready_serials 2>/dev/null)
         [[ ${#serials[@]} -gt 0 ]] || { log_error "screencap: no ready Android device"; return 3; }
         [[ ${#serials[@]} -eq 1 ]] || {
-          log_error "screencap: ${#serials[@]} Android devices ready — pass --device"
+          log_error "screencap: ${#serials[@]} Android devices ready -- pass --device"
           printf '  %s\n' "${serials[@]}" >&2
           return 2
         }
@@ -97,7 +99,7 @@ _screencap__resolve() {
         while IFS= read -r _sh_line; do sims+=("$_sh_line"); done < <(ios_booted_simulators 2>/dev/null)
         [[ ${#sims[@]} -gt 0 ]] || { log_error "screencap: no booted iOS simulator"; return 3; }
         [[ ${#sims[@]} -eq 1 ]] || {
-          log_error "screencap: ${#sims[@]} simulators booted — pass --device"
+          log_error "screencap: ${#sims[@]} simulators booted -- pass --device"
           printf '  %s\n' "${sims[@]}" >&2
           return 2
         }
@@ -124,6 +126,8 @@ _screencap__default_out() {
 # Capture a single PNG. With no arguments, targets the only connected device and
 # writes to docs/screenshots/<UTC-timestamp>-<device>.png. Prints the path it
 # wrote, so a caller can pipe it straight into a docs step.
+# Returns: 0 written; 1 capture or write failed; 2 bad arguments or ambiguous device; 3 no device.
+# Output: stdout the PNG path; stderr log lines.
 screencap_shot() {
   local device="" platform="" out="" resolved
   while [[ $# -gt 0 ]]; do
@@ -174,6 +178,8 @@ screencap_shot() {
 # seconds are recorded in chunks and concatenated, which needs ffmpeg; without
 # ffmpeg a longer request is refused rather than silently truncated. --gif also
 # writes a .gif beside the video. Prints the path to the video it wrote.
+# Returns: 0 written (a failed --gif only warns); 1 capture failed or empty; 2 bad arguments or ambiguous device; 3 no device or missing tool; else the recorder's code.
+# Output: stdout the video path; stderr log lines.
 screencap_record() {
   local device="" platform="" out="" seconds=30 size="" bitrate="" want_gif=0 resolved
 
@@ -233,13 +239,13 @@ _screencap__record_android() {
   local -a flags=()
 
   # A screen that is off records a single frame of nothing, and screenrecord
-  # still exits 0 — so the caller gets a non-empty file that is unusable, and
+  # still exits 0 -- so the caller gets a non-empty file that is unusable, and
   # any downstream GIF conversion fails with an ffmpeg error that says nothing
   # about the real cause. Say it up front.
   if declare -f adb_screen_on >/dev/null 2>&1; then
     adb_screen_on "$serial" >/dev/null 2>&1
     if [[ $? -eq 1 ]]; then
-      log_warn "screencap: the screen on $serial is off — the recording will be blank."
+      log_warn "screencap: the screen on $serial is off -- the recording will be blank."
       log_warn "Wake it first: adb -s $serial shell input keyevent KEYCODE_WAKEUP"
     fi
   fi
@@ -292,7 +298,7 @@ _screencap__record_android() {
 }
 
 # Usage: _screencap__record_ios <udid> <out> <seconds>; record a simulator.
-# Physical devices are refused — see the module header.
+# Physical devices are refused -- see the module header.
 _screencap__record_ios() {
   local udid="$1" out="$2" seconds="$3" pid rc=0
   if declare -f ios_booted_simulators >/dev/null 2>&1; then
@@ -318,6 +324,8 @@ _screencap__record_ios() {
 # frame from a recording, for a README image taken from a demo clip. Defaults to
 # 1 second in, because frame zero is often a blank or transitioning screen.
 # Returns 3 when ffmpeg is not installed.
+# Returns: 0 written; 1 extraction failed; 2 bad arguments or missing video; 3 ffmpeg missing.
+# Output: stdout the PNG path; stderr log lines.
 screencap_frame() {
   local video="" out="" at="1"
   while [[ $# -gt 0 ]]; do
@@ -345,6 +353,8 @@ screencap_frame() {
 # because a single-pass GIF from video is visibly dithered. Defaults to 12 fps
 # and 480px wide, which keeps a short clip under a couple of megabytes.
 # Returns 3 when ffmpeg is not installed.
+# Returns: 0 written; 1 conversion failed or a single-frame video; 2 bad arguments or missing video; 3 ffmpeg missing.
+# Output: stdout the GIF path; stderr log lines.
 screencap_gif() {
   local video="" out="" fps=12 width=480 palette rc=0
   while [[ $# -gt 0 ]]; do
@@ -372,7 +382,7 @@ screencap_gif() {
     frames="$(ffprobe -v error -select_streams v:0 -count_packets \
                 -show_entries stream=nb_read_packets -of csv=p=0 "$video" 2>/dev/null | head -n1)"
     if [[ "$frames" =~ ^[0-9]+$ && "$frames" -lt 2 ]]; then
-      log_error "screencap_gif: $video has $frames frame(s) — there is nothing to animate."
+      log_error "screencap_gif: $video has $frames frame(s) -- there is nothing to animate."
       log_error "A recording made with the device screen off looks like this. Wake the screen and record again."
       return 1
     fi
@@ -399,9 +409,11 @@ screencap_gif() {
 }
 
 # Usage: screencap_record_stop [device]; stop an in-flight recording started
-# outside screencap_record's own timed wait — a background `screenrecord` on a
+# outside screencap_record's own timed wait -- a background `screenrecord` on a
 # device, or a `simctl recordVideo` on this host. Safe to call when nothing is
 # recording.
+# Returns: 0.
+# Output: none, or tool stderr.
 screencap_record_stop() {
   local device="${1:-}" s
   if [[ -n "$device" ]]; then

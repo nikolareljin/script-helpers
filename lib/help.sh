@@ -41,18 +41,24 @@ _help__meta_get() {
 }
 
 # Usage: display_help [script_file]; renders concise help.
+# Returns: 0 rendered; 1 the script file does not exist. Sets SHLIB_HELP_SHOWN=true.
+# Output: stdout the help text; stderr an error when the file is missing.
 display_help() {
   export SHLIB_HELP_SHOWN=true
   _help__render "concise" "${1:-$0}"
 }
 
 # Usage: print_help [script_file]; renders full help.
+# Returns: same as display_help.
+# Output: same as display_help.
 print_help() {
   export SHLIB_HELP_SHOWN=true
   _help__render "full" "${1:-$0}"
 }
 
 # Usage: show_help [script_file]; renders minimal help.
+# Returns: same as display_help.
+# Output: same as display_help.
 show_help() {
   export SHLIB_HELP_SHOWN=true
   _help__render "minimal" "${1:-${BASH_SOURCE[1]:-$0}}"
@@ -180,6 +186,8 @@ _help__render() {
 # through a nameref. Both are bash 4.3+ features, which made every --help path
 # in this library dead on the bash 3.2 that macOS ships. A name prefix plus
 # `printf -v` needs nothing newer than bash 3.1 and no eval.
+# Returns: 0 parsed; 2 missing script file, invalid prefix, or unreadable file.
+# Output: stdout nothing; stderr the error. Sets <prefix>_<field> and <prefix>_param_lines in the caller.
 get_script_metadata() {
   # Defaulted, not bare: under `set -u` a bare "$2" aborts the caller on the
   # expansion itself, before this function can return the documented exit 2.
@@ -282,7 +290,10 @@ get_script_metadata() {
   printf -v "${prefix}_param_lines" '%s' "${param_lines%$'\n'}"
 }
 
+# Usage: show_usage [script]
 # Generic usage printer and common arg parser.
+# Returns: always 0.
+# Output: stdout a generic usage text.
 show_usage() {
   local script_name; script_name="$(basename "${1:-$0}")"
   cat << EOF
@@ -300,6 +311,8 @@ EOF
 }
 
 # Usage: parse_common_args <args...>; handles -h/-v/-d for scripts.
+# Returns: 0 after consuming -v/-d. EXITS the calling script with 0 after printing help on -h/--help; this is deliberate CLI behaviour, so call it from a script's argument parsing, not from library code. Exports VERBOSE/DEBUG/SHLIB_HELP_SHOWN.
+# Output: stdout the help text on -h.
 parse_common_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in

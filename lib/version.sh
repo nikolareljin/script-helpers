@@ -21,6 +21,8 @@ _version__parse_triplet() {
 }
 
 # Usage: version_compare <version_a> <version_b>; returns 0 if equal.
+# Returns: 0 equal; 1 a > b; 255 a < b; 2 missing argument; 3 not X.Y.Z.
+# Output: stdout the usage error (print_error) on code 2; else nothing.
 version_compare() {
   local left="${1:-}" right="${2:-}"
   if [[ -z "$left" || -z "$right" ]]; then
@@ -58,6 +60,9 @@ version_compare() {
 }
 
 # Usage: version_bump {major|minor|patch} [-f VERSION_FILE]; bumps version file.
+# VERSION_FILE defaults to VERSION under the project root (or cwd).
+# Returns: 0 bumped or help shown; 1 bad arguments, unparseable version, or the file could not be written.
+# Output: stdout success or error lines (print_success/print_error) and help.
 version_bump() {
   local bump_type="" version_file="" prefix="" suffix="" normalized current_dir
 
@@ -159,7 +164,10 @@ version_bump() {
   local new_core="${major}.${minor}.${patch}"
   local new_version="${prefix}${new_core}${suffix}"
 
-  printf "%s\n" "$new_version" > "$version_file"
+  if ! printf "%s\n" "$new_version" > "$version_file"; then
+    print_error "Failed to write version file: $version_file"
+    return 1
+  fi
   print_success "Bumped version: ${prefix}${normalized}${suffix} -> $new_version"
 }
 
@@ -172,6 +180,8 @@ version_bump() {
 # Equal, newer or unreadable versions: nothing to offer, return 0. A declined
 # offer is not a failure. --label names what is running ("App" -> "App 1.2.0
 # is running"). Needs lib/dialog.sh for ui_mode and ui_yesno.
+# Returns: 0 nothing to offer, declined, or no person present; 1 bad arguments, dialog.sh or ui_mode failed; else COMMAND's exit code.
+# Output: stderr log_info/log_error lines; a dialog prompt when interactive.
 version_offer_update() {
   local label="" hint=""
   while [[ $# -gt 0 ]]; do

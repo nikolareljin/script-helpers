@@ -2,6 +2,8 @@
 # JSON helpers
 
 # Usage: json_escape <string>; escapes for safe JSON output.
+# Returns: 0.
+# Output: stdout the escaped string and a newline.
 json_escape() {
   local input="${1-}"
   input=${input//\\/\\\\}
@@ -30,6 +32,9 @@ json_escape() {
 }
 
 # Assumes the JSON has a .response field; exits non-zero if invalid JSON
+# Usage: format_response <json>; prints the .response field (needs jq).
+# Returns: 0 printed; 1 empty input or invalid JSON (or jq missing); else jq's exit code.
+# Output: stdout the field value, or the print_error message on failure.
 format_response() {
   local response="$1"
   if [[ -z "$response" ]]; then
@@ -44,6 +49,8 @@ format_response() {
 }
 
 # Usage: format_md_response <string>; strips fenced code blocks if present.
+# Returns: 0.
+# Output: stdout the text without ``` fences.
 format_md_response() {
   local response="$1"
   if [[ "$response" == *"\`\`\`"* ]]; then
@@ -56,6 +63,8 @@ format_md_response() {
 # Usage: json_get_field BODY KEY; prints a top-level scalar field of a JSON
 # object, or nothing when it is absent. Returns 1 only for a KEY that is not
 # a plain word.
+# Returns: 0 always for a valid KEY (also when absent); 1 KEY is not a plain word.
+# Output: stdout the value, or nothing; stderr nothing.
 json_get_field() {
   local body="${1:-}" key="${2:-}"
   # A word, nothing else: the fallback interpolates the key into a grep

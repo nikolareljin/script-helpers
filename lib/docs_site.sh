@@ -52,6 +52,8 @@ _docs_site__repo() {
 }
 
 # Usage: docs_site_generator <repo>; prints mkdocs or command.
+# Returns: 0 detected; 2 not a directory, bad DOCS_SITE_GENERATOR, or no site found.
+# Output: stdout mkdocs or command; stderr errors.
 docs_site_generator() {
   local repo
   repo="$(_docs_site__repo "${1:-.}")" || return 2
@@ -68,6 +70,8 @@ docs_site_generator() {
 
 # Usage: docs_site_toolchain <repo>; prints the mkdocs entry point, after
 # creating or refreshing the virtualenv from the pinned requirements.
+# Returns: 0 ready; 1 pip install failed; 2 not a directory or requirements file missing; 3 no python3 >= 3.9, or the venv could not be created.
+# Output: stdout the mkdocs path; stderr pip output and errors.
 docs_site_toolchain() {
   local repo req venv py venv_py
   repo="$(_docs_site__repo "${1:-.}")" || return 2
@@ -96,6 +100,8 @@ docs_site_toolchain() {
 }
 
 # Usage: docs_site_out <repo>; prints where the build writes.
+# Returns: 0 printed; 2 not a directory or no site found.
+# Output: stdout the absolute build output directory.
 docs_site_out() {
   local repo gen dir
   repo="$(_docs_site__repo "${1:-.}")" || return 2
@@ -111,6 +117,8 @@ docs_site_out() {
 }
 
 # Usage: docs_site_build <repo> [out]; builds the site, strictly.
+# Returns: 0 built; 1 the build failed or pip install failed; 2 no site or bad repo; 3 no toolchain.
+# Output: stdout/stderr the build tool's output.
 docs_site_build() {
   local repo gen out mkdocs
   repo="$(_docs_site__repo "${1:-.}")" || return 2
@@ -127,6 +135,8 @@ docs_site_build() {
 
 # Usage: docs_site_verify <site dir>; fetches every page, link and asset over
 # HTTP and reports what does not answer (scripts/site_verify.py).
+# Returns: 2 no such directory; otherwise the exit code of site_verify.py (0 clean, non-zero a broken link or page).
+# Output: stdout/stderr site_verify.py's report.
 docs_site_verify() {
   local dir="${1:-}"
   if [[ ! -d "$dir" ]]; then
@@ -148,6 +158,8 @@ _docs_site__docs_dir() {
 # .bak, a script or a swapfile dropped in docs/ is published. Web assets,
 # fonts, documents and media a site links on purpose are kept, plus the
 # extensions in DOCS_SITE_ALLOW_EXT. Returns 0 none, 1 some (listed).
+# Returns: 0 none; 1 stray files found; 2 no such directory.
+# Output: stderr the stray file list.
 docs_site_stray_files() {
   local out="${1:-}" ext stray
   [[ -d "$out" ]] || { log_error "docs_site: no built site at '${out}'"; return 2; }
@@ -177,6 +189,8 @@ _docs_site__wants_search() {
 # (MkDocs), nothing published by accident, and every link answering over HTTP.
 # Writes nothing in the repository (the command generator writes its own
 # output, which is then verified where it is).
+# Returns: 0 builds clean and verifies; 1 any check failed; 2 no site or bad repo; 3 no toolchain.
+# Output: stdout/stderr build and verify output; stderr a summary line on success.
 docs_site_check() {
   local repo gen out docs rc=0
   repo="$(_docs_site__repo "${1:-.}")" || return 2
@@ -217,6 +231,8 @@ _docs_site__port() {
 
 # Usage: docs_site_preview <repo> [port]; build, then serve the built site
 # over HTTP. Search and link rewriting only work over HTTP, not file://.
+# Returns: 2 bad repo; otherwise the exit code of port_choose, docs_site_build or serve_static_site.
+# Output: stdout/stderr the build and server output.
 docs_site_preview() {
   local repo out port
   repo="$(_docs_site__repo "${1:-.}")" || return 2
@@ -228,6 +244,8 @@ docs_site_preview() {
 
 # Usage: docs_site_serve <repo> [port]; live reload while writing (MkDocs).
 # A command generator has no live mode, so this is preview for it.
+# Returns: 2 bad repo or no site; otherwise the exit code of port_choose, docs_site_toolchain, or mkdocs serve (docs_site_preview for a command site).
+# Output: stdout/stderr mkdocs serve's output; stderr the URL.
 docs_site_serve() {
   local repo gen port mkdocs path
   repo="$(_docs_site__repo "${1:-.}")" || return 2
