@@ -144,7 +144,7 @@ verify_checksum() {
         128) hash_cmd+=(-a 512) ;;
       esac
     fi
-    actual="$("${hash_cmd[@]}" "$iso_file" 2>/dev/null | awk '{print $1; exit}')"
+    actual="$("${hash_cmd[@]}" "$iso_file" 2>/dev/null | awk 'NR == 1 {print $1}')"
     actual="${actual#\\}"
     expected="$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')"
     actual="$(printf '%s' "$actual" | tr '[:upper:]' '[:lower:]')"

@@ -118,7 +118,7 @@ sec_maybe_refresh_private_names() {
 # other remote (a private one, say) is still news to this one. A push to a bare
 # URL has no remote refs, so everything it sends is checked.
 sec_not_remote() {
-  if [[ -n "${1:-}" ]] && git remote 2>/dev/null | LC_ALL=C grep -qxF -- "$1"; then
+  if [[ -n "${1:-}" ]] && LC_ALL=C grep -qxF -- "$1" <<< "$(git remote 2>/dev/null)"; then
     printf -- '--not --remotes=%s' "$1"
   else
     printf -- '--not'
@@ -204,8 +204,8 @@ sec_tag_messages() {
     t="$lsha"
     while [[ "$(git cat-file -t "$t" 2>/dev/null)" == tag ]]; do
       body="$(git cat-file tag "$t" 2>/dev/null)" || return 1
-      [[ "$t" == "${rsha:-}" ]] || printf '%s\n' "$body" | LC_ALL=C awk '/^-----BEGIN (PGP|SSH) SIGNATURE-----/ { exit } p { print } /^$/ { p = 1 }'
-      t="$(printf '%s\n' "$body" | LC_ALL=C awk '$1 == "object" { print $2; exit }')"
+      [[ "$t" == "${rsha:-}" ]] || printf '%s\n' "$body" | LC_ALL=C awk '/^-----BEGIN (PGP|SSH) SIGNATURE-----/ { s = 1 } p && !s { print } /^$/ { p = 1 }'
+      t="$(printf '%s\n' "$body" | LC_ALL=C awk '!f && $1 == "object" { print $2; f = 1 }')"
       [[ -n "$t" ]] || break
     done
   done < "$1"

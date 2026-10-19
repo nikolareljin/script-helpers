@@ -61,7 +61,7 @@ ssh_keepalive_set() {
   local v
   [[ -z "${GIT_SSH:-}" ]] || return 0
   [[ "${GIT_SSH_COMMAND:-} $(git config --get core.sshCommand 2>/dev/null || true)" == *[Ss]erver[Aa]live[Ii]nterval* ]] && return 0
-  v="$(ssh -G -- "$1" 2>/dev/null | awk '$1 == "serveraliveinterval" { print $2; exit }')"
+  v="$(ssh -G -- "$1" 2>/dev/null | awk '!f && $1 == "serveraliveinterval" { print $2; f = 1 }')"
   [[ -n "$v" && "$v" != 0 ]]
 }
 

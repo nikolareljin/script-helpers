@@ -431,7 +431,7 @@ prereqs() {
   # Not a refusal: without a keepalive a push whose pre-push checks run long is
   # cut off by GitHub (exit 141) after they pass.
   if command -v ssh >/dev/null 2>&1; then
-    if [[ "$(ssh -G github.com 2>/dev/null | awk '$1 == "serveraliveinterval" { print $2; exit }')" =~ ^[1-9] ]]; then
+    if [[ "$(ssh -G github.com 2>/dev/null | awk '!f && $1 == "serveraliveinterval" { print $2; f = 1 }')" =~ ^[1-9] ]]; then
       echo "  ssh       ok (keepalive set for github.com)"
     else
       echo "  ssh       WARN: no keepalive for github.com; a push with long pre-push checks can be cut off"

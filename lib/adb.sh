@@ -320,7 +320,7 @@ adb_battery_level() {
   adb_available || return 1
   [[ -n "$serial" ]] || return 1
   adb -s "$serial" shell dumpsys battery 2>/dev/null \
-    | awk -F': *' '/ level:/{print $2; exit}' | tr -d '\r'
+    | awk -F': *' '!f && / level:/ {print $2; f = 1}' | tr -d '\r'
 }
 
 # Usage: adb_screen_on <serial>; returns 0 if the display is on, 1 if off, 2 if

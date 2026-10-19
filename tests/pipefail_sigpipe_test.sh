@@ -23,16 +23,18 @@ error() { echo "[pipefail_sigpipe_test] FAIL: $*" >&2; fail=1; }
 hits=""
 while IFS= read -r f; do
   case "$f" in lib/*.sh) ;; *) grep -q 'pipefail' "$ROOT/$f" || continue ;; esac
-  h="$(grep -nE '(^|[^|])\|[[:space:]]*(grep[[:space:]]+(-[A-Za-z]+[[:space:]]+)*-[A-Za-z]*[qm]|head([[:space:]]|$))' "$ROOT/$f" \
-        | grep -vE '^[0-9]+:[[:space:]]*#' || true)"
+  # An env prefix (`| LC_ALL=C grep -q`) and a one-line awk program that
+  # exits early (`| awk '{ print; exit }'`) are the same reader.
+  h="$(grep -nE '(^|[^|])\|[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*(grep[[:space:]]+(-[A-Za-z]+[[:space:]]+)*(-[A-Za-z]*[qm]|--quiet|--silent|--max-count)|head([[:space:]]|$)|awk[[:space:]].*[{;][[:space:]]*exit[[:space:]]*})' "$ROOT/$f" \
+        | grep -vE '^[0-9]+:[[:space:]]*#|END[[:space:]]*\{[[:space:]]*exit' || true)"
   # This file names the pattern in its own lint regex and comments.
   [[ "$f" == tests/pipefail_sigpipe_test.sh ]] && continue
   [[ -n "$h" ]] && hits+="$(sed "s#^#$f:#" <<< "$h")"$'\n'
 done < <(cd "$ROOT" && git ls-files '*.sh')
 if [[ -n "$hits" ]]; then
-  error "early-exit reader on a pipe under pipefail (use a here-string or sed -n 1p):"; printf '%s' "$hits" >&2
+  error "early-exit reader on a pipe under pipefail (use a here-string, sed -n 1p, or awk without exit):"; printf '%s' "$hits" >&2
 else
-  note "ok  no '| grep -q', '| grep -m' or '| head' in lib/ or in files that set pipefail"
+  note "ok  no '| grep -q', '| grep -m', '| head' or early-exit awk in lib/ or in files that set pipefail"
 fi
 
 # --- behaviour: a match at the top of 200000 lines must still be found.
