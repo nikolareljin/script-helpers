@@ -15,7 +15,7 @@
 # is a usage error, because the functions only make sense inside a hook.
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   case "${1:-}" in
-    -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "ssh_keepalive.sh: source this file from a hook; see --help" >&2; exit 2 ;;
   esac
 fi

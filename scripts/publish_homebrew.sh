@@ -16,6 +16,7 @@
 #   -h, --help               Show help.
 # EXIT_CODES:
 #   0  Published, already up to date, or skipped because no tap repo/token is set.
+#   1  Copying the formula into the tap checkout failed.
 #   2  Unknown argument, or the formula file was not found.
 #   N  A failing git command's own exit code (clone, commit, push), passed through.
 # EXAMPLE:

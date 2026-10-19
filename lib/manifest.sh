@@ -315,9 +315,8 @@ manifest_sync_version() {
 
   # The process substitution hides manifest_detect's status, so "nothing was
   # found" is counted here. Still success -- a tree with no manifest has nothing
-  # to disagree with -- but said, not silent. (A <dir> that is not a directory
-  # is reported by manifest_detect itself.)
-  if [[ "$found" -eq 0 && -d "$dir" ]]; then
+  # to disagree with -- but said, not silent.
+  if [[ "$found" -eq 0 ]]; then
     log_info "manifest_sync_version: no version manifest found under $dir; nothing written"
   fi
 

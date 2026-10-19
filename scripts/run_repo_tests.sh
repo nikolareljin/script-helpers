@@ -24,7 +24,7 @@ _require=false
 case "${1:-}" in
   "") ;;
   --require) _require=true ;;
-  -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; exit 0 ;;
   *) echo "[tests] unknown option: $1 (usage: run_repo_tests.sh [--require])" >&2; exit 2 ;;
 esac
 

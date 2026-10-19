@@ -47,7 +47,7 @@ source "$ROOT_DIR/helpers.sh"
 shlib_import logging changelog
 
 usage() {
-  sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'
 }
 
 # A lone `--version` at the end used to reach `shift 2` with one argument left,

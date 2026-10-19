@@ -83,7 +83,7 @@ while [[ $# -gt 0 ]]; do
     --remote-name)  REMOTE_NAME="${2:?--remote-name needs a name}"; shift 2 ;;
     --keep)         KEEP+=("${2:?--keep needs a pattern}"); shift 2 ;;
     --no-fetch)     DO_FETCH=false; shift ;;
-    -h|--help)      sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help)      sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; exit 0 ;;
     *)              log_error "Unknown argument: $1"; exit 2 ;;
   esac
 done

@@ -54,7 +54,7 @@ DRY_RUN=false
 EXIT_REFUSED=3
 
 usage() {
-  sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'
 }
 
 while [[ $# -gt 0 ]]; do

@@ -2175,6 +2175,7 @@ Exit codes:
 
 ```text
 0  Published, already up to date, or skipped because no tap repo/token is set.
+1  Copying the formula into the tap checkout failed.
 2  Unknown argument, or the formula file was not found.
 N  A failing git command's own exit code (clone, commit, push), passed through.
 ```
@@ -2302,6 +2303,7 @@ Exit codes:
 ```text
 0  The file was downloaded.
 1  The download failed or left no file at OUTPUT_PATH.
+N  curl's own exit code, passed through (e.g. 2 for an argument curl rejects).
 ```
 
 Example:

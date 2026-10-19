@@ -9,6 +9,7 @@
 # EXIT_CODES:
 #   0  The file was downloaded.
 #   1  The download failed or left no file at OUTPUT_PATH.
+#   N  curl's own exit code, passed through (e.g. 2 for an argument curl rejects).
 # EXAMPLE: ./example_download.sh https://example.com/file.bin /tmp/file.bin
 # ----------------------------------------------------
 set -euo pipefail

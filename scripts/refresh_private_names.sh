@@ -119,7 +119,7 @@ while [[ $# -gt 0 ]]; do
     --ttl) need_value "$@"; TTL_OVERRIDE="$2"; shift 2 ;;
     --cache-dir) need_value "$@"; CACHE_DIR="$2"; shift 2 ;;
     --no-graphql) USE_GRAPHQL=false; shift ;;
-    -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; exit 0 ;;
     *) log_error "Unknown argument: $1"; exit 2 ;;
   esac
 done

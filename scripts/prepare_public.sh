@@ -68,7 +68,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 die()  { echo "$TAG ERROR: $*" >&2; exit 2; }
 
-usage() { sed -n '2,/^# ------/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,/^# ------/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; }
 
 CMD="${1:-}"
 [[ -n "$CMD" ]] || { usage >&2; exit 2; }
