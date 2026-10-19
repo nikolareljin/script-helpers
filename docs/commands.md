@@ -2730,6 +2730,47 @@ Example:
   scripts/prepare_public.sh audit --source ../my-repo --work /tmp/pub-audit
 ```
 
+### `scripts/signing_secrets.sh`
+
+Set the package-signing secrets and variables (the names in ci-helpers docs/packaging.md) on a list of GitHub repositories, or check which repositories miss which name. Values go to gh on stdin, never on a command line, and are never printed.
+
+```text
+Usage: ./signing_secrets.sh --repos <owner/a,owner/b> --group <gpg|apple> [--group ...] [options] [--check|--dry-run]
+  --repos <list>            Comma-separated owner/name list (required).
+  --group <gpg|apple>       Names to set or check; repeat for both (required).
+  --gpg-key <fingerprint>   gpg: key to export (40 hex characters).
+                            Passphrase: GPG_PASSPHRASE env, else prompted.
+  --ppa <owner/name=ppa:id/name>
+                            gpg: set PPA_TARGET on that repository; repeat.
+  --launchpad-ssh-key <file>
+                            gpg: set LAUNCHPAD_SSH_PRIVATE_KEY (sftp only).
+  --apple-p12 <file>        apple: Developer ID Application .p12.
+  --apple-identity <text>   apple: "Developer ID Application: Name (TEAMID)".
+  --apple-team <id>         apple: 10-character team ID.
+  --apple-id <email>        apple: Apple ID for notarization.
+                            Passwords: APPLE_CERTIFICATE_PASSWORD and
+                            APPLE_APP_PASSWORD env, else prompted.
+  --check                   Report missing names per repository; exit 1 if any.
+  --dry-run                 Print the names that would be set; set nothing.
+  -h, --help                Show help.
+```
+
+Exit codes:
+
+```text
+0  Every name was set, or --check found every name on every repository.
+1  --check found a missing name or could not list a repository, or gh
+could not set a name.
+2  Bad arguments, a missing tool (gh, gpg), a key not in the keyring, a
+passphrase that does not unlock it, or an empty value; nothing was set.
+```
+
+Example:
+
+```text
+./signing_secrets.sh --repos me/a,me/b --group gpg --group apple --check
+```
+
 ### `scripts/site_verify.py`
 
 Verify a built static site the way a visitor reaches it: over HTTP.
