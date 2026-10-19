@@ -33,6 +33,8 @@
 # EXAMPLE: ./signing_secrets.sh --repos me/a,me/b --group gpg --group apple --check
 # ----------------------------------------------------
 set -euo pipefail
+# Lists are split on spaces unquoted; never let a "*" in an argument glob.
+set -f
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-${ROOT_DIR}}"
@@ -103,6 +105,9 @@ for r in ${repos_csv//,/ }; do
     log_error "Repository '$r' is not owner/name"
     exit 2
   fi
+  case " ${repos} " in
+    *" ${r} "*) log_error "Repository '$r' is listed twice"; exit 2;;
+  esac
   repos="${repos} ${r}"
 done
 for m in $ppa_map; do

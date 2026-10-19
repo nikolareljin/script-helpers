@@ -123,6 +123,13 @@ refuse "bad ppa" --repos o/a --group gpg --gpg-key "$fpr" --ppa "o/a=ppa:Me/x;y"
 refuse "bad apple team" --repos o/a --group apple --apple-p12 "$tmp/cert.p12" --apple-identity "Developer ID Application: Me (X)" --apple-team short --apple-id me@example.invalid
 refuse "unknown option" --repos o/a --group gpg --gpg-key "$fpr" --bogus
 refuse "ppa twice for one repo" --repos o/a --group gpg --gpg-key "$fpr" --ppa o/a=ppa:me/x --ppa o/a=ppa:me/y
+refuse "repo twice" --repos o/a,o/a --group gpg --gpg-key "$fpr"
+# "o/*" must not glob to a matching path in the working directory.
+mkdir -p "$tmp/globdir/o/a"
+# Not in a subshell: refuse counts failures in this shell.
+cd "$tmp/globdir" || exit 1
+refuse "glob in repos" --repos 'o/*' --group gpg --gpg-key "$fpr"
+cd "$OLDPWD" || exit 1
 
 # 5. a PATH without gpg, then without gh: refused with exit 2, nothing set.
 mkdir -p "$tmp/nogpg" "$tmp/nogh"
