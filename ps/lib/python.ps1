@@ -83,7 +83,9 @@ function python_ensure_venv {
 }
 
 # Usage: activate_venv -VenvDir <dir>
-# Runs VenvDir\Scripts\Activate.ps1 (sets PATH and VIRTUAL_ENV for the process).
+# Runs VenvDir\Scripts\Activate.ps1 inside this function. Its environment variables
+# (PATH, VIRTUAL_ENV) reach the caller; its prompt function does not. To get the
+# prompt too, dot-source Activate.ps1 from the caller's own scope.
 # Returns: nothing.
 # Output: none; throws when the activate script is missing.
 function activate_venv {
