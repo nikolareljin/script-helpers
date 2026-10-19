@@ -2140,8 +2140,11 @@ _ollama_ep_tiers_get() {
   local file
   file="$(ollama_model_tiers_file)"
   [[ -f "$file" ]] || return 0
-  awk -v k="${1:-}" -v n="${2:-}" '
+  # A byte-order mark before the first line is dropped (bytes from the
+  # environment, as in _ollama_ep_env_set).
+  LC_ALL=C _OEP_BOM=$'\xef\xbb\xbf' awk -v k="${1:-}" -v n="${2:-}" '
     { sub(/\r$/, "") }
+    NR == 1 && substr($0, 1, 3) == ENVIRON["_OEP_BOM"] { $0 = substr($0, 4) }
     /^[ \t]*#/ || NF == 0 { next }
     $1 == k && $2 == n { line = ""; for (i = 3; i <= NF; i++) line = line (i > 3 ? " " : "") $i; found = line }
     END { if (found != "") print found }' "$file" 2>/dev/null || true
@@ -2155,7 +2158,9 @@ ollama_model_tier_types() {
   local file
   file="$(ollama_model_tiers_file)"
   [[ -f "$file" ]] || return 0
-  awk '{ sub(/\r$/, "") } $1 == "type" && NF >= 3 && !seen[$2]++ { print $2 }' "$file" 2>/dev/null || true
+  LC_ALL=C _OEP_BOM=$'\xef\xbb\xbf' awk '{ sub(/\r$/, "") }
+    NR == 1 && substr($0, 1, 3) == ENVIRON["_OEP_BOM"] { $0 = substr($0, 4) }
+    $1 == "type" && NF >= 3 && !seen[$2]++ { print $2 }' "$file" 2>/dev/null || true
 }
 
 # Usage: ollama_host_tier; prints this host's tier: small, standard, large or
@@ -2384,15 +2389,18 @@ _ollama_ep_env_private() {
 #   0    a model was chosen and that Ollama has it
 #   1-8  as ollama_endpoint_ensure_models (4: no Ollama answers; 5: missing
 #        and not pulled under OLLAMA_PULL_MISSING)
-#   10   bad arguments: unknown type, NAME not a variable name, a model that is
-#        not a model reference, no data file, env_file not readable or not
-#        writable
+#   10   bad arguments: more than five, unknown type, NAME not a variable
+#        name, a model that is not a model reference, no data file, env_file
+#        not readable or not writable
 #   11   AI_MODEL_TIER is not small, standard, large or xlarge
 #   12   no terminal, the two differ, and that Ollama has neither
 # Output: stdout the model and a newline; stderr the question, progress and errors.
 # A subshell on purpose: the variables it sets stay inside.
 # shellcheck disable=SC2030,SC2031
 ai_model_resolve() (
+  # NAME is read before any local exists: a caller's variable named like one
+  # of the locals below (or IFS) would otherwise be shadowed by it.
+  if [[ -n "${4:-}" ]] && _ollama_ep_is_name "$4"; then _OEP_X_ENV="${!4-}"; else _OEP_X_ENV=""; fi
   local IFS=$' \t\n'
   local _oep_type="${1:-}" _oep_url="${2:-}" _oep_env="${3:-}" _oep_name="${4:-}" _oep_default="${5:-}"
   local _oep_tier _oep_y _oep_x _oep_key _oep_choice _oep_for _oep_pick="" _oep_dir _oep_present
@@ -2400,6 +2408,10 @@ ai_model_resolve() (
   _oep_url="${_oep_url%/}"
   if [[ -z "$_oep_type" || -z "$_oep_url" ]]; then
     print_error "ai_model_resolve needs a model type and an Ollama address." >&2
+    exit 10
+  fi
+  if [[ $# -gt 5 ]]; then
+    print_error "ai_model_resolve takes at most 5 arguments (type, address, env file, NAME, default model); got $#." >&2
     exit 10
   fi
   if [[ -n "$_oep_name" ]] && ! _ollama_ep_is_name "$_oep_name"; then
@@ -2419,7 +2431,7 @@ ai_model_resolve() (
 
   _oep_x=""
   if [[ -n "$_oep_name" ]]; then
-    _oep_x="$(printf '%s' "${!_oep_name:-}" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')" || true
+    _oep_x="$(printf '%s' "$_OEP_X_ENV" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')" || true
     [[ -n "$_oep_x" || -z "$_oep_env" ]] || _oep_x="$(ollama_models_file_get "$_oep_env" "$_oep_name")"
   fi
   if [[ -z "$_oep_x" ]]; then

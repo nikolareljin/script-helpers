@@ -384,6 +384,24 @@ check "class with no data file: tier unknown, still 0" "0:tier=unknown" "$(OLLAM
 check "class names the tier" "tier=large" "$(AI_MODEL_TIER=large bash "$script" class | grep '^tier=')"
 check "no model was removed by the script either" "tier-m:4b envmodel:7b" "$(installed)"
 
+# --- a NAME named like the library's own variables -----------------------------------
+# Small tier: its model is not installed, the project's is, so the project's is
+# printed only if its value was read.
+machine; reset envmodel:7b
+for v in _oep_x _oep_name _oep_type IFS_MODEL; do
+  check "NAME $v: the caller's value is read" "envmodel:7b" \
+    "$(export AI_MODEL_TIER=small OLLAMA_PULL_MISSING=0; eval "$v=envmodel:7b"; ai_model_resolve general "$URL" "" "$v" 2>/dev/null </dev/null)"
+done
+check "more than five arguments: 10" "10" "$(ai_model_resolve general "$URL" "" "" tier-m:4b extra >/dev/null 2>&1 </dev/null; echo $?)"
+check "select with an extra argument: 10" "10" "$(bash "$script" select general "$URL" "" "" tier-m:4b extra >/dev/null 2>&1 </dev/null; echo $?)"
+
+# --- a tiers file with a byte-order mark before a data line -----------------------------
+{ printf '\357\273\277threshold small_below_ram_gb 11\r\n'; grep -v small_below "$tmp/tiers.txt"; } >"$tmp/bom-tiers.txt"
+check "a BOM before the first threshold: still read" "small" \
+  "$(OLLAMA_MODEL_TIERS_FILE="$tmp/bom-tiers.txt" OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((8 * 1073741824)) ollama_host_tier)"
+printf '\357\273\277type solo a:1 b:2 c:3 d:4\n' >"$tmp/bom-type.txt"
+check "a BOM before the first type: still listed" "solo" "$(OLLAMA_MODEL_TIERS_FILE="$tmp/bom-type.txt" ollama_model_tier_types)"
+
 if [[ "$failures" -gt 0 ]]; then
   note "FAILED: $failures"
   exit 1
