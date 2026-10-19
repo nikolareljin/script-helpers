@@ -2,7 +2,7 @@
 
 ### Added
 
-- `scripts/ollama_models.sh select <type>` and `ai_model_resolve` pick a local model by type of work and host tier from `config/ollama_model_tiers.txt` (generated data), ask once on a terminal when the project's own model differs, and store the answer in the project's `.env`. `class` now prints the tier.
+- `scripts/ollama_models.sh select <type>` and `ai_model_resolve` pick a local model by type of work and host tier from `config/ollama_model_tiers.txt` (generated data), ask once on a terminal when the project's own model differs, and store the answer in the project's `.env` when git ignores it; never ask in CI. A `NAME_CHOICE` set by hand is used as is. `class` now prints the tier.
 - **`scripts/signing_secrets.sh`: the package-signing secrets on a list of
   repositories.** Sets the names ci-helpers `docs/packaging.md` uses
   (`--group gpg`: `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`, `GPG_KEY_ID`, per-repo

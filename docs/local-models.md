@@ -167,13 +167,17 @@ model="$(scripts/ollama_models.sh select general "$OLLAMA_URL" .env OLLAMA_MODEL
 
 | Case | Result |
 |---|---|
+| `NAME_CHOICE` in `.env` with no `NAME_CHOICE_FOR` (set by hand) | that model, never asked |
 | no project model, or the same as the tier's | the tier's model |
-| they differ, on a terminal | asked once: pull the project's model, or use the tier's; the answer goes into `.env` (`OLLAMA_MODEL_CHOICE`, and `OLLAMA_MODEL_CHOICE_FOR` = the tier's model it was asked about); asked again only when the tier's model changes |
+| they differ, on a terminal | asked once: pull the project's model, or use the tier's; the answer goes into `.env` (`OLLAMA_MODEL_CHOICE`, and `OLLAMA_MODEL_CHOICE_FOR` = the tier's model it was asked about); asked again only when the tier's model changes. Stored only when git ignores `.env`; otherwise a warning, and asked next time |
 | they differ, no terminal or CI | the tier's model if installed, else the project's if installed, else exit 12 naming both, nothing pulled |
-| chosen model missing | pulled after the disk and memory check; `OLLAMA_PULL_MISSING=1` pulls, `0` never, unset asks on a terminal |
+| chosen model missing | pulled after the disk and memory check; `OLLAMA_PULL_MISSING=1` pulls, `0` never, unset asks on a terminal (never in CI) |
+| `.env` cannot be read | exit 10 |
 | `AI_MODEL_TIER` not a tier | exit 11, naming the value |
 
 Only the model is printed on stdout. Nothing is ever removed.
+The tier list is a guideline: a model is ranked only against models of the
+same size class, never across classes.
 `scripts/ollama_models.sh class` prints the host's tier.
 
 The start script

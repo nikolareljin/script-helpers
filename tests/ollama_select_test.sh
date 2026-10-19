@@ -158,7 +158,10 @@ machine() {
   export OLLAMA_BUDGET_MEM_AVAILABLE_BYTES=$((12 * GB)) OLLAMA_BUDGET_GPU_BYTES=0 OLLAMA_BUDGET_GPU_LARGEST_BYTES=0
   unset AI_MODEL_TIER OLLAMA_PULL_MISSING OLLAMA_IGNORE_BUDGET CI GITHUB_ACTIONS OLLAMA_MODEL
 }
+# Replaced per case below; the library calls it.
+# shellcheck disable=SC2317
 _ollama_ep_can_ask() { return 1; }
+# shellcheck disable=SC2317
 terminal()    { _ollama_ep_can_ask() { return 0; }; }
 no_terminal() { _ollama_ep_can_ask() { return 1; }; }
 GiB=1073741824
@@ -178,6 +181,8 @@ check "a 24 GB card: xlarge" "xlarge" "$(OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((24 *
 check "AI_MODEL_TIER names it, any case" "xlarge" "$(AI_MODEL_TIER=' XLarge' ollama_host_tier)"
 check "a bad AI_MODEL_TIER is refused (3)" "3:" "$(AI_MODEL_TIER=huge ollama_host_tier 2>"$tmp/err"; echo "$?:")"
 said "naming the variable and the value" "$tmp/err" "AI_MODEL_TIER" "huge"
+check "no data file and no AI_MODEL_TIER: 2, not a guessed tier" "2:" "$(OLLAMA_MODEL_TIERS_FILE="$tmp/none" ollama_host_tier 2>/dev/null; echo "$?:")"
+check "no data file, AI_MODEL_TIER set: that tier" "large" "$(OLLAMA_MODEL_TIERS_FILE="$tmp/none" AI_MODEL_TIER=large ollama_host_tier)"
 check "the tier's model for a type" "tier-l:9b" "$(ollama_tier_model general large)"
 check "a type in any case" "tier-l:9b" "$(ollama_tier_model General large)"
 printf 'A=1\r\nOLD_CHOICE=x\r\n' >"$tmp/crlf.env"
@@ -258,6 +263,59 @@ check "a NAME that is not a variable name: 10" "10" "$(ai_model_resolve general 
 check "an env model that is not a model reference: 10" "10" "$(ai_model_resolve general "$URL" "" "" 'bad model' 2>/dev/null; echo $?)"
 check "no data file: 10" "10" "$(OLLAMA_MODEL_TIERS_FILE="$tmp/none" ai_model_resolve general "$URL" 2>/dev/null; echo $?)"
 
+# --- CI, by any spelling ---------------------------------------------------------
+machine; reset envmodel:7b tier-m:4b
+check "CI=1 with a terminal: not asked" "tier-m:4b:0" \
+  "$(terminal; CI=1 ai_model_resolve general "$URL" "" "" envmodel:7b <<<"1" 2>"$tmp/err"):$(grep -c 'Choose' "$tmp/err")"
+check "GITHUB_ACTIONS with a terminal: not asked" "tier-m:4b:0" \
+  "$(terminal; GITHUB_ACTIONS=true ai_model_resolve general "$URL" "" "" envmodel:7b <<<"1" 2>"$tmp/err"):$(grep -c 'Choose' "$tmp/err")"
+check "CI=false with a terminal: asked" "envmodel:7b:1" \
+  "$(terminal; CI=false ai_model_resolve general "$URL" "" "" envmodel:7b <<<"1" 2>"$tmp/err"):$(grep -c 'Choose' "$tmp/err")"
+reset
+check "in CI a missing model is not asked about with a terminal: nothing pulled (5)" "5::0" \
+  "$(terminal; CI=true ai_model_resolve general "$URL" <<<"y" 2>"$tmp/err"; echo "$?:$(pulled):$(grep -c 'Pull now' "$tmp/err")")"
+
+# --- the question names where the project's model came from --------------------------
+machine; reset tier-m:4b envmodel:7b
+check "a default model is called the project default" "1" \
+  "$(terminal; ai_model_resolve general "$URL" "" "" envmodel:7b <<<"2" 2>"$tmp/err" >/dev/null; grep -c 'project default has envmodel:7b' "$tmp/err")"
+check "an env model is called your env" "1" \
+  "$(terminal; OLLAMA_MODEL=envmodel:7b ai_model_resolve general "$URL" "" OLLAMA_MODEL <<<"2" 2>"$tmp/err" >/dev/null; grep -c 'your env has envmodel:7b' "$tmp/err")"
+
+# --- a choice set by hand ----------------------------------------------------------------
+machine; reset tier-m:4b envmodel:7b newer:4b
+printf 'OLLAMA_MODEL=envmodel:7b\nOLLAMA_MODEL_CHOICE=newer:4b\n' >"$tmp/hand.env"
+check "NAME_CHOICE with no _FOR: used as set, never asked" "newer:4b:0" \
+  "$(terminal; ai_model_resolve general "$URL" "$tmp/hand.env" OLLAMA_MODEL </dev/null 2>"$tmp/err"):$(grep -c 'Choose' "$tmp/err")"
+check "also when the project names no model of its own" "newer:4b" \
+  "$(printf 'AI_MODEL_GENERAL_CHOICE=newer:4b\n' >"$tmp/hand2.env"; ai_model_resolve general "$URL" "$tmp/hand2.env" 2>/dev/null)"
+check "and the file is left as it was" "OLLAMA_MODEL=envmodel:7b OLLAMA_MODEL_CHOICE=newer:4b" "$(one_line <"$tmp/hand.env")"
+check "a hand choice that is not a model reference: 10" "10" \
+  "$(printf 'OLLAMA_MODEL_CHOICE="bad model"\n' >"$tmp/hand3.env"; ai_model_resolve general "$URL" "$tmp/hand3.env" OLLAMA_MODEL 2>/dev/null; echo $?)"
+
+# --- the .env must be git-ignored to be written ----------------------------------------
+machine; reset tier-m:4b envmodel:7b
+if command -v git >/dev/null 2>&1; then
+  repo="$tmp/repo"
+  git init -q "$repo"
+  printf 'OLLAMA_MODEL=envmodel:7b\n' >"$repo/.env"
+  check "a .env not ignored by git: the answer is used, not stored" "envmodel:7b:" \
+    "$(terminal; ai_model_resolve general "$URL" "$repo/.env" OLLAMA_MODEL <<<"1" 2>"$tmp/err"):$(ollama_models_file_get "$repo/.env" OLLAMA_MODEL_CHOICE)"
+  said "with a warning naming the file" "$tmp/err" "not git-ignored" "$repo/.env"
+  printf '.env\n' >"$repo/.gitignore"
+  check "once ignored: stored" "envmodel:7b:envmodel:7b" \
+    "$(terminal; ai_model_resolve general "$URL" "$repo/.env" OLLAMA_MODEL <<<"1" 2>/dev/null):$(ollama_models_file_get "$repo/.env" OLLAMA_MODEL_CHOICE)"
+fi
+
+# --- an unreadable .env ------------------------------------------------------------------
+if [[ "$(id -u)" != "0" ]]; then
+  printf 'OLLAMA_MODEL=envmodel:7b\n' >"$tmp/locked.env"
+  chmod 000 "$tmp/locked.env"
+  check "an env_file that cannot be read: 10, nothing asked" "10:0" \
+    "$(terminal; ai_model_resolve general "$URL" "$tmp/locked.env" OLLAMA_MODEL <<<"1" >/dev/null 2>"$tmp/err"; echo "$?:$(grep -c 'Choose' "$tmp/err")")"
+  chmod 600 "$tmp/locked.env"
+fi
+
 # --- nothing removed -----------------------------------------------------------------
 check "no model was ever removed" "" "$(cat "$tmp/state/removed" 2>/dev/null)"
 
@@ -266,8 +324,10 @@ machine; reset tier-m:4b envmodel:7b
 script="$root_dir/scripts/ollama_models.sh"
 check "--help exits 0, from any directory" "0" "$( (cd "$tmp" && bash "$script" --help >/dev/null 2>&1); echo $?)"
 check "select prints the model alone on stdout" "tier-m:4b" "$( (cd "$tmp" && bash "$script" select general "$URL" "" "" envmodel:7b 2>/dev/null </dev/null) )"
-check "select with no address: 10" "10" "$(bash "$script" select general 2>/dev/null; echo $?)"
+check "select with no address: 2" "2" "$(bash "$script" select general 2>/dev/null; echo $?)"
+check "select with no type: 2" "2" "$(bash "$script" select 2>/dev/null; echo $?)"
 check "select with a bad tier: 11" "11" "$(AI_MODEL_TIER=x bash "$script" select general "$URL" 2>/dev/null </dev/null; echo $?)"
+check "class with no data file: tier unknown, still 0" "0:tier=unknown" "$(OLLAMA_MODEL_TIERS_FILE="$tmp/none" bash "$script" class 2>/dev/null >"$tmp/out"; echo "$?:$(grep '^tier=' "$tmp/out")")"
 check "class names the tier" "tier=large" "$(AI_MODEL_TIER=large bash "$script" class | grep '^tier=')"
 check "no model was removed by the script either" "tier-m:4b envmodel:7b" "$(installed)"
 
