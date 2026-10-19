@@ -1,3 +1,15 @@
+# SCRIPT: rust_resolver_check.ps1
+# DESCRIPTION: Real-machine check of rust_toolchain_ci_uses: rustup's cargo first on PATH, the shadowing warning, and preflight.ps1 on a throwaway cargo project.
+# USAGE: pwsh -NoProfile -File ps/tests/machine/rust_resolver_check.ps1 [-Keep] [-Help]
+# PARAMETERS:
+#   -Keep  Leave the throwaway directory for inspection (its path is printed).
+#   -Help  Show this help message.
+# EXIT_CODES:
+#   0  every case passed (or -Help)
+#   1  a case failed, or an unexpected error stopped the run
+#   2  this machine cannot run the check (rustup is not installed)
+# EXAMPLE: pwsh -NoProfile -File ps/tests/machine/rust_resolver_check.ps1
+# ----------------------------------------------------
 <#
 .SYNOPSIS
 Real-machine check of rust_toolchain_ci_uses: PowerShell counterpart to tests/machine/rust_resolver_check.sh.
@@ -20,7 +32,9 @@ Leave the throwaway directory for inspection (its path is printed).
 pwsh -NoProfile -File ps/tests/machine/rust_resolver_check.ps1
 #>
 [CmdletBinding()]
-param([switch]$Keep)
+param([switch]$Keep, [switch]$Help)
+# -Help: print the header above and stop, before anything runs.
+if ($Help) { foreach ($l in Get-Content -LiteralPath $PSCommandPath) { if ($l -match '^#\s*-{4,}') { break }; $l -replace '^# ?', '' }; exit 0 }
 $ErrorActionPreference = 'Stop'
 $root = Join-Path $PSScriptRoot '../../..'
 . (Join-Path $root 'ps/helpers.ps1')

@@ -198,6 +198,24 @@ else
   note "SKIP download_iso: needs bash 4 (DISTROS associative array)"
 fi
 
+# download_file loads dialog.sh from its own directory when SCRIPT_HELPERS_DIR is
+# unset; the old fallback looked in lib/lib/dialog.sh and never found it.
+mkdir -p "$tmp/dlg/lib" "$tmp/dlg/bin"
+cp "$root_dir/lib/file.sh" "$tmp/dlg/lib/file.sh"
+cat >"$tmp/dlg/lib/dialog.sh" <<'STUB'
+dialog_download_file() { printf 'via-dialog' >"$2"; }
+STUB
+printf '#!/bin/sh\nexit 0\n' >"$tmp/dlg/bin/dialog"; chmod +x "$tmp/dlg/bin/dialog"
+(
+  unset SCRIPT_HELPERS_DIR
+  PATH="$tmp/dlg/bin:$PATH"
+  # shellcheck source=/dev/null
+  source "$tmp/dlg/lib/file.sh"
+  download_file "https://example.invalid/a.bin" "$tmp/dlg/out.bin" >/dev/null 2>&1
+  cat "$tmp/dlg/out.bin" 2>/dev/null
+) >"$tmp/dlg.out" 2>&1
+if [[ "$(cat "$tmp/dlg.out")" == "via-dialog" ]]; then ok "download_file finds dialog.sh beside file.sh without SCRIPT_HELPERS_DIR"; else error "download_file dialog fallback: $(cat "$tmp/dlg.out")"; fi
+
 if [[ $failures -eq 0 ]]; then
   note "all file tests passed"
   exit 0

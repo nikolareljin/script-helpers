@@ -336,7 +336,7 @@ n_bak="$(find "$ms_dir" -name 'orig.json.bak-*' | wc -l | tr -d ' ')"
 [[ "$n_bak" == 2 ]] && grep -lx '{"a":1}' "$ms_dir"/orig.json.bak-* >/dev/null \
   && ok "two changes in one second keep two backups, the original among them" || error "backups: $n_bak"
 if [[ "$ON_WINDOWS" != true ]]; then
-  bad_mode="$(find "$ms_dir" -name 'orig.json.bak-*' ! -perm 600 | head -1)"
+  bad_mode="$(find "$ms_dir" -name 'orig.json.bak-*' ! -perm 600 | sed -n 1p)"
   [[ -z "$bad_mode" ]] && ok "backups keep the settings file's mode (600)" || error "backup mode: $(ls -l "$bad_mode")"
   printf '{"a":1}\n' > "$ms_dir/real.json"; ln -s real.json "$ms_dir/link.json"
   "$PY" "$MERGE" install "$ms_dir/link.json" 'bash /x/pretooluse_private_names.sh' >/dev/null 2>&1

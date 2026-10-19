@@ -72,7 +72,7 @@ own_tmp="$tmp/own-tmp"; mkdir -p "$own_tmp"
 if tmpdir_honoured "$own_tmp" "no temp files left behind"; then
   printf 'hello\n' | TMPDIR="$own_tmp" bash "$ROOT_DIR/scripts/check_private_names.sh" --stdin --names zorblatt-core >/dev/null 2>&1
   printf 'hello\n' | TMPDIR="$own_tmp" bash "$ROOT_DIR/scripts/check_sensitive.sh" --stdin >/dev/null 2>&1
-  left="$(find "$own_tmp" -mindepth 1 | head -5)"
+  left="$(find "$own_tmp" -mindepth 1 | sed -n 1,5p)"
   if [[ -z "$left" ]]; then ok "no temp files left behind"; else error "left in TMPDIR: $left"; fi
 fi
 
@@ -105,7 +105,7 @@ if tmpdir_honoured "$hook_tmp" "commit, refused commit, push and preflight leave
   hg push -q origin HEAD:main
   cd "$hr" && CI='' PREFLIGHT_NO_INSTALL=1 bash "$ROOT_DIR/scripts/preflight.sh" --security-only
 ) >/dev/null 2>&1
-left="$(find "$hook_tmp" -mindepth 1 | head -5)"
+left="$(find "$hook_tmp" -mindepth 1 | sed -n 1,5p)"
 if [[ -z "$left" ]]; then ok "commit, refused commit, push and preflight leave nothing in TMPDIR"
 else error "left in TMPDIR by commit/push/preflight: $left"; fi
 fi
@@ -153,8 +153,8 @@ term_mid_scan() {
   # shellcheck disable=SC2046  # one pid per word
   kill -TERM $(proc_tree "$pid") 2>/dev/null
   wait "$pid" 2>/dev/null
-  for _ in $(seq 1 50); do [[ -z "$(find "$sig_tmp" -mindepth 1 | head -1)" ]] && break; sleep 0.1; done
-  left="$(find "$sig_tmp" -mindepth 1 | head -5)"
+  for _ in $(seq 1 50); do [[ -z "$(find "$sig_tmp" -mindepth 1 | sed -n 1p)" ]] && break; sleep 0.1; done
+  left="$(find "$sig_tmp" -mindepth 1 | sed -n 1,5p)"
   if [[ -z "$left" ]]; then ok "$label: interrupted mid-scan, nothing left in TMPDIR"
   else error "$label: interrupted mid-scan, left in TMPDIR: $left (foxguard ran with: $(cat "$tmp/fox-started"))"; fi
 }
@@ -191,8 +191,8 @@ except subprocess.TimeoutExpired:
     3) error "$label: the stub foxguard never started, so $sig was not tested"; tail -15 "$tmp/sig-out" | sed 's/^/    | /' >&2; return ;;
     4) error "$label: still running 30s after $sig"; return ;;
   esac
-  for _ in $(seq 1 50); do [[ -z "$(find "$sig_tmp" -mindepth 1 | head -1)" ]] && break; sleep 0.1; done
-  left="$(find "$sig_tmp" -mindepth 1 | head -5)"
+  for _ in $(seq 1 50); do [[ -z "$(find "$sig_tmp" -mindepth 1 | sed -n 1p)" ]] && break; sleep 0.1; done
+  left="$(find "$sig_tmp" -mindepth 1 | sed -n 1,5p)"
   if [[ -z "$left" ]]; then ok "$label: $sig mid-scan, nothing left in TMPDIR"
   else error "$label: $sig mid-scan, left in TMPDIR: $left"; fi
 }

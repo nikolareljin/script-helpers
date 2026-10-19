@@ -201,13 +201,13 @@ mkdir -p "$tmp/bare-tree/tests"
 printf '#!/usr/bin/env bash\necho "git-dir=[${GIT_DIR:-}]"\n' > "$tmp/bare-tree/tests/says_test.sh"
 out="$( cd "$tmp/bare-tree" && GIT_DIR="$repo/.git" GIT_WORK_TREE="$tmp/bare-tree" GIT_CEILING_DIRECTORIES="$tmp" bash "$RUNNER" 2>&1 )"
 grep -qF "git-dir=[$repo/.git]" <<<"$out" && ok "a work tree that is found only through GIT_DIR keeps it" \
-  || error "GIT_DIR was dropped where nothing else finds the repository: $(grep -E 'git-dir|fatal' <<<"$out" | head -3)"
+  || error "GIT_DIR was dropped where nothing else finds the repository: $(grep -E 'git-dir|fatal' <<<"$out" | sed -n 1,3p)"
 # 2. The directory is a different repository. Unset, the tests would run
 #    against that one.
 git -c init.defaultBranch=main init -q "$tmp/bare-tree"
 out="$( cd "$tmp/bare-tree" && GIT_DIR="$repo/.git" GIT_WORK_TREE="$tmp/bare-tree" bash "$RUNNER" 2>&1 )"
 grep -qF "git-dir=[$repo/.git]" <<<"$out" && ok "nor is it dropped where the directory is another repository" \
-  || error "GIT_DIR was dropped though the directory finds a different repository: $(grep -E 'git-dir|fatal' <<<"$out" | head -3)"
+  || error "GIT_DIR was dropped though the directory finds a different repository: $(grep -E 'git-dir|fatal' <<<"$out" | sed -n 1,3p)"
 
 # 3. Same repository, but GIT_WORK_TREE is another work tree (a subdirectory
 #    here). Unset, the tests would see the checkout's root instead.
@@ -216,7 +216,7 @@ mkdir -p "$repo/sub-tree/tests"
 cp "$tmp/bare-tree/tests/says_test.sh" "$repo/sub-tree/tests/says_test.sh"
 out="$( cd "$repo/sub-tree" && GIT_DIR="$repo/.git" GIT_WORK_TREE="$repo/sub-tree" bash "$RUNNER" 2>&1 )"
 grep -qF "git-dir=[$repo/.git]" <<<"$out" && ok "nor where GIT_WORK_TREE names another work tree of the same repository" \
-  || error "GIT_DIR was dropped though the work tree differs without it: $(grep -E 'git-dir|fatal' <<<"$out" | head -3)"
+  || error "GIT_DIR was dropped though the work tree differs without it: $(grep -E 'git-dir|fatal' <<<"$out" | sed -n 1,3p)"
 rm -rf "$repo/sub-tree"
 
 if [[ $failures -gt 0 ]]; then

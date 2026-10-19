@@ -26,7 +26,7 @@ param(
     [switch]   $Help
 )
 
-if ($env:CI -eq 'true') { Write-Error "This script is for local use only."; exit 1 }
+if ($env:CI -eq 'true' -and -not $Help) { Write-Error "This script is for local use only."; exit 1 }
 
 $ScriptDir = $PSScriptRoot
 $env:SCRIPT_HELPERS_DIR = if ($env:SCRIPT_HELPERS_DIR) { $env:SCRIPT_HELPERS_DIR } else { Split-Path (Split-Path $ScriptDir -Parent) -Parent }

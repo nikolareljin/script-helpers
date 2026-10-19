@@ -35,10 +35,10 @@ Functions
   - Returns: 0 when running; 1 on timeout.
 
 - docker_status
-  - Purpose: Show running containers and compose services summary with glyphs.
+  - Purpose: Show running containers and compose services summary with [ok]/[failed]/[stopped] markers.
   - Output:
     - From `docker ps`: name, image, status, running-for, ports.
-    - From `docker compose`: for each service: `✅` running (with since), `💥` failed, or `✖️` not running.
+    - From `docker compose`: for each service: `[ok]` running (with since), `[failed]` failed, or `[stopped]` not running.
 
 Dependencies
 ------------

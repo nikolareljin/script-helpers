@@ -163,7 +163,7 @@ fi
 
 # The same for the suites that clean up through a named function.
 for f in tests/*.sh; do
-  fn="$(sed -n "s/^trap \([A-Za-z_][A-Za-z0-9_]*\) EXIT$/\1/p" "$f" | head -1)"
+  fn="$(sed -n "s/^trap \([A-Za-z_][A-Za-z0-9_]*\) EXIT$/\1/p" "$f" | sed -n 1p)"
   [[ -n "$fn" ]] || continue
   body="$(sed -n "/^${fn}() {/,/^}/p" "$f")"
   case "$body" in
@@ -223,7 +223,7 @@ hit="$(grep -lE '\[ERROR\]|No such file or directory' "$work"/m*.log "$work"/a*.
 if [[ "$hit" -eq 0 ]]; then
   note "manifest_test and android_test each pass 6 ways in parallel"
 else
-  error "${hit}/12 parallel runs failed: $(grep -hE '\[ERROR\]|No such file' "$work"/m*.log "$work"/a*.log 2>/dev/null | head -1)"
+  error "${hit}/12 parallel runs failed: $(grep -hE '\[ERROR\]|No such file' "$work"/m*.log "$work"/a*.log 2>/dev/null | sed -n 1p)"
 fi
 
 if [[ $failures -gt 0 ]]; then

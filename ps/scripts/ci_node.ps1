@@ -34,7 +34,7 @@ param(
     [switch]   $Help
 )
 
-if ($env:CI -eq 'true') { Write-Error "This script is for local use only."; exit 1 }
+if ($env:CI -eq 'true' -and -not $Help) { Write-Error "This script is for local use only."; exit 1 }
 
 $ScriptDir = $PSScriptRoot
 $env:SCRIPT_HELPERS_DIR = if ($env:SCRIPT_HELPERS_DIR) { $env:SCRIPT_HELPERS_DIR } else { Split-Path (Split-Path $ScriptDir -Parent) -Parent }
@@ -66,7 +66,7 @@ function _Run {
     }
 }
 
-log_info "Node CI — workdir: $absWorkdir"
+log_info "Node CI - workdir: $absWorkdir"
 if (-not $NoInstall) { log_info "Install: $($InstallCmd -join ' ')";  _Run $InstallCmd }
 if (-not $SkipLint)  { log_info "Lint:    $($LintCmd -join ' ')";     _Run $LintCmd    }
 if (-not $SkipTest)  { log_info "Test:    $($TestCmd -join ' ')";      _Run $TestCmd    }

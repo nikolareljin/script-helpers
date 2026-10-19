@@ -26,15 +26,17 @@ Usage: bash scripts/foxguard_report.sh [--base <ref>] [--output <file>] [--] [<p
 Exit codes:
 
 ```text
-0 no findings; 1 findings (written to the file); 2 usage or git error, the
-report could not be written, or a file could not be scanned (listed under
-"errors"); 3 foxguard not installed and not installable here.
+0  No findings.
+1  Findings (written to the file).
+2  Usage or git error, the report could not be written, or a file could not
+be scanned (listed under "errors").
+3  foxguard not installed and not installable here.
 ```
 
 Example:
 
 ```text
-bash scripts/script-helpers/scripts/foxguard_report.sh --base origin/main --output foxguard-report.json
+  bash scripts/script-helpers/scripts/foxguard_report.sh --base origin/main --output foxguard-report.json
 ```
 
 ### `scripts/owner_scope.sh`
@@ -45,9 +47,25 @@ Decide whether a repository belongs to a configured owner, failing closed. Sourc
 Usage: source scripts/owner_scope.sh; scope_owners; scope_owner_of <url>; scope_in_scope <owners> [url...]
   SCRIPT_HELPERS_OWNERS  Comma-separated GitHub users/orgs. Default:
                          git config --global script-helpers.owners.
+  -h, --help             Executed directly: show this help.
 ```
 
-Exit codes: not in the header; the script has no explicit `exit`.
+Exit codes:
+
+```text
+scope_owners returns 0 (owners printed, or none set) or 2 (git config unreadable).
+scope_owner_of returns 0 with the owner printed, 1 for a non-github URL.
+scope_in_scope returns 0 in scope, 1 out of scope.
+scope_repo_urls returns 0, or 2 when git cannot list the remotes.
+Executed directly: 0 for -h/--help, 2 otherwise (the file must be sourced).
+```
+
+Example:
+
+```text
+  source scripts/owner_scope.sh
+  scope_in_scope "$(scope_owners)" "$(git remote get-url origin)" && echo checked
+```
 
 ### `scripts/push_checks.sh`
 
@@ -58,14 +76,22 @@ Usage: source scripts/push_checks.sh; push_checks <refs-file> <remote-name> [<ur
   <refs-file>    The ref lines git gave pre-push, saved to a file.
   <remote-name>  git's first pre-push argument.
   <url>          git's second pre-push argument.
+  -h, --help     Executed directly: show this help.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1, 3.
+Exit codes:
+
+```text
+push_checks returns 0 when the push is clean and 1 on any finding (each
+finding on stderr); push_tests returns 1 when tests fail or none are found.
+Executed directly: 0 for -h/--help, 2 otherwise (the file must be sourced).
+```
 
 Example:
 
 ```text
-push_checks "$refs" origin git@github.com:owner/repo.git
+  source scripts/push_checks.sh
+  push_checks "$refs" origin git@github.com:owner/repo.git
 ```
 
 ### `scripts/run_repo_tests.sh`
@@ -113,7 +139,20 @@ Usage: source scripts/security_hooks.sh; sec_pre_push <refs-file> <remote-name> 
                                binary in the cache, else foxguard on PATH).
 ```
 
-Exit codes: not in the header; the script exits with 2.
+Exit codes:
+
+```text
+Sourced: no output, no exit. Each sec_* function returns 0 to let the
+commit or push continue and 1 to refuse; sec_find returns 127 when a
+check script is missing.
+Executed: 0 for -h/--help; 2 for anything else (it must be sourced).
+```
+
+Example:
+
+```text
+source scripts/security_hooks.sh && sec_pre_push "$refs_file" origin "$url" || exit 1
+```
 
 ### `scripts/setup-hooks.ps1`
 
@@ -254,8 +293,18 @@ Usage: bash scripts/setup-hooks.sh [--claude-repo|--agent-repo <list>|--global|-
 Exit codes:
 
 ```text
-0 done; 1 failed (or a --doctor probe failed); 2 refused (no owners, no
-Python 3, no write access, bad arguments); 3 settings.json is not valid JSON
+0  done
+1  failed (or a --doctor probe failed)
+2  refused: no owners, no Python 3, no write access, bad arguments
+3  a settings/hooks JSON file is not valid JSON; with --install-gitleaks or
+--install-foxguard: no release binary for this platform, or curl/wget or
+a SHA-256 tool is missing
+```
+
+Example:
+
+```text
+bash scripts/setup-hooks.sh --status
 ```
 
 ### `scripts/ssh_keepalive.sh`
@@ -268,7 +317,13 @@ Usage: source scripts/ssh_keepalive.sh; ssh_keepalive_note <remote-url> <prefix>
   <prefix>      The tag for the lines, e.g. "[pre-push]".
 ```
 
-Exit codes: not in the header; the script exits with 141.
+Exit codes:
+
+```text
+Sourced: no output, no exit. ssh_keepalive_note always returns 0 and
+prints its note on stderr; ssh_host_of prints the host or nothing, return 0.
+Executed: 0 for -h/--help; 2 for anything else (it must be sourced).
+```
 
 Example:
 
@@ -392,15 +447,29 @@ Bump the semantic version in a VERSION file using script-helpers.
 ```text
 Usage: ./bump_version.sh [major|minor|patch] [-f VERSION_FILE]
   major|minor|patch   Which part of the version to increment.
-  -f, --file PATH     Version file path (default: VERSION at project root).
+  -f, --file PATH     Version file path; a relative path is taken from the
+                      current directory. Default: VERSION at the project root,
+                      the top of the git work tree holding the cwd (the
+                      superproject when run inside a vendored script-helpers
+                      submodule), or the cwd outside git. Never the vendored
+                      copy's own VERSION. A missing file is created,
+                      starting from 0.1.0.
+  -h, --help          Show this help.
 ```
 
-Exit codes: not in the header; the script exits with 1.
+Exit codes:
+
+```text
+0  Version bumped and written (also -h/--help).
+1  No arguments, unknown or repeated argument, a version that is not X.Y.Z,
+or the version file or its directory could not be written.
+2  -f/--file without its value.
+```
 
 Example:
 
 ```text
-./bump_version.sh minor
+  scripts/bump_version.sh minor -f VERSION
 ```
 
 ### `scripts/check_changelog_section.sh`
@@ -416,7 +485,21 @@ Usage: scripts/check_changelog_section.sh [--branch <name>] [--version <X.Y.Z>] 
   -h, --help          Show this help message.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1, 2.
+Exit codes:
+
+```text
+0  Not a release branch (nothing to check), or the section exists and has
+entries (also -h/--help).
+1  CHANGELOG missing, no section for the version, or the section is empty.
+2  Unknown argument, an option without a value, a malformed --version, or
+--repo not a directory.
+```
+
+Example:
+
+```text
+  scripts/check_changelog_section.sh --version 1.4.0
+```
 
 ### `scripts/check_no_private_ips.sh`
 
@@ -430,7 +513,20 @@ Usage: scripts/check_no_private_ips.sh [--repo <path>] [--path <dir>] [-h]
   -h, --help      Show this help message.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1, 2.
+Exit codes:
+
+```text
+0  No private-range address found (also -h/--help).
+1  A private-range address was found in a tracked file.
+2  Could not check: unknown argument, an option without a value, no such
+directory, not a git repository, or grep failed.
+```
+
+Example:
+
+```text
+  scripts/check_no_private_ips.sh --repo .
+```
 
 ### `scripts/check_private_names.sh`
 
@@ -440,7 +536,7 @@ Fail when the name of a private repository appears in text that is about to beco
 Usage: scripts/check_private_names.sh [--tree|--commits <range>|--file <path>|--stdin] [--list <path>] [--names <a,b>] [--repo <path>] [--only-public] [--for-repo <name>] [--strict-ambiguous] [-h]
   --tree              Scan tracked files (the default when nothing else is given).
   --commits <range>   Scan commit messages in a range, e.g. origin/main..HEAD.
-  --file <path>       Scan a file - a pull request or issue body written out before posting.
+  --file <path>       Scan a file: a pull request or issue body written out before posting.
   --stdin             Scan standard input.
   --list <path>       Name list to use. Overrides PRIVATE_NAMES_FILE and the cache.
   --names <a,b>       Comma-separated names, instead of a list file. For tests.
@@ -456,9 +552,19 @@ Usage: scripts/check_private_names.sh [--tree|--commits <range>|--file <path>|--
 Exit codes:
 
 ```text
-0  no private name found
-1  a private name was found
-2  could not check (no list, an empty list, not a repository)
+0  No private name found (also -h/--help, and --only-public in a repository
+that is not public).
+1  A private name was found.
+2  Could not check: unknown argument, an option without a value, no list or an
+empty list, not a repository, unreadable file or commit range, or a failed
+search.
+```
+
+Example:
+
+```text
+  scripts/check_private_names.sh --commits origin/main..HEAD
+  git log -1 --format=%B | scripts/check_private_names.sh --stdin
 ```
 
 ### `scripts/check_release_tag.sh`
@@ -475,21 +581,49 @@ Usage: scripts/check_release_tag.sh --branch <branch> [--repo <path>] [--remote 
   -h, --help           Show this help message.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1, 2.
+Exit codes:
+
+```text
+0  Tag is free, or the branch is not a release branch (also -h/--help).
+1  Tag already exists, or fetching tags failed.
+2  Unknown argument, an option without its value, no branch given or in the environment, or --repo is not
+a git work tree.
+```
+
+Example:
+
+```text
+  scripts/check_release_tag.sh --branch release/1.4.0 --fetch-tags --print-version
+```
 
 ### `scripts/check_release_version.sh`
 
 Validate VERSION against release/* branch and tag state.
 
 ```text
-Usage: scripts/check_release_version.sh [--branch <name>] [--version-file <path>] [--fetch-tags] [OPTIONS]
+Usage: scripts/check_release_version.sh [--branch <name>] [--version-file <path>] [--repo <dir>] [--fetch-tags]
   --branch <name>        Override branch name (default: current git branch).
-  --version-file <path>  Path to VERSION file (default: VERSION).
+  --version-file <path>  Path to VERSION file, relative to --repo (default: VERSION).
+  --repo <dir>           Repository to check (default: current directory).
   --fetch-tags           Fetch tags from origin before checks.
   -h, --help             Show this help message.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1.
+Exit codes:
+
+```text
+0  Not on a release branch, or VERSION matches the branch and the tag is free
+(also -h/--help).
+1  Release branch name invalid, VERSION missing, empty or mismatched, or the
+tag already exists.
+2  Unknown argument, an option without a value, or --repo not a directory.
+```
+
+Example:
+
+```text
+  scripts/check_release_version.sh --branch release/1.4.0 --fetch-tags
+```
 
 ### `scripts/check_sensitive.sh`
 
@@ -522,9 +656,17 @@ Usage: scripts/check_sensitive.sh [--push-refs <file>|--range <revs>|--staged|--
 Exit codes:
 
 ```text
-0  nothing found
-1  something found (block)
-2  could not check: gitleaks missing or failed, or git could not read the commits
+0  Nothing found (also -h/--help, --refresh-public-ip, --list-identifiers).
+1  Something found (block).
+2  Could not check: bad or missing arguments, not a git repository, git could
+not read the commits or index, gitleaks missing or failed, or the public IP
+could not be fetched.
+```
+
+Example:
+
+```text
+  scripts/check_sensitive.sh --range origin/main..HEAD
 ```
 
 ### `scripts/ci_gitleaks_report.sh`
@@ -542,7 +684,23 @@ Usage: Invoke this helper with [--output <path>] [--requested-output <path>] [--
   -h, --help                   Show this help message.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1, 2, 3.
+Exit codes:
+
+```text
+0  Report read; no findings, or findings with --fail-on-findings false (also
+-h/--help).
+1  Report missing, empty, not JSON, not the SARIF shape expected, an
+unsupported --report-format.
+2  Unknown argument, an option without its value, a bad --fail-on-findings, an empty --output or
+--requested-output, or python3 not found.
+3  Findings present and --fail-on-findings true.
+```
+
+Example:
+
+```text
+  scripts/ci_gitleaks_report.sh --output results.sarif --fail-on-findings true
+```
 
 ### `scripts/ci_security.sh`
 
@@ -591,9 +749,23 @@ Usage: scripts/ci_security.sh [--workdir <path>] [--install] [--skip-python] [--
 Exit codes:
 
 ```text
-0 clean (or reported only); 1 findings with --fail-on-findings;
-3 only under preflight (PREFLIGHT_SKIP_FILE set): nothing it was asked for
-could run (a missing tool, no manifest, no lockfile), reason in that file.
+0  Clean, or findings reported only (also -h/--help, --check-foxguard when
+foxguard is available, and a successful --install-*).
+1  Findings with --fail-on-findings; CI=true (local use only); unknown
+argument; bad --gitleaks-digest; docker
+missing in Docker mode; a temp directory could not be made; or an
+--install-* download or checksum failed.
+2  An option without its value.
+3  --check-foxguard: foxguard not available. --install-*: no release binary
+for this platform, or no curl/wget/sha256 tool. Under preflight
+(PREFLIGHT_SKIP_FILE set): nothing it was asked for could run, reason in
+that file.
+```
+
+Example:
+
+```text
+  scripts/ci_security.sh --fail-on-findings
 ```
 
 ### `scripts/pin_production.sh`
@@ -614,7 +786,16 @@ Usage: scripts/pin_production.sh <tag> [--allow-rewind] [--remote <name>] [--bra
   -h, --help        Show this help message.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1, 2.
+Exit codes:
+
+```text
+0  Moved, already there, or a dry run.
+1  An error: no <tag> given, a refused branch name (main, master, HEAD),
+git missing, not a repository, fetch/push failed, tag not found, or the
+branch did not read back at the tag after the push.
+2  An unknown option, an option without its value, or a second <tag>.
+3  Refused: the tag is not ahead of the branch and --allow-rewind was not given.
+```
 
 Example:
 
@@ -657,7 +838,7 @@ Exit codes:
 
 ```text
 0  Every check that ran passed.
-1  At least one check failed.
+1  At least one check failed, or run with CI=true (preflight is local only).
 2  Bad arguments, or an unknown --stack.
 3  No stack could be detected in this directory.
 ENVIRONMENT:
@@ -696,12 +877,19 @@ Usage: scripts/prune_branches.sh [--apply] [--remote] [OPTIONS]
   -h, --help        Show this help message.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1, 2.
+Exit codes:
+
+```text
+0  Report printed, or every deletable branch was deleted.
+1  Setup failed (not a repository, no base, failed fetch), a refused
+--remote --apply --no-fetch, or at least one deletion failed.
+2  Unknown argument, or an option without its value.
+```
 
 Example:
 
 ```text
-bash scripts/script-helpers/scripts/prune_branches.sh --remote --apply
+  bash scripts/script-helpers/scripts/prune_branches.sh --remote --apply
 ```
 
 ### `scripts/refresh_private_names.sh`
@@ -737,10 +925,18 @@ ENVIRONMENT:
 Exit codes:
 
 ```text
-0  written (or, with --check, unchanged)
-1  --check found the list out of date
-2  bad arguments, or the account has no private repositories
-3  gh is missing or not authenticated
+0  written (or, with --check, unchanged; or printed with --stdout)
+1  --check found the list out of date or missing, or the write would drop
+names or codes (rerun with --force)
+2  bad arguments, the account has no private repositories, or no temporary
+file could be created beside --out
+3  gh is missing, not authenticated, or a listing failed part-way
+```
+
+Example:
+
+```text
+scripts/refresh_private_names.sh --owner my-org --check
 ```
 
 ### `scripts/release_notes.sh`
@@ -760,7 +956,21 @@ Usage: scripts/release_notes.sh --version <X.Y.Z> [--tag <tag>] [--changelog <pa
   -h, --help          Show this help message.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1, 2.
+Exit codes:
+
+```text
+0  notes written (stdout or --output)
+1  no CHANGELOG section and the commits cannot be listed: not a git
+repository, a shallow clone, or git log failed
+2  bad arguments: missing or malformed --version, unknown option, or
+--repo is not a directory
+```
+
+Example:
+
+```text
+scripts/release_notes.sh --version 1.4.0 --output release-body.md
+```
 
 ### `scripts/tag_release.sh`
 
@@ -769,9 +979,24 @@ Tag the current commit with the version from the VERSION file and push the tag t
 ```text
 Usage: ./tag_release.sh
 No parameters.
+  -h, --help prints this header and exits without tagging. Runs in the
+  script-helpers checkout that holds this script, from any directory.
 ```
 
-Exit codes: not in the header; the script exits with 1.
+Exit codes:
+
+```text
+0  tag created and pushed (or help shown)
+1  VERSION is missing or empty, the tag already exists, or git tag or
+git push failed
+2  bad arguments
+```
+
+Example:
+
+```text
+scripts/tag_release.sh
+```
 
 ### `ps/scripts/bump_version.ps1`
 
@@ -780,7 +1005,10 @@ Bump the semantic version in the VERSION file.
 ```text
 Usage: pwsh -File ps\scripts\bump_version.ps1 <major|minor|patch> [-File <path>]
   BumpType         Required. One of: major, minor, patch.
-  -File <path>     Path to VERSION file (default: VERSION in project root).
+  -File <path>     Path to the VERSION file; relative to the current directory.
+                   Default: VERSION at the project root (top of the git work
+                   tree holding the cwd, the superproject when run inside a
+                   vendored script-helpers submodule, else the cwd).
   -Help            Show this help message.
 ```
 
@@ -810,6 +1038,7 @@ Usage: pwsh -File ps\scripts\preflight.ps1 [-Quick] [-Stack <name>] [-Docker] [-
   -SecurityOnly  Run only security checks.
   -List          Print detected stacks without running them.
   -Dir <path>    Project directory (default: repository root or current directory).
+  -Help          Show this help message.
 ```
 
 Exit codes:
@@ -889,9 +1118,16 @@ Usage: scripts/ci_django.sh [options]
 Exit codes:
 
 ```text
-0  The tests passed.
-1  A step failed; its own exit code is used where there is one.
+0  The tests passed (also -h/--help).
+1  A step failed, or the database did not start.
 2  Bad arguments, or a combination that cannot work.
+N  A failing step exits with its own code (e.g. the test command's).
+```
+
+Example:
+
+```text
+  scripts/ci_django.sh --db-image postgres:16
 ```
 
 ### `scripts/ci_flutter.sh`
@@ -912,7 +1148,21 @@ Usage: scripts/ci_flutter.sh [--workdir <path>] [--skip-analyze] [--skip-test] [
   -h, --help         Show this help message.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1.
+Exit codes:
+
+```text
+0  All requested steps passed (also -h/--help).
+1  CI=true (local use only), unknown argument, bad --digest, or docker
+(Docker mode) or flutter (--no-docker) not found.
+2  An option without its value.
+N  The first failing step exits with its own code.
+```
+
+Example:
+
+```text
+  scripts/ci_flutter.sh --workdir app
+```
 
 ### `scripts/ci_go.sh`
 
@@ -933,7 +1183,21 @@ Usage: scripts/ci_go.sh [--workdir <path>] [--skip-lint] [--skip-test] [--skip-b
   -h, --help        Show this help message.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1, 127.
+Exit codes:
+
+```text
+0  All requested steps passed (also -h/--help).
+1  CI=true (local use only), unknown argument, or docker (Docker mode)
+or go (--no-docker) not found.
+2  An option without its value.
+N  The first failing step (lint, test, build) exits with its own code.
+```
+
+Example:
+
+```text
+  scripts/ci_go.sh --skip-build
+```
 
 ### `scripts/ci_gradle.sh`
 
@@ -957,7 +1221,21 @@ Usage: scripts/ci_gradle.sh [--workdir <path>] [--skip-build] [--skip-test] [--s
   -h, --help         Show this help message.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1.
+Exit codes:
+
+```text
+0  All requested steps passed (also -h/--help).
+1  CI=true (local use only), unknown argument, docker not found (Docker
+mode), or gradlew not found (--no-docker).
+2  An option without its value.
+N  The first failing step exits with its own code.
+```
+
+Example:
+
+```text
+  scripts/ci_gradle.sh --workdir android
+```
 
 ### `scripts/ci_ios.sh`
 
@@ -972,11 +1250,25 @@ Usage: scripts/ci_ios.sh [--workdir <path>] [--skip-analyze] [--skip-test] [--sk
   --export-plist <path>  ExportOptions.plist, relative to --workdir, for a signed IPA
                          (default: build an unsigned iOS app).
   -h, --help             Show this help message.
+```
+
+Exit codes:
+
+```text
+0  All requested steps passed (also -h/--help).
+1  Unknown argument, flutter not on PATH, or --workdir not found.
+2  An option without its value.
+3  Not macOS with Xcode: the Apple toolchain cannot run here.
+N  A failing flutter or xcodebuild step exits with its own code.
+```
+
+Example:
+
+```text
+  scripts/ci_ios.sh --skip-build
 NOTE: Apple's toolchain runs only on macOS, so unlike the Docker-based ci_*.sh
       helpers this runs on the host with no image. It exits early elsewhere.
 ```
-
-Exit codes: not in the header; the script exits with 0, 1, 3.
 
 ### `scripts/ci_laravel.sh`
 
@@ -1013,9 +1305,16 @@ Usage: scripts/ci_laravel.sh [options]
 Exit codes:
 
 ```text
-0  The tests passed.
-1  A step failed; its own exit code is used where there is one.
+0  The tests passed (also -h/--help).
+1  A step failed, or the database did not start.
 2  Bad arguments, or a combination that cannot work.
+N  A failing step exits with its own code (e.g. the test command's).
+```
+
+Example:
+
+```text
+  scripts/ci_laravel.sh --db-image mysql:8.0
 ```
 
 ### `scripts/ci_node.sh`
@@ -1039,7 +1338,21 @@ Usage: scripts/ci_node.sh [--workdir <path>] [--no-install] [--skip-lint] [--ski
   -h, --help         Show this help message.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1.
+Exit codes:
+
+```text
+0  All requested steps passed (also -h/--help).
+1  CI=true (local use only), unknown argument, or docker (Docker mode)
+or npm (--no-docker) not found.
+2  An option without its value.
+N  The first failing step exits with its own code.
+```
+
+Example:
+
+```text
+  scripts/ci_node.sh --workdir web
+```
 
 ### `scripts/ci_pimcore_bundle_check.sh`
 
@@ -1070,7 +1383,23 @@ Usage: scripts/ci_pimcore_bundle_check.sh [options]
   -h, --help                            Show this help message.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1, 2.
+Exit codes:
+
+```text
+0  All checks passed, or findings reported only with --fail-on-findings false
+(also -h/--help).
+1  PHPCS, PHPStan or PHPUnit findings (with --fail-on-findings true), the
+database did not become ready, or docker compose not found.
+2  Unknown argument, an option without its value, a bad true/false or --db-wait-seconds value, compose
+file or bundle source not found, or a bad --bundle-src-env name.
+N  A failing composer, lint or standalone command exits with its own code.
+```
+
+Example:
+
+```text
+  scripts/ci_pimcore_bundle_check.sh --compose-file test/docker-compose.yml --phpstan-command "vendor/bin/phpstan analyse"
+```
 
 ### `scripts/ci_python.sh`
 
@@ -1102,7 +1431,22 @@ Usage: scripts/ci_python.sh [--workdir <path>] [--no-install] [--requirements <f
   -h, --help           Show this help message.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1.
+Exit codes:
+
+```text
+0  Install and tests passed (also -h/--help).
+1  CI=true (local use only), unknown argument, a bad --env, an unknown
+database engine, the database did not start, or docker (Docker mode) or
+python (--no-docker) not found.
+2  An option without its value.
+N  The failing install or test command exits with its own code.
+```
+
+Example:
+
+```text
+  scripts/ci_python.sh --requirements requirements-dev.txt
+```
 
 ### `scripts/ci_wp_build.sh`
 
@@ -1129,7 +1473,24 @@ Usage: scripts/ci_wp_build.sh [options]
   -h, --help                    Show this help message.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1, 2, 127.
+Exit codes:
+
+```text
+0  Tree (and zip) built (also -h/--help).
+1  Symlinks that cannot be packaged, no PHP file at the staged root, or a
+packaging step failed.
+2  Bad arguments: unknown option, an option without its value, missing
+--workdir, a bad --slug, --version or --zip, a tool missing on PATH, an
+--out-dir inside the plugin, no usable Version: header, or --exclude-
+from not found.
+N  A failing composer or asset command exits with its own code.
+```
+
+Example:
+
+```text
+  scripts/ci_wp_build.sh --workdir . --out-dir build
+```
 
 ### `scripts/ci_wp_phpunit.sh`
 
@@ -1159,7 +1520,23 @@ Usage: scripts/ci_wp_phpunit.sh [options]
   -h, --help                    Show this help message.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1, 2.
+Exit codes:
+
+```text
+0  The tests passed (also -h/--help).
+1  The database did not start, the WordPress test library could not be
+provisioned, or a step failed.
+2  Bad arguments: unknown option, an option without its value, a relative
+or unsafe --wp-tests-dir or --wp-core-dir, missing --workdir, or a
+database host a container cannot reach.
+N  The PHPUnit command exits with its own code.
+```
+
+Example:
+
+```text
+  scripts/ci_wp_phpunit.sh --db-image mysql:8.0 --wp-version 6.5
+```
 
 ### `scripts/ci_wp_plugin_check.sh`
 
@@ -1196,12 +1573,31 @@ Usage: scripts/ci_wp_plugin_check.sh [options]
   --fail-on-findings <true|false>          Fail on plugin-check errors (default: false).
   --cleanup <true|false>                   Clean up Docker resources on exit (default: true).
   -h, --help                               Show this help message.
+```
+
+Exit codes:
+
+```text
+0  No plugin-check errors, or findings reported only with --fail-on-findings
+false (also -h/--help).
+1  The database did not become ready, or a setup step failed.
+2  Bad arguments: unknown option, an option without its value, a bad
+true/false, port or wait value, missing --plugin-slug, compose file or
+plugin source not found, a bad --plugin-src-env name, or python3 missing
+with --fail-on-findings true.
+4  Plugin-check reported errors, or wp plugin check is unavailable, with
+--fail-on-findings true.
+5  The plugin-check or meta-check JSON could not be parsed.
+```
+
+Example:
+
+```text
+  scripts/ci_wp_plugin_check.sh --plugin-slug my-plugin --compose-file test/docker-compose.yml
 ENVIRONMENT:
   PLUGIN_CHECK_INSTALL_ATTEMPTS  Tries to install plugin-check, 1-99 (default: 3).
   PLUGIN_CHECK_RETRY_DELAY       Seconds before retry n is n x this, 0-999 (default: 5).
 ```
-
-Exit codes: not in the header; the script exits with 0, 1, 2, 4, 5.
 
 ### `ps/scripts/ci_go.ps1`
 
@@ -1329,14 +1725,22 @@ Run the test suite under bash 3.2, the shell macOS ships.
 Usage: bash scripts/local_test_bash32.sh [--test <file>] [--shell]
   --test    Run a single test file instead of the whole suite.
   --shell   Drop into an interactive bash 3.2 shell in the container.
+  -h, --help  Show this help and exit.
 ```
 
 Exit codes:
 
 ```text
 0  every test passed under bash 3.2
-1  a test failed
+1  a test failed, or run with CI=true (this is a local gate)
+2  bad arguments
 3  docker is unavailable
+```
+
+Example:
+
+```text
+  bash scripts/local_test_bash32.sh --test tests/version_test.sh
 ```
 
 ### `scripts/local_test_flutter.sh`
@@ -1347,9 +1751,22 @@ Fetch dependencies, analyze, and test a Flutter project.
 Usage: bash scripts/local_test_flutter.sh [--quick] [--dir <path>]
   --quick   Skip dependency install and flutter analyze; run tests only.
   --dir     Project directory containing pubspec.yaml (default: .).
+  -h, --help  Show this help and exit.
 ```
 
-Exit codes: not in the header; the script exits with 1.
+Exit codes:
+
+```text
+0  Every step passed.
+1  Bad arguments, directory or pubspec.yaml missing, or flutter not on PATH.
+N  The failing tool's own exit code, passed through (set -e).
+```
+
+Example:
+
+```text
+  bash scripts/local_test_flutter.sh --dir app
+```
 
 ### `scripts/local_test_go.sh`
 
@@ -1360,6 +1777,7 @@ Usage: bash scripts/local_test_go.sh [--quick] [--module <path>]
   --dir     Project directory, relative to the repository root (default: .).
   --quick     Skip vet; run tests only.
   --module    Path to a specific module directory (default: all go.mod roots).
+  -h, --help  Show this help and exit.
 ```
 
 Exit codes:
@@ -1368,6 +1786,13 @@ Exit codes:
 0  Every check that ran passed.
 1  A check failed, or bad arguments.
 3  Nothing could be checked: no module has Go packages. preflight reports it as SKIP.
+N  The failing tool's own exit code, passed through (set -e).
+```
+
+Example:
+
+```text
+  bash scripts/local_test_go.sh --quick
 ```
 
 ### `scripts/local_test_gradle.sh`
@@ -1381,6 +1806,7 @@ Usage: bash scripts/local_test_gradle.sh [--quick] [--dir <path>] [--android]
   --android  Use the Android task names (lintDebug, testDebugUnitTest,
              assembleDebug) instead of the plain JVM ones (lint, test, build).
              Autodetected from the presence of an Android plugin when omitted.
+  -h, --help  Show this help and exit.
 ```
 
 Exit codes:
@@ -1388,6 +1814,13 @@ Exit codes:
 ```text
 0  All requested checks passed.
 1  A check failed, or no Gradle wrapper was found.
+N  The failing tool's own exit code, passed through (set -e).
+```
+
+Example:
+
+```text
+  bash scripts/local_test_gradle.sh --dir android --android
 ```
 
 ### `scripts/local_test_node.sh`
@@ -1399,6 +1832,7 @@ Usage: bash scripts/local_test_node.sh [--quick] [--workspace <name>]
   --dir     Project directory, relative to the repository root (default: .).
   --quick       Skip install; run tests against existing node_modules.
   --workspace   Run tests only for a specific npm workspace.
+  -h, --help  Show this help and exit.
 ```
 
 Exit codes:
@@ -1407,6 +1841,13 @@ Exit codes:
 0  Every check that ran passed.
 1  A check failed, or bad arguments.
 3  Nothing could be checked: package.json declares no test script. preflight reports it as SKIP.
+N  The failing tool's own exit code, passed through (set -e).
+```
+
+Example:
+
+```text
+  bash scripts/local_test_node.sh --quick
 ```
 
 ### `scripts/local_test_php.sh`
@@ -1417,12 +1858,25 @@ Install dependencies, check style (Pint), and run tests for PHP/Laravel projects
 Usage: bash scripts/local_test_php.sh [--quick] [--dir <path>]
   --quick   Skip composer install; lint and test against existing vendor/.
   --dir     Subdirectory containing composer.json (default: .).
+  -h, --help  Show this help and exit.
 ENVIRONMENT:
   SKIP_PHP_TESTS=1   Run style checks only; skip the (DB-backed) test suite.
                      Useful for a pre-push without a local database.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1.
+Exit codes:
+
+```text
+0  Every check that ran passed (style only with SKIP_PHP_TESTS=1).
+1  Bad arguments, a missing directory, composer.json, php, composer or test runner.
+N  The failing tool's own exit code, passed through (set -e).
+```
+
+Example:
+
+```text
+  SKIP_PHP_TESTS=1 bash scripts/local_test_php.sh --quick
+```
 
 ### `scripts/local_test_python.sh`
 
@@ -1432,6 +1886,7 @@ Use a local virtualenv when available, run ruff (when the project configures it)
 Usage: bash scripts/local_test_python.sh [--quick] [--dir <path>]
   --quick   Skip install; run lint and tests against the current environment.
   --dir     Subdirectory containing pyproject.toml/requirements.txt (default: .).
+  -h, --help  Show this help and exit.
 ```
 
 Exit codes:
@@ -1441,6 +1896,13 @@ Exit codes:
 1  A check failed, or bad arguments.
 3  Nothing could be checked: pytest, or a configured ruff, is not installed, or pytest
 collected no tests. preflight reports it as SKIP.
+N  The failing tool's own exit code, passed through (set -e).
+```
+
+Example:
+
+```text
+  bash scripts/local_test_python.sh --dir backend
 ```
 
 ### `scripts/local_test_rust.sh`
@@ -1453,17 +1915,22 @@ Usage: bash scripts/local_test_rust.sh [--dir <path>] [--quick] [--manifest <pat
   --quick      Skip cargo check/clippy; run tests only.
   --manifest   Path to Cargo.toml (default: ./Cargo.toml).
   --any-cargo  Use whatever cargo PATH offers, instead of rustup's.
-
-By default this runs against rustup's cargo, which is what CI installs
-(dtolnay/rust-toolchain@stable). A distribution cargo earlier on PATH is
-usually older, and the errors it produces name the lockfile rather than the
-toolchain -- so a gate claiming "this is what CI would have run" quietly
-runs something else. --any-cargo opts out for a repository that genuinely
-targets the system toolchain. RUST_TOOLCHAIN pins the channel or version
-resolved (default: stable).
+  -h, --help   Show this help and exit.
 ```
 
-Exit codes: not in the header; the script exits with 1.
+Exit codes:
+
+```text
+0  Every step passed.
+1  Bad arguments, a missing directory, no rustup cargo (without --any-cargo), or no cargo.
+N  The failing tool's own exit code, passed through (set -e).
+```
+
+Example:
+
+```text
+  bash scripts/local_test_rust.sh --quick
+```
 
 ### `ps/scripts/local_test_gradle.ps1`
 
@@ -1474,6 +1941,7 @@ Usage: pwsh -File ps\scripts\local_test_gradle.ps1 [-Quick] [-Dir <path>] [-Andr
   -Quick       Run unit tests only; skip lint and assemble.
   -Dir <path>  Project directory with the Gradle wrapper (default: .).
   -Android     Use Android task names. Autodetected when omitted.
+  -Help        Show this help message.
 ```
 
 Exit codes:
@@ -1504,12 +1972,19 @@ Usage: ./build_arch_artifacts.sh [--repo PATH] [--pkg-dir PATH] [--prebuild COMM
   -h, --help            Show help.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1, 2.
+Exit codes:
+
+```text
+0  Packages built and copied to --artifact-dir (also -h/--help).
+1  PKGBUILD not found, or a step failed.
+2  Unknown argument, or an option without its value.
+N  A failing --prebuild command or makepkg exits with its own code.
+```
 
 Example:
 
 ```text
-./build_arch_artifacts.sh --repo .
+  scripts/build_arch_artifacts.sh --repo . --artifact-dir dist
 ```
 
 ### `scripts/build_brew_tarball.sh`
@@ -1526,12 +2001,18 @@ Usage: ./build_brew_tarball.sh --name <name> [--repo PATH] [--version-file FILE]
   -h, --help            Show help.
 ```
 
-Exit codes: not in the header; the script exits with 0, 2.
+Exit codes:
+
+```text
+0  Tarball written to <dist-dir>/<name>-<version>.tar.gz (also -h/--help).
+1  rsync or tar failed.
+2  Unknown argument, an option without its value, --name missing, or the version file not found.
+```
 
 Example:
 
 ```text
-./build_brew_tarball.sh --name isoforge --repo . --exclude dist --exclude .git
+  scripts/build_brew_tarball.sh --name isoforge --repo . --exclude dist
 ```
 
 ### `scripts/build_deb_artifacts.sh`
@@ -1546,12 +2027,19 @@ Usage: ./build_deb_artifacts.sh [--repo PATH] [--prebuild COMMAND] [--build COMM
   -h, --help           Show help.
 ```
 
-Exit codes: not in the header; the script exits with 0, 2.
+Exit codes:
+
+```text
+0  Packages built (also -h/--help).
+1  --repo is not a directory.
+2  Unknown argument, an option without its value, or dpkg-buildpackage not on PATH.
+N  A failing --prebuild, --build or dpkg-buildpackage exits with its own code.
+```
 
 Example:
 
 ```text
-./build_deb_artifacts.sh --repo . --prebuild "make man"
+  scripts/build_deb_artifacts.sh --repo . --prebuild "make man"
 ```
 
 ### `scripts/build_rpm_artifacts.sh`
@@ -1567,12 +2055,19 @@ Usage: ./build_rpm_artifacts.sh [--repo PATH] [--spec PATH] [--prebuild COMMAND]
   -h, --help           Show help.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1, 2.
+Exit codes:
+
+```text
+0  RPMs built and copied to --artifact-dir (also -h/--help).
+1  Spec file not found, or a step failed.
+2  Unknown argument, or an option without its value.
+N  A failing --prebuild command or rpmbuild exits with its own code.
+```
 
 Example:
 
 ```text
-./build_rpm_artifacts.sh --repo .
+  scripts/build_rpm_artifacts.sh --repo . --artifact-dir dist
 ```
 
 ### `scripts/gen_brew_formula.sh`
@@ -1598,12 +2093,19 @@ Usage: ./gen_brew_formula.sh --name <name> --desc <desc> --homepage <url> --tarb
   -h, --help             Show help.
 ```
 
-Exit codes: not in the header; the script exits with 0, 2.
+Exit codes:
+
+```text
+0  Formula written (or help shown).
+1  The formula could not be written (mkdir or write failed).
+2  Unknown argument, an option without its value, a required option
+missing, tarball not found, or --use-libexec without --env-var.
+```
 
 Example:
 
 ```text
-./gen_brew_formula.sh --name isoforge --desc "ISO tool" --homepage https://example.com --tarball dist/isoforge-1.0.0.tar.gz --url https://example.com/isoforge-1.0.0.tar.gz
+  ./gen_brew_formula.sh --name isoforge --desc "ISO tool" --homepage https://example.com --tarball dist/isoforge-1.0.0.tar.gz --url https://example.com/isoforge-1.0.0.tar.gz
 ```
 
 ### `scripts/packaging_init.sh`
@@ -1620,12 +2122,18 @@ Usage: ./packaging_init.sh [--repo PATH] [--config PATH] [--template-dir PATH] [
   -h, --help            Show help.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1, 2.
+Exit codes:
+
+```text
+0  Files rendered, or packaging.env created (with --init-only, or on a first run).
+1  Template metadata missing, or APP_NAME/MAINTAINER_* unset in the config.
+2  Unknown argument, or an option without its value.
+```
 
 Example:
 
 ```text
-./packaging_init.sh --repo .
+  ./packaging_init.sh --repo .
 ```
 
 ### `scripts/ppa_upload.sh`
@@ -1644,12 +2152,20 @@ Usage: ./ppa_upload.sh --ppa <ppa:owner/name> --key-id <gpg_key_id> [--series SE
   -h, --help               Show help.
 ```
 
-Exit codes: not in the header; the script exits with 0, 2.
+Exit codes:
+
+```text
+0  Uploaded, or the dry run printed the .changes file.
+1  The build failed, or no .changes file was found.
+2  --ppa or --key-id missing, an unknown argument, an option without its
+value, or debuild, gpg or dput missing.
+N  The prebuild, build or dput command's own exit code, passed through.
+```
 
 Example:
 
 ```text
-./ppa_upload.sh --ppa ppa:owner/name --key-id ABC123 --series jammy
+  ./ppa_upload.sh --ppa ppa:owner/name --key-id ABC123 --series jammy
 ```
 
 ### `scripts/publish_homebrew.sh`
@@ -1671,12 +2187,20 @@ Usage: ./publish_homebrew.sh [--repo PATH] [--formula PATH] [--name NAME] [--tap
   -h, --help               Show help.
 ```
 
-Exit codes: not in the header; the script exits with 0, 2.
+Exit codes:
+
+```text
+0  Published, already up to date, or skipped because no tap repo/token is set.
+1  Copying the formula into the tap checkout failed.
+2  Unknown argument, an option without its value, or the formula file was
+not found.
+N  A failing git command's own exit code (clone, commit, push), passed through.
+```
 
 Example:
 
 ```text
-./publish_homebrew.sh --formula packaging/brew/myapp.rb --tap-repo owner/homebrew-example
+  ./publish_homebrew.sh --formula packaging/brew/myapp.rb --tap-repo owner/homebrew-example
 ```
 
 ### `scripts/render_brew_formula.sh`
@@ -1694,12 +2218,19 @@ Usage: ./render_brew_formula.sh [--repo PATH] [--config PATH] [--output PATH] [-
   -h, --help        Show help.
 ```
 
-Exit codes: not in the header; the script exits with 0, 1, 2.
+Exit codes:
+
+```text
+0  formula written
+1  packaging metadata missing, APP_NAME or BREW_SHA256 not set, or the
+formula could not be written
+2  bad arguments (unknown option, or an option without its value)
+```
 
 Example:
 
 ```text
-./render_brew_formula.sh --repo . --output /tmp/myapp.rb --url "https://..." --sha256 "..."
+./render_brew_formula.sh --repo . --output /tmp/myapp.rb --url "https://example.com/myapp-1.0.0.tar.gz" --sha256 "$(sha256sum myapp-1.0.0.tar.gz | cut -d' ' -f1)"
 ```
 
 ## Examples
@@ -1711,9 +2242,15 @@ Example script showing dialog input prompts via script-helpers.
 ```text
 Usage: ./example_dialog_input.sh
 No required parameters.
+  -h, --help   Show this help and exit.
 ```
 
-Exit codes: not in the header; the script exits with 1.
+Exit codes:
+
+```text
+0  The name was read and greeted.
+1  dialog is missing, no terminal, or the prompt was cancelled.
+```
 
 Example:
 
@@ -1728,9 +2265,15 @@ Example script that detects and prints the available docker compose command.
 ```text
 Usage: ./example_docker_compose_cmd.sh
 No required parameters.
+  -h, --help   Show this help and exit.
 ```
 
-Exit codes: not in the header; the script exits with 1.
+Exit codes:
+
+```text
+0  A compose command was found and printed.
+1  Neither `docker compose` nor `docker-compose` is available.
+```
 
 Example:
 
@@ -1745,9 +2288,15 @@ Example script that prints Docker runtime status using script-helpers.
 ```text
 Usage: ./example_docker_status.sh
 No required parameters.
+  -h, --help   Show this help and exit.
 ```
 
-Exit codes: not in the header; the script has no explicit `exit`.
+Exit codes:
+
+```text
+0  Status printed.
+1  docker_status failed (Docker missing or the daemon unreachable).
+```
 
 Example:
 
@@ -1763,9 +2312,16 @@ Example script that downloads a file with script-helpers progress support.
 Usage: ./example_download.sh [URL] [OUTPUT_PATH]
   URL          Optional download URL (default: https://speed.hetzner.de/10MB.bin).
   OUTPUT_PATH  Optional output file path (default: /tmp/example-download.bin).
+  -h, --help   Show this help and exit.
 ```
 
-Exit codes: not in the header; the script exits with 1.
+Exit codes:
+
+```text
+0  The file was downloaded.
+1  The download failed or left no file at OUTPUT_PATH.
+N  curl's own exit code, passed through (e.g. 2 for an argument curl rejects).
+```
 
 Example:
 
@@ -1780,9 +2336,15 @@ Example script that demonstrates environment helpers and validation.
 ```text
 Usage: ./example_env.sh
 No required parameters.
+  -h, --help   Show this help and exit.
 ```
 
-Exit codes: not in the header; the script exits with 1.
+Exit codes:
+
+```text
+0  The demo ran.
+1  HOME or PATH is unset.
+```
 
 Example:
 
@@ -1797,9 +2359,15 @@ Example script for JSON helpers including formatting and escaping.
 ```text
 Usage: ./example_json.sh
 No required parameters.
+  -h, --help   Show this help and exit.
 ```
 
-Exit codes: not in the header; the script has no explicit `exit`.
+Exit codes:
+
+```text
+0  The demo ran.
+1  A json helper failed.
+```
 
 Example:
 
@@ -1814,9 +2382,10 @@ Example script that demonstrates logging and structured log helpers.
 ```text
 Usage: ./example_logging.sh
 No required parameters.
+  -h, --help   Show this help and exit.
 ```
 
-Exit codes: not in the header; the script has no explicit `exit`.
+Exit codes: 0  The demo ran (it prints error lines on purpose; they do not fail it).
 
 Example:
 
@@ -1833,7 +2402,12 @@ Usage: ./example_package_publish.sh
 No parameters.
 ```
 
-Exit codes: not in the header; the script has no explicit `exit`.
+Exit codes:
+
+```text
+0  The demo ran (or help shown with -h/--help).
+1  pkg_find_changes_file found no .changes file.
+```
 
 Example:
 
@@ -1862,7 +2436,7 @@ pwsh -File ps\scripts\example_logging.ps1
 
 ### `scripts/adb_tool.sh`
 
-Reusable CLI over the adb module - inspect, install to, copy files to/from, and debug Android devices. Multi-device safe (each command takes a <serial>; list them with the `list` command). Thin wrapper so the same helpers are usable from the shell, not just sourced into other scripts.
+Reusable CLI over the adb module: inspect, install to, copy files to/from, and debug Android devices. Multi-device safe (each command takes a <serial>; list them with the `list` command). Thin wrapper so the same helpers are usable from the shell, not just sourced into other scripts.
 
 ```text
 Usage: scripts/adb_tool.sh <command> [args...]
@@ -1883,16 +2457,18 @@ Usage: scripts/adb_tool.sh <command> [args...]
 Exit codes:
 
 ```text
-0 on success; 2 on unknown command; otherwise the exit status of
-the underlying adb_* helper (e.g. 1 when adb is missing, or adb's own code
-from install/push/pull) is propagated.
-CREATOR: Nik Reljin
+0  Success (also -h/--help, and install-all with no ready devices).
+1  adb is not on PATH, a device query failed, or a required <serial> is missing.
+2  Unknown command, or missing/invalid arguments (e.g. APK not found).
+N  Any other code is adb's own exit status, passed through.
 ```
 
 Example:
 
 ```text
-scripts/adb_tool.sh list
+  scripts/adb_tool.sh list
+  scripts/adb_tool.sh install R58M12ABCDE app-release.apk
+CREATOR: Nik Reljin
 ```
 
 ### `scripts/docs_site.sh`
@@ -1920,8 +2496,10 @@ Usage: docs_site.sh [check|build|serve|preview|verify|deps|clean] [--dir REPO] [
 Exit codes:
 
 ```text
-0 ok; 1 build or check failed, or a taken port with nobody to ask;
-2 bad arguments or no site here; 3 no usable python3.
+0  Done.
+1  Build or check failed, a clean target refused, or a taken port with nobody to ask.
+2  Bad arguments, no site here, or no built site to verify.
+3  No usable python3 for the virtualenv.
 ```
 
 Example:
@@ -2041,9 +2619,17 @@ Usage: ./install_ollama_model.sh [-h] [-i] [-D] [-r <repo_dir>] [-e <env_file>] 
 -R                : run the selected model in background after pulling
 -n                : non-interactive; use model/size from env file and only pull (no dialog)
 -h                : show help
+-h, --help        : show help
 ```
 
-Exit codes: not in the header; the script exits with 0, 1.
+Exit codes:
+
+```text
+0  The model was pulled (and started with -R).
+1  Unknown option, -n without 'model' in the env file, or a helper failed.
+2  -r or -e without its value.
+N  The exit code of a cancelled dialog or a failed ollama step, passed through.
+```
 
 Example:
 
@@ -2057,15 +2643,20 @@ Validate docs coverage and API index consistency for script-helpers modules.
 
 ```text
 Usage: ./lint_docs.sh
-No required parameters.
+  -h, --help  Show this help and exit.
 ```
 
-Exit codes: not in the header; the script exits with 1.
+Exit codes:
+
+```text
+0  Every module and function is documented and listed in docs/api.md.
+1  At least one documentation gap (each printed on stderr).
+```
 
 Example:
 
 ```text
-./lint_docs.sh
+  bash scripts/lint_docs.sh
 ```
 
 ### `scripts/ollama_models.sh`
@@ -2130,6 +2721,13 @@ Exit codes:
 0  nothing found (audit, verify); done (clean)
 1  something found
 2  usage error, or a check could not run: the result is NOT clean
+130, 143  interrupted (INT, TERM); scratch directories are removed
+```
+
+Example:
+
+```text
+  scripts/prepare_public.sh audit --source ../my-repo --work /tmp/pub-audit
 ```
 
 ### `scripts/signing_secrets.sh`
@@ -2165,12 +2763,14 @@ Exit codes:
 could not set a name.
 2  Bad arguments, a missing tool (gh, gpg), a key not in the keyring, a
 passphrase that does not unlock it, or an empty value; nothing was set.
+130, 143  Interrupted (INT, TERM); the scratch directory is removed.
 ```
 
 Example:
 
 ```text
-./signing_secrets.sh --repos me/a,me/b --group gpg --group apple --check
+  ./signing_secrets.sh --repos me/tool --group gpg --gpg-key <FPR> --ppa me/tool=ppa:me/tool
+  ./signing_secrets.sh --repos me/a,me/b --group gpg --group apple --check
 ```
 
 ### `scripts/site_verify.py`
@@ -2192,6 +2792,7 @@ Generate an Android signing keystore at a new output path.
 ```text
 Usage: pwsh -File ps\scripts\generate-android-keystore.ps1 -OutputPath <path>
   -OutputPath <path>  Required new keystore path. Existing files are refused.
+  -Help               Show this help message.
 ```
 
 Exit codes:
@@ -2218,13 +2819,15 @@ Usage: pwsh -File ps\scripts\install_docker.ps1 [-Check] [-Yes] [-DryRun] [-NoSt
   -DryRun                Print the planned actions without changing the machine.
   -NoStart               Install Docker Desktop without launching it.
   -TimeoutSec <seconds>  Daemon wait time (default: 120).
+  -Help                  Show this help message.
 ```
 
 Exit codes:
 
 ```text
 0  Docker is usable or installation completed.
-1  Docker is unavailable, installation failed, or the user declined.
+1  Docker is unavailable, installation failed, the user declined, or a
+parameter is unknown.
 2  Unsupported platform.
 3  Installation completed but the daemon did not become ready.
 ```
@@ -2244,13 +2847,15 @@ Usage: pwsh -File ps\scripts\install_ollama.ps1 [-Prefix <path>] [-Force] [-Chec
   -Prefix <path>  Install the checked archive into this directory.
   -Force          Reinstall even when the pinned version is present.
   -Check          Report installed and pinned versions without changing the machine.
+  -Help           Show this help message.
 ```
 
 Exit codes:
 
 ```text
 0  Installed, upgraded, or already current.
-1  Download, checksum, or install failure; -Check says installation is needed.
+1  Download, checksum, or install failure; -Check says installation is
+needed; or a parameter is unknown.
 3  No checkable archive is available for the platform.
 ```
 

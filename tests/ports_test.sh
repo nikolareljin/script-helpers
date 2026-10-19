@@ -39,7 +39,7 @@ if command -v busybox >/dev/null 2>&1 && busybox awk 'BEGIN{}' >/dev/null 2>&1; 
   awks+=("busybox:$tmp/busybox-awk")
 fi
 sys_awk="$(command -v awk)"
-if ! "$sys_awk" --version 2>/dev/null | grep -q "GNU Awk"; then awks+=("system:$sys_awk"); fi
+if ! grep -q "GNU Awk" <<< "$("$sys_awk" --version 2>/dev/null)"; then awks+=("system:$sys_awk"); fi
 if [[ ${#awks[@]} -eq 0 ]]; then
   note "no non-gawk awk here; running against the system awk only"
   awks+=("system:$sys_awk")

@@ -161,7 +161,7 @@ printf '{"ok":true}\n' >"$tmp/status.json"
 python3 -u -m http.server 0 --bind 127.0.0.1 --directory "$tmp" >"$tmp/sp.log" 2>&1 &
 sp=$!
 # Up to 60 s: python3 starts slowly on a macOS runner (measured >20 s there).
-for _ in $(seq 1 120); do sport="$(sed -n 's/.*port \([0-9]*\).*/\1/p' "$tmp/sp.log" | head -1)"; [[ -n "$sport" ]] && break; sleep 0.5; done
+for _ in $(seq 1 120); do sport="$(sed -n 's/.*port \([0-9]*\).*/\1/p' "$tmp/sp.log" | sed -n 1p)"; [[ -n "$sport" ]] && break; sleep 0.5; done
 printf 'SVC_STATUS_URL="http://127.0.0.1:%s/status.json"\n' "$sport" >"$nrepo/scripts/project.sh"
 out="$(run "$nrepo" ./dev status)"; rc=$?
 check "status with only SVC_STATUS_URL prints the payload" "0:{\"ok\":true}" "$rc:$(printf '%s' "$out" | grep -o '{"ok":true}')"

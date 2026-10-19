@@ -116,7 +116,7 @@ run_case() {
   fi
   # bash must be the argument immediately before the flag. Grepping for each
   # separately passes on an argv where they are unrelated.
-  if ! grep -A1 -x -- 'bash' "$tmp/argv" | grep -qx -- '-c'; then
+  if ! grep -qx -- '-c' <<< "$(grep -A1 -x -- 'bash' "$tmp/argv")"; then
     error "$name: 'bash' is not immediately followed by -c in the docker argv:"
     sed 's/^/    /' "$tmp/argv" >&2
   fi

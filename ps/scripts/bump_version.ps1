@@ -3,7 +3,10 @@
 # USAGE: pwsh -File ps\scripts\bump_version.ps1 <major|minor|patch> [-File <path>]
 # PARAMETERS:
 #   BumpType         Required. One of: major, minor, patch.
-#   -File <path>     Path to VERSION file (default: VERSION in project root).
+#   -File <path>     Path to the VERSION file; relative to the current directory.
+#                    Default: VERSION at the project root (top of the git work
+#                    tree holding the cwd, the superproject when run inside a
+#                    vendored script-helpers submodule, else the cwd).
 #   -Help            Show this help message.
 # EXIT_CODES:
 #   0  Version updated.
@@ -14,7 +17,7 @@ param(
     [Parameter(Position=0)]
     [ValidateSet('major','minor','patch')]
     [string] $BumpType,
-    [string] $File = 'VERSION',
+    [string] $File = '',
     [switch] $Help
 )
 

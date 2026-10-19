@@ -195,7 +195,7 @@ note "bare, bracketed and build-metadata headers all match"
 # 6) new_section inserts above the newest release and is idempotent
 changelog_new_section "$tmp/good.md" 1.3.0 --date 2026-07-31 >/dev/null 2>&1 \
   || error "changelog_new_section failed"
-head -n 5 "$tmp/good.md" | grep -q '^## 2026-07-31 — v1.3.0' \
+grep -q '^## 2026-07-31 — v1.3.0' <<< "$(head -n 5 "$tmp/good.md")" \
   || error "the new section was not inserted near the top"
 grep -q '^## \[Unreleased\]' "$tmp/good.md" \
   || error "the Unreleased placeholder was lost"

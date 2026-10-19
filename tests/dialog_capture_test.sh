@@ -313,7 +313,7 @@ if command -v jq >/dev/null 2>&1; then
   OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-desc.cache.tsv" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model "$tmp/index-desc.json" </dev/null >/dev/null 2>&1
   case "$(logged args)" in
     *"esc | sizes: latest | a [2Jb c"*"num | sizes: latest | 42"*) ok "a description is shown as text, without its control characters" ;;
-    *) error "odd descriptions: $(logged args | od -c | head -5)" ;;
+    *) error "odd descriptions: $(logged args | od -c | sed -n 1,5p)" ;;
   esac
 
   # The menu follows the index: an entry added after the menu was last built
@@ -449,7 +449,7 @@ INDEX
   { printf '['; for n in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40; do printf '{"name":"model-%s"},' "$n"; done; printf '{"name":"last"}]\n'; } >"$tmp/index-forty.json"
   pipe_failures=0
   for n in 1 2 3 4 5 6 7 8 9 10; do
-    first="$(set -o pipefail; ollama_list_models "$tmp/index-forty.json" 2>"$tmp/pipe.err" | head -n 1; echo "rc=$?")"
+    first="$(set -o pipefail; ollama_list_models "$tmp/index-forty.json" 2>"$tmp/pipe.err" | sed -n 1p; echo "rc=$?")"
     [[ "$first" == "model-1"$'\n'"rc=0" && ! -s "$tmp/pipe.err" ]] || pipe_failures=$((pipe_failures + 1))
   done
   check "the first name of a list, read under pipefail: ten runs, none failed and nothing on stderr" "0" "$pipe_failures"

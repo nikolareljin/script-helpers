@@ -29,8 +29,10 @@
 #      could not set a name.
 #   2  Bad arguments, a missing tool (gh, gpg), a key not in the keyring, a
 #      passphrase that does not unlock it, or an empty value; nothing was set.
-# EXAMPLE: ./signing_secrets.sh --repos me/tool --group gpg --gpg-key <FPR> --ppa me/tool=ppa:me/tool
-# EXAMPLE: ./signing_secrets.sh --repos me/a,me/b --group gpg --group apple --check
+#   130, 143  Interrupted (INT, TERM); the scratch directory is removed.
+# EXAMPLE:
+#   ./signing_secrets.sh --repos me/tool --group gpg --gpg-key <FPR> --ppa me/tool=ppa:me/tool
+#   ./signing_secrets.sh --repos me/a,me/b --group gpg --group apple --check
 # ----------------------------------------------------
 set -euo pipefail
 # Lists are split on spaces unquoted; never let a "*" in an argument glob.
