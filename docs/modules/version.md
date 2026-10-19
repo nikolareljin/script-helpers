@@ -9,13 +9,18 @@ Functions
   - Purpose: Increment the semantic version stored in a file.
   - Args:
     - bump_type — `major` | `minor` | `patch`.
-    - `-f`, `--file` — path to the version file; defaults to `VERSION` at the project root (falls back to CWD).
+    - `-f`, `--file` — path to the version file; a relative path is relative to the current directory. Without it: `VERSION` at `version_project_root`, never in a vendored script-helpers copy.
   - Behavior:
     - Creates the file with `0.1.0` when missing.
     - Preserves a leading `v`/`V` prefix and any suffix after the first `-` when writing the bumped value.
     - `-h/--help` will render script-level help when available (falls back to function usage).
-  - Returns: 0 on success; non-zero on invalid input or write errors.
-  - Dependencies: logging for output; uses `env::get_project_root` when available to resolve the default path.
+  - Returns: 0 on success; 1 on invalid input or write errors.
+  - Dependencies: logging for output; git, when present, to find the project root.
+
+- version_project_root
+  - Purpose: The caller's project root, where `version_bump` writes by default.
+  - Behavior: the top of the git work tree holding the current directory, or the current directory outside git. When that work tree is a script-helpers checkout vendored as a submodule, the superproject is returned instead, so a vendored copy never bumps its own `VERSION`.
+  - Returns: 0; prints the absolute directory.
 
 - version_compare version_a version_b
   - Purpose: Compare two versions shaped like `[v]X.Y.Z[-suffix]` using numeric segments.
@@ -39,7 +44,7 @@ Examples
 ```bash
 shlib_import logging env version
 
-# Bump the minor version in ./VERSION (relative to project root)
+# Bump the minor version in VERSION at the project root
 version_bump minor
 
 # Compare versions

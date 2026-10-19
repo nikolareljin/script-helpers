@@ -23,19 +23,45 @@ function version_compare {
     return [math]::Sign($a.Patch - $b.Patch)
 }
 
-# Usage: version_bump -BumpType major|minor|patch [-VersionFile <path>]   (default: VERSION at the project root)
+# Usage: version_project_root
+# The caller's project root: the top of the git work tree holding the cwd, or
+# the cwd outside git. When that work tree is a script-helpers checkout vendored
+# as a submodule, the superproject is the project.
+# Returns: the absolute directory as a string.
+# Output: nothing else; git errors are discarded.
+function version_project_root {
+    $top = ''
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+        try {
+            $top = "$(& git rev-parse --show-toplevel 2>$null)".Trim()
+            if ($LASTEXITCODE -ne 0) { $top = '' }
+            if ($top -and (Test-Path (Join-Path $top 'helpers.sh')) -and (Test-Path (Join-Path $top 'lib'))) {
+                $super = "$(& git -C $top rev-parse --show-superproject-working-tree 2>$null)".Trim()
+                if ($LASTEXITCODE -eq 0 -and $super) { $top = $super }
+            }
+        } finally { $ErrorActionPreference = $prev }
+    }
+    if (-not $top) { return $PWD.Path }
+    return [System.IO.Path]::GetFullPath($top)
+}
+
+# Usage: version_bump -BumpType major|minor|patch [-VersionFile <path>]
+# Without -VersionFile: VERSION at version_project_root (the project's, never a
+# vendored script-helpers copy's). A relative -VersionFile is relative to the cwd.
 # Bumps the version in the file (0.1.0 when missing), keeping a v prefix and -suffix.
 # Returns: the new version string.
 # Output: host "Bumped version: <old> -> <new>"; throws on a missing BumpType or a bad version.
 function version_bump {
     param(
         [ValidateSet('major','minor','patch')][string]$BumpType,
-        [string]$VersionFile = 'VERSION'
+        [string]$VersionFile = ''
     )
     if (-not $BumpType) { throw "version_bump: BumpType is required (major/minor/patch)" }
-    if (-not [System.IO.Path]::IsPathRooted($VersionFile)) {
-        $root = if (Get-Command get_project_root -ErrorAction SilentlyContinue) { get_project_root } else { $PWD.Path }
-        $VersionFile = Join-Path $root $VersionFile
+    if (-not $VersionFile) {
+        $VersionFile = Join-Path (version_project_root) 'VERSION'
+    } elseif (-not [System.IO.Path]::IsPathRooted($VersionFile)) {
+        $VersionFile = Join-Path $PWD.Path $VersionFile
     }
 
     $current  = if (Test-Path $VersionFile) { (Get-Content $VersionFile -Raw).Trim() } else { '0.1.0' }
