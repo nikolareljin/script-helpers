@@ -382,6 +382,11 @@ check "select with no type: 2" "2" "$(bash "$script" select 2>/dev/null; echo $?
 check "select with a bad tier: 11" "11" "$(AI_MODEL_TIER=x bash "$script" select general "$URL" 2>/dev/null </dev/null; echo $?)"
 check "class with no data file: tier unknown, still 0" "0:tier=unknown" "$(OLLAMA_MODEL_TIERS_FILE="$tmp/none" bash "$script" class 2>/dev/null >"$tmp/out"; echo "$?:$(grep '^tier=' "$tmp/out")")"
 check "class names the tier" "tier=large" "$(AI_MODEL_TIER=large bash "$script" class | grep '^tier=')"
+# Nothing stated: this runner's own memory (/proc/meminfo, sysctl hw.memsize) is
+# read. Only the shape is checked, so any machine passes.
+check "class with nothing stated measures this machine" "ok" \
+  "$(env -u AI_MODEL_TIER -u OLLAMA_BUDGET_MEM_TOTAL_BYTES -u OLLAMA_BUDGET_GPU_LARGEST_BYTES bash "$script" class 2>/dev/null \
+     | tr '\n' ' ' | grep -qE '^memory_gib=[0-9]+ largest_gpu_gib=[0-9]+ tier=(small|standard|large|xlarge) $' && echo ok)"
 check "no model was removed by the script either" "tier-m:4b envmodel:7b" "$(installed)"
 
 # --- a NAME named like the library's own variables -----------------------------------

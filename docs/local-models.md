@@ -169,7 +169,7 @@ model="$(scripts/ollama_models.sh select general "$OLLAMA_URL" .env OLLAMA_MODEL
 |---|---|
 | `NAME_CHOICE` in `.env` with no `NAME_CHOICE_FOR` (set by hand) | that model, never asked |
 | no project model, or the same as the tier's | the tier's model |
-| they differ, on a terminal | asked once: pull the project's model, or use the tier's; the answer goes into `.env` (`OLLAMA_MODEL_CHOICE`, and `OLLAMA_MODEL_CHOICE_FOR` = the tier's model it was asked about); asked again only when the tier's model changes, or the stored answer is neither the project's model nor the tier's (the project's model changed). Stored only when git ignores `.env`; otherwise a warning, and asked next time |
+| they differ, on a terminal | asked once: pull the project's model, or use the tier's; the answer goes into `.env` (`OLLAMA_MODEL_CHOICE`, and `OLLAMA_MODEL_CHOICE_FOR` = the tier's model it was asked about); asked again only when the tier's model changes, or the stored answer is neither the project's model nor the tier's (the answer was the project's model, and that model has since changed; an answer of the tier's model stays). Stored only when git ignores `.env`; otherwise a warning, and asked next time |
 | they differ, no terminal or CI | the tier's model if installed, else the project's if installed, else exit 12 naming both, nothing pulled |
 | chosen model missing | pulled after the disk and memory check; `OLLAMA_PULL_MISSING=1` pulls, `0` never, unset asks on a terminal (never in CI) |
 | `.env` cannot be read | exit 10 |
