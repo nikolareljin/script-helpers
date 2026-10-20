@@ -36,8 +36,8 @@
 #      is not a variable name, or a bad AI_MODEL_TIER (select exits 11 for it)
 #   1-9 with ensure: as ollama_project_ensure_models (docs/local-models.md)
 #   with select: 0 chosen and present; 1-8 as ollama_endpoint_ensure_models
-#      (4 no Ollama, 5 missing and not pulled); 10 a bad type, NAME, model,
-#      data file or env_file; 11 bad AI_MODEL_TIER; 12 no terminal and the
+#      (4 no Ollama, 5 missing and not pulled); 10 more than five arguments,
+#      a bad type, NAME, model, data file or env_file; 11 bad AI_MODEL_TIER; 12 no terminal and the
 #      Ollama has neither model
 # EXAMPLE:
 #   scripts/ollama_models.sh class ai-models.env

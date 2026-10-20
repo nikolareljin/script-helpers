@@ -504,7 +504,10 @@ mkdir -p "$tmp/td"
 TMPDIR="$tmp/td" _ollama_ep_env_set "$tmp/hl/a/.env" A 9 C_CHOICE x
 check "and no temporary file is left under TMPDIR" "0" "$(find "$tmp/td" -type f | grep -c .)"
 check "a TMPDIR that does not exist: written in place through /tmp" "A=7 B=2 C_CHOICE=x" \
-  "$(TMPDIR="$tmp/no-such-dir" _ollama_ep_env_set "$tmp/hl/a/.env" A 7 2>/dev/null; one_line <"$tmp/hl/b/.env")"
+  "$(TMPDIR="$tmp/no-such-dir" _ollama_ep_env_set "$tmp/hl/a/.env" A 7 2>"$tmp/err"; one_line <"$tmp/hl/b/.env")"
+check "and nothing on stderr" "0" "$(grep -c . "$tmp/err")"
+check "an in-place write that does not read back: refused (1), old content restored" "1:A=7 B=2 C_CHOICE=x" \
+  "$(cmp() { return 1; }; _ollama_ep_env_set "$tmp/hl/a/.env" A 8; echo "$?:$(one_line <"$tmp/hl/b/.env")")"
 TMPDIR="$tmp/td" _ollama_ep_env_set "$tmp/hl/a/.env" A 9
 check "a hard-linked .env: written in place, both links see the same new content" "A=9 B=2 C_CHOICE=x|A=9 B=2 C_CHOICE=x|same|same" \
   "$(one_line <"$tmp/hl/a/.env")|$(one_line <"$tmp/hl/b/.env")|$([[ "$(inode "$tmp/hl/a/.env")" == "$hl_before" ]] && echo same)|$([[ "$(inode "$tmp/hl/b/.env")" == "$hl_before" ]] && echo same)"
@@ -521,6 +524,11 @@ reset tier-m:4b envmodel:7b
 printf 'OLLAMA_MODEL=envmodel:7b\nOLLAMA_MODEL_CHOICE=tier-m:4b\nOLLAMA_MODEL_CHOICE_FOR=tier-m:4b\nOLLAMA_MODEL_CHOICE_PROJECT=envmodel:7b\n' >"$tmp/keep.env"
 check "a stored answer of the tier's model stays while the project's model is the one asked about: not asked" "tier-m:4b:0" \
   "$(terminal; ai_model_resolve general "$URL" "$tmp/keep.env" OLLAMA_MODEL </dev/null 2>"$tmp/err"):$(grep -c 'Choose' "$tmp/err")"
+
+reset envmodel:7b
+printf 'OLLAMA_MODEL=envmodel:7b\nOLLAMA_MODEL_CHOICE=tier-m:4b\nOLLAMA_MODEL_CHOICE_FOR=tier-m:4b\n' >"$tmp/old.env"
+check "an older .env (no _PROJECT), no terminal: the stored tier model is used, not the installed project model" "5:1" \
+  "$(no_terminal; OLLAMA_PULL_MISSING=0 ai_model_resolve general "$URL" "$tmp/old.env" OLLAMA_MODEL </dev/null >/dev/null 2>"$tmp/err"; echo "$?:$(grep -c 'as answered before' "$tmp/err")")"
 
 # --- the project's model changes after an answer of the tier's model ----------------------
 reset tier-m:4b envmodel:7b newer:4b
