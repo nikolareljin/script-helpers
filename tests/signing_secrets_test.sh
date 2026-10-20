@@ -230,7 +230,7 @@ rc=0; out="$(GPG_PASSPHRASE="wrong-pw" bash "$SCRIPT" --repos o/g --group gpg --
 grep -q "wrong GPG_PASSPHRASE" <<< "$out" || error "wrong passphrase after a cached one: message: $out"
 [ "$(wc -l < "$STORE/argv")" = "$before" ] || error "wrong passphrase after a cached one: gh was called"
 
-# 9. the .p12 check: a wrong password, a file that is not a .p12, a .p12
+# 7b. the .p12 check: a wrong password, a file that is not a .p12, a .p12
 # without a key, and no openssl are refused before gh runs; a legacy
 # (RC2/3DES) .p12 opens.
 apple() { # p12 password [args...]
@@ -264,6 +264,10 @@ if [ -n "$real_openssl" ]; then
   if make_p12 "$tmp/legacy.p12" legacy-pw -legacy || make_p12 "$tmp/legacy.p12" legacy-pw -certpbe PBE-SHA1-RC2-40 -keypbe PBE-SHA1-3DES; then
     rc=0; out="$(apple "$tmp/legacy.p12" legacy-pw)" || rc=$?
     [ "$rc" = 0 ] || error "legacy p12: exit $rc: $out"
+    # OpenSSL 3 opens it only through the -legacy retry.
+    if "$real_openssl" version 2>/dev/null | grep -q '^OpenSSL 3'; then
+      grep -q -- '-legacy' "$STORE/openssl_argv" || error "legacy p12: openssl never ran with -legacy"
+    fi
     [ "$(cat "$STORE/o/p/secret/APPLE_CERTIFICATE_PASSWORD" 2>/dev/null)" = "legacy-pw" ] || error "legacy p12: password not stored"
     p12_refused "legacy p12, wrong password" "wrong APPLE_CERTIFICATE_PASSWORD" "$tmp/legacy.p12" wrong-legacy-pw
   else
