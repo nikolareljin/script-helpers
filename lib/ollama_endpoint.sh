@@ -2258,11 +2258,16 @@ ollama_tier_model() {
 # never sees half a file and an interrupted run leaves the old one. A new file
 # is created readable by its owner only, as a .env may hold secrets; an
 # existing one keeps its mode.
+# Two cases are written in place instead: the directory is not writable (the
+# file is), or the file has more than one hard link (a move would split them).
+# The full new content is built in a temporary file under TMPDIR first, then
+# copied over the target in one write and read back; the target keeps its
+# inode, mode and owner, and every hard link sees the new content.
 # Returns: 0 written; 1 a NAME is not a variable name, or the file could not be
 # created, read or written.
 # Output: none on stdout.
 _ollama_ep_env_set() {
-  local file="${1:-}" target link hops dir tmpf src names="" values=""
+  local file="${1:-}" target link hops dir tmpf oldf src inplace names="" values=""
   shift || return 1
   [[ -n "$file" && $# -ge 2 && $(($# % 2)) -eq 0 ]] || return 1
   while [[ $# -ge 2 ]]; do
@@ -2284,8 +2289,19 @@ _ollama_ep_env_set() {
     esac
   done
   dir="$(dirname "$target")"
-  tmpf="$(mktemp "$dir/.$(basename "$target").XXXXXX")" || return 1
-  if [[ -e "$target" ]]; then
+  inplace=0
+  if [[ -f "$target" ]] && { [[ ! -w "$dir" ]] || [[ "$(_ollama_ep_links "$target")" -gt 1 ]]; }; then
+    [[ -w "$target" ]] || return 1
+    inplace=1
+    tmpf="$(mktemp "${TMPDIR:-/tmp}/.env-set.XXXXXX")" || return 1
+  else
+    tmpf="$(mktemp "$dir/.$(basename "$target").XXXXXX")" || return 1
+  fi
+  if [[ "$inplace" -eq 1 ]]; then
+    # The temporary file stays mode 600 (it may hold secrets, under TMPDIR);
+    # the target keeps its own mode, as it is not replaced.
+    src="$target"
+  elif [[ -e "$target" ]]; then
     # cp -p first: the temporary file takes the target's mode.
     cp -p "$target" "$tmpf" 2>/dev/null || { rm -f "$tmpf"; return 1; }
     src="$target"
@@ -2325,7 +2341,31 @@ _ollama_ep_env_set() {
     rm -f "$tmpf"
     return 1
   fi
+  if [[ "$inplace" -eq 1 ]]; then
+    # One write of the whole content, then read back. A failed write puts the
+    # old content back, as far as the file can still be written.
+    oldf="$(mktemp "${TMPDIR:-/tmp}/.env-old.XXXXXX")" || { rm -f "$tmpf"; return 1; }
+    cat "$target" >"$oldf" 2>/dev/null || { rm -f "$tmpf" "$oldf"; return 1; }
+    if ! cat "$tmpf" >"$target" 2>/dev/null || ! cmp -s "$tmpf" "$target"; then
+      cat "$oldf" >"$target" 2>/dev/null || true
+      rm -f "$tmpf" "$oldf"
+      return 1
+    fi
+    rm -f "$tmpf" "$oldf"
+    return 0
+  fi
   mv -f "$tmpf" "$target" || { rm -f "$tmpf"; return 1; }
+}
+
+# Usage: _ollama_ep_links <file>; prints the file's hard link count (GNU or BSD
+# stat), 1 when it cannot be read.
+# Returns: 0.
+# Output: stdout the count.
+_ollama_ep_links() {
+  local n
+  n="$(stat -c %h "${1:-}" 2>/dev/null || stat -f %l "${1:-}" 2>/dev/null)" || n=""
+  [[ "$n" =~ ^[0-9]+$ ]] || n=1
+  printf '%s\n' "$n"
 }
 
 # Usage: _ollama_ep_same_model <a> <b>; the same model however it is written:
@@ -2374,10 +2414,14 @@ _ollama_ep_env_private() {
 # - X empty or the same as Y: Y.
 # - X differs, on a terminal (stdin and stderr; never in CI): asks "pull X or
 #   use Y?" once. The answer is stored in env_file as NAME_CHOICE=<model>,
-#   with NAME_CHOICE_FOR=<Y> (the approved model it was asked about). It is
-#   asked again only when Y changes, or the stored choice is neither X nor Y.
-#   With no NAME the keys are AI_MODEL_<TYPE>_CHOICE(_FOR); with no env_file
-#   nothing is stored. Nor is it stored, with a warning, when env_file is in a
+#   with NAME_CHOICE_FOR=<Y> and NAME_CHOICE_PROJECT=<X> (the two models it
+#   was asked about), in one write. It is asked again when Y changes, or X
+#   changes (an answer of X no longer matches X; an answer of Y no longer
+#   matches NAME_CHOICE_PROJECT). An answer of Y stored before
+#   NAME_CHOICE_PROJECT existed is asked about once more on a terminal, then
+#   stored with it; with no terminal it is used as before.
+#   With no NAME the keys are AI_MODEL_<TYPE>_CHOICE(_FOR, _PROJECT); with no
+#   env_file nothing is stored. Nor is it stored, with a warning, when env_file is in a
 #   git work tree and not git-ignored.
 # - X differs, no terminal: Y if that Ollama has it, else X if it has it, else
 #   stop (12), naming both and pulling nothing.
@@ -2410,7 +2454,7 @@ ai_model_resolve() (
   if [[ -n "${4:-}" ]] && _ollama_ep_is_name "$4"; then _OEP_X_ENV="${!4-}"; else _OEP_X_ENV=""; fi
   local IFS=$' \t\n'
   local _oep_type="${1:-}" _oep_url="${2:-}" _oep_env="${3:-}" _oep_name="${4:-}" _oep_default="${5:-}"
-  local _oep_tier _oep_y _oep_x _oep_key _oep_choice _oep_for _oep_pick="" _oep_dir _oep_present
+  local _oep_tier _oep_y _oep_x _oep_key _oep_choice _oep_for _oep_was _oep_valid _oep_can _oep_pick="" _oep_dir _oep_present
   local _oep_asked=0 _oep_listed=0 _oep_answer _oep_tries _oep_status=0 _oep_shown _oep_pm _oep_xsrc="your env"
   _oep_url="${_oep_url%/}"
   if [[ -z "$_oep_type" || -z "$_oep_url" ]]; then
@@ -2456,10 +2500,11 @@ ai_model_resolve() (
     _oep_key="AI_MODEL_$(printf '%s' "$_oep_type" | tr '[:lower:]-' '[:upper:]_')_CHOICE"
   fi
 
-  _oep_choice="" _oep_for=""
+  _oep_choice="" _oep_for="" _oep_was=""
   if [[ -n "$_oep_env" ]]; then
     _oep_choice="$(ollama_models_file_get "$_oep_env" "$_oep_key")"
     _oep_for="$(ollama_models_file_get "$_oep_env" "${_oep_key}_FOR")"
+    _oep_was="$(ollama_models_file_get "$_oep_env" "${_oep_key}_PROJECT")"
   fi
   if [[ -n "$_oep_choice" && -z "$_oep_for" ]]; then
     if ! _ollama_ep_is_model "$_oep_choice"; then
@@ -2471,11 +2516,26 @@ ai_model_resolve() (
   elif [[ -z "$_oep_x" ]] || _ollama_ep_same_model "$_oep_x" "$_oep_y"; then
     _oep_pick="$_oep_y"
   else
-    if [[ -n "$_oep_choice" && -n "$_oep_for" ]] && _ollama_ep_same_model "$_oep_for" "$_oep_y" \
-       && { _ollama_ep_same_model "$_oep_choice" "$_oep_x" || _ollama_ep_same_model "$_oep_choice" "$_oep_y"; }; then
+    # Whether the stored answer still holds: 1 yes, 0 no, 2 it is the tier's
+    # model and the file predates ${_oep_key}_PROJECT (unknown project model).
+    _oep_valid=0
+    if [[ -n "$_oep_choice" && -n "$_oep_for" ]] && _ollama_ep_same_model "$_oep_for" "$_oep_y"; then
+      if _ollama_ep_same_model "$_oep_choice" "$_oep_x"; then
+        _oep_valid=1
+      elif _ollama_ep_same_model "$_oep_choice" "$_oep_y"; then
+        if [[ -z "$_oep_was" ]]; then
+          _oep_valid=2
+        elif _ollama_ep_same_model "$_oep_was" "$_oep_x"; then
+          _oep_valid=1
+        fi
+      fi
+    fi
+    _oep_can=0
+    if ! _ollama_ep_in_ci && _ollama_ep_can_ask; then _oep_can=1; fi
+    if [[ "$_oep_valid" -eq 1 || ( "$_oep_valid" -eq 2 && "$_oep_can" -eq 0 ) ]]; then
       _oep_pick="$_oep_choice"
       print_info "Using $_oep_pick for $_oep_type, as answered before ($_oep_key in $(_ollama_ep_said "$_oep_env"))." >&2
-    elif ! _ollama_ep_in_ci && _ollama_ep_can_ask; then
+    elif [[ "$_oep_can" -eq 1 ]]; then
       printf 'Model for %s: %s has %s; the approved model for this host'"'"'s tier (%s) is %s.\n  1) pull %s (%s)\n  2) use %s (approved for this tier)\nChoose [1/2, default 2]: ' \
         "$_oep_type" "$_oep_xsrc" "$_oep_x" "$_oep_tier" "$_oep_y" "$_oep_x" "$_oep_xsrc" "$_oep_y" >&2
       # 1 or 2; empty or end of input is the default, 2. Anything else is
@@ -2502,11 +2562,11 @@ ai_model_resolve() (
         print_warning "Not stored: $(_ollama_ep_said "$_oep_env") is in a git work tree and not git-ignored. Add it to .gitignore to be asked only once." >&2
       elif [[ -n "$_oep_env" ]]; then
         # One write: a choice stored without its _FOR line would read as set by hand.
-        if ! _ollama_ep_env_set "$_oep_env" "$_oep_key" "$_oep_pick" "${_oep_key}_FOR" "$_oep_y"; then
+        if ! _ollama_ep_env_set "$_oep_env" "$_oep_key" "$_oep_pick" "${_oep_key}_FOR" "$_oep_y" "${_oep_key}_PROJECT" "$_oep_x"; then
           print_error "Could not store the answer in $(_ollama_ep_said "$_oep_env")." >&2
           exit 10
         fi
-        print_info "Stored $_oep_key=$_oep_pick in $(_ollama_ep_said "$_oep_env"); asked again if the approved model changes, or the stored answer is neither model." >&2
+        print_info "Stored $_oep_key=$_oep_pick in $(_ollama_ep_said "$_oep_env"); asked again if the approved model or the project's model changes." >&2
       fi
     else
       if ! _oep_present="$(ollama_endpoint_models "$_oep_url")"; then

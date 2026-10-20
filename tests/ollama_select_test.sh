@@ -482,7 +482,25 @@ if [[ "$(id -u)" != "0" ]]; then
   check "an answer that cannot be stored: 10, nothing on stdout" "10" \
     "$(terminal; ai_model_resolve general "$URL" "$tmp/ro/.env" "" envmodel:7b <<<"1" 2>/dev/null; echo $?)"
   chmod 700 "$tmp/ro"
+  # A directory that is not writable, a file that is: written in place.
+  mkdir -p "$tmp/rod"; printf 'OLLAMA_MODEL=envmodel:7b\nOTHER=1\n' >"$tmp/rod/.env"; chmod 640 "$tmp/rod/.env"; chmod 500 "$tmp/rod"
+  check "read-only directory, writable .env: the answer is stored in place" "envmodel:7b:envmodel:7b tier-m:4b envmodel:7b 1 640" \
+    "$(terminal; reset tier-m:4b envmodel:7b; ai_model_resolve general "$URL" "$tmp/rod/.env" OLLAMA_MODEL <<<"1" 2>/dev/null):$(ollama_models_file_get "$tmp/rod/.env" OLLAMA_MODEL_CHOICE) $(ollama_models_file_get "$tmp/rod/.env" OLLAMA_MODEL_CHOICE_FOR) $(ollama_models_file_get "$tmp/rod/.env" OLLAMA_MODEL_CHOICE_PROJECT) $(ollama_models_file_get "$tmp/rod/.env" OTHER) $( (stat -c %a "$tmp/rod/.env" 2>/dev/null || stat -f %Lp "$tmp/rod/.env") | tr -d '\n')"
+  check "and nothing is left behind in the directory" "1" "$(find "$tmp/rod" -mindepth 1 | grep -c .)"
+  chmod 700 "$tmp/rod"
+  mkdir -p "$tmp/rof"; printf 'A=1\n' >"$tmp/rof/.env"; chmod 400 "$tmp/rof/.env"; chmod 500 "$tmp/rof"
+  check "read-only directory and read-only .env: refused (1), untouched" "1:A=1" "$(_ollama_ep_env_set "$tmp/rof/.env" A 2; echo "$?:$(one_line <"$tmp/rof/.env")")"
+  chmod 700 "$tmp/rof"
 fi
+# A hard-linked .env: both names keep the same file, both see the answer.
+mkdir -p "$tmp/hl/a" "$tmp/hl/b"; printf 'A=1\nB=2\n' >"$tmp/hl/a/.env"; ln "$tmp/hl/a/.env" "$tmp/hl/b/.env"
+inode() { ls -i "$1" | awk '{ print $1 }'; }
+hl_before="$(inode "$tmp/hl/a/.env")"
+mkdir -p "$tmp/td"
+TMPDIR="$tmp/td" _ollama_ep_env_set "$tmp/hl/a/.env" A 9 C_CHOICE x
+check "and no temporary file is left under TMPDIR" "0" "$(find "$tmp/td" -type f | grep -c .)"
+check "a hard-linked .env: written in place, both links see the same new content" "A=9 B=2 C_CHOICE=x|A=9 B=2 C_CHOICE=x|same|same" \
+  "$(one_line <"$tmp/hl/a/.env")|$(one_line <"$tmp/hl/b/.env")|$([[ "$(inode "$tmp/hl/a/.env")" == "$hl_before" ]] && echo same)|$([[ "$(inode "$tmp/hl/b/.env")" == "$hl_before" ]] && echo same)"
 
 # --- the same model, however written --------------------------------------------------------
 machine; reset tier-m:4b
@@ -493,9 +511,36 @@ reset plainmodel:latest
 check "an omitted :latest is the same model: not asked" "plainmodel:0" \
   "$(terminal; OLLAMA_MODEL_TIERS_FILE="$tmp/plain.txt" ai_model_resolve plain "$URL" "" "" plainmodel:latest </dev/null 2>"$tmp/err"):$(grep -c 'Choose' "$tmp/err")"
 reset tier-m:4b envmodel:7b
-printf 'OLLAMA_MODEL=envmodel:7b\nOLLAMA_MODEL_CHOICE=tier-m:4b\nOLLAMA_MODEL_CHOICE_FOR=tier-m:4b\n' >"$tmp/keep.env"
-check "a stored answer of the tier's model stays when the project's model is other: not asked" "tier-m:4b:0" \
+printf 'OLLAMA_MODEL=envmodel:7b\nOLLAMA_MODEL_CHOICE=tier-m:4b\nOLLAMA_MODEL_CHOICE_FOR=tier-m:4b\nOLLAMA_MODEL_CHOICE_PROJECT=envmodel:7b\n' >"$tmp/keep.env"
+check "a stored answer of the tier's model stays while the project's model is the one asked about: not asked" "tier-m:4b:0" \
   "$(terminal; ai_model_resolve general "$URL" "$tmp/keep.env" OLLAMA_MODEL </dev/null 2>"$tmp/err"):$(grep -c 'Choose' "$tmp/err")"
+
+# --- the project's model changes after an answer of the tier's model ----------------------
+reset tier-m:4b envmodel:7b newer:4b
+stale() { printf 'OLLAMA_MODEL=newer:4b\nOLLAMA_MODEL_CHOICE=tier-m:4b\nOLLAMA_MODEL_CHOICE_FOR=tier-m:4b\nOLLAMA_MODEL_CHOICE_PROJECT=envmodel:7b\n' >"$1"; }
+check "answered the tier's model, then the project's model changed: asked again on a terminal" "newer:4b:1" \
+  "$(terminal; stale "$tmp/st1.env"; ai_model_resolve general "$URL" "$tmp/st1.env" OLLAMA_MODEL <<<"1" 2>"$tmp/err"):$(grep -c 'Choose' "$tmp/err")"
+check "and the new project's model is stored with the answer" "newer:4b tier-m:4b newer:4b 1" \
+  "$(ollama_models_file_get "$tmp/st1.env" OLLAMA_MODEL_CHOICE) $(ollama_models_file_get "$tmp/st1.env" OLLAMA_MODEL_CHOICE_FOR) $(ollama_models_file_get "$tmp/st1.env" OLLAMA_MODEL_CHOICE_PROJECT) $(grep -c '^OLLAMA_MODEL_CHOICE_PROJECT=' "$tmp/st1.env")"
+check "then not asked again" "newer:4b:0" \
+  "$(terminal; ai_model_resolve general "$URL" "$tmp/st1.env" OLLAMA_MODEL </dev/null 2>"$tmp/err"):$(grep -c 'Choose' "$tmp/err")"
+check "no terminal: the no-terminal order, not the stale answer (only the project's model installed)" "newer:4b:0" \
+  "$(no_terminal; reset newer:4b; stale "$tmp/st2.env"; ai_model_resolve general "$URL" "$tmp/st2.env" OLLAMA_MODEL 2>"$tmp/err"):$(grep -c 'Choose' "$tmp/err")"
+check "in CI with a terminal: not asked, the no-terminal order" "newer:4b:0" \
+  "$(terminal; reset newer:4b; stale "$tmp/st3.env"; CI=true ai_model_resolve general "$URL" "$tmp/st3.env" OLLAMA_MODEL <<<"2" 2>"$tmp/err"):$(grep -c 'Choose' "$tmp/err")"
+reset tier-m:4b envmodel:7b
+printf 'OLLAMA_MODEL=envmodel:7b\nOLLAMA_MODEL_CHOICE=tier-m:4b\nOLLAMA_MODEL_CHOICE_FOR=tier-m:4b\n' >"$tmp/old.env"
+check "an answer of the tier's model from before _PROJECT, no terminal: used, not asked" "tier-m:4b:0" \
+  "$(no_terminal; ai_model_resolve general "$URL" "$tmp/old.env" OLLAMA_MODEL 2>"$tmp/err"):$(grep -c 'Choose' "$tmp/err")"
+check "and the file is left as it was" "" "$(ollama_models_file_get "$tmp/old.env" OLLAMA_MODEL_CHOICE_PROJECT)"
+reset tier-m:4b envmodel:7b
+check "the same file on a terminal: asked once more" "tier-m:4b:1" \
+  "$(terminal; ai_model_resolve general "$URL" "$tmp/old.env" OLLAMA_MODEL <<<"2" 2>"$tmp/err"):$(grep -c 'Choose' "$tmp/err")"
+check "then stored with the project's model, and not asked again" "envmodel:7b tier-m:4b:0" \
+  "$(ollama_models_file_get "$tmp/old.env" OLLAMA_MODEL_CHOICE_PROJECT) $(terminal; ai_model_resolve general "$URL" "$tmp/old.env" OLLAMA_MODEL </dev/null 2>"$tmp/err"):$(grep -c 'Choose' "$tmp/err")"
+printf 'OLLAMA_MODEL=envmodel:7b\nOLLAMA_MODEL_CHOICE=envmodel:7b\nOLLAMA_MODEL_CHOICE_FOR=tier-m:4b\n' >"$tmp/old2.env"
+check "an answer of the project's model from before _PROJECT: still holds, not asked" "envmodel:7b:0" \
+  "$(terminal; ai_model_resolve general "$URL" "$tmp/old2.env" OLLAMA_MODEL </dev/null 2>"$tmp/err"):$(grep -c 'Choose' "$tmp/err")"
 
 # --- what the project's model is ----------------------------------------------------------
 machine; no_terminal; reset envmodel:7b

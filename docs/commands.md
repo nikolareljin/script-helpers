@@ -2676,7 +2676,8 @@ Usage: scripts/ollama_models.sh class [models_file]
           host's tier (config/ollama_model_tiers.txt), or the project's own model
           (NAME from the environment, else from env_file, else default_model). When
           they differ, a terminal is asked once and the answer is stored in env_file
-          (NAME_CHOICE, NAME_CHOICE_FOR) when git ignores it. A NAME_CHOICE
+          (NAME_CHOICE, NAME_CHOICE_FOR, NAME_CHOICE_PROJECT) when git ignores
+          it; asked again when either model changes. A NAME_CHOICE
           written by hand with no NAME_CHOICE_FOR is always used. With no
           terminal or in CI: the tier's model if the Ollama has it, else the
           project's, else exit 12. Pulls the chosen model if missing, after the
