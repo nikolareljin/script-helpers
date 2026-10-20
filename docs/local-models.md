@@ -178,7 +178,8 @@ model="$(scripts/ollama_models.sh select general "$OLLAMA_URL" .env OLLAMA_MODEL
 Only the model is printed on stdout. Nothing is ever removed.
 The tier list is a guideline: a model is ranked only against models of the
 same size class, never across classes.
-`scripts/ollama_models.sh class` prints the host's tier.
+`scripts/ollama_models.sh class` prints the host's tier (`unknown`, with a
+warning and exit 0, when there is no tiers file).
 
 The start script
 ----------------

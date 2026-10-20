@@ -670,6 +670,28 @@ _ollama_ep_tier_rank() {
 }
 _ollama_ep_gib() { echo $(( ${1:-0} / 1073741824 )); }
 
+# Usage: _ollama_ep_class_rank <mem> <gpu> <small_below_ram> <large_ram>
+# <large_vram> <xlarge_vram>; the one rule both pickers use (ollama_model_for_class
+# with a models file's numbers, ollama_host_tier with the tiers file's). All
+# whole GiB; an empty threshold never matches; empty memory is standard.
+# Returns: 0.
+# Output: stdout the rank (0 small .. 3 xlarge).
+_ollama_ep_class_rank() {
+  local mem="${1:-}" gpu="${2:-0}" small="${3:-}" lram="${4:-}" lvram="${5:-}" xvram="${6:-}"
+  if [[ -z "$mem" ]]; then
+    echo 1
+  elif [[ -n "$xvram" && "$gpu" -ge "$xvram" ]]; then
+    echo 3
+  elif [[ -n "$lvram" && "$gpu" -ge "$lvram" ]] || [[ -n "$lram" && "$mem" -ge "$lram" ]]; then
+    echo 2
+  elif [[ -n "$small" && "$mem" -lt "$small" && "$gpu" -lt "$small" ]]; then
+    # A small machine with a good GPU is not a small machine.
+    echo 0
+  else
+    echo 1
+  fi
+}
+
 # A value from the models file, or nothing (no file, no such name).
 _ollama_ep_file_val() { [[ -n "${1:-}" ]] || return 0; ollama_models_file_get "$1" "$2" 2>/dev/null || true; }
 
@@ -728,18 +750,10 @@ ollama_model_for_class() {
     fi
   else
     IFS=: read -r _oep_mem _oep_gpu <<<"$(ollama_machine_figures)"
-    _oep_tier=1
-    if [[ -n "$_oep_mem" ]]; then
-      if [[ -n "$_oep_xlarge" && -n "$_oep_xlarge_vram" && "$_oep_gpu" -ge "$_oep_xlarge_vram" ]]; then
-        _oep_tier=3
-      elif [[ -n "$_oep_large" ]] && { [[ -n "$_oep_large_vram" && "$_oep_gpu" -ge "$_oep_large_vram" ]] \
-           || [[ -n "$_oep_large_ram" && "$_oep_mem" -ge "$_oep_large_ram" ]]; }; then
-        _oep_tier=2
-      elif [[ -n "$_oep_small_ram" && "$_oep_mem" -lt "$_oep_small_ram" && "$_oep_gpu" -lt "$_oep_small_ram" ]]; then
-        # A small machine with a good GPU is not a small machine.
-        _oep_tier=0
-      fi
-    fi
+    # A class whose column names no model cannot be reached by measuring.
+    [[ -n "$_oep_xlarge" ]] || _oep_xlarge_vram=""
+    [[ -n "$_oep_large" ]] || { _oep_large_vram=""; _oep_large_ram=""; }
+    _oep_tier="$(_ollama_ep_class_rank "$_oep_mem" "$_oep_gpu" "$_oep_small_ram" "$_oep_large_ram" "$_oep_large_vram" "$_oep_xlarge_vram")"
   fi
   [[ "$_oep_tier" -le "$_oep_cap" ]] || _oep_tier="$_oep_cap"
   # The class's column, or the next one below it that names a model.
@@ -2145,7 +2159,6 @@ _ollama_ep_tiers_get() {
   LC_ALL=C _OEP_BOM=$'\xef\xbb\xbf' awk -v k="${1:-}" -v n="${2:-}" '
     { sub(/\r$/, "") }
     NR == 1 && substr($0, 1, 3) == ENVIRON["_OEP_BOM"] { $0 = substr($0, 4) }
-    /^[ \t]*#/ || NF == 0 { next }
     $1 == k && $2 == n { line = ""; for (i = 3; i <= NF; i++) line = line (i > 3 ? " " : "") $i; found = line }
     END { if (found != "") print found }' "$file" 2>/dev/null || true
 }
@@ -2192,18 +2205,12 @@ ollama_host_tier() {
   _oep_lram="$(_ollama_ep_uint "$(_ollama_ep_tiers_get threshold large_ram_gb)")" || _oep_lram=""
   _oep_lvram="$(_ollama_ep_uint "$(_ollama_ep_tiers_get threshold large_vram_gb)")" || _oep_lvram=""
   _oep_xvram="$(_ollama_ep_uint "$(_ollama_ep_tiers_get threshold xlarge_vram_gb)")" || _oep_xvram=""
-  _oep_gpu="${_oep_gpu:-0}"
-  if [[ -z "$_oep_mem" ]]; then
-    _oep_tier=standard
-  elif [[ -n "$_oep_xvram" && "$_oep_gpu" -ge "$_oep_xvram" ]]; then
-    _oep_tier=xlarge
-  elif [[ -n "$_oep_lvram" && "$_oep_gpu" -ge "$_oep_lvram" ]] || [[ -n "$_oep_lram" && "$_oep_mem" -ge "$_oep_lram" ]]; then
-    _oep_tier=large
-  elif [[ -n "$_oep_small" && "$_oep_mem" -lt "$_oep_small" && "$_oep_gpu" -lt "$_oep_small" ]]; then
-    _oep_tier=small
-  else
-    _oep_tier=standard
-  fi
+  case "$(_ollama_ep_class_rank "$_oep_mem" "$_oep_gpu" "$_oep_small" "$_oep_lram" "$_oep_lvram" "$_oep_xvram")" in
+    0) _oep_tier=small ;;
+    2) _oep_tier=large ;;
+    3) _oep_tier=xlarge ;;
+    *) _oep_tier=standard ;;
+  esac
   printf '%s\n' "$_oep_tier"
 }
 
@@ -2305,8 +2312,8 @@ _ollama_ep_env_set() {
           if (line ~ ("^[ \t]*(export[ \t]+)?" name[i] "[ \t]*=")) {
             # An "export " the line had is kept.
             ex = (line ~ /^[ \t]*export[ \t]/) ? "export " : ""
+            # Line 1 (the only one with a prefix) is never a duplicate.
             if (!(i in done)) print prefix ex name[i] "=" val[i] cr
-            else if (prefix != "") printf "%s", prefix
             done[i] = 1
             next
           }
@@ -2404,7 +2411,7 @@ ai_model_resolve() (
   local IFS=$' \t\n'
   local _oep_type="${1:-}" _oep_url="${2:-}" _oep_env="${3:-}" _oep_name="${4:-}" _oep_default="${5:-}"
   local _oep_tier _oep_y _oep_x _oep_key _oep_choice _oep_for _oep_pick="" _oep_dir _oep_present
-  local _oep_asked=0 _oep_answer _oep_tries _oep_status=0 _oep_shown _oep_pm _oep_xsrc="your env"
+  local _oep_asked=0 _oep_listed=0 _oep_answer _oep_tries _oep_status=0 _oep_shown _oep_pm _oep_xsrc="your env"
   _oep_url="${_oep_url%/}"
   if [[ -z "$_oep_type" || -z "$_oep_url" ]]; then
     print_error "ai_model_resolve needs a model type and an Ollama address." >&2
@@ -2506,6 +2513,8 @@ ai_model_resolve() (
         print_error "No Ollama answers at ${_oep_shown}." >&2
         exit 4
       fi
+      # Either pick is already there: no second listing, nothing to pull.
+      _oep_listed=1
       if [[ -z "$(ollama_models_missing "$(ollama_model_tagged "$_oep_y")" "$_oep_present")" ]]; then
         _oep_pick="$_oep_y"
       elif [[ -z "$(ollama_models_missing "$(ollama_model_tagged "$_oep_x")" "$_oep_present")" ]]; then
@@ -2518,7 +2527,9 @@ ai_model_resolve() (
   fi
 
   if ollama_endpoint_is_local "$_oep_url"; then _oep_dir="$(ollama_models_dir)"; else _oep_dir="/"; fi
-  if [[ "$_oep_asked" -eq 1 && "$(_ollama_ep_pull_mode 2>/dev/null)" != "off" ]]; then
+  if [[ "$_oep_listed" -eq 1 ]]; then
+    : # Present in the listing just read.
+  elif [[ "$_oep_asked" -eq 1 && "$(_ollama_ep_pull_mode 2>/dev/null)" != "off" ]]; then
     # The person has just chosen this model: no second question.
     OLLAMA_PULL_MISSING=1 ollama_endpoint_ensure_models "$_oep_url" "$_oep_dir" "$_oep_pick" || _oep_status=$?
   else

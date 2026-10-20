@@ -2661,7 +2661,7 @@ Example:
 
 ### `scripts/ollama_models.sh`
 
-The models this machine gets from a models file (ai-models.env), by its class (memory, largest GPU), for callers that cannot source the library (an Ansible task, a Makefile).
+The models this machine gets from a models file (ai-models.env) by its class (memory, largest GPU), or one model by type of work and host tier (select), for callers that cannot source the library (an Ansible task, a Makefile).
 
 ```text
 Usage: scripts/ollama_models.sh class [models_file]
@@ -2695,9 +2695,10 @@ Usage: scripts/ollama_models.sh class [models_file]
 Exit codes:
 
 ```text
-0  done; with ensure, every model is there
-2  bad arguments (select without a type or an address included), a NAME
-that is not a variable name, or a bad AI_MODEL_TIER (select: 11)
+0  done; with ensure, every model is there; with class, also with no
+tiers file (tier=unknown and a warning on stderr)
+2  bad arguments (also select with no type or no address), a NAME that
+is not a variable name, or a bad AI_MODEL_TIER (select exits 11 for it)
 1-9 with ensure: as ollama_project_ensure_models (docs/local-models.md)
 with select: 0 chosen and present; 1-8 as ollama_endpoint_ensure_models
 (4 no Ollama, 5 missing and not pulled); 10 a bad type, NAME, model,

@@ -87,6 +87,7 @@ class H(BaseHTTPRequestHandler):
         self.wfile.write(data)
     def do_GET(self):
         if self.path == "/api/tags":
+            note("tags", "GET")
             names = [n for n in read("installed").splitlines() if n]
             return self.send(200, json.dumps({"models": [{"name": n, "model": n} for n in names]}))
         if self.path.startswith("/v2/") and "/manifests/" in self.path:
@@ -144,10 +145,11 @@ EOF
 export OLLAMA_MODEL_TIERS_FILE="$tmp/tiers.txt"
 
 one_line() { tr -d '\r' | tr '\n' ' ' | sed 's/ $//'; }
+listings() { if [[ -f "$tmp/state/tags" ]]; then grep -c . <"$tmp/state/tags"; else echo 0; fi; }
 pulled() { if [[ -f "$tmp/state/pulled" ]]; then one_line <"$tmp/state/pulled"; fi; }
 installed() { one_line <"$tmp/state/installed"; }
 reset() { # reset [installed model...]
-  rm -f "$tmp/state/installed" "$tmp/state/pulled" "$tmp/state/removed"
+  rm -f "$tmp/state/installed" "$tmp/state/pulled" "$tmp/state/removed" "$tmp/state/tags"
   : >"$tmp/state/installed"
   local m
   for m in "$@"; do echo "$m" >>"$tmp/state/installed"; done
@@ -168,10 +170,18 @@ no_terminal() { _ollama_ep_can_ask() { return 1; }; }
 # shellcheck disable=SC2317
 remote() {
   ollama_endpoint_is_local() { return 1; }
-  ollama_mem_total_bytes() { echo $((32 * 1073741824)); }
+  # As the real one: a stated figure wins over this machine's.
+  ollama_mem_total_bytes() { echo "${OLLAMA_BUDGET_MEM_TOTAL_BYTES:-$((32 * 1073741824))}"; }
   unset OLLAMA_BUDGET_MEM_TOTAL_BYTES
 }
 GiB=1073741824
+# Stubs for one case each, called inside $(...).
+# shellcheck disable=SC2317
+memory_unreadable() { ollama_mem_total_bytes() { return 1; }; }
+# shellcheck disable=SC2317
+local_gpu_24() { _ollama_ep_gpu_list() { echo $((24 * GiB)); }; }
+# shellcheck disable=SC2317
+disk_known_at_root_only() { ollama_disk_free_bytes() { [[ "$1" != / ]] || echo $((200 * GB)); }; }
 
 # --- the data file and the tier ----------------------------------------------
 machine
@@ -240,8 +250,8 @@ check "a measured large host gets the large pick" "tier-l:9b" "$(reset tier-l:9b
 # An Ollama on another machine: its tier is not this one's (a 32 GiB host here).
 check "a remote Ollama with no stated figures: standard, not this host's large" "tier-m:4b" \
   "$(reset tier-m:4b tier-l:9b; remote; ai_model_resolve general "$URL" 2>/dev/null)"
-check "a remote Ollama with stated memory: measured from it" "tier-l:9b" \
-  "$(reset tier-m:4b tier-l:9b; remote; OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((32 * GiB)) ai_model_resolve general "$URL" 2>/dev/null)"
+check "a remote Ollama with stated memory: measured from it, not from this host" "tier-l:9b tier-s:1b" \
+  "$(reset tier-s:1b tier-m:4b tier-l:9b; remote; OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((32 * GiB)) ai_model_resolve general "$URL" 2>/dev/null) $(remote; OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((8 * GiB)) ai_model_resolve general "$URL" 2>/dev/null)"
 check "a remote Ollama with AI_MODEL_TIER: that tier" "tier-s:1b" \
   "$(reset tier-s:1b; remote; AI_MODEL_TIER=small ai_model_resolve general "$URL" 2>/dev/null)"
 
@@ -291,7 +301,7 @@ check "answer 1 on a terminal pulls the env model without a second question" "en
   "$(terminal; ai_model_resolve general "$URL" "" "" envmodel:7b <<<"1" 2>/dev/null):$(pulled)"
 reset tier-m:4b
 check "unless OLLAMA_PULL_MISSING=0: nothing pulled (5)" "5:" \
-  "$(terminal; OLLAMA_PULL_MISSING=0 ai_model_resolve general "$URL" "" "" envmodel:7b <<<"1" >/dev/null 2>&1; echo "$?:$(pulled)")"
+  "$(terminal; OLLAMA_PULL_MISSING=0 ai_model_resolve general "$URL" "" "" envmodel:7b <<<"1" 2>/dev/null; echo "$?:$(pulled)")"
 
 # --- they differ, no terminal ------------------------------------------------------
 machine; no_terminal
@@ -365,7 +375,7 @@ if [[ "$(id -u)" != "0" ]]; then
   printf 'OLLAMA_MODEL=envmodel:7b\n' >"$tmp/locked.env"
   chmod 000 "$tmp/locked.env"
   check "an env_file that cannot be read: 10, nothing asked" "10:0" \
-    "$(terminal; ai_model_resolve general "$URL" "$tmp/locked.env" OLLAMA_MODEL <<<"1" >/dev/null 2>"$tmp/err"; echo "$?:$(grep -c 'Choose' "$tmp/err")")"
+    "$(terminal; ai_model_resolve general "$URL" "$tmp/locked.env" OLLAMA_MODEL <<<"1" 2>"$tmp/err"; echo "$?:$(grep -c 'Choose' "$tmp/err")")"
   chmod 600 "$tmp/locked.env"
 fi
 
@@ -380,7 +390,11 @@ check "select prints the model alone on stdout" "tier-m:4b" "$( (cd "$tmp" && ba
 check "select with no address: 2" "2" "$(bash "$script" select general 2>/dev/null; echo $?)"
 check "select with no type: 2" "2" "$(bash "$script" select 2>/dev/null; echo $?)"
 check "select with a bad tier: 11" "11" "$(AI_MODEL_TIER=x bash "$script" select general "$URL" 2>/dev/null </dev/null; echo $?)"
-check "class with no data file: tier unknown, still 0" "0:tier=unknown" "$(OLLAMA_MODEL_TIERS_FILE="$tmp/none" bash "$script" class 2>/dev/null >"$tmp/out"; echo "$?:$(grep '^tier=' "$tmp/out")")"
+check "class with no data file: tier unknown, still 0" "0:tier=unknown" "$(OLLAMA_MODEL_TIERS_FILE="$tmp/none" bash "$script" class 2>"$tmp/err" >"$tmp/out"; echo "$?:$(grep '^tier=' "$tmp/out")")"
+check "and a warning, not an error, to match exit 0" "1:0" "$(grep -c 'WARN' "$tmp/err"):$(grep -ci 'error' "$tmp/err")"
+check "class with no data file but AI_MODEL_TIER: that tier, no warning" "tier=large:0" \
+  "$(OLLAMA_MODEL_TIERS_FILE="$tmp/none" AI_MODEL_TIER=large bash "$script" class 2>"$tmp/err" | grep '^tier='):$(grep -c . "$tmp/err")"
+check "class with a bad AI_MODEL_TIER: 2" "2" "$(AI_MODEL_TIER=huge bash "$script" class >/dev/null 2>&1; echo $?)"
 check "class names the tier" "tier=large" "$(AI_MODEL_TIER=large bash "$script" class | grep '^tier=')"
 # Nothing stated: this runner's own memory (/proc/meminfo, sysctl hw.memsize) is
 # read. Only the shape is checked, so any machine passes.
@@ -397,8 +411,8 @@ for v in _oep_x _oep_name _oep_type IFS_MODEL; do
   check "NAME $v: the caller's value is read" "envmodel:7b" \
     "$(export AI_MODEL_TIER=small OLLAMA_PULL_MISSING=0; eval "$v=envmodel:7b"; ai_model_resolve general "$URL" "" "$v" 2>/dev/null </dev/null)"
 done
-check "more than five arguments: 10" "10" "$(ai_model_resolve general "$URL" "" "" tier-m:4b extra >/dev/null 2>&1 </dev/null; echo $?)"
-check "select with an extra argument: 10" "10" "$(bash "$script" select general "$URL" "" "" tier-m:4b extra >/dev/null 2>&1 </dev/null; echo $?)"
+check "more than five arguments: 10, nothing on stdout" "10" "$(ai_model_resolve general "$URL" "" "" tier-m:4b extra 2>/dev/null </dev/null; echo $?)"
+check "select with an extra argument: 10, nothing on stdout" "10" "$(bash "$script" select general "$URL" "" "" tier-m:4b extra 2>/dev/null </dev/null; echo $?)"
 
 # --- a tiers file with a byte-order mark before a data line -----------------------------
 { printf '\357\273\277threshold small_below_ram_gb 11\r\n'; grep -v small_below "$tmp/tiers.txt"; } >"$tmp/bom-tiers.txt"
@@ -406,6 +420,116 @@ check "a BOM before the first threshold: still read" "small" \
   "$(OLLAMA_MODEL_TIERS_FILE="$tmp/bom-tiers.txt" OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((8 * 1073741824)) ollama_host_tier)"
 printf '\357\273\277type solo a:1 b:2 c:3 d:4\n' >"$tmp/bom-type.txt"
 check "a BOM before the first type: still listed" "solo" "$(OLLAMA_MODEL_TIERS_FILE="$tmp/bom-type.txt" ollama_model_tier_types)"
+
+# --- one listing of the Ollama per run -------------------------------------------------
+machine; no_terminal; reset tier-m:4b envmodel:7b
+check "no terminal, both installed: the Ollama is listed once, not twice" "tier-m:4b:1" \
+  "$(ai_model_resolve general "$URL" "" "" envmodel:7b 2>/dev/null):$(listings)"
+reset tier-m:4b
+check "no project model: listed once" "tier-m:4b:1" "$(ai_model_resolve general "$URL" 2>/dev/null):$(listings)"
+
+# --- one rule for both pickers ------------------------------------------------------------
+# A models file with the tiers file's thresholds must class every machine as
+# ollama_host_tier does; the two read different files through one function.
+{ printf 'M=std:1\nM_SMALL=sm:1\nM_LARGE=lg:1\nM_XLARGE=xl:1\n'
+  printf 'AI_TIER_SMALL_RAM_GB=%s\nAI_TIER_LARGE_RAM_GB=%s\nM_LARGE_VRAM_GB=%s\nM_XLARGE_VRAM_GB=%s\n' \
+    "$(_ollama_ep_tiers_get threshold small_below_ram_gb)" "$(_ollama_ep_tiers_get threshold large_ram_gb)" \
+    "$(_ollama_ep_tiers_get threshold large_vram_gb)" "$(_ollama_ep_tiers_get threshold xlarge_vram_gb)"; } >"$tmp/same.env"
+drift=""
+for mem in 4 10 11 12 29 30 64; do
+  for gpu in 0 8 10 11 12 22 23 48; do
+    a="$(OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((mem * GiB)) OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((gpu * GiB)) ollama_host_tier)"
+    b="$(OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((mem * GiB)) OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((gpu * GiB)) ollama_model_for_class "$tmp/same.env" M)"
+    case "$a:$b" in small:sm:1|standard:std:1|large:lg:1|xlarge:xl:1) ;; *) drift="$drift $mem/$gpu=$a,$b" ;; esac
+  done
+done
+check "the tiers file and a models file with its numbers agree on every machine" "" "$drift"
+# A class whose column names no model is never reached by measuring: the
+# lower rules decide, not a fall back from the class above.
+printf 'M=std:1\nM_XLARGE_VRAM_GB=23\nM_LARGE=lg:1\nM_LARGE_VRAM_GB=40\n' >"$tmp/nox.env"
+check "no xlarge model, a 24 GiB card below the large floor: the default column" "std:1" \
+  "$(OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((24 * GiB)) ollama_model_for_class "$tmp/nox.env" M)"
+printf 'M=std:1\nM_SMALL=sm:1\nM_LARGE_VRAM_GB=3\nAI_TIER_SMALL_RAM_GB=11\n' >"$tmp/nol.env"
+check "no large model, 8 GiB and a 4 GiB card over the large floor: the small column" "sm:1" \
+  "$(OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((8 * GiB)) OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((4 * GiB)) ollama_model_for_class "$tmp/nol.env" M)"
+
+# --- the tier, the remaining edges ----------------------------------------------------------
+machine
+check "memory that cannot be read: standard, not a guess" "standard" \
+  "$(unset OLLAMA_BUDGET_MEM_TOTAL_BYTES; memory_unreadable; ollama_host_tier)"
+check "a card at the large floor (11 GiB) with 8 GiB of memory: large" "large" \
+  "$(OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((8 * GiB)) OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((11 * GiB)) ollama_host_tier)"
+printf 'threshold small_below_ram_gb 11\nthreshold large_vram_gb 16\nthreshold large_ram_gb 30\nthreshold xlarge_vram_gb 23\n' >"$tmp/gap.txt"
+check "a small machine with a card between the floors is standard, not small" "standard" \
+  "$(OLLAMA_MODEL_TIERS_FILE="$tmp/gap.txt" OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((8 * GiB)) OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((12 * GiB)) ollama_host_tier)"
+printf 'threshold large_ram_gb 99\nthreshold large_ram_gb 30\ntype dup a:1 b:1 c:1 d:1\ntype dup e:1 f:1 g:1 h:1\n' >"$tmp/dup.txt"
+check "a key given twice: the last line wins" "large:f:1" \
+  "$(OLLAMA_MODEL_TIERS_FILE="$tmp/dup.txt" OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((32 * GiB)) ollama_host_tier):$(OLLAMA_MODEL_TIERS_FILE="$tmp/dup.txt" ollama_tier_model dup standard)"
+check "and the type is listed once" "dup" "$(OLLAMA_MODEL_TIERS_FILE="$tmp/dup.txt" ollama_model_tier_types)"
+check "ollama_tier_model with no data file: 2" "2:" "$(OLLAMA_MODEL_TIERS_FILE="$tmp/none" ollama_tier_model general large 2>/dev/null; echo "$?:")"
+check "ollama_tier_model with a bad tier argument: 3" "3:" "$(ollama_tier_model general huge 2>/dev/null; echo "$?:")"
+check "ollama_tier_model with a bad AI_MODEL_TIER: 3" "3:" "$(AI_MODEL_TIER=huge ollama_tier_model general 2>/dev/null; echo "$?:")"
+printf 'type short a:1 b:2\ntype badref a:1 "x y" c:1 d:1\n' >"$tmp/short.txt"
+check "a row with no model for the tier: 2" "2:" "$(OLLAMA_MODEL_TIERS_FILE="$tmp/short.txt" ollama_tier_model short large 2>/dev/null; echo "$?:")"
+check "a row whose model is not a model reference: 2" "2:" "$(OLLAMA_MODEL_TIERS_FILE="$tmp/short.txt" ollama_tier_model badref standard 2>/dev/null; echo "$?:")"
+
+# --- storing, the remaining refusals -------------------------------------------------------
+printf 'A=1\n' >"$tmp/odd.env"
+check "a NAME with no value is refused (1), the file untouched" "1:A=1" "$(_ollama_ep_env_set "$tmp/odd.env" A 2 B; echo "$?:$(one_line <"$tmp/odd.env")")"
+check "a value with a line break is refused (1), the file untouched" "1:A=1" "$(_ollama_ep_env_set "$tmp/odd.env" A $'2\nB=3'; echo "$?:$(one_line <"$tmp/odd.env")")"
+if [[ "$(id -u)" != "0" ]]; then
+  machine; reset tier-m:4b envmodel:7b; mkdir -p "$tmp/ro"; chmod 500 "$tmp/ro"
+  check "an answer that cannot be stored: 10, nothing on stdout" "10" \
+    "$(terminal; ai_model_resolve general "$URL" "$tmp/ro/.env" "" envmodel:7b <<<"1" 2>/dev/null; echo $?)"
+  chmod 700 "$tmp/ro"
+fi
+
+# --- the same model, however written --------------------------------------------------------
+machine; reset tier-m:4b
+check "the env model in another case is the tier's: not asked" "tier-m:4b:0" \
+  "$(terminal; OLLAMA_MODEL='Tier-M:4B' ai_model_resolve general "$URL" "" OLLAMA_MODEL </dev/null 2>"$tmp/err"):$(grep -c 'Choose' "$tmp/err")"
+printf 'type plain plainmodel plainmodel plainmodel plainmodel\n' >"$tmp/plain.txt"
+reset plainmodel:latest
+check "an omitted :latest is the same model: not asked" "plainmodel:0" \
+  "$(terminal; OLLAMA_MODEL_TIERS_FILE="$tmp/plain.txt" ai_model_resolve plain "$URL" "" "" plainmodel:latest </dev/null 2>"$tmp/err"):$(grep -c 'Choose' "$tmp/err")"
+reset tier-m:4b envmodel:7b
+printf 'OLLAMA_MODEL=envmodel:7b\nOLLAMA_MODEL_CHOICE=tier-m:4b\nOLLAMA_MODEL_CHOICE_FOR=tier-m:4b\n' >"$tmp/keep.env"
+check "a stored answer of the tier's model stays when the project's model is other: not asked" "tier-m:4b:0" \
+  "$(terminal; ai_model_resolve general "$URL" "$tmp/keep.env" OLLAMA_MODEL </dev/null 2>"$tmp/err"):$(grep -c 'Choose' "$tmp/err")"
+
+# --- what the project's model is ----------------------------------------------------------
+machine; no_terminal; reset envmodel:7b
+check "spaces around the env model are trimmed" "envmodel:7b" \
+  "$(OLLAMA_MODEL='  envmodel:7b ' ai_model_resolve general "$URL" "" OLLAMA_MODEL 2>/dev/null)"
+check "spaces around the default model are trimmed" "envmodel:7b" \
+  "$(ai_model_resolve general "$URL" "" "" ' envmodel:7b  ' 2>/dev/null)"
+reset newer:4b
+check "the environment wins over the env file" "newer:4b" \
+  "$(printf 'OLLAMA_MODEL=envmodel:7b\n' >"$tmp/e4"; OLLAMA_MODEL=newer:4b ai_model_resolve general "$URL" "$tmp/e4" OLLAMA_MODEL 2>/dev/null)"
+check "an empty address: 10, nothing on stdout" "10" "$(ai_model_resolve general "" 2>/dev/null; echo $?)"
+check "no terminal, the two differ, no Ollama: 4" "4" "$(ai_model_resolve general http://127.0.0.1:1/ "" "" envmodel:7b 2>"$tmp/err"; echo $?)"
+said "the address is named without its trailing slash" "$tmp/err" "No Ollama answers at http://127.0.0.1:1."
+
+# --- answers ----------------------------------------------------------------------------
+machine; reset tier-m:4b envmodel:7b
+check "an empty answer is the default at once, not asked again" "tier-m:4b:0" \
+  "$(terminal; ai_model_resolve general "$URL" "" "" envmodel:7b <<<"" 2>"$tmp/err"):$(grep -c 'answer 1 or 2' "$tmp/err")"
+check "an answer with spaces is read" "envmodel:7b" \
+  "$(terminal; ai_model_resolve general "$URL" "" "" envmodel:7b <<<" 1 " 2>/dev/null)"
+check "CI=0 with a terminal: asked" "envmodel:7b:1" \
+  "$(terminal; CI=0 ai_model_resolve general "$URL" "" "" envmodel:7b <<<"1" 2>"$tmp/err"):$(grep -c 'Choose' "$tmp/err")"
+check "CI=FALSE with a terminal: asked" "envmodel:7b:1" \
+  "$(terminal; CI=FALSE ai_model_resolve general "$URL" "" "" envmodel:7b <<<"1" 2>"$tmp/err"):$(grep -c 'Choose' "$tmp/err")"
+
+# --- a remote Ollama ----------------------------------------------------------------------
+machine; reset
+check "a remote Ollama with stated memory, no stated GPU: this machine's GPU is not counted" "tier-m:4b" \
+  "$(reset tier-m:4b tier-x:20b; remote; unset OLLAMA_BUDGET_GPU_LARGEST_BYTES; local_gpu_24
+     OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((16 * GiB)) ai_model_resolve general "$URL" 2>/dev/null)"
+# Free disk is known here only at "/": a local models directory would be unreadable (7).
+check "a remote Ollama: the disk is read at /, not this machine's models directory" "0:tier-m:4b" \
+  "$(reset; remote; unset OLLAMA_BUDGET_DISK_FREE_BYTES; disk_known_at_root_only
+     OLLAMA_PULL_MISSING=1 ai_model_resolve general "$URL" >/dev/null 2>&1; echo "$?:$(pulled)")"
 
 if [[ "$failures" -gt 0 ]]; then
   note "FAILED: $failures"
