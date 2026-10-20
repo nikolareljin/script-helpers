@@ -2260,7 +2260,7 @@ ollama_tier_model() {
 # existing one keeps its mode.
 # Two cases are written in place instead: the directory is not writable (the
 # file is), or the file has more than one hard link (a move would split them).
-# The full new content is built in a temporary file under TMPDIR first, then
+# The full new content is built in a temporary file under TMPDIR (else /tmp) first, then
 # copied over the target in one write and read back; the target keeps its
 # inode, mode and owner, and every hard link sees the new content.
 # Returns: 0 written; 1 a NAME is not a variable name, or the file could not be
@@ -2293,9 +2293,9 @@ _ollama_ep_env_set() {
   if [[ -f "$target" ]] && { [[ ! -w "$dir" ]] || [[ "$(_ollama_ep_links "$target")" -gt 1 ]]; }; then
     [[ -w "$target" ]] || return 1
     inplace=1
-    tmpf="$(mktemp "${TMPDIR:-/tmp}/.env-set.XXXXXX")" || return 1
+    tmpf="$(_ollama_ep_tmpfile .env-set)" || return 1
   else
-    tmpf="$(mktemp "$dir/.$(basename "$target").XXXXXX")" || return 1
+    tmpf="$(mktemp "$dir/.$(basename "$target").XXXXXX" 2>/dev/null)" || return 1
   fi
   if [[ "$inplace" -eq 1 ]]; then
     # The temporary file stays mode 600 (it may hold secrets, under TMPDIR);
@@ -2344,7 +2344,7 @@ _ollama_ep_env_set() {
   if [[ "$inplace" -eq 1 ]]; then
     # One write of the whole content, then read back. A failed write puts the
     # old content back, as far as the file can still be written.
-    oldf="$(mktemp "${TMPDIR:-/tmp}/.env-old.XXXXXX")" || { rm -f "$tmpf"; return 1; }
+    oldf="$(_ollama_ep_tmpfile .env-old)" || { rm -f "$tmpf"; return 1; }
     cat "$target" >"$oldf" 2>/dev/null || { rm -f "$tmpf" "$oldf"; return 1; }
     if ! cat "$tmpf" >"$target" 2>/dev/null || ! cmp -s "$tmpf" "$target"; then
       cat "$oldf" >"$target" 2>/dev/null || true
@@ -2355,6 +2355,19 @@ _ollama_ep_env_set() {
     return 0
   fi
   mv -f "$tmpf" "$target" || { rm -f "$tmpf"; return 1; }
+}
+
+# Usage: _ollama_ep_tmpfile <prefix>; creates an empty mode-600 file under
+# TMPDIR, or under /tmp when TMPDIR is unset or cannot be written.
+# Returns: 0 created; 1 neither place could be written.
+# Output: stdout the path; nothing on stderr.
+_ollama_ep_tmpfile() {
+  local d
+  for d in "${TMPDIR:-}" /tmp; do
+    [[ -n "$d" ]] || continue
+    mktemp "${d%/}/${1:-.tmp}.XXXXXX" 2>/dev/null && return 0
+  done
+  return 1
 }
 
 # Usage: _ollama_ep_links <file>; prints the file's hard link count (GNU or BSD

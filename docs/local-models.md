@@ -180,7 +180,7 @@ Only the model is printed on stdout. Nothing is ever removed.
 The answer is normally written to a temporary file next to `.env` and moved
 over it. When the directory is not writable (the file is), or `.env` has more
 than one hard link, the new content is built in a temporary file under
-`TMPDIR` and copied over `.env` in one write, then read back: `.env` keeps its
+`TMPDIR` (else `/tmp`) and copied over `.env` in one write, then read back: `.env` keeps its
 inode, mode and owner, and every hard link sees the answer.
 The tier list is a guideline: a model is ranked only against models of the
 same size class, never across classes.

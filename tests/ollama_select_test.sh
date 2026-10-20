@@ -491,6 +491,10 @@ if [[ "$(id -u)" != "0" ]]; then
   mkdir -p "$tmp/rof"; printf 'A=1\n' >"$tmp/rof/.env"; chmod 400 "$tmp/rof/.env"; chmod 500 "$tmp/rof"
   check "read-only directory and read-only .env: refused (1), untouched" "1:A=1" "$(_ollama_ep_env_set "$tmp/rof/.env" A 2; echo "$?:$(one_line <"$tmp/rof/.env")")"
   chmod 700 "$tmp/rof"
+  chmod 500 "$tmp/rod"
+  check "read-only directory, no .env yet: refused (1), nothing on stderr" "1:0" \
+    "$(_ollama_ep_env_set "$tmp/rod/new.env" A 1 2>"$tmp/err"; echo "$?:$(grep -c . "$tmp/err")")"
+  chmod 700 "$tmp/rod"
 fi
 # A hard-linked .env: both names keep the same file, both see the answer.
 mkdir -p "$tmp/hl/a" "$tmp/hl/b"; printf 'A=1\nB=2\n' >"$tmp/hl/a/.env"; ln "$tmp/hl/a/.env" "$tmp/hl/b/.env"
@@ -499,6 +503,9 @@ hl_before="$(inode "$tmp/hl/a/.env")"
 mkdir -p "$tmp/td"
 TMPDIR="$tmp/td" _ollama_ep_env_set "$tmp/hl/a/.env" A 9 C_CHOICE x
 check "and no temporary file is left under TMPDIR" "0" "$(find "$tmp/td" -type f | grep -c .)"
+check "a TMPDIR that does not exist: written in place through /tmp" "A=7 B=2 C_CHOICE=x" \
+  "$(TMPDIR="$tmp/no-such-dir" _ollama_ep_env_set "$tmp/hl/a/.env" A 7 2>/dev/null; one_line <"$tmp/hl/b/.env")"
+TMPDIR="$tmp/td" _ollama_ep_env_set "$tmp/hl/a/.env" A 9
 check "a hard-linked .env: written in place, both links see the same new content" "A=9 B=2 C_CHOICE=x|A=9 B=2 C_CHOICE=x|same|same" \
   "$(one_line <"$tmp/hl/a/.env")|$(one_line <"$tmp/hl/b/.env")|$([[ "$(inode "$tmp/hl/a/.env")" == "$hl_before" ]] && echo same)|$([[ "$(inode "$tmp/hl/b/.env")" == "$hl_before" ]] && echo same)"
 
