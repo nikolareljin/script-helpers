@@ -20,6 +20,9 @@
 #   --apple-id <email>        apple: Apple ID for notarization.
 #                             Passwords: APPLE_CERTIFICATE_PASSWORD and
 #                             APPLE_APP_PASSWORD env, else prompted.
+#                             The .p12 must open with its password and hold
+#                             a certificate and a private key (openssl).
+#   --skip-p12-check          apple: do not check the .p12 (no openssl).
 #   --check                   Report missing names per repository; exit 1 if any.
 #   --dry-run                 Print the names that would be set; set nothing.
 #   -h, --help                Show help.
@@ -27,8 +30,10 @@
 #   0  Every name was set, or --check found every name on every repository.
 #   1  --check found a missing name or could not list a repository, or gh
 #      could not set a name.
-#   2  Bad arguments, a missing tool (gh, gpg), a key not in the keyring, a
-#      passphrase that does not unlock it, or an empty value; nothing was set.
+#   2  Bad arguments, a missing tool (gh, gpg, openssl), a key not in the
+#      keyring, a passphrase that does not unlock it, a .p12 that does not
+#      open with APPLE_CERTIFICATE_PASSWORD or lacks a certificate or a
+#      private key, or an empty value; nothing was set.
 #   130, 143  Interrupted (INT, TERM); the scratch directory is removed.
 # EXAMPLE:
 #   ./signing_secrets.sh --repos me/tool --group gpg --gpg-key <FPR> --ppa me/tool=ppa:me/tool
@@ -61,6 +66,7 @@ apple_identity=""
 apple_team=""
 apple_id=""
 mode="set"
+skip_p12_check=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -81,6 +87,7 @@ while [[ $# -gt 0 ]]; do
     --apple-identity) apple_identity="${2:-}"; shift 2;;
     --apple-team) apple_team="${2:-}"; shift 2;;
     --apple-id) apple_id="${2:-}"; shift 2;;
+    --skip-p12-check) skip_p12_check=1; shift;;
     --check) mode="check"; shift;;
     --dry-run) mode="dry-run"; shift;;
     -h|--help) usage; exit 0;;
@@ -121,8 +128,8 @@ if ! has_group gpg && [[ -n "${gpg_key}${ppa_map}${lp_ssh_key}" ]]; then
   log_error "--gpg-key, --ppa and --launchpad-ssh-key need --group gpg"
   exit 2
 fi
-if ! has_group apple && [[ -n "${apple_p12}${apple_identity}${apple_team}${apple_id}" ]]; then
-  log_error "--apple-* options need --group apple"
+if ! has_group apple && { [[ -n "${apple_p12}${apple_identity}${apple_team}${apple_id}" ]] || [[ "$skip_p12_check" -eq 1 ]]; }; then
+  log_error "--apple-* options and --skip-p12-check need --group apple"
   exit 2
 fi
 for m in $ppa_map; do
@@ -223,6 +230,43 @@ ask() { # var-name prompt
   printf '%s' "$val" > "$work/$1"
 }
 
+# Open the .p12 with APPLE_CERTIFICATE_PASSWORD before it is stored. The
+# password reaches openssl as a file, not argv. OpenSSL 3 needs -legacy for
+# RC2/3DES files; LibreSSL has no -legacy and reads them without it.
+check_p12() {
+  local pw="$work/APPLE_CERTIFICATE_PASSWORD" err="$work/p12.err" legacy="" n
+  if [[ "$(cat "$pw"; echo x)" == *$'\n'* ]]; then
+    log_error "APPLE_CERTIFICATE_PASSWORD contains a newline; openssl cannot read it"
+    exit 2
+  fi
+  p12() { openssl pkcs12 -in "$apple_p12" -passin "file:$pw" ${legacy:+"$legacy"} "$@"; }
+  if ! p12 -noout 2>"$err"; then
+    if grep -qi 'mac verify' "$err"; then
+      log_error "--apple-p12 does not open: wrong APPLE_CERTIFICATE_PASSWORD"
+      exit 2
+    fi
+    if ! grep -qi 'unsupported' "$err"; then
+      log_error "openssl cannot read --apple-p12: $(head -n 1 "$err")"
+      exit 2
+    fi
+    legacy="-legacy"
+    if ! p12 -noout 2>"$err"; then
+      if grep -qi 'mac verify' "$err"; then
+        log_error "--apple-p12 does not open: wrong APPLE_CERTIFICATE_PASSWORD"
+      else
+        log_error "--apple-p12 uses a legacy algorithm (RC2/3DES) and the OpenSSL legacy provider is not available: $(head -n 1 "$err")"
+      fi
+      exit 2
+    fi
+  fi
+  # Count PEM headers only; the key passes through the pipe, never a file.
+  n="$(p12 -nokeys 2>/dev/null | grep -c -- '-----BEGIN CERTIFICATE-----' || true)"
+  [[ "${n:-0}" -ge 1 ]] || { log_error "--apple-p12 holds no certificate"; exit 2; }
+  n="$(p12 -nocerts -nodes 2>/dev/null | grep -c -- '-----BEGIN .*PRIVATE KEY-----' || true)"
+  [[ "${n:-0}" -ge 1 ]] || { log_error "--apple-p12 holds no private key"; exit 2; }
+  return 0
+}
+
 if has_group gpg; then
   if [[ ! "$gpg_key" =~ ^[0-9A-Fa-f]{40}$ ]]; then
     log_error "--gpg-key must be the 40-character fingerprint"
@@ -266,7 +310,14 @@ if has_group apple; then
   printf '%s' "$apple_identity" > "$work/APPLE_SIGNING_IDENTITY"
   printf '%s' "$apple_team" > "$work/APPLE_TEAM_ID"
   printf '%s' "$apple_id" > "$work/APPLE_ID"
+  if [[ "$mode" != "dry-run" ]] && [[ "$skip_p12_check" -eq 0 ]] && ! command -v openssl >/dev/null 2>&1; then
+    log_error "openssl is not installed; it checks the .p12 password. Install it, or pass --skip-p12-check"
+    exit 2
+  fi
   ask APPLE_CERTIFICATE_PASSWORD "Password of $apple_p12"
+  if [[ "$mode" != "dry-run" ]] && [[ "$skip_p12_check" -eq 0 ]]; then
+    check_p12
+  fi
   ask APPLE_APP_PASSWORD "App-specific password for $apple_id"
   printf '%s' "true" > "$work/APPLE_SIGNING_ENABLED"
 fi

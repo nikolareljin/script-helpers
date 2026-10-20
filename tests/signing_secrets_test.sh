@@ -3,7 +3,8 @@
 # DESCRIPTION: Tests scripts/signing_secrets.sh against a stub gh and a
 #              throwaway GPG key: values reach gh on stdin and never in its
 #              arguments or the output; --check reports missing names and
-#              exits 1; bad input is refused before anything is set.
+#              exits 1; bad input is refused before anything is set; the
+#              .p12 must open with its password before it is stored.
 # USAGE: bash tests/signing_secrets_test.sh
 # PARAMETERS: No required parameters.
 # EXAMPLE: bash tests/signing_secrets_test.sh
@@ -56,13 +57,41 @@ fi
 exit 9
 STUB
 chmod +x "$tmp/bin/gh"
+# Wrap openssl to log its argv, so a password on its command line shows.
+real_openssl="$(command -v openssl 2>/dev/null || true)"
+p12_skip=""
+if [ -n "$real_openssl" ]; then
+  cat > "$tmp/bin/openssl" <<STUB
+#!/usr/bin/env bash
+echo "\$*" >> "\$STORE/openssl_argv"
+exec "$real_openssl" "\$@"
+STUB
+  chmod +x "$tmp/bin/openssl"
+else
+  note "SKIP .p12 checks: openssl not installed"
+  p12_skip="--skip-p12-check"
+fi
 export STORE="$tmp/store" PATH="$tmp/bin:$PATH"
 # The script's private directory lands here, so leftovers can be counted.
 mkdir -p "$tmp/tmpdir"
 export TMPDIR="$tmp/tmpdir"
 : > "$STORE/argv"
 
-printf 'p12-bytes' > "$tmp/cert.p12"
+# A real .p12 (modern PBE), password p12-pw-value. Without openssl the
+# runs below pass --skip-p12-check and the fake bytes are stored as they are.
+make_p12() { # out password [extra pkcs12 -export args]
+  local out="$1" pw="$2"; shift 2
+  printf '%s' "$pw" > "$tmp/p12pw"
+  "$real_openssl" pkcs12 -export -in "$tmp/p12cert.pem" -inkey "$tmp/p12key.pem" \
+    -passout "file:$tmp/p12pw" -out "$out" "$@" >/dev/null 2>&1
+}
+if [ -n "$real_openssl" ]; then
+  "$real_openssl" req -x509 -newkey rsa:2048 -nodes -keyout "$tmp/p12key.pem" \
+    -out "$tmp/p12cert.pem" -days 1 -subj "/CN=Test" >/dev/null 2>&1 || error "openssl req failed"
+  make_p12 "$tmp/cert.p12" p12-pw-value || error "pkcs12 -export failed"
+else
+  printf 'p12-bytes' > "$tmp/cert.p12"
+fi
 printf 'ssh-key-body' > "$tmp/lp_key"
 
 # 1. set gpg + apple on two repos, PPA target on one.
@@ -70,7 +99,7 @@ out="$(GPG_PASSPHRASE="gpg-pw-value" APPLE_CERTIFICATE_PASSWORD="p12-pw-value" A
   bash "$SCRIPT" --repos o/a,o/b --group gpg --group apple --gpg-key "$fpr" \
   --ppa o/a=ppa:me/tool --launchpad-ssh-key "$tmp/lp_key" \
   --apple-p12 "$tmp/cert.p12" --apple-identity "Developer ID Application: Me (ABCDE12345)" \
-  --apple-team ABCDE12345 --apple-id me@example.invalid 2>&1)" || error "set run failed: $out"
+  --apple-team ABCDE12345 --apple-id me@example.invalid $p12_skip 2>&1)" || error "set run failed: $out"
 s="$STORE/o/a"
 grep -q "BEGIN PGP PRIVATE KEY BLOCK" "$s/secret/GPG_PRIVATE_KEY" 2>/dev/null || error "GPG_PRIVATE_KEY not an armored key"
 [ "$(cat "$s/secret/GPG_PASSPHRASE" 2>/dev/null)" = "gpg-pw-value" ] || error "GPG_PASSPHRASE wrong"
@@ -78,11 +107,13 @@ grep -q "BEGIN PGP PRIVATE KEY BLOCK" "$s/secret/GPG_PRIVATE_KEY" 2>/dev/null ||
 [ "$(cat "$s/variable/PPA_TARGET" 2>/dev/null)" = "ppa:me/tool" ] || error "PPA_TARGET wrong on o/a"
 [ ! -e "$STORE/o/b/variable/PPA_TARGET" ] || error "PPA_TARGET set on o/b"
 [ "$(cat "$s/secret/LAUNCHPAD_SSH_PRIVATE_KEY" 2>/dev/null)" = "ssh-key-body" ] || error "LAUNCHPAD_SSH_PRIVATE_KEY wrong"
-[ "$(base64 -d < "$s/secret/APPLE_CERTIFICATE" 2>/dev/null)" = "p12-bytes" ] || error "APPLE_CERTIFICATE is not the base64 of the .p12"
+[ "$(base64 -d < "$s/secret/APPLE_CERTIFICATE" 2>/dev/null | cksum)" = "$(cksum < "$tmp/cert.p12")" ] || error "APPLE_CERTIFICATE is not the base64 of the .p12"
+[ "$(cat "$s/secret/APPLE_CERTIFICATE_PASSWORD" 2>/dev/null)" = "p12-pw-value" ] || error "APPLE_CERTIFICATE_PASSWORD wrong"
 [ "$(cat "$s/secret/APPLE_APP_PASSWORD" 2>/dev/null)" = "app-pw-value" ] || error "APPLE_APP_PASSWORD wrong"
 [ "$(cat "$STORE/o/b/variable/APPLE_SIGNING_ENABLED" 2>/dev/null)" = "true" ] || error "APPLE_SIGNING_ENABLED not true on o/b"
 for v in gpg-pw-value p12-pw-value app-pw-value ssh-key-body "PRIVATE KEY"; do
   grep -qF -- "$v" "$STORE/argv" && error "value '$v' reached gh's arguments"
+  grep -qF -- "$v" "$STORE/openssl_argv" 2>/dev/null && error "value '$v' reached openssl's arguments"
   grep -qF -- "$v" <<< "$out" && error "value '$v' printed"
 done
 
@@ -198,6 +229,62 @@ rc=0; out="$(GPG_PASSPHRASE="wrong-pw" bash "$SCRIPT" --repos o/g --group gpg --
 [ "$rc" = 2 ] || error "wrong passphrase after a cached right one: exit $rc, expected 2: $out"
 grep -q "wrong GPG_PASSPHRASE" <<< "$out" || error "wrong passphrase after a cached one: message: $out"
 [ "$(wc -l < "$STORE/argv")" = "$before" ] || error "wrong passphrase after a cached one: gh was called"
+
+# 9. the .p12 check: a wrong password, a file that is not a .p12, a .p12
+# without a key, and no openssl are refused before gh runs; a legacy
+# (RC2/3DES) .p12 opens.
+apple() { # p12 password [args...]
+  local f="$1" pw="$2"; shift 2
+  APPLE_CERTIFICATE_PASSWORD="$pw" APPLE_APP_PASSWORD="app-pw-value" bash "$SCRIPT" --repos o/p --group apple \
+    --apple-p12 "$f" --apple-identity "Developer ID Application: Me (ABCDE12345)" \
+    --apple-team ABCDE12345 --apple-id me@example.invalid "$@" 2>&1
+}
+p12_refused() { # name expected-message p12 password [args...]
+  local name="$1" msg="$2" rc=0; shift 2
+  before="$(wc -l < "$STORE/argv")"
+  out="$(apple "$@")" || rc=$?
+  [ "$rc" = 2 ] || error "$name: exit $rc, expected 2: $out"
+  grep -qF -- "$msg" <<< "$out" || error "$name: message: $out"
+  [ "$(wc -l < "$STORE/argv")" = "$before" ] || error "$name: gh was called"
+}
+if [ -n "$real_openssl" ]; then
+  p12_refused "wrong p12 password" "wrong APPLE_CERTIFICATE_PASSWORD" "$tmp/cert.p12" wrong-p12-pw
+  grep -qF wrong-p12-pw "$STORE/openssl_argv" && error "wrong p12 password reached openssl's arguments"
+  printf 'not-a-p12' > "$tmp/junk.p12"
+  p12_refused "not a p12" "openssl cannot read --apple-p12" "$tmp/junk.p12" p12-pw-value
+  make_p12 "$tmp/nokey.p12" p12-pw-value -nokeys || error "pkcs12 -export -nokeys failed"
+  p12_refused "p12 without a key" "holds no private key" "$tmp/nokey.p12" p12-pw-value
+  make_p12 "$tmp/nocert.p12" p12-pw-value -nocerts 2>/dev/null \
+    && p12_refused "p12 without a certificate" "holds no certificate" "$tmp/nocert.p12" p12-pw-value
+  # --skip-p12-check stores a .p12 that would not open.
+  rc=0; out="$(apple "$tmp/cert.p12" wrong-p12-pw --skip-p12-check)" || rc=$?
+  [ "$rc" = 0 ] || error "--skip-p12-check: exit $rc: $out"
+  # Legacy RC2/3DES, as older Keychain exports are. OpenSSL 3 writes it
+  # with -legacy; LibreSSL and OpenSSL 1.1 write it by default.
+  if make_p12 "$tmp/legacy.p12" legacy-pw -legacy || make_p12 "$tmp/legacy.p12" legacy-pw -certpbe PBE-SHA1-RC2-40 -keypbe PBE-SHA1-3DES; then
+    rc=0; out="$(apple "$tmp/legacy.p12" legacy-pw)" || rc=$?
+    [ "$rc" = 0 ] || error "legacy p12: exit $rc: $out"
+    [ "$(cat "$STORE/o/p/secret/APPLE_CERTIFICATE_PASSWORD" 2>/dev/null)" = "legacy-pw" ] || error "legacy p12: password not stored"
+    p12_refused "legacy p12, wrong password" "wrong APPLE_CERTIFICATE_PASSWORD" "$tmp/legacy.p12" wrong-legacy-pw
+  else
+    note "SKIP legacy .p12: this openssl cannot write one"
+  fi
+fi
+# No openssl: refused, naming the flag, before the password is asked for.
+mkdir -p "$tmp/noopenssl"
+for d in "${path_dirs[@]}"; do
+  [ -d "$d" ] || continue
+  for f in "$d"/*; do
+    b="${f##*/}"
+    [ -e "$f" ] && [ "$b" != openssl ] && [ ! -L "$tmp/noopenssl/$b" ] && ln -s "$f" "$tmp/noopenssl/$b"
+  done
+done
+before="$(wc -l < "$STORE/argv")"
+rc=0; out="$(PATH="$tmp/noopenssl" apple "$tmp/cert.p12" p12-pw-value)" || rc=$?
+[ "$rc" = 2 ] || error "no openssl: exit $rc, expected 2: $out"
+grep -q "openssl is not installed.*--skip-p12-check" <<< "$out" || error "no openssl: message: $out"
+[ "$(wc -l < "$STORE/argv")" = "$before" ] || error "no openssl: gh was called"
+refuse "skip-p12-check without apple group" --repos o/a --group gpg --gpg-key "$fpr" --skip-p12-check
 
 # 8. TERM while gh runs: the private directory and its values are removed.
 hang="$tmp/hang"

@@ -12,6 +12,11 @@
   must unlock the key before anything is set. `--check` lists
   the missing names per repository and exits 1; `--dry-run` sets nothing.
   The bash 3.2 test image now has gnupg, so its test runs there too.
+- `scripts/signing_secrets.sh` opens the Apple `.p12` with
+  `APPLE_CERTIFICATE_PASSWORD` before anything is set, and needs a certificate
+  and a private key in it; a wrong password exits 2. The password reaches
+  openssl as a file. Legacy RC2/3DES files are retried with `-legacy` on
+  OpenSSL 3. Without openssl it exits 2 unless `--skip-p12-check` is given.
 - `ps/lib/rust.ps1` resolves the selected rustup Cargo before native Rust checks run.
 - `tests/machine/rust_resolver_check.sh` and `ps/tests/machine/rust_resolver_check.ps1` check the Rust resolver against the installed rustup and cargo: PATH order, the PATH-cargo-differs warning, `ErrorActionPreference = 'Stop'`, and preflight on a throwaway cargo project.
 
