@@ -240,6 +240,11 @@ check_p12() {
     log_error "APPLE_CERTIFICATE_PASSWORD contains a newline; openssl cannot read it"
     exit 2
   fi
+  # openssl reads at most 1023 bytes of a password file and drops the rest.
+  if [[ "$(wc -c < "$pw" | tr -d ' ')" -gt 1023 ]]; then
+    log_error "APPLE_CERTIFICATE_PASSWORD is longer than the 1023 bytes openssl reads; pass --skip-p12-check"
+    exit 2
+  fi
   p12() { openssl pkcs12 -in "$apple_p12" -passin "file:$pw" ${legacy:+"$legacy"} "$@"; }
   if ! p12 -noout 2>"$err"; then
     if grep -qi 'mac verify' "$err"; then
@@ -261,9 +266,24 @@ check_p12() {
     fi
   fi
   # Count PEM headers only; the key passes through the pipe, never a file.
-  n="$(p12 -nokeys 2>/dev/null | grep -c -- '-----BEGIN CERTIFICATE-----' || true)"
+  # A .p12 without a MAC opens with any password, so a failure here is
+  # reported as one, not as a missing key.
+  p12_count() { # pattern args...
+    local pat="$1"; shift
+    p12 "$@" 2>"$err" | grep -c -- "$pat"
+    return "${PIPESTATUS[0]}"
+  }
+  p12_fail() {
+    if grep -qi -E 'mac verify|bad decrypt|wrong password' "$err"; then
+      log_error "--apple-p12 does not open: wrong APPLE_CERTIFICATE_PASSWORD"
+    else
+      log_error "openssl cannot read --apple-p12: $(head -n 1 "$err")"
+    fi
+    exit 2
+  }
+  n="$(p12_count '-----BEGIN CERTIFICATE-----' -nokeys)" || p12_fail
   [[ "${n:-0}" -ge 1 ]] || { log_error "--apple-p12 holds no certificate"; exit 2; }
-  n="$(p12 -nocerts -nodes 2>/dev/null | grep -c -- '-----BEGIN .*PRIVATE KEY-----' || true)"
+  n="$(p12_count '-----BEGIN .*PRIVATE KEY-----' -nocerts -nodes)" || p12_fail
   [[ "${n:-0}" -ge 1 ]] || { log_error "--apple-p12 holds no private key"; exit 2; }
   return 0
 }

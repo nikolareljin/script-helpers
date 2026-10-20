@@ -254,6 +254,11 @@ if [ -n "$real_openssl" ]; then
   p12_refused "not a p12" "openssl cannot read --apple-p12" "$tmp/junk.p12" p12-pw-value
   make_p12 "$tmp/nokey.p12" p12-pw-value -nokeys || error "pkcs12 -export -nokeys failed"
   p12_refused "p12 without a key" "holds no private key" "$tmp/nokey.p12" p12-pw-value
+  # Without a MAC any password passes -noout; the key decrypt must catch it.
+  make_p12 "$tmp/nomac.p12" p12-pw-value -nomac || error "pkcs12 -export -nomac failed"
+  p12_refused "p12 without a MAC, wrong password" "wrong APPLE_CERTIFICATE_PASSWORD" "$tmp/nomac.p12" wrong-p12-pw
+  long="$(printf '%01100d' 0)"
+  p12_refused "password over 1023 bytes" "longer than the 1023 bytes" "$tmp/cert.p12" "$long"
   make_p12 "$tmp/nocert.p12" p12-pw-value -nocerts 2>/dev/null \
     && p12_refused "p12 without a certificate" "holds no certificate" "$tmp/nocert.p12" p12-pw-value
   # --skip-p12-check stores a .p12 that would not open.
