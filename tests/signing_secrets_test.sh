@@ -265,7 +265,7 @@ if [ -n "$real_openssl" ]; then
     rc=0; out="$(apple "$tmp/legacy.p12" legacy-pw)" || rc=$?
     [ "$rc" = 0 ] || error "legacy p12: exit $rc: $out"
     # OpenSSL 3 opens it only through the -legacy retry.
-    if "$real_openssl" version 2>/dev/null | grep -q '^OpenSSL 3'; then
+    if grep -q '^OpenSSL 3' <<< "$("$real_openssl" version 2>/dev/null)"; then
       grep -q -- '-legacy' "$STORE/openssl_argv" || error "legacy p12: openssl never ran with -legacy"
     fi
     [ "$(cat "$STORE/o/p/secret/APPLE_CERTIFICATE_PASSWORD" 2>/dev/null)" = "legacy-pw" ] || error "legacy p12: password not stored"

@@ -255,7 +255,7 @@ check_p12() {
       if grep -qi 'mac verify' "$err"; then
         log_error "--apple-p12 does not open: wrong APPLE_CERTIFICATE_PASSWORD"
       else
-        log_error "--apple-p12 uses a legacy algorithm (RC2/3DES) and the OpenSSL legacy provider is not available: $(head -n 1 "$err")"
+        log_error "--apple-p12 uses a legacy algorithm (RC2/3DES) and the OpenSSL legacy provider is not available: $(grep -i -m 1 -E 'unsupported|provider|legacy' "$err" || head -n 1 "$err")"
       fi
       exit 2
     fi
