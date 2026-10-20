@@ -2752,7 +2752,8 @@ Usage: ./signing_secrets.sh --repos <owner/a,owner/b> --group <gpg|apple> [--gro
                             APPLE_APP_PASSWORD env, else prompted.
                             The .p12 must open with its password and hold
                             a certificate and a private key (openssl).
-  --skip-p12-check          apple: do not check the .p12 (no openssl).
+  --skip-p12-check          apple: store the .p12 without opening it
+                            (where openssl is not installed).
   --check                   Report missing names per repository; exit 1 if any.
   --dry-run                 Print the names that would be set; set nothing.
   -h, --help                Show help.
