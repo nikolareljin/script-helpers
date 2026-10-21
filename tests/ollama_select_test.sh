@@ -663,6 +663,85 @@ check "a remote Ollama: the disk is read at /, not this machine's models directo
   "$(reset; remote; unset OLLAMA_BUDGET_DISK_FREE_BYTES; disk_known_at_root_only
      OLLAMA_PULL_MISSING=1 ai_model_resolve general "$URL" >/dev/null 2>&1; echo "$?:$(pulled)")"
 
+# --- per-model floors (size lines) ---------------------------------------------------------
+# A large or xlarge cell may name a model a host of that tier cannot hold (the
+# large tier starts at an 11 GiB card). A size line gives the model's floor; a
+# host under it gets the next lower tier's model for that type.
+cat >"$tmp/floors.txt" <<'EOF'
+threshold small_below_ram_gb 11
+threshold large_ram_gb 30
+threshold large_vram_gb 11
+threshold xlarge_vram_gb 23
+type reasoning  r-s:4b  r-m:8b  r-l:26b  r-x:27b
+type code       c-s:4b  c-m:7b  c-l:30b  c-x:27b
+size r-l:26b large  19 30
+size c-l:30b large  19 30
+size r-x:27b xlarge 23 -
+size c-x:27b xlarge 23 -
+EOF
+pick() { # pick <type> <mem GiB> <gpu GiB> [file; empty: the shipped one]
+  OLLAMA_MODEL_TIERS_FILE="${4-$tmp/floors.txt}" OLLAMA_BUDGET_MEM_TOTAL_BYTES=$(($2 * GiB)) \
+    OLLAMA_BUDGET_GPU_LARGEST_BYTES=$(($3 * GiB)) ollama_tier_model "$1" 2>/dev/null
+}
+machine
+check "a 12 GB card (large tier) under the 19 GiB floor: the standard pick" "r-m:8b c-m:7b" "$(pick reasoning 16 12) $(pick code 16 12)"
+check "a 24 GB card: the xlarge picks" "r-x:27b c-x:27b" "$(pick reasoning 16 24) $(pick code 16 24)"
+check "32 GiB memory, no GPU: the large picks, on the CPU" "r-l:26b c-l:30b" "$(pick reasoning 32 0) $(pick code 32 0)"
+check "a 20 GB card: large (19 GiB floor met, under xlarge)" "c-l:30b" "$(pick code 16 20)"
+check "a 23 GB card: xlarge" "c-x:27b" "$(pick code 16 23)"
+check "16 GiB, no GPU: standard, no floor involved" "c-m:7b" "$(pick code 16 0)"
+check "a stated tier is used as stated, floors not applied" "c-l:30b" \
+  "$(OLLAMA_MODEL_TIERS_FILE="$tmp/floors.txt" OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((12 * GiB)) AI_MODEL_TIER=large ollama_tier_model code)"
+check "select on a 12 GB card prints the standard pick" "c-m:7b" \
+  "$(reset c-m:7b; OLLAMA_MODEL_TIERS_FILE="$tmp/floors.txt" OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((12 * GiB)) ai_model_resolve code "$URL" 2>/dev/null)"
+check "with no terminal and neither model, the message names the tier actually used" "12" \
+  "$(reset; OLLAMA_PULL_MISSING=0 OLLAMA_MODEL_TIERS_FILE="$tmp/floors.txt" OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((12 * GiB)) ai_model_resolve code "$URL" "" "" other:1b 2>"$tmp/err" </dev/null; echo "$?")"
+said "the standard tier, not large" "$tmp/err" "c-m:7b (approved for the standard tier)"
+grep -v '^size' "$tmp/floors.txt" >"$tmp/old.txt"
+check "a file with no size lines (old format): the tier's model, as before" "c-l:30b c-x:27b" \
+  "$(pick code 16 12 "$tmp/old.txt") $(pick code 16 24 "$tmp/old.txt")"
+{ cat "$tmp/old.txt"; echo 'size c-l:30b large 19GB 30'; } >"$tmp/badsize.txt"
+check "a size line with a bad floor: 2" "2:" \
+  "$(OLLAMA_MODEL_TIERS_FILE="$tmp/badsize.txt" OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((12 * GiB)) ollama_tier_model code 2>"$tmp/err"; echo "$?:")"
+said "the error names the model and the value" "$tmp/err" "c-l:30b" "19GB"
+check "so select stops (10)" "10" \
+  "$(OLLAMA_MODEL_TIERS_FILE="$tmp/badsize.txt" OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((12 * GiB)) ai_model_resolve code "$URL" 2>/dev/null; echo "$?")"
+{ cat "$tmp/old.txt"; echo 'size c-l:30b huge 19 30'; } >"$tmp/badclass.txt"
+check "a size line with an unknown class: 2" "2" \
+  "$(OLLAMA_MODEL_TIERS_FILE="$tmp/badclass.txt" OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((12 * GiB)) ollama_tier_model code 2>/dev/null; echo "$?")"
+{ cat "$tmp/old.txt"; echo 'size c-l:30b large 19'; } >"$tmp/shortsize.txt"
+check "a size line with a missing field: 2" "2" \
+  "$(OLLAMA_MODEL_TIERS_FILE="$tmp/shortsize.txt" OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((12 * GiB)) ollama_tier_model code 2>/dev/null; echo "$?")"
+
+# --- the checker -----------------------------------------------------------------------------
+checker=scripts/ollama_tiers_check.sh
+check "the shipped tiers file passes the checker" "0" "$(OLLAMA_MODEL_TIERS_FILE='' bash "$checker" >/dev/null 2>&1; echo $?)"
+check "the floors test file passes" "0" "$(bash "$checker" "$tmp/floors.txt" >/dev/null 2>&1; echo $?)"
+check "an old-format file passes" "0" "$(bash "$checker" "$tmp/old.txt" >/dev/null 2>&1; echo $?)"
+sed 's/^type code .*/type code c-s:4b c-m:7b c-x:27b c-x:27b/' "$tmp/floors.txt" >"$tmp/toobig.txt"
+check "an xlarge-class model in a large cell is refused (1)" "1" "$(bash "$checker" "$tmp/toobig.txt" 2>"$tmp/err" >/dev/null; echo $?)"
+said "naming the type, tier and model" "$tmp/err" "code" "large" "c-x:27b"
+sed 's/^size c-l:30b large  19 30/size c-l:30b large 9 30/' "$tmp/floors.txt" >"$tmp/lowfloor.txt"
+check "a large-class GPU floor under the large threshold is refused (1)" "1" "$(bash "$checker" "$tmp/lowfloor.txt" >/dev/null 2>&1; echo $?)"
+sed 's/^size c-l:30b large  19 30/size c-l:30b large 25 -/' "$tmp/floors.txt" >"$tmp/highfloor.txt"
+check "a large-class GPU floor at or above the xlarge threshold is refused (1)" "1" "$(bash "$checker" "$tmp/highfloor.txt" >/dev/null 2>&1; echo $?)"
+{ cat "$tmp/floors.txt"; echo 'size c-x2:14b large 15 -'; echo 'type code2 c-s:4b c-m:7b c-l:30b c-x2:14b'; } >"$tmp/order.txt"
+check "two models of one class in a row: the higher tier needing less is refused (1)" "1" "$(bash "$checker" "$tmp/order.txt" 2>"$tmp/err" >/dev/null; echo $?)"
+said "naming both models" "$tmp/err" "c-l:30b" "c-x2:14b"
+{ cat "$tmp/floors.txt"; echo 'size c-x3:14b xlarge 23 -'; echo 'type code3 c-s:4b c-m:7b c-l:30b c-x3:14b'; } >"$tmp/classes.txt"
+check "models of different classes are not compared" "0" "$(bash "$checker" "$tmp/classes.txt" >/dev/null 2>&1; echo $?)"
+check "a malformed size line is refused (1)" "1" "$(bash "$checker" "$tmp/badsize.txt" >/dev/null 2>&1; echo $?)"
+check "a missing file: 2" "2" "$(bash "$checker" "$tmp/none" >/dev/null 2>&1; echo $?)"
+check "--help: 0" "0" "$(bash "$checker" --help >/dev/null 2>&1; echo $?)"
+check "the shipped code and reasoning rows are the approved ones" \
+  "qwen3.5:4b qwen3:8b gemma4:26b qwen3.6:27b|qwen3.5:4b qwen2.5-coder:7b qwen3-coder:30b qwen3.6:27b-coding" \
+  "$(OLLAMA_MODEL_TIERS_FILE='' _ollama_ep_tiers_get type reasoning)|$(OLLAMA_MODEL_TIERS_FILE='' _ollama_ep_tiers_get type code)"
+check "with the shipped file: a 12 GB card gets the standard code and reasoning picks" "qwen2.5-coder:7b qwen3:8b" \
+  "$(pick code 16 12 '') $(pick reasoning 16 12 '')"
+check "with the shipped file: a 24 GB card the xlarge ones, 32 GiB no GPU the large ones" \
+  "qwen3.6:27b-coding qwen3.6:27b qwen3-coder:30b gemma4:26b" \
+  "$(pick code 16 24 '') $(pick reasoning 16 24 '') $(pick code 32 0 '') $(pick reasoning 32 0 '')"
+
 if [[ "$failures" -gt 0 ]]; then
   note "FAILED: $failures"
   exit 1

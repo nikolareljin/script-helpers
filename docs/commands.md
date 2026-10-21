@@ -2716,6 +2716,44 @@ Example:
   OLLAMA_PULL_MISSING=1 scripts/ollama_models.sh ensure ai-models.env http://127.0.0.1:11434 OLLAMA_CODE_MODEL
 ```
 
+### `scripts/ollama_tiers_check.sh`
+
+Check a model tiers file (config/ollama_model_tiers.txt): every line well formed, no model bigger than the tier cell it sits in, and floors that agree with the thresholds.
+
+```text
+Usage: scripts/ollama_tiers_check.sh [tiers_file]
+  tiers_file  The file to check (default: OLLAMA_MODEL_TIERS_FILE, else the
+              shipped config/ollama_model_tiers.txt).
+  Refused, one line on stderr each:
+  - a line that is not a threshold, type or size line, a threshold that is
+    not a whole number, a type row without four model references, a
+    malformed size line;
+  - a cell whose model has a size class above the cell's tier (an xlarge
+    model in a large cell);
+  - a size line whose GPU floor is outside its class: large needs at least
+    large_vram_gb and less than xlarge_vram_gb, xlarge at least
+    xlarge_vram_gb, standard less than large_vram_gb;
+  - in one type row, a higher tier's model that needs less GPU than a lower
+    tier's model of the same size class. Models of different classes are
+    never compared.
+  -h, --help  Show this help.
+```
+
+Exit codes:
+
+```text
+0  the file passes
+1  one or more lines refused
+2  bad arguments or no such file
+```
+
+Example:
+
+```text
+  scripts/ollama_tiers_check.sh
+  scripts/ollama_tiers_check.sh /tmp/new_tiers.txt
+```
+
 ### `scripts/prepare_public.sh`
 
 Audit a repository's whole history and build a cleaned copy of it.
