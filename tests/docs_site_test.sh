@@ -222,7 +222,7 @@ while True:
 holder=$!
 for _ in $(seq 1 600); do [[ -s "$tmp/port" ]] && break; kill -0 "$holder" 2>/dev/null || break; sleep 0.1; done
 port="$(cat "$tmp/port" 2>/dev/null || true)"
-if [[ -z "$port" ]] || port_is_free "$port"; then
+if ! [[ "$port" =~ ^[0-9]+$ ]] || port_is_free "$port"; then
   error "the test listener never took a port; the port_choose checks cannot run"
   exit 1
 fi
