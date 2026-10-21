@@ -45,6 +45,12 @@ file="$(ollama_model_tiers_file)"
 
 bad=0
 refuse() { printf '%s: %s\n' "$file" "$*" >&2; bad=1; }
+# The models with a size line, once each; CR and a byte-order mark dropped as the library does.
+size_models() {
+  LC_ALL=C _OEP_BOM=$'\xef\xbb\xbf' awk '{ sub(/\r$/, "") }
+    NR == 1 && substr($0, 1, 3) == ENVIRON["_OEP_BOM"] { $0 = substr($0, 4) }
+    $1 == "size" && NF >= 2 && !seen[$2]++ { print $2 }' "$file"
+}
 
 # Line shapes and thresholds.
 while IFS= read -r msg; do refuse "$msg"; done < <(
@@ -69,7 +75,7 @@ for type in $(ollama_model_tier_types); do
 done
 while IFS= read -r model; do
   _ollama_ep_tiers_size "$model" >/dev/null 2>&1 || refuse "size $model: expected size <model> <small|standard|large|xlarge> <GPU GiB> <memory GiB or ->"
-done < <(LC_ALL=C awk '{ sub(/\r$/, "") } $1 == "size" && !seen[$2]++ { print $2 }' "$file")
+done < <(size_models)
 [[ "$bad" -eq 0 ]] || exit 1
 
 # A size class's GPU floor sits between its tier's threshold and the next one.
@@ -83,7 +89,7 @@ while read -r model class gpu _; do
       [[ -z "$xv" || "$gpu" -lt "$xv" ]] || refuse "size $model: a large model needs less GPU than xlarge_vram_gb ($xv), not $gpu" ;;
     xlarge) [[ -z "$xv" || "$gpu" -ge "$xv" ]] || refuse "size $model: an xlarge model's GPU floor is at least xlarge_vram_gb ($xv), not $gpu" ;;
   esac
-done < <(LC_ALL=C awk '{ sub(/\r$/, "") } $1 == "size" && !seen[$2]++ { print $2 }' "$file" |
+done < <(size_models |
   while IFS= read -r m; do printf '%s %s\n' "$m" "$(_ollama_ep_tiers_size "$m")"; done)
 
 # Each row: no model above its cell, no step down within one size class.
@@ -114,6 +120,6 @@ done
 cells=" $(for type in $(ollama_model_tier_types); do _ollama_ep_tiers_get type "$type"; done | tr '\n' ' ') "
 while IFS= read -r model; do
   [[ "$cells" == *" $model "* ]] || refuse "size $model: no type row names this model"
-done < <(LC_ALL=C awk '{ sub(/\r$/, "") } $1 == "size" && NF >= 2 && !seen[$2]++ { print $2 }' "$file")
+done < <(size_models)
 [[ "$bad" -eq 0 ]] || exit 1
 echo "ok: $file"
