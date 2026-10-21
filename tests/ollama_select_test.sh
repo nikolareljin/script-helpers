@@ -242,7 +242,7 @@ for _ in 1 2 3 4 5 6 7 8; do
   [[ "$(grep -c -E '^(KEEP|A_CHOICE|A_CHOICE_FOR|B_CHOICE|B_CHOICE_FOR)=' "$tmp/race.env")" == 5 ]] || lost=$((lost + 1))
 done
 check "two runs storing at once both keep their answers" "0" "$lost"
-check "and leave no lock behind" "" "$(find "$tmp" -maxdepth 1 -name '.race.env.lock')"
+check "and leave no lock behind" "" "$(find "$tmp" -maxdepth 1 -name '.race.env.lock*')"
 ln -sf loop-b.env "$tmp/loop-a.env"; ln -sf loop-a.env "$tmp/loop-b.env"
 check "a symlink loop is refused (1), not followed forever" "1" "$(_ollama_ep_env_set "$tmp/loop-a.env" A 1; echo $?)"
 printf 'A=1\n' >"$tmp/mode.env"; chmod 640 "$tmp/mode.env"
@@ -529,10 +529,32 @@ if [[ "$(id -u)" != "0" ]]; then
   check "and no lock or temporary file is left under TMPDIR" "" "$(find "$tmp/tdir" -mindepth 1)"
   chmod 700 "$tmp/rod"
 fi
-# A lock left by a killed run is taken over after about 10 seconds, not waited on forever.
-printf 'A=1\n' >"$tmp/stale.env"; mkdir "$tmp/.stale.env.lock"
-check "a stale lock is taken over: written, and the lock removed" "A=2:" \
-  "$(_ollama_ep_env_set "$tmp/stale.env" A 2; one_line <"$tmp/stale.env"):$(find "$tmp" -maxdepth 1 -name '.stale.env.lock')"
+# A lock left by a killed run (its owner's pid is gone) is taken over at once.
+dead_pid() { sh -c 'echo $$'; }
+printf 'A=1\n' >"$tmp/stale.env"; ln -s "$(dead_pid)" "$tmp/.stale.env.lock"
+check "a lock whose owner is gone is taken over: written, the lock removed" "A=2:" \
+  "$(_ollama_ep_env_set "$tmp/stale.env" A 2; one_line <"$tmp/stale.env"):$(find "$tmp" -maxdepth 1 -name '.stale.env.lock*')"
+# Two waiters that both find the dead owner: each answer stays, no lock is left.
+lost=0
+for _ in 1 2 3 4 5 6; do
+  printf 'KEEP=1\n' >"$tmp/stale.env"; ln -s "$(dead_pid)" "$tmp/.stale.env.lock"
+  _ollama_ep_env_set "$tmp/stale.env" A_CHOICE a & p1=$!
+  _ollama_ep_env_set "$tmp/stale.env" B_CHOICE b & p2=$!
+  wait "$p1" "$p2"
+  [[ "$(grep -c -E '^(KEEP|A_CHOICE|B_CHOICE)=' "$tmp/stale.env")" == 3 ]] || lost=$((lost + 1))
+done
+check "two waiters taking over a dead lock at once: both answers stay" "0:" \
+  "$lost:$(find "$tmp" -maxdepth 1 -name '.stale.env.lock*')"
+# A live owner is waited on, not taken over.
+sleep 2 & holder=$!
+ln -s "$holder" "$tmp/.stale.env.lock"
+( sleep 1; rm -f "$tmp/.stale.env.lock" ) & releaser=$!
+t0=$SECONDS; _ollama_ep_env_set "$tmp/stale.env" A_CHOICE z; t1=$SECONDS
+wait "$releaser"; kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+check "a live owner's lock is waited on, then the write goes ahead" "yes:z" \
+  "$([[ $((t1 - t0)) -ge 1 ]] && echo yes):$(ollama_models_file_get "$tmp/stale.env" A_CHOICE)"
+check "a .env in a directory that does not exist: refused (1) at once, no lock" "1" \
+  "$(_ollama_ep_env_set "$tmp/no/such/dir/.env" A 1 2>/dev/null; echo $?)"
 # A hard-linked .env: both names keep the same file, both see the answer.
 mkdir -p "$tmp/hl/a" "$tmp/hl/b"; printf 'A=1\nB=2\n' >"$tmp/hl/a/.env"; ln "$tmp/hl/a/.env" "$tmp/hl/b/.env"
 inode() { ls -i "$1" | awk '{ print $1 }'; }

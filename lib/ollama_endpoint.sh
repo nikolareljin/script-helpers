@@ -2288,20 +2288,24 @@ _ollama_ep_env_set() {
   local lock rc=0
   lock="$(_ollama_ep_env_lock "${1:-}")" || lock=""
   _ollama_ep_env_set_now "$@" || rc=$?
-  [[ -z "$lock" ]] || rmdir "$lock" 2>/dev/null || true
+  _ollama_ep_env_unlock "$lock"
   return "$rc"
 }
 
 # Usage: _ollama_ep_env_lock <file>; takes a lock for writing the file, so two
 # runs storing answers at once (two ./start, two roles) do not each write the
-# file as they read it and drop the other's lines. mkdir is the lock: atomic on
-# every system, no flock on macOS. Next to the file's real path, or under
-# TMPDIR (else /tmp) when that directory is not writable. Waits up to about 10
-# seconds; a lock still held then (a killed run) is taken over.
+# file as they read it and drop the other's lines. The lock is a symlink whose
+# target is the owner's pid ($$, the script's shell): ln -s creates it with its
+# owner in one step, on every system (no flock on macOS). It sits next to the
+# file's real path, or under TMPDIR (else /tmp), keyed on that real path, when
+# the directory is not writable. A lock whose owner is gone (a run killed by
+# INT, TERM or KILL) is taken over at once; no trap is set, so a caller's own
+# traps are left alone. A live owner is waited on for up to about 30 seconds,
+# then the write goes ahead without the lock.
 # Returns: 0 locked; 1 no lock (the caller writes without one).
-# Output: stdout the lock directory to rmdir when done.
+# Output: stdout the lock path, for _ollama_ep_env_unlock.
 _ollama_ep_env_lock() {
-  local target="${1:-}" hops=0 link dir lock tries=0 d
+  local target="${1:-}" hops=0 link dir real lock tries=0 d owner moved
   [[ -n "$target" ]] || return 1
   while [[ -L "$target" && "$hops" -le 40 ]]; do
     hops=$((hops + 1))
@@ -2309,31 +2313,53 @@ _ollama_ep_env_lock() {
     case "$link" in /*) target="$link" ;; *) target="$(dirname "$target")/$link" ;; esac
   done
   dir="$(dirname "$target")"
-  if [[ -w "$dir" ]]; then
-    lock="$dir/.$(basename "$target").lock"
+  # No such directory: nothing can be written there, so nothing to lock.
+  real="$(cd "$dir" 2>/dev/null && pwd -P)" || return 1
+  [[ -n "$real" ]] || return 1
+  if [[ -w "$real" ]]; then
+    lock="$real/.$(basename "$target").lock"
   else
-    # The same file by any path (relative, absolute, through a symlinked
-    # directory) is the same lock.
-    target="$(cd "$dir" 2>/dev/null && pwd -P)/$(basename "$target")" || return 1
     lock=""
     for d in "${TMPDIR:-}" /tmp; do
-      [[ -n "$d" && -w "$d" ]] || continue
-      lock="${d%/}/.env-lock.$(printf '%s' "$target" | cksum | awk '{ print $1 }')"
+      [[ -n "$d" && -d "$d" && -w "$d" ]] || continue
+      # The same file by any path (relative, absolute, a symlinked directory)
+      # is the same lock.
+      lock="${d%/}/.env-lock.$(printf '%s' "$real/$(basename "$target")" | cksum | awk '{ print $1 }')"
       break
     done
     [[ -n "$lock" ]] || return 1
   fi
-  until mkdir "$lock" 2>/dev/null; do
-    tries=$((tries + 1))
-    if [[ "$tries" -ge 100 ]]; then
-      # Held for 10 seconds: a run that was killed. Take it over.
-      rmdir "$lock" 2>/dev/null || true
-      mkdir "$lock" 2>/dev/null || return 1
-      break
+  until ln -s "$$" "$lock" 2>/dev/null; do
+    owner="$(readlink "$lock" 2>/dev/null)" || owner=""
+    if [[ -n "$owner" && ! "$owner" =~ ^[0-9]+$ ]] || { [[ "$owner" =~ ^[0-9]+$ ]] && ! kill -0 "$owner" 2>/dev/null; }; then
+      # The owner is gone. Two waiters may both see that: each renames the
+      # lock to a name of its own (rename is atomic, so one of them gets it),
+      # and only removes what it got if that is still the dead owner's lock.
+      moved="$lock.$$.$RANDOM"
+      if mv "$lock" "$moved" 2>/dev/null; then
+        if [[ "$(readlink "$moved" 2>/dev/null)" == "$owner" ]]; then
+          rm -f "$moved"
+        else
+          # A live lock taken by mistake: put it back unless a new one is there.
+          ln -s "$(readlink "$moved" 2>/dev/null)" "$lock" 2>/dev/null || true
+          rm -f "$moved"
+        fi
+      fi
+      continue
     fi
+    tries=$((tries + 1))
+    [[ "$tries" -lt 300 ]] || return 1
     sleep 0.1
   done
   printf '%s\n' "$lock"
+}
+
+# Usage: _ollama_ep_env_unlock <lock>; removes the lock if this shell still
+# owns it. Returns: 0. Output: none.
+_ollama_ep_env_unlock() {
+  [[ -n "${1:-}" ]] || return 0
+  [[ "$(readlink "$1" 2>/dev/null)" != "$$" ]] || rm -f "$1" 2>/dev/null || true
+  return 0
 }
 
 # Usage: _ollama_ep_env_set_now <file> <NAME> <value>...; the write of
