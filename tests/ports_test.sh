@@ -23,8 +23,9 @@ error() { echo "[ports_test][ERROR] $*" >&2; failures=$((failures+1)); }
 ok()    { echo "[ports_test]   ok  $*"; }
 
 tmp="$(mktemp -d)"
+blistener=""
 # Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
-trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then [[ -n "$blistener" ]] && kill "$blistener" 2>/dev/null; rm -rf "$tmp"; fi' EXIT
 
 # shellcheck source=/dev/null
 source ./helpers.sh
@@ -153,10 +154,32 @@ if [[ "$p" == "4242" ]]; then ok "busybox lsof: skipped, ss gives the pid"; else
 # A listener that never accepts, its queue filled: connections are refused, so
 # a connect test alone calls the port free. port_is_free must not.
 if command -v python3 >/dev/null 2>&1; then
-  bport="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')"
-  python3 -c 'import socket,sys,time; s=socket.socket(); s.bind(("127.0.0.1",int(sys.argv[1]))); s.listen(1); time.sleep(30)' "$bport" &
+  # The listener lets the OS pick its port and writes it (tmp + rename) only
+  # once it listens, so no other process can take the port between a probe and
+  # a bind.
+  # It exits with this test's shell (it polls that PID).
+  python3 -c '
+import os, socket, sys, time
+s = socket.socket()
+s.bind(("127.0.0.1", 0))
+s.listen(1)
+with open(sys.argv[1] + ".tmp", "w") as f:
+    f.write("%d\n" % s.getsockname()[1])
+os.rename(sys.argv[1] + ".tmp", sys.argv[1])
+while True:
+    try:
+        os.kill(int(sys.argv[2]), 0)
+    except OSError:
+        break
+    time.sleep(0.5)
+' "$tmp/bport" "$$" &
   blistener=$!
-  sleep 0.5
+  for _ in $(seq 1 600); do [[ -s "$tmp/bport" ]] && break; kill -0 "$blistener" 2>/dev/null || break; sleep 0.1; done
+  bport="$(cat "$tmp/bport" 2>/dev/null || true)"
+  if ! [[ "$bport" =~ ^[0-9]+$ ]]; then
+    error "the test listener never took a port; the full-queue check cannot run"
+    exit 1
+  fi
   for _ in 1 2 3 4; do ( exec 3<>"/dev/tcp/127.0.0.1/$bport" ) 2>/dev/null & done
   sleep 1
   if list_port_usage_details "$bport" >/dev/null 2>&1; then
@@ -164,7 +187,7 @@ if command -v python3 >/dev/null 2>&1; then
   else
     note "SKIP full-queue listener: no lsof, ss or netstat that sees it"
   fi
-  kill "$blistener" 2>/dev/null || true
+  kill "$blistener" 2>/dev/null || true; blistener=""
   wait 2>/dev/null || true
 fi
 
