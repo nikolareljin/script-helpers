@@ -252,6 +252,34 @@ OLLAMA_PORT=11435                  # the port published on this machine
   - Behavior: The file is read as the models file is, as data: it is never sourced, so `$`, a backquote or a space in a value is only a value. A file that is not there exports nothing. A `NAME` may be any variable name, also one this module uses itself (`name`, `value`, `file`).
   - Returns: 0; 2, exporting nothing, when a `NAME` is not a variable name; 9 when the file sets a `NAME` the caller holds read-only (its blank would otherwise stand for the file's value, silently).
 
+- ollama_model_tiers_file
+  - Purpose: Print the path of the type x tier data file: `OLLAMA_MODEL_TIERS_FILE`, else `config/ollama_model_tiers.txt` in this library.
+  - Format: `threshold <key> <GiB>` and `type <type> <small> <standard> <large> <xlarge>`, one per line; `#` comments. The file is generated data: every type names a model for all four tiers.
+
+- ollama_model_tier_types
+  - Purpose: Print every type the data file names (`general`, `reasoning`, `classify`, `extract`, `vision`, `embed`, `code`, ...), one per line.
+
+- ollama_host_tier
+  - Purpose: Print this host's tier: `small`, `standard`, `large` or `xlarge`.
+  - Behavior: `AI_MODEL_TIER` names it (any case). Otherwise memory and the largest GPU (`ollama_machine_figures`) against the data file's thresholds: xlarge when the GPU has `xlarge_vram_gb`; large when the GPU has `large_vram_gb` or memory `large_ram_gb`; small when memory and GPU are both below `small_below_ram_gb`; else standard. Memory that cannot be read is standard.
+  - Returns: 0; 2 with no data file to measure against (and no `AI_MODEL_TIER`), or a threshold in it that is not a whole number of GiB; 3, printing nothing on stdout, for an `AI_MODEL_TIER` that is not a tier (the message names the variable and the value).
+
+- ollama_tier_model type [tier]
+  - Purpose: Print the approved model for `type` on `tier` (default: `ollama_host_tier`).
+  - Returns: 0; 2 for an unknown type (the known ones are named), a row with no valid model for the tier, or no data file; 3 for a bad tier.
+
+- ai_model_resolve type ollama_url [env_file] [NAME] [default_model]
+  - Purpose: Print the one model a project uses for a role, on stdout alone (messages on stderr), so `model="$(ai_model_resolve ...)"` captures it.
+  - Y is `ollama_tier_model type`; X is `NAME` from the environment, else from `env_file`, else `default_model`.
+  - `NAME_CHOICE` in `env_file` with no `NAME_CHOICE_FOR` line is a choice set by hand: used as it is, never asked about.
+  - X empty or the same as Y (case and an omitted `:latest` do not count): Y.
+  - X differs, on a terminal (never in CI: `CI` set to anything but `false` or `0`, or `GITHUB_ACTIONS`): asks once, "1) pull X (your env) 2) use Y (approved for this tier)", default 2 (an empty answer or end of input); any other answer is asked again, and after three the default is used with a warning; "project default" in place of "your env" when X is `default_model`. The answer is stored in `env_file` as `NAME_CHOICE=<model>`, `NAME_CHOICE_FOR=<Y>` and `NAME_CHOICE_PROJECT=<X>` (with no `NAME`: `AI_MODEL_<TYPE>_CHOICE`). It is asked again when Y changes or X changes (an answer of X no longer matches X; an answer of Y no longer matches `NAME_CHOICE_PROJECT`). An answer of Y stored without `NAME_CHOICE_PROJECT` (an older `env_file`) is asked about once more on a terminal; with no terminal it is used. All three lines are written in one step: a temporary file next to `env_file` (a symlink is followed) is moved over it. A hard-linked `env_file`, or one in a directory that is not writable, is written in place instead: the content is built under `TMPDIR` (else `/tmp`), copied over it in one write and read back, so inode, mode, owner and every link are kept. A new `env_file` is created with mode 600; an existing one keeps its mode, its other lines and comments, and Windows line ends; repeated runs leave one line per key; two runs writing it at once take turns (a lock next to it, or under `TMPDIR` when its directory is not writable, naming the owner's pid), so neither drops the other's answer; a lock left by a killed run is taken over at once, and a live one is waited on for up to about 30 seconds. An `env_file` in a git work tree that git does not ignore is not written: the answer is used, with a warning, and asked again next time.
+  - X differs, no terminal or CI: Y if the Ollama has it, else X if it has it, else 12, naming both and pulling nothing.
+  - The chosen model is pulled if missing through `ollama_endpoint_ensure_models` (disk and memory check first). `OLLAMA_PULL_MISSING`: `1` pulls without asking, `0` never pulls, `ask` (the default here) asks on a terminal and pulls nothing without one or in CI. A model just chosen on the terminal is pulled without a second question unless `OLLAMA_PULL_MISSING=0`. No model is ever removed.
+  - An Ollama on another machine: the tier is `AI_MODEL_TIER`, else measured from a stated `OLLAMA_BUDGET_MEM_TOTAL_BYTES`, else standard.
+  - Returns: 0; 1-8 as `ollama_endpoint_ensure_models` (4 no Ollama answers, 5 missing and not pulled); 10 bad arguments (unknown type, a `NAME` that is not a variable name, a model that is not a model reference, no data file or a threshold in it that is not a whole number, an `env_file` that cannot be read or written); 11 a bad `AI_MODEL_TIER`; 12 no terminal and the Ollama has neither model.
+  - Example: `model="$(ai_model_resolve general http://127.0.0.1:11434 .env OLLAMA_MODEL qwen2.5:7b)" || exit $?`
+
 What this module does not do
 ----------------------------
 
