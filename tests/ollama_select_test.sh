@@ -713,6 +713,15 @@ check "a size line with an unknown class: 2" "2" \
 check "a size line with a missing field: 2" "2" \
   "$(OLLAMA_MODEL_TIERS_FILE="$tmp/shortsize.txt" OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((12 * GiB)) ollama_tier_model code 2>/dev/null; echo "$?")"
 
+{ cat "$tmp/old.txt"; echo 'size c-l:30b large 019 030'; } >"$tmp/zeros.txt"
+check "a floor with leading zeros is read as decimal (019 is 19): a 12 GB card falls" "c-m:7b" "$(pick code 16 12 "$tmp/zeros.txt")"
+{ cat "$tmp/old.txt"; echo 'size c-l:30b'; } >"$tmp/bare.txt"
+check "a size line with no fields: 2, not ignored" "2" \
+  "$(OLLAMA_MODEL_TIERS_FILE="$tmp/bare.txt" OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((12 * GiB)) ollama_tier_model code 2>/dev/null; echo "$?")"
+{ cat "$tmp/floors.txt"; echo 'size c-m:7b standard 6 8'; } >"$tmp/stdfloor.txt"
+check "memory that cannot be read: the tier is standard, not measured, so no floor drops it to small" "c-m:7b" \
+  "$(machine; ollama_mem_total_bytes() { return 1; }; OLLAMA_MODEL_TIERS_FILE="$tmp/stdfloor.txt" ollama_tier_model code 2>/dev/null)"
+
 # --- the checker -----------------------------------------------------------------------------
 checker=scripts/ollama_tiers_check.sh
 check "the shipped tiers file passes the checker" "0" "$(OLLAMA_MODEL_TIERS_FILE='' bash "$checker" >/dev/null 2>&1; echo $?)"
@@ -731,6 +740,22 @@ said "naming both models" "$tmp/err" "c-l:30b" "c-x2:14b"
 { cat "$tmp/floors.txt"; echo 'size c-x3:14b xlarge 23 -'; echo 'type code3 c-s:4b c-m:7b c-l:30b c-x3:14b'; } >"$tmp/classes.txt"
 check "models of different classes are not compared" "0" "$(bash "$checker" "$tmp/classes.txt" >/dev/null 2>&1; echo $?)"
 check "a malformed size line is refused (1)" "1" "$(bash "$checker" "$tmp/badsize.txt" >/dev/null 2>&1; echo $?)"
+check "a floor with leading zeros passes, with no shell error" "0:" "$(bash "$checker" "$tmp/zeros.txt" 2>"$tmp/err" >/dev/null; echo "$?:$(cat "$tmp/err")")"
+check "a size line with no fields is refused (1)" "1" "$(bash "$checker" "$tmp/bare.txt" >/dev/null 2>&1; echo $?)"
+{ cat "$tmp/floors.txt"; echo 'size'; } >"$tmp/bare2.txt"
+check "a bare size line is refused (1)" "1" "$(bash "$checker" "$tmp/bare2.txt" >/dev/null 2>&1; echo $?)"
+{ cat "$tmp/floors.txt"; echo 'size c-l:30b large 20 30'; } >"$tmp/dup.txt"
+check "a second size line for one model is refused (1)" "1" "$(bash "$checker" "$tmp/dup.txt" 2>"$tmp/err" >/dev/null; echo $?)"
+said "naming the model" "$tmp/err" "c-l:30b"
+{ cat "$tmp/floors.txt"; echo 'type code c-s:4b c-m:7b c-m:7b c-m:7b'; } >"$tmp/duptype.txt"
+check "a second type row for one type is refused (1)" "1" "$(bash "$checker" "$tmp/duptype.txt" >/dev/null 2>&1; echo $?)"
+{ cat "$tmp/floors.txt"; echo 'threshold large_vram_gb 12'; } >"$tmp/dupthr.txt"
+check "a second threshold line for one key is refused (1)" "1" "$(bash "$checker" "$tmp/dupthr.txt" >/dev/null 2>&1; echo $?)"
+{ cat "$tmp/floors.txt"; echo 'size gone:30b large 19 30'; } >"$tmp/stale.txt"
+check "a size line for a model no type row names is refused (1)" "1" "$(bash "$checker" "$tmp/stale.txt" 2>"$tmp/err" >/dev/null; echo $?)"
+said "naming the model" "$tmp/err" "gone:30b"
+sed "s/\$/$(printf "\r")/" "$tmp/floors.txt" >"$tmp/crlf.txt"
+check "a CRLF file passes" "0" "$(bash "$checker" "$tmp/crlf.txt" >/dev/null 2>&1; echo $?)"
 check "a missing file: 2" "2" "$(bash "$checker" "$tmp/none" >/dev/null 2>&1; echo $?)"
 check "--help: 0" "0" "$(bash "$checker" --help >/dev/null 2>&1; echo $?)"
 check "the shipped code and reasoning rows are the approved ones" \

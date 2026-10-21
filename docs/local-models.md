@@ -192,6 +192,8 @@ inode, mode and owner, and every hard link sees the answer.
 Two runs storing an answer at once take turns, so neither is lost.
 The tier list is a guideline: a model is ranked only against models of the
 same size class, never across classes.
+`scripts/ollama_models.sh class` prints the host's tier (`unknown`, with a
+warning and exit 0, when there is no tiers file).
 
 ### Size lines: a floor per model
 
@@ -210,16 +212,18 @@ the tier is measured, the model runs on a host whose largest GPU has at least
 `<GPU GiB>`, or whose memory is at least `<memory GiB>` (`-`: GPU only; a
 mixture-of-experts model can run on the CPU). Otherwise the next lower tier's
 model for the type is used, down to small. A tier named by `AI_MODEL_TIER` is
-used as stated. Size lines are optional: a file without them reads as before.
+used as stated, and so is the standard tier given when memory cannot be read.
+Size lines are optional: a file without them reads as before. Floors are whole
+GiB; a value such as `19.5` is refused.
 
 `scripts/ollama_tiers_check.sh [file]` checks a tiers file and exits 1 on any
-refused line: a malformed line, a model whose size class is above the cell it
-sits in, a GPU floor outside its class (large: at least `large_vram_gb` and
-under `xlarge_vram_gb`; xlarge: at least `xlarge_vram_gb`), or, in one row, a
+refused line: a malformed line, a second line for one threshold, type or
+model, a size line for a model no type row names, a model whose size class is
+above the cell it sits in, a GPU floor outside its class (standard: under
+`large_vram_gb`; large: at least `large_vram_gb` and under `xlarge_vram_gb`;
+xlarge: at least `xlarge_vram_gb`), or, in one row, a
 higher tier's model that needs less GPU than a lower tier's model of the same
 class. Models of different classes are not compared.
-`scripts/ollama_models.sh class` prints the host's tier (`unknown`, with a
-warning and exit 0, when there is no tiers file).
 
 The start script
 ----------------

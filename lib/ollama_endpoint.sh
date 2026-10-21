@@ -2163,6 +2163,20 @@ _ollama_ep_tiers_get() {
     END { if (found != "") print found }' "$file" 2>/dev/null || true
 }
 
+# Usage: _ollama_ep_tiers_has <kind> <key>; true when the data file has a
+# "<kind> <key>" line, with or without fields after it.
+# Returns: 0 present; 1 absent or no file.
+_ollama_ep_tiers_has() {
+  local file
+  file="$(ollama_model_tiers_file)"
+  [[ -f "$file" ]] || return 1
+  LC_ALL=C _OEP_BOM=$'\xef\xbb\xbf' awk -v k="${1:-}" -v n="${2:-}" '
+    { sub(/\r$/, "") }
+    NR == 1 && substr($0, 1, 3) == ENVIRON["_OEP_BOM"] { $0 = substr($0, 4) }
+    $1 == k && $2 == n { found = 1 }
+    END { exit found ? 0 : 1 }' "$file" 2>/dev/null
+}
+
 # Usage: ollama_model_tier_types; prints every type the data file names, one
 # per line, in file order.
 # Returns: 0 (also when the file is missing).
@@ -2237,10 +2251,13 @@ _ollama_ep_tiers_threshold() {
 _ollama_ep_tiers_size() {
   local raw class gpu ram extra
   raw="$(_ollama_ep_tiers_get size "${1:-}")"
-  [[ -n "$raw" ]] || return 0
+  # "size <model>" with no fields is malformed, not absent.
+  [[ -n "$raw" ]] || _ollama_ep_tiers_has size "${1:-}" || return 0
   read -r class gpu ram extra <<<"$raw"
-  if ! _ollama_ep_tier_rank "$class" >/dev/null || [[ -n "$extra" ]] \
-     || ! _ollama_ep_uint "${gpu:-}" >/dev/null || { [[ "${ram:-}" != - ]] && ! _ollama_ep_uint "${ram:-}" >/dev/null; }; then
+  # Leading zeros removed: bash reads "019" as a bad octal number.
+  gpu="$(_ollama_ep_uint "${gpu:-}")" || gpu="bad"
+  [[ "${ram:-}" == - ]] || ram="$(_ollama_ep_uint "${ram:-}")" || ram="bad"
+  if ! _ollama_ep_tier_rank "${class:-}" >/dev/null || [[ -n "$extra" || "$gpu" == bad || "$ram" == bad ]]; then
     print_error "The model tiers file $(_ollama_ep_said "$(ollama_model_tiers_file)") has 'size ${1:-} $(_ollama_ep_said "$raw")'; expected: size <model> <small|standard|large|xlarge> <GPU GiB> <memory GiB or ->." >&2
     return 1
   fi
@@ -2253,7 +2270,8 @@ _ollama_ep_tiers_size() {
 # a size line must fit this host: its largest GPU at least <GPU GiB>, or memory
 # at least <memory GiB> ("-": GPU only). A model that does not fit falls to
 # the next lower tier's model for the type, until one fits or small is
-# reached. A stated tier is used as stated.
+# reached. A stated tier is used as stated, and so is the standard tier given
+# when memory cannot be read.
 # Returns: 0 printed; 2 a type the data file does not name, a type row
 # without a valid model for the tier, a malformed size line, or a missing
 # data file; 3 a bad AI_MODEL_TIER or tier argument.
@@ -2270,6 +2288,11 @@ ollama_tier_model() {
     [[ -n "$(printf '%s' "${AI_MODEL_TIER:-}" | tr -d ' \t\r')" ]] || _oep_measured=1
     _oep_tier="$(ollama_host_tier)" || return $?
   fi
+  if [[ "$_oep_measured" -eq 1 ]]; then
+    IFS=: read -r _oep_mem _oep_gpu <<<"$(ollama_machine_figures)"
+    # Memory that cannot be read gives standard by rule, not by measure: no floor.
+    [[ -n "$_oep_mem" ]] || _oep_measured=0
+  fi
   if ! _oep_rank="$(_ollama_ep_tier_rank "$_oep_tier")"; then
     print_error "A tier is one of small, standard, large, xlarge; not '$(_ollama_ep_said "$_oep_tier")'" >&2
     return 3
@@ -2280,7 +2303,6 @@ ollama_tier_model() {
     print_error "Unknown model type '$(_ollama_ep_said "$_oep_type")'. Known: $(ollama_model_tier_types | tr '\n' ' ' | sed 's/ $//')." >&2
     return 2
   fi
-  [[ "$_oep_measured" -eq 0 ]] || IFS=: read -r _oep_mem _oep_gpu <<<"$(ollama_machine_figures)"
   while :; do
     _oep_model="$(printf '%s\n' "$_oep_row" | awk -v i=$((_oep_rank + 1)) '{ print $i }')" || _oep_model=""
     if [[ -z "$_oep_model" ]] || ! _ollama_ep_is_model "$_oep_model"; then
@@ -2292,7 +2314,7 @@ ollama_tier_model() {
     [[ -n "$_oep_size" ]] || break
     read -r _oep_class _oep_gpu_need _oep_ram_need <<<"$_oep_size"
     [[ "${_oep_gpu:-0}" -lt "$_oep_gpu_need" ]] || break
-    [[ "$_oep_ram_need" == - || -z "$_oep_mem" || "$_oep_mem" -lt "$_oep_ram_need" ]] || break
+    [[ "$_oep_ram_need" == - || "$_oep_mem" -lt "$_oep_ram_need" ]] || break
     _oep_rank=$((_oep_rank - 1))
     case "$_oep_rank" in 0) _oep_tier=small ;; 1) _oep_tier=standard ;; 2) _oep_tier=large ;; esac
   done

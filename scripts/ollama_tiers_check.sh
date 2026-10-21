@@ -8,7 +8,8 @@
 #   Refused, one line on stderr each:
 #   - a line that is not a threshold, type or size line, a threshold that is
 #     not a whole number, a type row without four model references, a
-#     malformed size line;
+#     malformed size line, a second line for one threshold, type or model,
+#     a size line for a model no type row names;
 #   - a cell whose model has a size class above the cell's tier (an xlarge
 #     model in a large cell);
 #   - a size line whose GPU floor is outside its class: large needs at least
@@ -51,9 +52,13 @@ while IFS= read -r msg; do refuse "$msg"; done < <(
     { sub(/\r$/, "") }
     NR == 1 && substr($0, 1, 3) == ENVIRON["_OEP_BOM"] { $0 = substr($0, 4) }
     /^[[:space:]]*(#|$)/ { next }
+    $1 == "threshold" || $1 == "type" || $1 == "size" {
+      # A second line for one key would silently replace the first.
+      if (NF >= 2 && seen[$1, $2]++) { print "line " NR ": a second " $1 " line for " $2 "; the last one wins"; next }
+    }
     $1 == "threshold" { if (NF != 3 || $3 !~ /^[0-9]+$/) print "line " NR ": threshold needs a key and a whole number of GiB"; next }
     $1 == "type" { if (NF != 6) print "line " NR ": type " $2 " needs four models (small standard large xlarge)"; next }
-    $1 == "size" { next }
+    $1 == "size" { if (NF != 5) print "line " NR ": size needs <model> <class> <GPU GiB> <memory GiB or ->"; next }
     { print "line " NR ": unknown kind of line \"" $1 "\"" }' "$file")
 
 # Every model reference and every size line, through the reader the library uses.
@@ -91,7 +96,7 @@ for type in $(ollama_model_tier_types); do
     if [[ -n "$size" ]]; then
       read -r class gpu _ <<<"$size"
       if [[ "$(_ollama_ep_tier_rank "$class")" -gt "$rank" ]]; then
-        refuse "type $type: the $tier cell names $model, a $class model"
+        refuse "type $type: the $tier cell names $model, of size class $class"
       fi
       i=0
       while [[ "$i" -lt "${#prev_models[@]}" ]]; do
@@ -105,5 +110,10 @@ for type in $(ollama_model_tier_types); do
     rank=$((rank + 1))
   done
 done
+# A size line no type row reaches is left over from a model that was replaced.
+cells=" $(for type in $(ollama_model_tier_types); do _ollama_ep_tiers_get type "$type"; done | tr '\n' ' ') "
+while IFS= read -r model; do
+  [[ "$cells" == *" $model "* ]] || refuse "size $model: no type row names this model"
+done < <(LC_ALL=C awk '{ sub(/\r$/, "") } $1 == "size" && NF >= 2 && !seen[$2]++ { print $2 }' "$file")
 [[ "$bad" -eq 0 ]] || exit 1
 echo "ok: $file"
