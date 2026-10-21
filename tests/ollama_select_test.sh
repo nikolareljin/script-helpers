@@ -206,6 +206,12 @@ check "a bad AI_MODEL_TIER is refused (3)" "3:" "$(AI_MODEL_TIER=huge ollama_hos
 said "naming the variable and the value" "$tmp/err" "AI_MODEL_TIER" "huge"
 check "no data file and no AI_MODEL_TIER: 2, not a guessed tier" "2:" "$(OLLAMA_MODEL_TIERS_FILE="$tmp/none" ollama_host_tier 2>/dev/null; echo "$?:")"
 check "no data file, AI_MODEL_TIER set: that tier" "large" "$(OLLAMA_MODEL_TIERS_FILE="$tmp/none" AI_MODEL_TIER=large ollama_host_tier)"
+printf 'threshold large_ram_gb 30GB\ntype general tier-s:1b tier-m:4b tier-l:9b tier-x:20b\n' >"$tmp/badthr.txt"
+check "a threshold that is not a whole number is refused (2), not read as missing" "2:" \
+  "$(OLLAMA_MODEL_TIERS_FILE="$tmp/badthr.txt" OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((32 * GiB)) ollama_host_tier 2>"$tmp/err"; echo "$?:")"
+said "naming the key and the value" "$tmp/err" "large_ram_gb" "30GB"
+check "so select stops (10) instead of picking a lower tier" "10" \
+  "$(OLLAMA_MODEL_TIERS_FILE="$tmp/badthr.txt" ai_model_resolve general "$URL" 2>/dev/null; echo "$?")"
 check "the tier's model for a type" "tier-l:9b" "$(ollama_tier_model general large)"
 check "a type in any case" "tier-l:9b" "$(ollama_tier_model General large)"
 printf 'A=1\r\nOLD_CHOICE=x\r\n' >"$tmp/crlf.env"
@@ -225,6 +231,16 @@ check "duplicate lines collapse to one, however often it runs" "K_CHOICE=d" "$(o
 printf 'export K_CHOICE=a\nexport K_CHOICE=b\n' >"$tmp/exp.env"
 _ollama_ep_env_set "$tmp/exp.env" K_CHOICE d
 check "an export line stays an export line" "export K_CHOICE=d" "$(one_line <"$tmp/exp.env")"
+lost=0
+for _ in 1 2 3 4 5 6 7 8; do
+  printf 'KEEP=1\n' >"$tmp/race.env"
+  _ollama_ep_env_set "$tmp/race.env" A_CHOICE a A_CHOICE_FOR b & p1=$!
+  _ollama_ep_env_set "$tmp/race.env" B_CHOICE c B_CHOICE_FOR d & p2=$!
+  wait "$p1" "$p2"
+  [[ "$(grep -c -E '^(KEEP|A_CHOICE|A_CHOICE_FOR|B_CHOICE|B_CHOICE_FOR)=' "$tmp/race.env")" == 5 ]] || lost=$((lost + 1))
+done
+check "two runs storing at once both keep their answers" "0" "$lost"
+check "and leave no lock behind" "" "$(find "$tmp" -maxdepth 1 -name '.race.env.lock')"
 ln -sf loop-b.env "$tmp/loop-a.env"; ln -sf loop-a.env "$tmp/loop-b.env"
 check "a symlink loop is refused (1), not followed forever" "1" "$(_ollama_ep_env_set "$tmp/loop-a.env" A 1; echo $?)"
 printf 'A=1\n' >"$tmp/mode.env"; chmod 640 "$tmp/mode.env"

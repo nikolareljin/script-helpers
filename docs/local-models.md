@@ -175,6 +175,7 @@ model="$(scripts/ollama_models.sh select general "$OLLAMA_URL" .env OLLAMA_MODEL
 | chosen model missing | pulled after the disk and memory check; `OLLAMA_PULL_MISSING=1` pulls, `0` never, unset asks on a terminal (never in CI) |
 | `.env` cannot be read | exit 10 |
 | `AI_MODEL_TIER` not a tier | exit 11, naming the value |
+| a threshold in the tiers file that is not a whole number | exit 10, naming it |
 
 Only the model is printed on stdout. Nothing is ever removed.
 The answer is normally written to a temporary file next to `.env` and moved
@@ -182,6 +183,7 @@ over it. When the directory is not writable (the file is), or `.env` has more
 than one hard link, the new content is built in a temporary file under
 `TMPDIR` (else `/tmp`) and copied over `.env` in one write, then read back: `.env` keeps its
 inode, mode and owner, and every hard link sees the answer.
+Two runs storing an answer at once take turns, so neither is lost.
 The tier list is a guideline: a model is ranked only against models of the
 same size class, never across classes.
 `scripts/ollama_models.sh class` prints the host's tier (`unknown`, with a

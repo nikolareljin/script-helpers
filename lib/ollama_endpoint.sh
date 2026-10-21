@@ -2182,7 +2182,8 @@ ollama_model_tier_types() {
 # OLLAMA_BUDGET_MEM_TOTAL_BYTES and OLLAMA_BUDGET_GPU_LARGEST_BYTES state them)
 # are compared with the data file's thresholds. Memory that cannot be read is
 # standard, never a guessed tier.
-# Returns: 0 printed; 2 no data file to measure against (AI_MODEL_TIER unset);
+# Returns: 0 printed; 2 no data file to measure against (AI_MODEL_TIER unset),
+# or a threshold in it that is not a whole number;
 # 3 AI_MODEL_TIER is not a tier.
 # Output: stdout the tier and a newline; stderr errors.
 ollama_host_tier() {
@@ -2200,11 +2201,11 @@ ollama_host_tier() {
     print_error "No model tiers file at $(_ollama_ep_said "$(ollama_model_tiers_file)") (OLLAMA_MODEL_TIERS_FILE)." >&2
     return 2
   fi
+  _oep_small="$(_ollama_ep_tiers_threshold small_below_ram_gb)" || return 2
+  _oep_lram="$(_ollama_ep_tiers_threshold large_ram_gb)" || return 2
+  _oep_lvram="$(_ollama_ep_tiers_threshold large_vram_gb)" || return 2
+  _oep_xvram="$(_ollama_ep_tiers_threshold xlarge_vram_gb)" || return 2
   IFS=: read -r _oep_mem _oep_gpu <<<"$(ollama_machine_figures)"
-  _oep_small="$(_ollama_ep_uint "$(_ollama_ep_tiers_get threshold small_below_ram_gb)")" || _oep_small=""
-  _oep_lram="$(_ollama_ep_uint "$(_ollama_ep_tiers_get threshold large_ram_gb)")" || _oep_lram=""
-  _oep_lvram="$(_ollama_ep_uint "$(_ollama_ep_tiers_get threshold large_vram_gb)")" || _oep_lvram=""
-  _oep_xvram="$(_ollama_ep_uint "$(_ollama_ep_tiers_get threshold xlarge_vram_gb)")" || _oep_xvram=""
   case "$(_ollama_ep_class_rank "$_oep_mem" "$_oep_gpu" "$_oep_small" "$_oep_lram" "$_oep_lvram" "$_oep_xvram")" in
     0) _oep_tier=small ;;
     2) _oep_tier=large ;;
@@ -2212,6 +2213,22 @@ ollama_host_tier() {
     *) _oep_tier=standard ;;
   esac
   printf '%s\n' "$_oep_tier"
+}
+
+# Usage: _ollama_ep_tiers_threshold <key>; prints a threshold of the data
+# file in whole GiB, or nothing when the file has no such line (it then never
+# matches). A value that is not a whole number is an error: read as missing,
+# it would measure every host as a lower tier without a word.
+# Returns: 0; 1 the value is not a whole number.
+# Output: stdout the number and a newline, or nothing; stderr the error.
+_ollama_ep_tiers_threshold() {
+  local raw
+  raw="$(_ollama_ep_tiers_get threshold "${1:-}")"
+  [[ -n "$raw" ]] || return 0
+  if ! _ollama_ep_uint "$raw"; then
+    print_error "The model tiers file $(_ollama_ep_said "$(ollama_model_tiers_file)") has threshold ${1:-} '$(_ollama_ep_said "$raw")', not a whole number of GiB." >&2
+    return 1
+  fi
 }
 
 # Usage: ollama_tier_model <type> [tier]; prints the approved model for the
@@ -2263,10 +2280,62 @@ ollama_tier_model() {
 # The full new content is built in a temporary file under TMPDIR (else /tmp) first, then
 # copied over the target in one write and read back; the target keeps its
 # inode, mode and owner, and every hard link sees the new content.
+# Two runs writing the same file at once take turns (_ollama_ep_env_lock).
 # Returns: 0 written; 1 a NAME is not a variable name, or the file could not be
 # created, read or written.
 # Output: none on stdout.
 _ollama_ep_env_set() {
+  local lock rc=0
+  lock="$(_ollama_ep_env_lock "${1:-}")" || lock=""
+  _ollama_ep_env_set_now "$@" || rc=$?
+  [[ -z "$lock" ]] || rmdir "$lock" 2>/dev/null || true
+  return "$rc"
+}
+
+# Usage: _ollama_ep_env_lock <file>; takes a lock for writing the file, so two
+# runs storing answers at once (two ./start, two roles) do not each write the
+# file as they read it and drop the other's lines. mkdir is the lock: atomic on
+# every system, no flock on macOS. Next to the file's real path, or under
+# TMPDIR (else /tmp) when that directory is not writable. Waits up to about 10
+# seconds; a lock older than that (a killed run) is taken over.
+# Returns: 0 locked; 1 no lock (the caller writes without one).
+# Output: stdout the lock directory to rmdir when done.
+_ollama_ep_env_lock() {
+  local target="${1:-}" hops=0 link dir lock tries=0 d
+  [[ -n "$target" ]] || return 1
+  while [[ -L "$target" && "$hops" -le 40 ]]; do
+    hops=$((hops + 1))
+    link="$(readlink "$target")" || return 1
+    case "$link" in /*) target="$link" ;; *) target="$(dirname "$target")/$link" ;; esac
+  done
+  dir="$(dirname "$target")"
+  if [[ -w "$dir" ]]; then
+    lock="$dir/.$(basename "$target").lock"
+  else
+    lock=""
+    for d in "${TMPDIR:-}" /tmp; do
+      [[ -n "$d" && -w "$d" ]] || continue
+      lock="${d%/}/.env-lock.$(printf '%s' "$target" | cksum | awk '{ print $1 }')"
+      break
+    done
+    [[ -n "$lock" ]] || return 1
+  fi
+  until mkdir "$lock" 2>/dev/null; do
+    tries=$((tries + 1))
+    if [[ "$tries" -ge 100 ]]; then
+      # Held for 10 seconds: a run that was killed. Take it over.
+      rmdir "$lock" 2>/dev/null || true
+      mkdir "$lock" 2>/dev/null || return 1
+      break
+    fi
+    sleep 0.1
+  done
+  printf '%s\n' "$lock"
+}
+
+# Usage: _ollama_ep_env_set_now <file> <NAME> <value>...; the write of
+# _ollama_ep_env_set, without the lock. Same returns and output.
+_ollama_ep_env_set_now() {
   local file="${1:-}" target link hops dir tmpf oldf src inplace names="" values=""
   shift || return 1
   [[ -n "$file" && $# -ge 2 && $(($# % 2)) -eq 0 ]] || return 1
@@ -2454,7 +2523,8 @@ _ollama_ep_env_private() {
 #   1-8  as ollama_endpoint_ensure_models (4: no Ollama answers; 5: missing
 #        and not pulled under OLLAMA_PULL_MISSING)
 #   10   bad arguments: more than five, unknown type, NAME not a variable
-#        name, a model that is not a model reference, no data file, env_file
+#        name, a model that is not a model reference, no data file or a
+#        threshold in it that is not a whole number, env_file
 #        not readable or not writable
 #   11   AI_MODEL_TIER is not small, standard, large or xlarge
 #   12   no terminal, the two differ, and that Ollama has neither

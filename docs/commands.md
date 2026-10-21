@@ -2699,7 +2699,8 @@ Exit codes:
 0  done; with ensure, every model is there; with class, also with no
 tiers file (tier=unknown and a warning on stderr)
 2  bad arguments (also select with no type or no address), a NAME that
-is not a variable name, or a bad AI_MODEL_TIER (select exits 11 for it)
+is not a variable name, a bad AI_MODEL_TIER (select exits 11 for it),
+or a tiers file threshold that is not a whole number (select: 10)
 1-9 with ensure: as ollama_project_ensure_models (docs/local-models.md)
 with select: 0 chosen and present; 1-8 as ollama_endpoint_ensure_models
 (4 no Ollama, 5 missing and not pulled); 10 more than five arguments,
