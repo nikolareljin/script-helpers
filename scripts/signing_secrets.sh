@@ -20,6 +20,12 @@
 #   --apple-id <email>        apple: Apple ID for notarization.
 #                             Passwords: APPLE_CERTIFICATE_PASSWORD and
 #                             APPLE_APP_PASSWORD env, else prompted.
+#                             The .p12 must open with its password and hold
+#                             the --apple-identity certificate, in date, and
+#                             its private key (openssl). Warns when the
+#                             certificate expires within 30 days.
+#   --skip-p12-check          apple: store the .p12 without opening it
+#                             (where openssl is not installed).
 #   --check                   Report missing names per repository; exit 1 if any.
 #   --dry-run                 Print the names that would be set; set nothing.
 #   -h, --help                Show help.
@@ -27,8 +33,12 @@
 #   0  Every name was set, or --check found every name on every repository.
 #   1  --check found a missing name or could not list a repository, or gh
 #      could not set a name.
-#   2  Bad arguments, a missing tool (gh, gpg), a key not in the keyring, a
-#      passphrase that does not unlock it, or an empty value; nothing was set.
+#   2  Bad arguments, a missing tool (gh, gpg, openssl), a key not in the
+#      keyring, a passphrase that does not unlock it, an --apple-identity
+#      that does not end in the --apple-team, a .p12 that does not open with
+#      APPLE_CERTIFICATE_PASSWORD, lacks the --apple-identity certificate or
+#      its private key, or holds it expired, or an empty value; nothing was
+#      set.
 #   130, 143  Interrupted (INT, TERM); the scratch directory is removed.
 # EXAMPLE:
 #   ./signing_secrets.sh --repos me/tool --group gpg --gpg-key <FPR> --ppa me/tool=ppa:me/tool
@@ -61,6 +71,7 @@ apple_identity=""
 apple_team=""
 apple_id=""
 mode="set"
+skip_p12_check=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -81,6 +92,7 @@ while [[ $# -gt 0 ]]; do
     --apple-identity) apple_identity="${2:-}"; shift 2;;
     --apple-team) apple_team="${2:-}"; shift 2;;
     --apple-id) apple_id="${2:-}"; shift 2;;
+    --skip-p12-check) skip_p12_check=1; shift;;
     --check) mode="check"; shift;;
     --dry-run) mode="dry-run"; shift;;
     -h|--help) usage; exit 0;;
@@ -121,8 +133,8 @@ if ! has_group gpg && [[ -n "${gpg_key}${ppa_map}${lp_ssh_key}" ]]; then
   log_error "--gpg-key, --ppa and --launchpad-ssh-key need --group gpg"
   exit 2
 fi
-if ! has_group apple && [[ -n "${apple_p12}${apple_identity}${apple_team}${apple_id}" ]]; then
-  log_error "--apple-* options need --group apple"
+if ! has_group apple && { [[ -n "${apple_p12}${apple_identity}${apple_team}${apple_id}" ]] || [[ "$skip_p12_check" -eq 1 ]]; }; then
+  log_error "--apple-* options and --skip-p12-check need --group apple"
   exit 2
 fi
 for m in $ppa_map; do
@@ -223,6 +235,103 @@ ask() { # var-name prompt
   printf '%s' "$val" > "$work/$1"
 }
 
+# Open the .p12 with APPLE_CERTIFICATE_PASSWORD before it is stored. The
+# password reaches openssl as a file, not argv. OpenSSL 3 needs -legacy for
+# RC2/3DES files; LibreSSL has no -legacy and reads them without it.
+check_p12() {
+  local pw="$work/APPLE_CERTIFICATE_PASSWORD" err="$work/p12.err" legacy=""
+  if [[ "$(cat "$pw"; echo x)" == *$'\n'* ]]; then
+    log_error "APPLE_CERTIFICATE_PASSWORD contains a newline; openssl cannot read it"
+    exit 2
+  fi
+  # openssl reads at most 1023 bytes of a password file and drops the rest.
+  if [[ "$(wc -c < "$pw" | tr -d ' ')" -gt 1023 ]]; then
+    log_error "APPLE_CERTIFICATE_PASSWORD is longer than the 1023 bytes openssl reads; pass --skip-p12-check"
+    exit 2
+  fi
+  p12() { openssl pkcs12 -in "$apple_p12" -passin "file:$pw" ${legacy:+"$legacy"} "$@"; }
+  if ! p12 -noout 2>"$err"; then
+    if grep -qi 'mac verify' "$err"; then
+      log_error "--apple-p12 does not open: wrong APPLE_CERTIFICATE_PASSWORD"
+      exit 2
+    fi
+    if ! grep -qi 'unsupported' "$err"; then
+      log_error "openssl cannot read --apple-p12: $(head -n 1 "$err")"
+      exit 2
+    fi
+    legacy="-legacy"
+    if ! p12 -noout 2>"$err"; then
+      if grep -qi 'mac verify' "$err"; then
+        log_error "--apple-p12 does not open: wrong APPLE_CERTIFICATE_PASSWORD"
+      else
+        log_error "--apple-p12 uses a legacy algorithm (RC2/3DES) and the OpenSSL legacy provider is not available: $(grep -i -m 1 -E 'unsupported|provider|legacy' "$err" || head -n 1 "$err")"
+      fi
+      exit 2
+    fi
+  fi
+  # A .p12 without a MAC opens with any password, so a failure below is
+  # reported as one, not as a missing key.
+  p12_fail() {
+    if grep -qi -E 'mac verify|bad decrypt|wrong password' "$err"; then
+      log_error "--apple-p12 does not open: wrong APPLE_CERTIFICATE_PASSWORD"
+    else
+      log_error "openssl cannot read --apple-p12: $(head -n 1 "$err")"
+    fi
+    exit 2
+  }
+  # Certificates are public; each goes to its own file to be read below.
+  local certs="$work/p12certs" i=0 n_certs cn pub key_pubs found="" expired="" named=0 end
+  mkdir "$certs"
+  n_certs="$(p12 -nokeys 2>"$err" | awk -v d="$certs" '
+    /-----BEGIN CERTIFICATE-----/ { n++; f = d "/" n ".pem" }
+    f { print > f }
+    /-----END CERTIFICATE-----/ { close(f); f = "" }
+    END { print n + 0 }')" || p12_fail
+  [[ "${n_certs:-0}" -ge 1 ]] || { log_error "--apple-p12 holds no certificate"; exit 2; }
+  # The public half of each private key, one per line. Each key reaches
+  # openssl pkey through a pipe, never a file.
+  key_pubs="$(p12 -nocerts -nodes 2>"$err" | awk -v cmd="openssl pkey -pubout 2>/dev/null | tr -d '\\n'; echo" '
+    /-----BEGIN .*PRIVATE KEY-----/ { k = 1 }
+    k { print | cmd }
+    /-----END .*PRIVATE KEY-----/ { close(cmd); k = 0 }')" || p12_fail
+  [[ -n "${key_pubs//$'\n'/}" ]] || { log_error "--apple-p12 holds no private key"; exit 2; }
+  # codesign looks the certificate up by --apple-identity and signs with its
+  # key, so that certificate must be in the file with its key, and in date.
+  # A renewed certificate may sit next to the expired one, in any order.
+  while [[ "$i" -lt "$n_certs" ]]; do
+    i=$((i+1))
+    # Unescaped: OpenSSL 3 prints a backslash in the name as "\\" otherwise.
+    cn="$(openssl x509 -in "$certs/$i.pem" -noout -subject -nameopt multiline,-esc_msb,-esc_ctrl,utf8 2>/dev/null \
+      | sed -n 's/^ *commonName *= //p')"
+    [[ "$cn" == "$apple_identity" ]] || continue
+    named=1
+    pub="$(openssl x509 -in "$certs/$i.pem" -noout -pubkey 2>/dev/null | tr -d '\n')"
+    if [[ -z "$pub" ]] || ! grep -qxF -- "$pub" <<< "$key_pubs"; then
+      continue
+    fi
+    if openssl x509 -in "$certs/$i.pem" -noout -checkend 0 >/dev/null 2>&1; then
+      found="$certs/$i.pem"
+      break
+    fi
+    expired="$certs/$i.pem"
+  done
+  if [[ -z "$found" ]]; then
+    if [[ -n "$expired" ]]; then
+      log_error "--apple-p12: the certificate '$apple_identity' expired on $(openssl x509 -in "$expired" -noout -enddate 2>/dev/null | sed 's/^notAfter=//')"
+    elif [[ "$named" -eq 1 ]]; then
+      log_error "--apple-p12: the certificate '$apple_identity' does not match the private key"
+    else
+      log_error "--apple-p12 holds no certificate named '$apple_identity'"
+    fi
+    exit 2
+  fi
+  if ! openssl x509 -in "$found" -noout -checkend 2592000 >/dev/null 2>&1; then
+    end="$(openssl x509 -in "$found" -noout -enddate 2>/dev/null | sed 's/^notAfter=//')"
+    log_warn "--apple-p12: the certificate '$apple_identity' expires on $end; renew it"
+  fi
+  return 0
+}
+
 if has_group gpg; then
   if [[ ! "$gpg_key" =~ ^[0-9A-Fa-f]{40}$ ]]; then
     log_error "--gpg-key must be the 40-character fingerprint"
@@ -261,12 +370,20 @@ if has_group apple; then
   [[ -s "$apple_p12" && -r "$apple_p12" ]] || { log_error "--apple-p12 is missing, empty or unreadable"; exit 2; }
   [[ "$apple_identity" == "Developer ID Application: "* ]] || { log_error "--apple-identity must start with 'Developer ID Application: '"; exit 2; }
   [[ "$apple_team" =~ ^[A-Z0-9]{10}$ ]] || { log_error "--apple-team must be the 10-character team ID"; exit 2; }
+  [[ "$apple_identity" == *" (${apple_team})" ]] || { log_error "--apple-identity must end in ' (${apple_team})', the --apple-team"; exit 2; }
   [[ "$apple_id" == *@* ]] || { log_error "--apple-id must be an e-mail address"; exit 2; }
   base64 < "$apple_p12" | tr -d '\n' > "$work/APPLE_CERTIFICATE"
   printf '%s' "$apple_identity" > "$work/APPLE_SIGNING_IDENTITY"
   printf '%s' "$apple_team" > "$work/APPLE_TEAM_ID"
   printf '%s' "$apple_id" > "$work/APPLE_ID"
+  if [[ "$mode" != "dry-run" ]] && [[ "$skip_p12_check" -eq 0 ]] && ! command -v openssl >/dev/null 2>&1; then
+    log_error "openssl is not installed; it checks the .p12 password. Install it, or pass --skip-p12-check"
+    exit 2
+  fi
   ask APPLE_CERTIFICATE_PASSWORD "Password of $apple_p12"
+  if [[ "$mode" != "dry-run" ]] && [[ "$skip_p12_check" -eq 0 ]]; then
+    check_p12
+  fi
   ask APPLE_APP_PASSWORD "App-specific password for $apple_id"
   printf '%s' "true" > "$work/APPLE_SIGNING_ENABLED"
 fi
