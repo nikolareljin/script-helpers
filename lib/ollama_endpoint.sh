@@ -2329,9 +2329,13 @@ _ollama_ep_env_lock() {
     done
     [[ -n "$lock" ]] || return 1
   fi
-  until ln -s "$$" "$lock" 2>/dev/null; do
+  while :; do
+    # Something else at that path (a file, a directory) is not ours to remove,
+    # and ln -s onto a directory would make a link inside it, not a lock.
+    [[ -L "$lock" || ! -e "$lock" ]] || return 1
+    ! ln -s "$$" "$lock" 2>/dev/null || break
     owner="$(readlink "$lock" 2>/dev/null)" || owner=""
-    if [[ -n "$owner" && ! "$owner" =~ ^[0-9]+$ ]] || { [[ "$owner" =~ ^[0-9]+$ ]] && ! kill -0 "$owner" 2>/dev/null; }; then
+    if [[ -n "$owner" && ! "$owner" =~ ^[0-9]+$ ]] || { [[ "$owner" =~ ^[0-9]+$ ]] && ! _ollama_ep_pid_alive "$owner"; }; then
       # The owner is gone. Two waiters may both see that: each renames the
       # lock to a name of its own (rename is atomic, so one of them gets it),
       # and only removes what it got if that is still the dead owner's lock.
@@ -2352,6 +2356,15 @@ _ollama_ep_env_lock() {
     sleep 0.1
   done
   printf '%s\n' "$lock"
+}
+
+# Usage: _ollama_ep_pid_alive <pid>; true while that process exists, also when
+# another user owns it (kill -0 then fails with EPERM): /proc, else ps -p.
+# Returns: 0 alive; 1 gone. Output: none.
+_ollama_ep_pid_alive() {
+  kill -0 "${1:-}" 2>/dev/null && return 0
+  [[ ! -d "/proc/${1:-}" ]] || return 0
+  ps -p "${1:-}" >/dev/null 2>&1
 }
 
 # Usage: _ollama_ep_env_unlock <lock>; removes the lock if this shell still

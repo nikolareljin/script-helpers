@@ -553,6 +553,19 @@ t0=$SECONDS; _ollama_ep_env_set "$tmp/stale.env" A_CHOICE z; t1=$SECONDS
 wait "$releaser"; kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
 check "a live owner's lock is waited on, then the write goes ahead" "yes:z" \
   "$([[ $((t1 - t0)) -ge 1 ]] && echo yes):$(ollama_models_file_get "$tmp/stale.env" A_CHOICE)"
+# A live owner of another user (pid 1: kill -0 fails with EPERM) is not dead.
+if [[ "$(id -u)" != "0" ]]; then
+  ln -s 1 "$tmp/.stale.env.lock"
+  ( sleep 1; rm -f "$tmp/.stale.env.lock" ) & releaser=$!
+  t0=$SECONDS; _ollama_ep_env_set "$tmp/stale.env" A_CHOICE y; t1=$SECONDS; wait "$releaser"
+  check "another user's live process holding the lock is waited on, not taken over" "yes:y" \
+    "$([[ $((t1 - t0)) -ge 1 ]] && echo yes):$(ollama_models_file_get "$tmp/stale.env" A_CHOICE)"
+fi
+mkdir "$tmp/.stale.env.lock"
+t0=$SECONDS; _ollama_ep_env_set "$tmp/stale.env" A_CHOICE w; t1=$SECONDS
+check "a directory where the lock goes: written at once, the directory left alone and empty" "yes:w:dir:" \
+  "$([[ $((t1 - t0)) -le 3 ]] && echo yes):$(ollama_models_file_get "$tmp/stale.env" A_CHOICE):$([[ -d "$tmp/.stale.env.lock" ]] && echo dir):$(ls -A "$tmp/.stale.env.lock")"
+rmdir "$tmp/.stale.env.lock"
 check "a .env in a directory that does not exist: refused (1) at once, no lock" "1" \
   "$(_ollama_ep_env_set "$tmp/no/such/dir/.env" A 1 2>/dev/null; echo $?)"
 # A hard-linked .env: both names keep the same file, both see the answer.
