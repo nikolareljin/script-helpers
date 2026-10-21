@@ -21,7 +21,9 @@
 #                             Passwords: APPLE_CERTIFICATE_PASSWORD and
 #                             APPLE_APP_PASSWORD env, else prompted.
 #                             The .p12 must open with its password and hold
-#                             a certificate and a private key (openssl).
+#                             the --apple-identity certificate, in date, and
+#                             its private key (openssl). Warns when the
+#                             certificate expires within 30 days.
 #   --skip-p12-check          apple: store the .p12 without opening it
 #                             (where openssl is not installed).
 #   --check                   Report missing names per repository; exit 1 if any.
@@ -32,9 +34,11 @@
 #   1  --check found a missing name or could not list a repository, or gh
 #      could not set a name.
 #   2  Bad arguments, a missing tool (gh, gpg, openssl), a key not in the
-#      keyring, a passphrase that does not unlock it, a .p12 that does not
-#      open with APPLE_CERTIFICATE_PASSWORD or lacks a certificate or a
-#      private key, or an empty value; nothing was set.
+#      keyring, a passphrase that does not unlock it, an --apple-identity
+#      that does not end in the --apple-team, a .p12 that does not open with
+#      APPLE_CERTIFICATE_PASSWORD, lacks the --apple-identity certificate or
+#      its private key, or holds it expired, or an empty value; nothing was
+#      set.
 #   130, 143  Interrupted (INT, TERM); the scratch directory is removed.
 # EXAMPLE:
 #   ./signing_secrets.sh --repos me/tool --group gpg --gpg-key <FPR> --ppa me/tool=ppa:me/tool
@@ -281,10 +285,40 @@ check_p12() {
     fi
     exit 2
   }
-  n="$(p12_count '-----BEGIN CERTIFICATE-----' -nokeys)" || p12_fail
+  # Certificates are public; each goes to its own file to be read below.
+  local certs="$work/p12certs" i=0 n_certs cn found="" key_pub end
+  mkdir "$certs"
+  n="$(p12 -nokeys 2>"$err" | awk -v d="$certs" '
+    /-----BEGIN CERTIFICATE-----/ { n++; f = d "/" n ".pem" }
+    f { print > f }
+    /-----END CERTIFICATE-----/ { close(f); f = "" }
+    END { print n + 0 }')" || p12_fail
   [[ "${n:-0}" -ge 1 ]] || { log_error "--apple-p12 holds no certificate"; exit 2; }
+  n_certs="$n"
   n="$(p12_count '-----BEGIN .*PRIVATE KEY-----' -nocerts -nodes)" || p12_fail
   [[ "${n:-0}" -ge 1 ]] || { log_error "--apple-p12 holds no private key"; exit 2; }
+  # codesign looks the certificate up by --apple-identity and signs with its
+  # key, so that certificate must be in the file, match the key and be in date.
+  while [[ "$i" -lt "$n_certs" ]]; do
+    i=$((i+1))
+    cn="$(openssl x509 -in "$certs/$i.pem" -noout -subject -nameopt multiline,-esc_msb,utf8 2>/dev/null \
+      | sed -n 's/^ *commonName *= //p')"
+    if [[ "$cn" == "$apple_identity" ]]; then found="$certs/$i.pem"; break; fi
+  done
+  [[ -n "$found" ]] || { log_error "--apple-p12 holds no certificate named '$apple_identity'"; exit 2; }
+  key_pub="$(p12 -nocerts -nodes 2>"$err" | openssl pkey -pubout 2>>"$err")" || p12_fail
+  if [[ "$(openssl x509 -in "$found" -noout -pubkey 2>/dev/null)" != "$key_pub" ]]; then
+    log_error "--apple-p12: the certificate '$apple_identity' does not match the private key"
+    exit 2
+  fi
+  end="$(openssl x509 -in "$found" -noout -enddate 2>/dev/null | sed 's/^notAfter=//')"
+  if ! openssl x509 -in "$found" -noout -checkend 0 >/dev/null 2>&1; then
+    log_error "--apple-p12: the certificate '$apple_identity' expired on $end"
+    exit 2
+  fi
+  if ! openssl x509 -in "$found" -noout -checkend 2592000 >/dev/null 2>&1; then
+    log_warn "--apple-p12: the certificate '$apple_identity' expires on $end; renew it"
+  fi
   return 0
 }
 
@@ -326,6 +360,7 @@ if has_group apple; then
   [[ -s "$apple_p12" && -r "$apple_p12" ]] || { log_error "--apple-p12 is missing, empty or unreadable"; exit 2; }
   [[ "$apple_identity" == "Developer ID Application: "* ]] || { log_error "--apple-identity must start with 'Developer ID Application: '"; exit 2; }
   [[ "$apple_team" =~ ^[A-Z0-9]{10}$ ]] || { log_error "--apple-team must be the 10-character team ID"; exit 2; }
+  [[ "$apple_identity" == *" (${apple_team})" ]] || { log_error "--apple-identity must end in ' (${apple_team})', the --apple-team"; exit 2; }
   [[ "$apple_id" == *@* ]] || { log_error "--apple-id must be an e-mail address"; exit 2; }
   base64 < "$apple_p12" | tr -d '\n' > "$work/APPLE_CERTIFICATE"
   printf '%s' "$apple_identity" > "$work/APPLE_SIGNING_IDENTITY"

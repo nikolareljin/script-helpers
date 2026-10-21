@@ -2751,7 +2751,9 @@ Usage: ./signing_secrets.sh --repos <owner/a,owner/b> --group <gpg|apple> [--gro
                             Passwords: APPLE_CERTIFICATE_PASSWORD and
                             APPLE_APP_PASSWORD env, else prompted.
                             The .p12 must open with its password and hold
-                            a certificate and a private key (openssl).
+                            the --apple-identity certificate, in date, and
+                            its private key (openssl). Warns when the
+                            certificate expires within 30 days.
   --skip-p12-check          apple: store the .p12 without opening it
                             (where openssl is not installed).
   --check                   Report missing names per repository; exit 1 if any.
@@ -2766,9 +2768,11 @@ Exit codes:
 1  --check found a missing name or could not list a repository, or gh
 could not set a name.
 2  Bad arguments, a missing tool (gh, gpg, openssl), a key not in the
-keyring, a passphrase that does not unlock it, a .p12 that does not
-open with APPLE_CERTIFICATE_PASSWORD or lacks a certificate or a
-private key, or an empty value; nothing was set.
+keyring, a passphrase that does not unlock it, an --apple-identity
+that does not end in the --apple-team, a .p12 that does not open with
+APPLE_CERTIFICATE_PASSWORD, lacks the --apple-identity certificate or
+its private key, or holds it expired, or an empty value; nothing was
+set.
 130, 143  Interrupted (INT, TERM); the scratch directory is removed.
 ```
 

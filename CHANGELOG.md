@@ -17,6 +17,9 @@
   and a private key in it; a wrong password exits 2. The password reaches
   openssl as a file. Legacy RC2/3DES files are retried with `-legacy` on
   OpenSSL 3. Without openssl it exits 2 unless `--skip-p12-check` is given.
+  The `.p12` must hold the `--apple-identity` certificate with its own key,
+  not expired (a warning within 30 days), and `--apple-identity` must end in
+  `(<--apple-team>)`.
 - `ps/lib/rust.ps1` resolves the selected rustup Cargo before native Rust checks run.
 - `tests/machine/rust_resolver_check.sh` and `ps/tests/machine/rust_resolver_check.ps1` check the Rust resolver against the installed rustup and cargo: PATH order, the PATH-cargo-differs warning, `ErrorActionPreference = 'Stop'`, and preflight on a throwaway cargo project.
 

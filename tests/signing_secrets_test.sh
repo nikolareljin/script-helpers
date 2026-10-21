@@ -82,12 +82,13 @@ export TMPDIR="$tmp/tmpdir"
 make_p12() { # out password [extra pkcs12 -export args]
   local out="$1" pw="$2"; shift 2
   printf '%s' "$pw" > "$tmp/p12pw"
-  "$real_openssl" pkcs12 -export -in "$tmp/p12cert.pem" -inkey "$tmp/p12key.pem" \
+  "$real_openssl" pkcs12 -export -in "${P12_CERT:-$tmp/p12cert.pem}" -inkey "${P12_KEY:-$tmp/p12key.pem}" \
     -passout "file:$tmp/p12pw" -out "$out" "$@" >/dev/null 2>&1
 }
+p12_subj="/CN=Developer ID Application: Me (ABCDE12345)/OU=ABCDE12345"
 if [ -n "$real_openssl" ]; then
   "$real_openssl" req -x509 -newkey rsa:2048 -nodes -keyout "$tmp/p12key.pem" \
-    -out "$tmp/p12cert.pem" -days 1 -subj "/CN=Test" >/dev/null 2>&1 || error "openssl req failed"
+    -out "$tmp/p12cert.pem" -days 365 -subj "$p12_subj" >/dev/null 2>&1 || error "openssl req failed"
   make_p12 "$tmp/cert.p12" p12-pw-value || error "pkcs12 -export failed"
 else
   printf 'p12-bytes' > "$tmp/cert.p12"
@@ -261,6 +262,37 @@ if [ -n "$real_openssl" ]; then
   p12_refused "password over 1023 bytes" "longer than the 1023 bytes" "$tmp/cert.p12" "$long"
   make_p12 "$tmp/nocert.p12" p12-pw-value -nocerts 2>/dev/null \
     && p12_refused "p12 without a certificate" "holds no certificate" "$tmp/nocert.p12" p12-pw-value
+  # The --apple-identity certificate must be in the file, match the key and
+  # be in date. A second key and certificate stand in for someone else's.
+  "$real_openssl" req -x509 -newkey rsa:2048 -nodes -keyout "$tmp/otherkey.pem" \
+    -out "$tmp/othercert.pem" -days 365 -subj "/CN=Developer ID Application: Other (ZZZZZ99999)" >/dev/null 2>&1 \
+    || error "openssl req (other) failed"
+  P12_CERT="$tmp/othercert.pem" P12_KEY="$tmp/otherkey.pem" make_p12 "$tmp/other.p12" p12-pw-value \
+    || error "pkcs12 -export (other) failed"
+  p12_refused "p12 for another identity" "holds no certificate named 'Developer ID Application: Me (ABCDE12345)'" "$tmp/other.p12" p12-pw-value
+  # The identity certificate rides along as a chain certificate; the key is another's.
+  P12_CERT="$tmp/othercert.pem" P12_KEY="$tmp/otherkey.pem" make_p12 "$tmp/mismatch.p12" p12-pw-value -certfile "$tmp/p12cert.pem" \
+    || error "pkcs12 -export (mismatch) failed"
+  p12_refused "identity certificate without its key" "does not match the private key" "$tmp/mismatch.p12" p12-pw-value
+  # A chain after the identity certificate is fine.
+  make_p12 "$tmp/chain.p12" p12-pw-value -certfile "$tmp/othercert.pem" || error "pkcs12 -export (chain) failed"
+  rc=0; out="$(apple "$tmp/chain.p12" p12-pw-value)" || rc=$?
+  [ "$rc" = 0 ] || error "p12 with a chain: exit $rc: $out"
+  grep -q 'expires on' <<< "$out" && error "p12 valid for a year: warned of expiry: $out"
+  "$real_openssl" req -new -key "$tmp/p12key.pem" -subj "$p12_subj" -out "$tmp/p12.csr" >/dev/null 2>&1
+  # Expiring tomorrow: stored, with a warning.
+  "$real_openssl" x509 -req -in "$tmp/p12.csr" -signkey "$tmp/p12key.pem" -days 1 -out "$tmp/soon.pem" >/dev/null 2>&1 \
+    && P12_CERT="$tmp/soon.pem" make_p12 "$tmp/soon.p12" p12-pw-value || error "pkcs12 -export (soon) failed"
+  rc=0; out="$(apple "$tmp/soon.p12" p12-pw-value)" || rc=$?
+  [ "$rc" = 0 ] || error "p12 expiring soon: exit $rc: $out"
+  grep -q "expires on .*renew it" <<< "$out" || error "p12 expiring soon: no warning: $out"
+  # Expired: refused. OpenSSL 3 signs with -days -1; LibreSSL refuses to.
+  if "$real_openssl" x509 -req -in "$tmp/p12.csr" -signkey "$tmp/p12key.pem" -days -1 -out "$tmp/old.pem" >/dev/null 2>&1; then
+    P12_CERT="$tmp/old.pem" make_p12 "$tmp/old.p12" p12-pw-value || error "pkcs12 -export (expired) failed"
+    p12_refused "expired certificate" "expired on" "$tmp/old.p12" p12-pw-value
+  else
+    note "SKIP expired .p12: this openssl cannot write a certificate in the past"
+  fi
   # --skip-p12-check stores a .p12 that would not open.
   rc=0; out="$(apple "$tmp/cert.p12" wrong-p12-pw --skip-p12-check)" || rc=$?
   [ "$rc" = 0 ] || error "--skip-p12-check: exit $rc: $out"
@@ -293,6 +325,8 @@ rc=0; out="$(PATH="$tmp/noopenssl" apple "$tmp/cert.p12" p12-pw-value)" || rc=$?
 [ "$rc" = 2 ] || error "no openssl: exit $rc, expected 2: $out"
 grep -q "openssl is not installed.*--skip-p12-check" <<< "$out" || error "no openssl: message: $out"
 [ "$(wc -l < "$STORE/argv")" = "$before" ] || error "no openssl: gh was called"
+APPLE_CERTIFICATE_PASSWORD=a APPLE_APP_PASSWORD=b refuse "identity of another team" --repos o/a --group apple --apple-p12 "$tmp/cert.p12" \
+  --apple-identity "Developer ID Application: Me (ZZZZZ99999)" --apple-team ABCDE12345 --apple-id me@example.invalid --dry-run
 refuse "skip-p12-check without apple group" --repos o/a --group gpg --gpg-key "$fpr" --skip-p12-check
 
 # 8. TERM while gh runs: the private directory and its values are removed.
