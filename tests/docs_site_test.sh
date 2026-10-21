@@ -202,8 +202,8 @@ check "the output and a real virtualenv are removed" "0:no:no" "$rc:$([[ -e "$re
 # A listener of our own, on a port the OS picked, stands for a taken port.
 # It binds port 0 and writes the port only once it listens, so no check runs
 # before the port is taken, and no other process can take it between a probe
-# and the bind. It stays up until this test exits (it watches this shell's PID), so
-# a slow run cannot outlive it.
+# and the bind. It stays up until this test's shell exits (it polls that PID),
+# so a slow run cannot outlive it.
 python3 -c '
 import os, socket, sys, time
 s = socket.socket()
