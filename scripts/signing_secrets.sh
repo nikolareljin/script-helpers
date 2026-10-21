@@ -239,7 +239,7 @@ ask() { # var-name prompt
 # password reaches openssl as a file, not argv. OpenSSL 3 needs -legacy for
 # RC2/3DES files; LibreSSL has no -legacy and reads them without it.
 check_p12() {
-  local pw="$work/APPLE_CERTIFICATE_PASSWORD" err="$work/p12.err" legacy="" n
+  local pw="$work/APPLE_CERTIFICATE_PASSWORD" err="$work/p12.err" legacy=""
   if [[ "$(cat "$pw"; echo x)" == *$'\n'* ]]; then
     log_error "APPLE_CERTIFICATE_PASSWORD contains a newline; openssl cannot read it"
     exit 2
@@ -305,7 +305,9 @@ check_p12() {
     [[ "$cn" == "$apple_identity" ]] || continue
     named=1
     pub="$(openssl x509 -in "$certs/$i.pem" -noout -pubkey 2>/dev/null | tr -d '\n')"
-    [[ -n "$pub" ]] && grep -qxF -- "$pub" <<< "$key_pubs" || continue
+    if [[ -z "$pub" ]] || ! grep -qxF -- "$pub" <<< "$key_pubs"; then
+      continue
+    fi
     if openssl x509 -in "$certs/$i.pem" -noout -checkend 0 >/dev/null 2>&1; then
       found="$certs/$i.pem"
       break

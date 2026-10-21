@@ -289,8 +289,10 @@ if [ -n "$real_openssl" ]; then
   [ "$rc" = 0 ] || error "p12 with two keys: exit $rc: $out"
   "$real_openssl" req -new -key "$tmp/p12key.pem" -subj "$p12_subj" -out "$tmp/p12.csr" >/dev/null 2>&1
   # Expiring tomorrow: stored, with a warning.
-  "$real_openssl" x509 -req -in "$tmp/p12.csr" -signkey "$tmp/p12key.pem" -days 1 -out "$tmp/soon.pem" >/dev/null 2>&1 \
-    && P12_CERT="$tmp/soon.pem" make_p12 "$tmp/soon.p12" p12-pw-value || error "pkcs12 -export (soon) failed"
+  if ! { "$real_openssl" x509 -req -in "$tmp/p12.csr" -signkey "$tmp/p12key.pem" -days 1 -out "$tmp/soon.pem" >/dev/null 2>&1 \
+    && P12_CERT="$tmp/soon.pem" make_p12 "$tmp/soon.p12" p12-pw-value; }; then
+    error "pkcs12 -export (soon) failed"
+  fi
   rc=0; out="$(apple "$tmp/soon.p12" p12-pw-value)" || rc=$?
   [ "$rc" = 0 ] || error "p12 expiring soon: exit $rc: $out"
   grep -q "expires on .*renew it" <<< "$out" || error "p12 expiring soon: no warning: $out"
