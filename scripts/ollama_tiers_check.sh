@@ -9,7 +9,7 @@
 #   - a line that is not a threshold, type or size line, a threshold that is
 #     not a whole number, a type row without four model references, a
 #     malformed size line, a second line for one threshold, type or model,
-#     a size line for a model no type row names;
+#     a size line for a model no type row names, a file with no type rows;
 #   - a cell whose model has a size class above the cell's tier (an xlarge
 #     model in a large cell);
 #   - a size line whose GPU floor is outside its class: large needs at least
@@ -66,6 +66,9 @@ while IFS= read -r msg; do refuse "$msg"; done < <(
     $1 == "type" { if (NF != 6) print "line " NR ": type " $2 " needs four models (small standard large xlarge)"; next }
     $1 == "size" { if (NF != 5) print "line " NR ": size needs <model> <class> <GPU GiB> <memory GiB or ->"; next }
     { print "line " NR ": unknown kind of line \"" $1 "\"" }' "$file")
+
+# A truncated file selects nothing.
+[[ -n "$(ollama_model_tier_types)" ]] || refuse "no type rows; every select would fail"
 
 # Every model reference and every size line, through the reader the library uses.
 for type in $(ollama_model_tier_types); do

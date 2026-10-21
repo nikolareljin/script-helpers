@@ -759,6 +759,10 @@ check "a CRLF file passes" "0" "$(bash "$checker" "$tmp/crlf.txt" >/dev/null 2>&
 { printf '\xef\xbb\xbfsize gone:30b large 19 30\n'; cat "$tmp/floors.txt"; } >"$tmp/bomstale.txt"
 check "a byte-order mark before a first size line does not hide it from the checker (1)" "1" "$(bash "$checker" "$tmp/bomstale.txt" 2>"$tmp/err" >/dev/null; echo $?)"
 said "naming the model" "$tmp/err" "gone:30b"
+: >"$tmp/empty.txt"
+check "an empty file (no type rows) is refused (1)" "1" "$(bash "$checker" "$tmp/empty.txt" >/dev/null 2>&1; echo $?)"
+grep -v '^type' "$tmp/floors.txt" | grep -v '^size' >"$tmp/notypes.txt"
+check "thresholds but no type rows is refused (1)" "1" "$(bash "$checker" "$tmp/notypes.txt" >/dev/null 2>&1; echo $?)"
 check "a missing file: 2" "2" "$(bash "$checker" "$tmp/none" >/dev/null 2>&1; echo $?)"
 check "--help: 0" "0" "$(bash "$checker" --help >/dev/null 2>&1; echo $?)"
 check "the shipped code and reasoning rows are the approved ones" \

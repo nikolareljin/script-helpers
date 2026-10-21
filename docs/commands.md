@@ -2728,7 +2728,7 @@ Usage: scripts/ollama_tiers_check.sh [tiers_file]
   - a line that is not a threshold, type or size line, a threshold that is
     not a whole number, a type row without four model references, a
     malformed size line, a second line for one threshold, type or model,
-    a size line for a model no type row names;
+    a size line for a model no type row names, a file with no type rows;
   - a cell whose model has a size class above the cell's tier (an xlarge
     model in a large cell);
   - a size line whose GPU floor is outside its class: large needs at least
