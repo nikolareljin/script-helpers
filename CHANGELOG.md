@@ -27,6 +27,7 @@
 
 ### Changed
 
+- `ci_security.sh` pins foxguard 0.14.1 (was 0.14.0), with the five release checksums. 0.14.1 drops false-positive critical `js/no-sql-injection` findings on parameterized `sql` tags; config file names, CLI flags and exit codes are unchanged.
 - `docs/commands.md` now includes `ps/scripts`; Bash and PowerShell entry commands use the same structured header fields and publish their examples.
 - Exit and return codes a caller can see changed. Check `if`, `|| true`
   and `$?` handling that depends on the old values:
