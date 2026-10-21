@@ -187,6 +187,8 @@ disk_known_at_root_only() { ollama_disk_free_bytes() { [[ "$1" != / ]] || echo $
 machine
 check "the shipped tiers file names every documented type" "general reasoning classify extract vision embed code" \
   "$(OLLAMA_MODEL_TIERS_FILE='' ollama_model_tier_types | grep -x -E 'general|reasoning|classify|extract|vision|embed|code' | one_line)"
+check "the consumer example in docs/local-models.md uses the vendored path" "0 1" \
+  "$(grep -c '"$(scripts/ollama_models.sh select' docs/local-models.md) $(grep -c 'scripts/script-helpers/scripts/ollama_models.sh select' docs/local-models.md)"
 check "and it says it is generated" "1" "$(head -n 1 config/ollama_model_tiers.txt | grep -c '^# GENERATED DATA')"
 check "every shipped type has a valid model for all four tiers" "" \
   "$(for t in $(OLLAMA_MODEL_TIERS_FILE='' ollama_model_tier_types); do for r in small standard large xlarge; do OLLAMA_MODEL_TIERS_FILE='' ollama_tier_model "$t" "$r" >/dev/null 2>&1 || echo "$t/$r"; done; done)"
@@ -258,6 +260,9 @@ said "the known types are named" "$tmp/err" "general embed"
 # --- same, or no env model ---------------------------------------------------
 machine; reset tier-m:4b
 check "no env model: the tier's pick, nothing pulled" "0:tier-m:4b:" "$(m="$(ai_model_resolve general "$URL" "" OLLAMA_MODEL 2>/dev/null)"; echo "$?:$m:$(pulled)")"
+check "an address with a trailing slash is the same address" "tier-m:4b" "$(ai_model_resolve general "$URL/" "" OLLAMA_MODEL 2>/dev/null)"
+check "a project model that is not a model reference: 10, named" "10" "$(ai_model_resolve general "$URL" "" "" 'bad model' 2>"$tmp/err"; echo $?)"
+said "the bad model is named" "$tmp/err" "Not a model reference"
 check "the model is the only line on stdout" "tier-m:4b" "$(ai_model_resolve general "$URL" "" OLLAMA_MODEL 2>/dev/null | one_line)"
 check "an env model equal to the pick, written otherwise, is the pick" "tier-m:4b" "$(OLLAMA_MODEL='Tier-M:4B' ai_model_resolve general "$URL" "" OLLAMA_MODEL 2>/dev/null)"
 check "a stated tier changes the pick" "tier-s:1b" "$(reset tier-s:1b; AI_MODEL_TIER=small ai_model_resolve general "$URL" 2>/dev/null)"
@@ -510,8 +515,23 @@ if [[ "$(id -u)" != "0" ]]; then
   chmod 500 "$tmp/rod"
   check "read-only directory, no .env yet: refused (1), nothing on stderr" "1:0" \
     "$(_ollama_ep_env_set "$tmp/rod/new.env" A 1 2>"$tmp/err"; echo "$?:$(grep -c . "$tmp/err")")"
+  # In place, two writers at once: the lock is under TMPDIR, and both answers stay.
+  mkdir -p "$tmp/tdir"; lost=0
+  for _ in 1 2 3 4 5 6; do
+    chmod 700 "$tmp/rod"; printf 'KEEP=1\n' >"$tmp/rod/.env"; chmod 500 "$tmp/rod"
+    TMPDIR="$tmp/tdir" _ollama_ep_env_set "$tmp/rod/.env" A_CHOICE a A_CHOICE_FOR b & p1=$!
+    TMPDIR="$tmp/tdir" _ollama_ep_env_set "$tmp/rod/.env" B_CHOICE c B_CHOICE_FOR d & p2=$!
+    wait "$p1" "$p2"
+    [[ "$(grep -c -E '^(KEEP|A_CHOICE|A_CHOICE_FOR|B_CHOICE|B_CHOICE_FOR)=' "$tmp/rod/.env")" == 5 ]] || lost=$((lost + 1))
+  done
+  check "read-only directory, two writers at once: both answers stay" "0" "$lost"
+  check "and no lock or temporary file is left under TMPDIR" "" "$(find "$tmp/tdir" -mindepth 1)"
   chmod 700 "$tmp/rod"
 fi
+# A lock left by a killed run is taken over after about 10 seconds, not waited on forever.
+printf 'A=1\n' >"$tmp/stale.env"; mkdir "$tmp/.stale.env.lock"
+check "a stale lock is taken over: written, and the lock removed" "A=2:" \
+  "$(_ollama_ep_env_set "$tmp/stale.env" A 2; one_line <"$tmp/stale.env"):$(find "$tmp" -maxdepth 1 -name '.stale.env.lock')"
 # A hard-linked .env: both names keep the same file, both see the answer.
 mkdir -p "$tmp/hl/a" "$tmp/hl/b"; printf 'A=1\nB=2\n' >"$tmp/hl/a/.env"; ln "$tmp/hl/a/.env" "$tmp/hl/b/.env"
 inode() { ls -i "$1" | awk '{ print $1 }'; }

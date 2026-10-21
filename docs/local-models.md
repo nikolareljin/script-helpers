@@ -162,7 +162,11 @@ is in `config/ollama_model_tiers.txt`, generated data shipped with this
 library.
 
 ```bash
-model="$(scripts/ollama_models.sh select general "$OLLAMA_URL" .env OLLAMA_MODEL qwen2.5:7b)" || exit $?
+# In a start script that sourced scripts/script-helpers/helpers.sh and
+# imported ollama_endpoint:
+model="$(ai_model_resolve general "$OLLAMA_URL" .env OLLAMA_MODEL qwen2.5:7b)" || exit $?
+# Without the library (a Makefile, a CI step):
+model="$(scripts/script-helpers/scripts/ollama_models.sh select general "$OLLAMA_URL" .env OLLAMA_MODEL qwen2.5:7b)" || exit $?
 ```
 
 | Case | Result |
