@@ -40,6 +40,9 @@
 
 ### Fixed
 
+- `tests/docs_site_test.sh` no longer fails at random on a busy machine: its
+  test listener picks its own port and the `port_choose` checks start only once
+  it listens; it stays up until the test exits (#206).
 - `printf ... | grep -q` and `cmd | grep -q` returned 141 under `set -o
   pipefail` when grep matched early and the writer got SIGPIPE, so a present
   match read as missing (`check_docker`, `_docker_service_running`,
