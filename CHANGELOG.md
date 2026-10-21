@@ -43,6 +43,10 @@
 - `tests/docs_site_test.sh` no longer fails at random on a busy machine: its
   test listener picks its own port and the `port_choose` checks start only once
   it listens; it stays up until the test exits (#206).
+- `tests/ports_test.sh` and `tests/service_test.sh` no longer fail at random
+  on a busy machine: their test listener picks its own port, writes it only
+  once it listens, and stays up until the test exits; a listener that never
+  takes a port is a clear error (#208).
 - `printf ... | grep -q` and `cmd | grep -q` returned 141 under `set -o
   pipefail` when grep matched early and the writer got SIGPIPE, so a present
   match read as missing (`check_docker`, `_docker_service_running`,

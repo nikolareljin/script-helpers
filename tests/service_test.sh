@@ -208,14 +208,31 @@ fi
 
 # --- a taken port refuses start ---------------------------------------------
 if command -v python3 >/dev/null 2>&1; then
+  # The listener lets the OS pick its port and writes it (tmp + rename) only
+  # once it listens, so no check runs before the port is taken. It exits with this
+  # test's shell (it polls that PID), so a slow run cannot outlive it.
   python3 -c '
-import socket, sys, time
-s = socket.socket(); s.bind(("127.0.0.1", 0)); s.listen(1)
-open(sys.argv[1], "w").write(str(s.getsockname()[1]))
-time.sleep(300)' "$tmp/port" &
+import os, socket, sys, time
+s = socket.socket()
+s.bind(("127.0.0.1", 0))
+s.listen(1)
+with open(sys.argv[1] + ".tmp", "w") as f:
+    f.write("%d\n" % s.getsockname()[1])
+os.rename(sys.argv[1] + ".tmp", sys.argv[1])
+while True:
+    try:
+        os.kill(int(sys.argv[2]), 0)
+    except OSError:
+        break
+    time.sleep(0.5)
+' "$tmp/port" "$$" &
   listener_pid=$!
-  for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -s "$tmp/port" ]] && break; sleep 0.2; done
-  port="$(cat "$tmp/port")"
+  for _ in $(seq 1 600); do [[ -s "$tmp/port" ]] && break; kill -0 "$listener_pid" 2>/dev/null || break; sleep 0.1; done
+  port="$(cat "$tmp/port" 2>/dev/null || true)"
+  if ! [[ "$port" =~ ^[0-9]+$ ]]; then
+    error "the test listener never took a port; the taken-port checks cannot run"
+    exit 1
+  fi
   proc_setup "web:sleep 300"; SVC_PORTS=("$port")
   svc_start >"$out" 2>&1; check "a taken port refuses start" 1 $?
   said "the refusal names the port" "$out" "port $port is already in use by"
