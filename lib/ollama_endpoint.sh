@@ -2297,7 +2297,7 @@ _ollama_ep_env_set() {
 # file as they read it and drop the other's lines. mkdir is the lock: atomic on
 # every system, no flock on macOS. Next to the file's real path, or under
 # TMPDIR (else /tmp) when that directory is not writable. Waits up to about 10
-# seconds; a lock older than that (a killed run) is taken over.
+# seconds; a lock still held then (a killed run) is taken over.
 # Returns: 0 locked; 1 no lock (the caller writes without one).
 # Output: stdout the lock directory to rmdir when done.
 _ollama_ep_env_lock() {
@@ -2312,6 +2312,9 @@ _ollama_ep_env_lock() {
   if [[ -w "$dir" ]]; then
     lock="$dir/.$(basename "$target").lock"
   else
+    # The same file by any path (relative, absolute, through a symlinked
+    # directory) is the same lock.
+    target="$(cd "$dir" 2>/dev/null && pwd -P)/$(basename "$target")" || return 1
     lock=""
     for d in "${TMPDIR:-}" /tmp; do
       [[ -n "$d" && -w "$d" ]] || continue

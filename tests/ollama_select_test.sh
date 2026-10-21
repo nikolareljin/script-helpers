@@ -520,7 +520,8 @@ if [[ "$(id -u)" != "0" ]]; then
   for _ in 1 2 3 4 5 6; do
     chmod 700 "$tmp/rod"; printf 'KEEP=1\n' >"$tmp/rod/.env"; chmod 500 "$tmp/rod"
     TMPDIR="$tmp/tdir" _ollama_ep_env_set "$tmp/rod/.env" A_CHOICE a A_CHOICE_FOR b & p1=$!
-    TMPDIR="$tmp/tdir" _ollama_ep_env_set "$tmp/rod/.env" B_CHOICE c B_CHOICE_FOR d & p2=$!
+    # The second by a relative path: the same file, so the same lock.
+    (cd "$tmp" && TMPDIR="$tmp/tdir" _ollama_ep_env_set rod/.env B_CHOICE c B_CHOICE_FOR d) & p2=$!
     wait "$p1" "$p2"
     [[ "$(grep -c -E '^(KEEP|A_CHOICE|A_CHOICE_FOR|B_CHOICE|B_CHOICE_FOR)=' "$tmp/rod/.env")" == 5 ]] || lost=$((lost + 1))
   done
