@@ -64,6 +64,11 @@ if [ -n "$real_openssl" ]; then
   cat > "$tmp/bin/openssl" <<STUB
 #!/usr/bin/env bash
 echo "\$*" >> "\$STORE/openssl_argv"
+# P12_EXTRA_KEY: a key put before the .p12's own, as in a file exported
+# with two identities.
+case " \$* " in
+  *" -nocerts "*) [ -n "\${P12_EXTRA_KEY:-}" ] && cat "\$P12_EXTRA_KEY" ;;
+esac
 exec "$real_openssl" "\$@"
 STUB
   chmod +x "$tmp/bin/openssl"
@@ -279,6 +284,9 @@ if [ -n "$real_openssl" ]; then
   rc=0; out="$(apple "$tmp/chain.p12" p12-pw-value)" || rc=$?
   [ "$rc" = 0 ] || error "p12 with a chain: exit $rc: $out"
   grep -q 'expires on' <<< "$out" && error "p12 valid for a year: warned of expiry: $out"
+  # Two identities exported together: the other key comes first.
+  rc=0; out="$(P12_EXTRA_KEY="$tmp/otherkey.pem" apple "$tmp/cert.p12" p12-pw-value)" || rc=$?
+  [ "$rc" = 0 ] || error "p12 with two keys: exit $rc: $out"
   "$real_openssl" req -new -key "$tmp/p12key.pem" -subj "$p12_subj" -out "$tmp/p12.csr" >/dev/null 2>&1
   # Expiring tomorrow: stored, with a warning.
   "$real_openssl" x509 -req -in "$tmp/p12.csr" -signkey "$tmp/p12key.pem" -days 1 -out "$tmp/soon.pem" >/dev/null 2>&1 \
@@ -290,6 +298,11 @@ if [ -n "$real_openssl" ]; then
   if "$real_openssl" x509 -req -in "$tmp/p12.csr" -signkey "$tmp/p12key.pem" -days -1 -out "$tmp/old.pem" >/dev/null 2>&1; then
     P12_CERT="$tmp/old.pem" make_p12 "$tmp/old.p12" p12-pw-value || error "pkcs12 -export (expired) failed"
     p12_refused "expired certificate" "expired on" "$tmp/old.p12" p12-pw-value
+    # Renewed on the same key, the expired certificate listed first: stored.
+    cat "$tmp/old.pem" "$tmp/p12cert.pem" > "$tmp/renewed.pem"
+    P12_CERT="$tmp/renewed.pem" make_p12 "$tmp/renewed.p12" p12-pw-value || error "pkcs12 -export (renewed) failed"
+    rc=0; out="$(apple "$tmp/renewed.p12" p12-pw-value)" || rc=$?
+    [ "$rc" = 0 ] || error "renewed certificate next to the expired one: exit $rc: $out"
   else
     note "SKIP expired .p12: this openssl cannot write a certificate in the past"
   fi

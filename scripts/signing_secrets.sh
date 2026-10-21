@@ -269,14 +269,8 @@ check_p12() {
       exit 2
     fi
   fi
-  # Count PEM headers only; the key passes through the pipe, never a file.
-  # A .p12 without a MAC opens with any password, so a failure here is
+  # A .p12 without a MAC opens with any password, so a failure below is
   # reported as one, not as a missing key.
-  p12_count() { # pattern args...
-    local pat="$1"; shift
-    p12 "$@" 2>"$err" | grep -c -- "$pat"
-    return "${PIPESTATUS[0]}"
-  }
   p12_fail() {
     if grep -qi -E 'mac verify|bad decrypt|wrong password' "$err"; then
       log_error "--apple-p12 does not open: wrong APPLE_CERTIFICATE_PASSWORD"
@@ -286,37 +280,50 @@ check_p12() {
     exit 2
   }
   # Certificates are public; each goes to its own file to be read below.
-  local certs="$work/p12certs" i=0 n_certs cn found="" key_pub end
+  local certs="$work/p12certs" i=0 n_certs cn pub key_pubs found="" expired="" named=0 end
   mkdir "$certs"
-  n="$(p12 -nokeys 2>"$err" | awk -v d="$certs" '
+  n_certs="$(p12 -nokeys 2>"$err" | awk -v d="$certs" '
     /-----BEGIN CERTIFICATE-----/ { n++; f = d "/" n ".pem" }
     f { print > f }
     /-----END CERTIFICATE-----/ { close(f); f = "" }
     END { print n + 0 }')" || p12_fail
-  [[ "${n:-0}" -ge 1 ]] || { log_error "--apple-p12 holds no certificate"; exit 2; }
-  n_certs="$n"
-  n="$(p12_count '-----BEGIN .*PRIVATE KEY-----' -nocerts -nodes)" || p12_fail
-  [[ "${n:-0}" -ge 1 ]] || { log_error "--apple-p12 holds no private key"; exit 2; }
+  [[ "${n_certs:-0}" -ge 1 ]] || { log_error "--apple-p12 holds no certificate"; exit 2; }
+  # The public half of each private key, one per line. Each key reaches
+  # openssl pkey through a pipe, never a file.
+  key_pubs="$(p12 -nocerts -nodes 2>"$err" | awk -v cmd="openssl pkey -pubout 2>/dev/null | tr -d '\\n'; echo" '
+    /-----BEGIN .*PRIVATE KEY-----/ { k = 1 }
+    k { print | cmd }
+    /-----END .*PRIVATE KEY-----/ { close(cmd); k = 0 }')" || p12_fail
+  [[ -n "${key_pubs//$'\n'/}" ]] || { log_error "--apple-p12 holds no private key"; exit 2; }
   # codesign looks the certificate up by --apple-identity and signs with its
-  # key, so that certificate must be in the file, match the key and be in date.
+  # key, so that certificate must be in the file with its key, and in date.
+  # A renewed certificate may sit next to the expired one, in any order.
   while [[ "$i" -lt "$n_certs" ]]; do
     i=$((i+1))
     cn="$(openssl x509 -in "$certs/$i.pem" -noout -subject -nameopt multiline,-esc_msb,utf8 2>/dev/null \
       | sed -n 's/^ *commonName *= //p')"
-    if [[ "$cn" == "$apple_identity" ]]; then found="$certs/$i.pem"; break; fi
+    [[ "$cn" == "$apple_identity" ]] || continue
+    named=1
+    pub="$(openssl x509 -in "$certs/$i.pem" -noout -pubkey 2>/dev/null | tr -d '\n')"
+    [[ -n "$pub" ]] && grep -qxF -- "$pub" <<< "$key_pubs" || continue
+    if openssl x509 -in "$certs/$i.pem" -noout -checkend 0 >/dev/null 2>&1; then
+      found="$certs/$i.pem"
+      break
+    fi
+    expired="$certs/$i.pem"
   done
-  [[ -n "$found" ]] || { log_error "--apple-p12 holds no certificate named '$apple_identity'"; exit 2; }
-  key_pub="$(p12 -nocerts -nodes 2>"$err" | openssl pkey -pubout 2>>"$err")" || p12_fail
-  if [[ "$(openssl x509 -in "$found" -noout -pubkey 2>/dev/null)" != "$key_pub" ]]; then
-    log_error "--apple-p12: the certificate '$apple_identity' does not match the private key"
-    exit 2
-  fi
-  end="$(openssl x509 -in "$found" -noout -enddate 2>/dev/null | sed 's/^notAfter=//')"
-  if ! openssl x509 -in "$found" -noout -checkend 0 >/dev/null 2>&1; then
-    log_error "--apple-p12: the certificate '$apple_identity' expired on $end"
+  if [[ -z "$found" ]]; then
+    if [[ -n "$expired" ]]; then
+      log_error "--apple-p12: the certificate '$apple_identity' expired on $(openssl x509 -in "$expired" -noout -enddate 2>/dev/null | sed 's/^notAfter=//')"
+    elif [[ "$named" -eq 1 ]]; then
+      log_error "--apple-p12: the certificate '$apple_identity' does not match the private key"
+    else
+      log_error "--apple-p12 holds no certificate named '$apple_identity'"
+    fi
     exit 2
   fi
   if ! openssl x509 -in "$found" -noout -checkend 2592000 >/dev/null 2>&1; then
+    end="$(openssl x509 -in "$found" -noout -enddate 2>/dev/null | sed 's/^notAfter=//')"
     log_warn "--apple-p12: the certificate '$apple_identity' expires on $end; renew it"
   fi
   return 0

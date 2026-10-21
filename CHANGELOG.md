@@ -19,7 +19,8 @@
   OpenSSL 3. Without openssl it exits 2 unless `--skip-p12-check` is given.
   The `.p12` must hold the `--apple-identity` certificate with its own key,
   not expired (a warning within 30 days), and `--apple-identity` must end in
-  `(<--apple-team>)`.
+  `(<--apple-team>)`. A file with several identities, or with a renewed
+  certificate next to the expired one, passes.
 - `ps/lib/rust.ps1` resolves the selected rustup Cargo before native Rust checks run.
 - `tests/machine/rust_resolver_check.sh` and `ps/tests/machine/rust_resolver_check.ps1` check the Rust resolver against the installed rustup and cargo: PATH order, the PATH-cargo-differs warning, `ErrorActionPreference = 'Stop'`, and preflight on a throwaway cargo project.
 
