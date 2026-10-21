@@ -2,6 +2,7 @@
 
 ### Added
 
+- `scripts/ollama_models.sh select <type>` and `ai_model_resolve` pick a local model by type of work and host tier from `config/ollama_model_tiers.txt` (generated data), ask once on a terminal when the project's own model differs, and store the answer in the project's `.env` when git ignores it, with the two models it was asked about (`NAME_CHOICE_FOR`, `NAME_CHOICE_PROJECT`), so a change to either asks again; never ask in CI. A `.env` that is a hard link, or in a directory that is not writable, is updated in place, and two runs storing at once take turns. A threshold in the tiers file that is not a whole number is an error, not a lower tier. A `NAME_CHOICE` set by hand is used as is. `class` now prints the tier.
 - **`scripts/signing_secrets.sh`: the package-signing secrets on a list of
   repositories.** Sets the names ci-helpers `docs/packaging.md` uses
   (`--group gpg`: `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`, `GPG_KEY_ID`, per-repo
@@ -48,6 +49,9 @@
 
 ### Fixed
 
+- `tests/docs_site_test.sh` no longer fails at random on a busy machine: its
+  test listener picks its own port and the `port_choose` checks start only once
+  it listens; it stays up until the test exits (#206).
 - `printf ... | grep -q` and `cmd | grep -q` returned 141 under `set -o
   pipefail` when grep matched early and the writer got SIGPIPE, so a present
   match read as missing (`check_docker`, `_docker_service_running`,
