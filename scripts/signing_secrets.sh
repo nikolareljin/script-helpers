@@ -300,7 +300,8 @@ check_p12() {
   # A renewed certificate may sit next to the expired one, in any order.
   while [[ "$i" -lt "$n_certs" ]]; do
     i=$((i+1))
-    cn="$(openssl x509 -in "$certs/$i.pem" -noout -subject -nameopt multiline,-esc_msb,utf8 2>/dev/null \
+    # Unescaped: OpenSSL 3 prints a backslash in the name as "\\" otherwise.
+    cn="$(openssl x509 -in "$certs/$i.pem" -noout -subject -nameopt multiline,-esc_msb,-esc_ctrl,utf8 2>/dev/null \
       | sed -n 's/^ *commonName *= //p')"
     [[ "$cn" == "$apple_identity" ]] || continue
     named=1

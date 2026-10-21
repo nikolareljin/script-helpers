@@ -308,6 +308,20 @@ if [ -n "$real_openssl" ]; then
   else
     note "SKIP expired .p12: this openssl cannot write a certificate in the past"
   fi
+  # Names are compared as written: parentheses, a comma, quotes and a
+  # backslash in the name are not escaped away.
+  odd_id='Developer ID Application: A "Q" \\ B, Zo\xc3\xab (EU) Ltd (ABCDE12345)'
+  odd_id="$(printf '%b' "$odd_id")"
+  odd_subj="/CN=$(printf '%s' "$odd_id" | sed 's/[\\/=+,]/\\&/g')"
+  if "$real_openssl" req -x509 -utf8 -new -key "$tmp/p12key.pem" -out "$tmp/odd.pem" -days 365 -subj "$odd_subj" >/dev/null 2>&1 \
+    && P12_CERT="$tmp/odd.pem" make_p12 "$tmp/odd.p12" p12-pw-value; then
+    rc=0
+    out="$(APPLE_CERTIFICATE_PASSWORD=p12-pw-value APPLE_APP_PASSWORD="app-pw-value" bash "$SCRIPT" --repos o/p --group apple \
+      --apple-p12 "$tmp/odd.p12" --apple-identity "$odd_id" --apple-team ABCDE12345 --apple-id me@example.invalid 2>&1)" || rc=$?
+    [ "$rc" = 0 ] || error "identity with a backslash and parentheses: exit $rc: $out"
+  else
+    error "pkcs12 -export (odd name) failed"
+  fi
   # --skip-p12-check stores a .p12 that would not open.
   rc=0; out="$(apple "$tmp/cert.p12" wrong-p12-pw --skip-p12-check)" || rc=$?
   [ "$rc" = 0 ] || error "--skip-p12-check: exit $rc: $out"
