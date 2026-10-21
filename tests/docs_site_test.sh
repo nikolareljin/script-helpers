@@ -200,10 +200,32 @@ check "the output and a real virtualenv are removed" "0:no:no" "$rc:$([[ -e "$re
 
 # --- port_choose -------------------------------------------------------------
 # A listener of our own, on a port the OS picked, stands for a taken port.
-port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
-python3 -c 'import socket,sys,time; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("127.0.0.1",int(sys.argv[1]))); s.listen(); time.sleep(120)' "$port" &
+# It binds port 0 and writes the port only once it listens, so no check runs
+# before the port is taken, and no other process can take it between a probe
+# and the bind. It stays up until this test exits (it watches this shell's PID), so
+# a slow run cannot outlive it.
+python3 -c '
+import os, socket, sys, time
+s = socket.socket()
+s.bind(("127.0.0.1", 0))
+s.listen()
+with open(sys.argv[1] + ".tmp", "w") as f:
+    f.write("%d\n" % s.getsockname()[1])
+os.rename(sys.argv[1] + ".tmp", sys.argv[1])
+while True:
+    try:
+        os.kill(int(sys.argv[2]), 0)
+    except OSError:
+        break
+    time.sleep(0.5)
+' "$tmp/port" "$$" &
 holder=$!
-for _ in 1 2 3 4 5 6 7 8 9 10; do port_is_free "$port" || break; sleep 0.2; done
+for _ in $(seq 1 600); do [[ -s "$tmp/port" ]] && break; kill -0 "$holder" 2>/dev/null || break; sleep 0.1; done
+port="$(cat "$tmp/port" 2>/dev/null || true)"
+if [[ -z "$port" ]] || port_is_free "$port"; then
+  error "the test listener never took a port; the port_choose checks cannot run"
+  exit 1
+fi
 
 some_free="$(port_next_free 40000)"
 check "a free port is printed as it is, nobody asked" "$some_free" "$(port_choose "$some_free" </dev/null 2>/dev/null)"
