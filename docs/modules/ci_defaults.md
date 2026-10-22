@@ -4,7 +4,7 @@ Centralized defaults for Docker images used by `scripts/ci_*.sh` helpers.
 
 ## Environment variables
 
-All values can be overridden by setting the variable before invoking a script.
+All values can be overridden by setting the variable before invoking a script. Overrides are per variable: `lib/foxguard.sh`, `lib/gitleaks.sh` and `lib/ollama_install.sh` always load these defaults, so a variable you set is kept and every other one stays pinned. A different release version with the pinned checksums is refused as a checksum mismatch, so set the version and the checksum of each platform you install on.
 
 ### Node.js
 - `CI_DEFAULT_NODE_VERSION` (default: `24-bookworm`)
@@ -35,8 +35,6 @@ All values can be overridden by setting the variable before invoking a script.
 - `CI_DEFAULT_FOXGUARD_SHA256_LINUX_X86_64`, `..._LINUX_AARCH64`, `..._MACOS_X86_64`, `..._MACOS_AARCH64`, `..._WINDOWS_X86_64`
 
 Not a Docker image. `ci_security.sh --install-foxguard` downloads that release binary and refuses it unless its SHA-256 matches; see the [foxguard module](./foxguard.md). Bump the version and every checksum together, from the release's `checksums.txt`.
-
-Overrides are per variable. `lib/foxguard.sh`, `lib/gitleaks.sh` and `lib/ollama_install.sh` always load these defaults, so a variable you set is kept and every other one stays pinned. A different version with the pinned checksums is refused as a checksum mismatch: set the version and the checksum of each platform you install on.
 
 ### Wrangler (Cloudflare)
 - `CI_DEFAULT_WRANGLER_VERSION` (default: `4.42.0`)
