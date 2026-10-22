@@ -180,6 +180,8 @@ model="$(scripts/script-helpers/scripts/ollama_models.sh select general "$OLLAMA
 | `.env` cannot be read | exit 10 |
 | `AI_MODEL_TIER` not a tier | exit 11, naming the value |
 | a threshold in the tiers file that is not a whole number | exit 10, naming it |
+| the tier's model has a size line and this host is under its floor | the next lower tier's model for that type (a 12 GB card is large by threshold, but gets the standard `code` model when the large one needs 19 GiB) |
+| a malformed size line for a model it reaches | exit 10, naming the line |
 
 Only the model is printed on stdout. Nothing is ever removed.
 The answer is normally written to a temporary file next to `.env` and moved
@@ -192,6 +194,36 @@ The tier list is a guideline: a model is ranked only against models of the
 same size class, never across classes.
 `scripts/ollama_models.sh class` prints the host's tier (`unknown`, with a
 warning and exit 0, when there is no tiers file).
+
+### Size lines: a floor per model
+
+One threshold per tier cannot fit every model: the large tier starts at an
+11 GiB card, and some large models need 19 GiB. The tiers file may give a
+model a size line:
+
+```text
+size <model> <class> <GPU GiB> <memory GiB or ->
+size qwen3-coder:30b     large   19   30
+size qwen3.6:27b-coding  xlarge  23   -
+```
+
+`<class>` is the model's size class, the lowest tier it is meant for. When
+the tier is measured, the model runs on a host whose largest GPU has at least
+`<GPU GiB>`, or whose memory is at least `<memory GiB>` (`-`: GPU only; a
+mixture-of-experts model can run on the CPU). Otherwise the next lower tier's
+model for the type is used, down to small. A tier named by `AI_MODEL_TIER` is
+used as stated, and so is the standard tier given when memory cannot be read.
+Size lines are optional: a file without them reads as before. Floors are whole
+GiB; a value such as `19.5` is refused.
+
+`scripts/ollama_tiers_check.sh [file]` checks a tiers file and exits 1 on any
+refused line: a malformed line, a second line for one threshold, type or
+model, a size line for a model no type row names, a file with no type rows, a
+type name that is not lower case, a model whose size class is above the cell
+it sits in, a GPU floor outside its class (standard: under `large_vram_gb`;
+large: at least `large_vram_gb` and under `xlarge_vram_gb`; xlarge: at least `xlarge_vram_gb`), or, in one row, a
+higher tier's model that needs less GPU than a lower tier's model of the same
+class. Models of different classes are not compared.
 
 The start script
 ----------------

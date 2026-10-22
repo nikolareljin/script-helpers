@@ -2673,7 +2673,8 @@ Usage: scripts/ollama_models.sh class [models_file]
           models file, the model each NAME gets.
   select  Print the one model to use for a type of work (general, reasoning,
           classify, extract, vision, embed, code, ...): the approved model for this
-          host's tier (config/ollama_model_tiers.txt), or the project's own model
+          host's tier (config/ollama_model_tiers.txt; a lower tier's when this host
+          is under the model's size-line floor), or the project's own model
           (NAME from the environment, else from env_file, else default_model). When
           they differ, a terminal is asked once and the answer is stored in env_file
           (NAME_CHOICE, NAME_CHOICE_FOR, NAME_CHOICE_PROJECT) when git ignores
@@ -2704,8 +2705,9 @@ or a tiers file threshold that is not a whole number (select: 10)
 1-9 with ensure: as ollama_project_ensure_models (docs/local-models.md)
 with select: 0 chosen and present; 1-8 as ollama_endpoint_ensure_models
 (4 no Ollama, 5 missing and not pulled); 10 more than five arguments,
-a bad type, NAME, model, data file or env_file; 11 bad AI_MODEL_TIER; 12 no terminal and the
-Ollama has neither model
+a bad type, NAME, model, data file or env_file, or a malformed size
+line for the model it reaches; 11 bad AI_MODEL_TIER; 12 no terminal
+and the Ollama has neither model
 ```
 
 Example:
@@ -2714,6 +2716,46 @@ Example:
   scripts/ollama_models.sh class ai-models.env
   model="$(scripts/ollama_models.sh select general http://127.0.0.1:11434 .env OLLAMA_MODEL qwen2.5:7b)"
   OLLAMA_PULL_MISSING=1 scripts/ollama_models.sh ensure ai-models.env http://127.0.0.1:11434 OLLAMA_CODE_MODEL
+```
+
+### `scripts/ollama_tiers_check.sh`
+
+Check a model tiers file (config/ollama_model_tiers.txt): every line well formed, no model bigger than the tier cell it sits in, and floors that agree with the thresholds.
+
+```text
+Usage: scripts/ollama_tiers_check.sh [tiers_file]
+  tiers_file  The file to check (default: OLLAMA_MODEL_TIERS_FILE, else the
+              shipped config/ollama_model_tiers.txt).
+  Refused, one line on stderr each:
+  - a line that is not a threshold, type or size line, a threshold that is
+    not a whole number, a type row without four model references, a
+    malformed size line, a second line for one threshold, type or model,
+    a size line for a model no type row names, a file with no type rows,
+    a type name that is not lower-case letters, digits, - and _;
+  - a cell whose model has a size class above the cell's tier (an xlarge
+    model in a large cell);
+  - a size line whose GPU floor is outside its class: large needs at least
+    large_vram_gb and less than xlarge_vram_gb, xlarge at least
+    xlarge_vram_gb, standard less than large_vram_gb;
+  - in one type row, a higher tier's model that needs less GPU than a lower
+    tier's model of the same size class. Models of different classes are
+    never compared.
+  -h, --help  Show this help.
+```
+
+Exit codes:
+
+```text
+0  the file passes
+1  one or more lines refused
+2  bad arguments or no such file
+```
+
+Example:
+
+```text
+  scripts/ollama_tiers_check.sh
+  scripts/ollama_tiers_check.sh /tmp/new_tiers.txt
 ```
 
 ### `scripts/prepare_public.sh`
