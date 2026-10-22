@@ -27,7 +27,8 @@
 
 ### Changed
 
-- `ci_security.sh` pins foxguard 0.14.1 (was 0.14.0), with the five release checksums. 0.14.1 drops false-positive critical `js/no-sql-injection` findings on parameterized `sql` tags; config file names, CLI flags and exit codes are unchanged.
+- `ci_security.sh` pins foxguard 0.14.1 (was 0.14.0), with the five release checksums. 0.14.1 drops false-positive critical `js/no-sql-injection` findings on parameterized `sql` tags, and now scans C, Bash, JavaScript and TypeScript files that 0.14.0 skipped on a parse error, so such a file can report new findings; config file names, CLI flags, exit codes and the JSON `total` are unchanged.
+- CI downloads the pinned foxguard on Linux, macOS and Windows and fails unless it matches its SHA-256 and reports the pinned version. The unit test stubs the download, so a wrong checksum used to pass CI.
 - `docs/commands.md` now includes `ps/scripts`; Bash and PowerShell entry commands use the same structured header fields and publish their examples.
 - Exit and return codes a caller can see changed. Check `if`, `|| true`
   and `$?` handling that depends on the old values:

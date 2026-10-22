@@ -79,6 +79,17 @@ jobs:
       - name: make lint-docs
         run: make lint-docs
 
+      # tests/ci_security_foxguard_test.sh stubs curl, so this is the only check
+      # that the pinned SHA-256 in lib/ci_defaults.sh matches the real release.
+      - name: Pinned foxguard downloads, matches its SHA-256 and runs (real, not stubbed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          XDG_CACHE_HOME="$(mktemp -d)"; export XDG_CACHE_HOME
+          bash scripts/ci_security.sh --install-foxguard
+          bash -c 'set -euo pipefail; source ./helpers.sh; shlib_import foxguard
+            bin="$(foxguard_cache_path)"; got="$("$bin" --version)"; echo "$bin: $got"
+            [ "$got" = "foxguard $CI_DEFAULT_FOXGUARD_VERSION" ]'
       - name: make test
         run: make test
 
