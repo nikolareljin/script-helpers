@@ -18,7 +18,7 @@ Functions
   - Env:
     - `FRONTEND_HOST` (default `localhost`)
     - `FRONTEND_PORT` (default `3000`)
-    - `COMPOSE_ARGS` (optional array) — additional args for `docker_compose`.
+    - `COMPOSE_ARGS` (optional array) - additional args for `docker_compose`.
   - Behavior: Waits up to `max_wait_seconds` and logs progress; opens the URL even on timeout.
 
 Dependencies

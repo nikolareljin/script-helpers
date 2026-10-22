@@ -13,9 +13,9 @@ Functions
 - `svg_rasterize in.svg out.png [size=1024]`
   - Purpose: Render an SVG on a transparent, square PNG canvas.
   - Args:
-    - `in.svg` — existing source SVG.
-    - `out.png` — destination PNG; its parent directory is created as needed.
-    - `size` — positive integer width and height in pixels; defaults to 1024.
+    - `in.svg` - existing source SVG.
+    - `out.png` - destination PNG; its parent directory is created as needed.
+    - `size` - positive integer width and height in pixels; defaults to 1024.
   - Returns: 0 on success; 1 on a render failure; 2 for missing or invalid arguments; 3 when no supported rasterizer is available.
   - Dependencies: Inkscape or ImageMagick on `PATH`. The logging module is optional; plain messages are used when it has not been imported.
   - Example: `svg_rasterize assets/logo.svg build/logo.png 512`

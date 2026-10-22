@@ -48,8 +48,8 @@ Print exactly one of:
 
 | Word | Meaning |
 |---|---|
-| `merged` | The tip is an ancestor of the base — an ordinary merge. |
-| `squashed` | The tip is not an ancestor, but the branch's cumulative change is already in the base — a squash merge, a rebase merge or a cherry-pick. |
+| `merged` | The tip is an ancestor of the base - an ordinary merge. |
+| `squashed` | The tip is not an ancestor, but the branch's cumulative change is already in the base - a squash merge, a rebase merge or a cherry-pick. |
 | `unmerged` | The branch carries work the base does not have. |
 | `unrelated` | The two share no history. |
 | `unknown` | The squash probe could not be built, or `git cherry` matched the patch but the byte-exact confirmation did not (a whitespace-only difference) or could not run, so the question was not answered. Distinct from `unmerged` on purpose: both keep the branch, but only `unmerged` means "I checked, and the base lacks this work". |
@@ -57,20 +57,20 @@ Print exactly one of:
 - **Returns** 2 on missing arguments.
 - The probe commit carries its own throwaway identity. `git commit-tree`
   refuses to run without an author and a committer, and an environment with no
-  git identity — CI, a fresh container, a cron user — is exactly where this
+  git identity - CI, a fresh container, a cron user - is exactly where this
   runs unattended. Without it the probe fails, the error is swallowed, and
   every squash-merged branch comes back `unmerged`: the check stops working
   while still printing a confident answer.
 - The squash test builds a throwaway commit carrying the branch's tree on top
-  of the merge base — exactly the commit a squash merge would produce — and
+  of the merge base - exactly the commit a squash merge would produce - and
   asks `git cherry` whether an equivalent patch is upstream. `git cherry`
   compares patch-ids, so it sees through a different sha, author, date or
   message. The probe commit is dangling and is garbage-collected.
 - `git cherry`'s patch-ids ignore whitespace, so a match is confirmed byte for
   byte against the non-merge commits on the base since the merge base before
   the branch is called `squashed`. Without that, a branch that landed and then
-  received a whitespace-only commit — a re-indent, which in Python or YAML
-  changes behaviour — was reported `squashed` and deleted with that commit on
+  received a whitespace-only commit - a re-indent, which in Python or YAML
+  changes behaviour - was reported `squashed` and deleted with that commit on
   it. A match `git cherry` finds and the byte-exact check does not confirm is
   reported `unknown` and kept.
 - The confirmation uses `git patch-id --verbatim` (git 2.39+). On an older git
@@ -79,8 +79,8 @@ Print exactly one of:
   verbatim patch-id ignores; a binary change keeps its `index` line, whose blob
   ids are the only thing that tells two binary changes apart. Only when neither
   can run is every such branch `unknown`.
-- Only base commits that touch the paths the branch touches are compared — a
-  commit with an identical patch necessarily touches exactly those paths — and
+- Only base commits that touch the paths the branch touches are compared - a
+  commit with an identical patch necessarily touches exactly those paths - and
   patches are taken with `--full-index` but without `--binary`, so a base with
   a long history of binary assets is not diffed blob by blob. Path names are
   read NUL-separated and passed as literal pathspecs, so names with spaces,
@@ -92,7 +92,7 @@ Print exactly one of:
 ### `git_branches_has_unpushed <branch>`
 
 True when the branch holds commits its upstream does not. A branch with **no**
-upstream returns false — never having been pushed is not the same as having
+upstream returns false - never having been pushed is not the same as having
 unpushed work, and the merge state decides whether it is disposable.
 
 ### `git_branches_worktree_of <branch>`

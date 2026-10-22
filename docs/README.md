@@ -1,4 +1,4 @@
-# Script Helpers — Documentation
+# Script Helpers - Documentation
 
 ![script-helpers](assets/hero.svg)
 
@@ -8,8 +8,8 @@
 $ source helpers.sh && shlib_import logging docker ports
 $ print_success "script-helpers is ready"
 Success [OK]: script-helpers is ready
-$ check_required_ports_available 8000 5432
-8000 free · 5432 in use by postgres (pid 4412)
+$ port_next_free 8000
+8001
 ```
 
 </div>
@@ -51,51 +51,51 @@ print_success "script-helpers is ready"
 Modules overview
 ----------------
 
-- helpers — loader and import utilities.
-- logging — color and log utilities for both stdout and stderr.
-- help — print help/usage from script header comments and common arg parsing.
-- os — OS detection and conditional sudo runner.
-- env — project root detection, .env loading, require envs.
-- file — file/dir checks, download with optional dialog gauge, ISO/checksum helpers.
-- dialog — `dialog` sizing, input, prompts that fall back to plain or none without a terminal, and a rich download progress gauge.
-- docker — docker compose detection/wrapper, service wait, status inspection.
-- docker_install — install Docker Engine (Linux) / Docker Desktop (macOS, Windows); idempotent `ensure_docker` guard. Bash + PowerShell + `bin/install-docker` / `ps/scripts/install_docker.ps1`.
-- deps — install utilities and AI Runner tooling profile.
-- json — escape strings, extract fields, markdown-friendly formatting.
-- http — probe a JSON service, prove an API key without putting it in argv.
-- svg — rasterize SVG artwork to square PNGs and icon-size sets.
+- helpers - loader and import utilities.
+- logging - color and log utilities for both stdout and stderr.
+- help - print help/usage from script header comments and common arg parsing.
+- os - OS detection and conditional sudo runner.
+- env - project root detection, .env loading, require envs.
+- file - file/dir checks, download with optional dialog gauge, ISO/checksum helpers.
+- dialog - `dialog` sizing, input, prompts that fall back to plain or none without a terminal, and a rich download progress gauge.
+- docker - docker compose detection/wrapper, service wait, status inspection.
+- docker_install - install Docker Engine (Linux) / Docker Desktop (macOS, Windows); idempotent `ensure_docker` guard. Bash + PowerShell + `bin/install-docker` / `ps/scripts/install_docker.ps1`.
+- deps - install utilities and AI Runner tooling profile.
+- json - escape strings, extract fields, markdown-friendly formatting.
+- http - probe a JSON service, prove an API key without putting it in argv.
+- svg - rasterize SVG artwork to square PNGs and icon-size sets.
 - webshot: web page screenshots from a JSON spec (login, actions, element clips) and HTML-to-PDF, with Playwright.
-- python — resolve Python 3 executables and ensure local virtualenvs.
-- ports — list port listeners, detect conflicts from env variables.
-- version — semantic version helpers for bumping, comparing, and offering an update to a person.
-- browser — open URLs and wait+open a frontend when ready.
-- certs — self‑signed certs and trust store installation.
-- hosts — /etc/hosts helpers.
-- clipboard — copy text to clipboard (Linux/macOS).
-- traps — simple EXIT/INT/TERM traps with error reporting.
-- ollama — install CLI, prepare models index, select/pull/run models.
+- python - resolve Python 3 executables and ensure local virtualenvs.
+- ports - list port listeners, detect conflicts from env variables.
+- version - semantic version helpers for bumping, comparing, and offering an update to a person.
+- browser - open URLs and wait+open a frontend when ready.
+- certs - self-signed certs and trust store installation.
+- hosts - /etc/hosts helpers.
+- clipboard - copy text to clipboard (Linux/macOS).
+- traps - simple EXIT/INT/TERM traps with error reporting.
+- ollama - install CLI, prepare models index, select/pull/run models.
 - ollama_endpoint: which models a project needs, what an Ollama has, and a disk and memory check before anything is pulled.
 - ollama_install: Ollama itself, from the pinned release checked against its SHA-256 (Homebrew on macOS).
-- package_publish — Debian package builds and PPA upload helpers.
-- packaging — packaging metadata helpers and template formatting.
-- ci_defaults — centralized Docker image version defaults for CI helper scripts.
-- adb — Android Debug Bridge toolkit: list/inspect devices (model, Android OS, API level, IP), install apps, copy files to/from, and debug (shell/logcat/status); multi-device safe; Bash + PowerShell + `scripts/adb_tool.sh` CLI.
-- ios — iOS device and simulator toolkit: discover, boot, install, launch, and build Flutter release apps or signed IPAs; macOS/Xcode only.
+- package_publish - Debian package builds and PPA upload helpers.
+- packaging - packaging metadata helpers and template formatting.
+- ci_defaults - centralized Docker image version defaults for CI helper scripts.
+- adb - Android Debug Bridge toolkit: list/inspect devices (model, Android OS, API level, IP), install apps, copy files to/from, and debug (shell/logcat/status); multi-device safe; Bash + PowerShell + `scripts/adb_tool.sh` CLI.
+- ios - iOS device and simulator toolkit: discover, boot, install, launch, and build Flutter release apps or signed IPAs; macOS/Xcode only.
 - service: start, stop, restart, status, logs and a readiness wait for a repository's services, through docker compose or as native processes in their own process groups (`.run/` pidfiles and logs).
-- serve — serve a static site directory locally for preview (auto-picks a free port; prefers `python3 -m http.server`); CLI wrapper `bin/serve-pages`.
-- gradle — wrapper resolution and task invocation; prefers the project's `./gradlew` over a system `gradle`; Bash + PowerShell.
-- android — Android build side: SDK resolution and bootstrap, one debug/release build toggle, artifact lookup, APK/AAB signing with a base64-keystore path and a debug-signed fallback, AVDs, emulator start/stop; Bash + PowerShell.
-- flutter — Flutter SDK resolution across the install locations a non-interactive shell misses, analyze/format/test/build, device listing and resolution; Bash + PowerShell.
-- git_branches — Whether a branch has already landed, including the squash and rebase merges `git branch --merged` cannot see, and whether it gained commits afterwards; backs scripts/prune_branches.sh.
-- screencap — screenshots and screen video from a device, emulator or simulator, plus ffmpeg frame extraction and GIF conversion; chunks past `screenrecord`'s 180s cap; Bash + PowerShell.
-- manifest — read and write the project version across pubspec, Gradle, VERSION, package.json and pyproject, with the Play Store versionCode derived from semver; Bash + PowerShell.
-- changelog — check, extract and generate the CHANGELOG release-header format that `ci-helpers` builds release notes from; Bash + PowerShell.
-- rust — resolve the Rust toolchain CI compiles with, rather than whatever `PATH` offers first; a distribution cargo shadowing rustup's fails with a lockfile error that names the wrong thing.
-- hub — corpus-hub setup for capture clients: local-vs-remote dialog, probe, API-key check, symlink-safe `.env` writing, bootstrap through the hub's own scripts, and an update offer.
+- serve - serve a static site directory locally for preview (auto-picks a free port; prefers `python3 -m http.server`); CLI wrapper `bin/serve-pages`.
+- gradle - wrapper resolution and task invocation; prefers the project's `./gradlew` over a system `gradle`; Bash + PowerShell.
+- android - Android build side: SDK resolution and bootstrap, one debug/release build toggle, artifact lookup, APK/AAB signing with a base64-keystore path and a debug-signed fallback, AVDs, emulator start/stop; Bash + PowerShell.
+- flutter - Flutter SDK resolution across the install locations a non-interactive shell misses, analyze/format/test/build, device listing and resolution; Bash + PowerShell.
+- git_branches - Whether a branch has already landed, including the squash and rebase merges `git branch --merged` cannot see, and whether it gained commits afterwards; backs scripts/prune_branches.sh.
+- screencap - screenshots and screen video from a device, emulator or simulator, plus ffmpeg frame extraction and GIF conversion; chunks past `screenrecord`'s 180s cap; Bash + PowerShell.
+- manifest - read and write the project version across pubspec, Gradle, VERSION, package.json and pyproject, with the Play Store versionCode derived from semver; Bash + PowerShell.
+- changelog - check, extract and generate the CHANGELOG release-header format that `ci-helpers` builds release notes from; Bash + PowerShell.
+- rust - resolve the Rust toolchain CI compiles with, rather than whatever `PATH` offers first; a distribution cargo shadowing rustup's fails with a lockfile error that names the wrong thing.
+- hub - corpus-hub setup for capture clients: local-vs-remote dialog, probe, API-key check, symlink-safe `.env` writing, bootstrap through the hub's own scripts, and an update offer.
 - ci_stack: disposable database containers for a CI run: start, wait until ready, remove with the volume.
 - docs_site: build, serve, preview and check a repository's documentation site with MkDocs.
 - foxguard: find, install and verify the pinned foxguard scanner that `scripts/ci_security.sh` runs.
 - gitleaks: install the pinned gitleaks secret scanner on a host that has none.
-- cloudflare — deploy to Cloudflare with wrangler: credential and account-id resolution, version and deploy-config derivation, a typed confirmation for protected environments, and a smoke test that asserts the deployed version is the one now live. Shares one deploy definition with CI through `CF_DEPLOY_*`.
+- cloudflare - deploy to Cloudflare with wrangler: credential and account-id resolution, version and deploy-config derivation, a typed confirmation for protected environments, and a smoke test that asserts the deployed version is the one now live. Shares one deploy definition with CI through `CF_DEPLOY_*`.
 
 If you add a new module or function, update [the API index](api.md), the relevant page under `modules/`, and the `nav:` list in `mkdocs.yml`. `make lint-docs` checks the first two; `mkdocs build --strict` checks the third. See AGENTS.md for the process and checklist.

@@ -49,17 +49,17 @@ Import patterns
 Environment variables
 ---------------------
 
-- `SCRIPT_HELPERS_DIR` — absolute or relative path to this repository. The loader auto-detects; set explicitly when needed.
-- `DEBUG=true` — enables `log_debug` output in logging.
-- `DOWNLOAD_USE_DIALOG` — download UI preference for `file::download_file`:
+- `SCRIPT_HELPERS_DIR` - absolute or relative path to this repository. The loader auto-detects; set explicitly when needed.
+- `DEBUG=true` - enables `log_debug` output in logging.
+- `DOWNLOAD_USE_DIALOG` - download UI preference for `file::download_file`:
   - `auto` (default): use dialog gauge if `dialog` is installed.
   - `true`/`1`: force dialog if available.
   - `false`/`0`/`never`: disable dialog UI.
-- `DIALOG_DOWNLOAD_SHOW_ERROR_DIALOG` — controls dialog download error popups:
+- `DIALOG_DOWNLOAD_SHOW_ERROR_DIALOG` - controls dialog download error popups:
   - default `1`: show dialog on download failure.
   - `0`/`false`/`never`: suppress popup and return non-zero to caller.
-- `PORT_DETECTION_ALLOW_SUDO` — allow sudo when probing ports (`ports` module). Default: `false`.
-- `FRONTEND_HOST`, `FRONTEND_PORT` — host/port for `browser::open_frontend_when_ready`.
+- `PORT_DETECTION_ALLOW_SUDO` - allow sudo when probing ports (`ports` module). Default: `false`.
+- `FRONTEND_HOST`, `FRONTEND_PORT` - host/port for `browser::open_frontend_when_ready`.
 
 Using as a library in other projects
 ------------------------------------
@@ -71,7 +71,7 @@ Using as a library in other projects
 Bundled CLIs
 ------------
 
-- `scripts/adb_tool.sh` — a ready-to-use CLI over the `adb` module for inspecting
+- `scripts/adb_tool.sh` - a ready-to-use CLI over the `adb` module for inspecting
   and debugging Android devices (multi-device safe). Subcommands:
   `list`, `status <serial>`, `ip <serial> [iface]`, `install <serial> <apk>`,
   `install-all <apk>`, `push <serial> <local> <remote>`, `pull <serial> <remote> [local]`,
@@ -89,7 +89,7 @@ Bundled CLIs
   same screenshots can be rebuilt after every UI change.
   See [`modules/webshot.md`](modules/webshot.md).
 
-- `scripts/prune_branches.sh` — removes branches whose work has already landed,
+- `scripts/prune_branches.sh` - removes branches whose work has already landed,
   including the squash and rebase merges `git branch --merged` cannot see, and
   only when the branch gained nothing afterwards. A dry run by default; `--apply`
   to act and `--remote` before a remote branch is considered at all. Options:
@@ -99,14 +99,14 @@ Bundled CLIs
   the meantime is kept. Run `scripts/prune_branches.sh --help` for details.
   See [`modules/git_branches.md`](modules/git_branches.md).
 
-- `scripts/check_private_names.sh` — refuses text that names a private
+- `scripts/check_private_names.sh` - refuses text that names a private
   repository of yours, before it becomes public. Scans the tracked tree
   (`--tree`), the messages of commits about to be pushed (`--commits <range>`),
   a pull request or issue body written to a file (`--file`), or standard input
   (`--stdin`).
 
   **The rule is about what becomes public.** With `--only-public` the check does
-  nothing at all in a repository your list marks private — a private repository
+  nothing at all in a repository your list marks private - a private repository
   naming another private repository is fine, and only the public ones are
   gated. A repository the list has never heard of *is* checked rather than
   assumed private: an unknown repository is most likely one created since the
@@ -116,7 +116,7 @@ Bundled CLIs
 
   Matching is `grep -iF`, deliberately not `-w`: a hyphen is a word boundary, so
   `-w` misses a name inside a longer path or a possessive. A name your list
-  flags `ambiguous` — one that is also an ordinary word — must instead appear as
+  flags `ambiguous` - one that is also an ordinary word - must instead appear as
   a whole token, not preceded or followed by a letter or digit, so `beaconed`
   and `unbeaconed` stop matching while `beacon`, `owner/beacon` and
   `<beacon>/path` still do. Ambiguous names are checked everywhere, including
@@ -126,7 +126,7 @@ Bundled CLIs
   or empty list is a failure, never a pass, because a green line from a check
   that scanned nothing is read as evidence.
 
-  Sometimes it will be wrong — certainly so, for a name that is also an everyday
+  Sometimes it will be wrong - certainly so, for a name that is also an everyday
   word. Three ways past it, and each says what it allowed rather than shrinking
   the check silently:
 
@@ -147,7 +147,7 @@ Bundled CLIs
   alone. Add your own words there, one per line; `#` starts a comment. A word that
   is ordinary English for everyone belongs in the shipped file, by pull request.
 
-- `scripts/refresh_private_names.sh` — builds that list from every account the
+- `scripts/refresh_private_names.sh` - builds that list from every account the
   token can see: you, plus your organizations.
 
   ```bash
@@ -174,37 +174,37 @@ Bundled CLIs
 
   The columns are located by that **header line**, not by position. That is not
   ceremony: the format gained the `namespace` column, and a parser reading the new
-  file by the old positions matched namespaces instead of repository names — so it
+  file by the old positions matched namespaces instead of repository names - so it
   reported "no private repository is named" over text that named one. A silent pass
   is the worst failure this check has, and a self-describing file makes that
   particular mistake unrepresentable. A file with no header is read as the v1 order.
 
-  `flags` is space-separated. `never-name` — no acceptable public reference exists at
-  all, so the refusal says to remove it rather than offering a code. `ambiguous` — also
-  an everyday word. `qualified-only` — a bare mention is not a reference.
+  `flags` is space-separated. `never-name` - no acceptable public reference exists at
+  all, so the refusal says to remove it rather than offering a code. `ambiguous` - also
+  an everyday word. `qualified-only` - a bare mention is not a reference.
 
   **`ambiguous` and `qualified-only` mean the same thing to the matcher: only
   `namespace/name` counts.** A bare "search" or "core" in English cannot be told from a
-  reference to a repository of that name — measured, matching those bare produced 50 hits
+  reference to a repository of that name - measured, matching those bare produced 50 hits
   in this repository alone, in prose and in identifiers, and blocked a commit whose only
   sin was a shell function called `search()`. Requiring the qualified form takes the same
   tree to zero. The matcher also applies that rule to any name of four characters or
   fewer, anything beginning with a dot, well-known directory names, and words that are
   in half the file names of any repository (`coverage`), whatever the file
-  says — because whether a bare mention can be a reference is a property of the name, and
+  says - because whether a bare mention can be a reference is a property of the name, and
   a generator that forgot to flag one should not silently turn this check into noise.
 
   A row whose `name` is `*` marks the namespace itself. It takes `--owner` repeatably, or
   `PRIVATE_NAMES_OWNERS`; it does **not** infer the owner from the repository you
   happen to be in, because a refresh run inside a third party's repository would
   rebuild your machine-wide dictionary from *their* namespace. It needs `gh`, authenticated,
-  and exits `3` when that is missing — distinctly from "your account has no
+  and exits `3` when that is missing - distinctly from "your account has no
   private repositories", which is exit `2` and writes nothing, since an empty
   list would leave a check that scans for nothing and reports success.
 
   **This is the only part that touches the network, and that is deliberate.** A
   check that called GitHub would add a round trip to every commit and every
-  push, to catch an event — a repository being created, or changing visibility —
+  push, to catch an event - a repository being created, or changing visibility -
   that you perform deliberately a few times a month. Refresh after one of those,
   or on a cadence of days. The list carries a `# generated:` header and the gate
   reads its age from that, never from mtime, which any copy or restore rewrites:
@@ -566,14 +566,14 @@ mechanical reason: a `pre-commit` hook runs before the message is written and
 cannot see it.
 
 The third is not a git hook. `gh pr create --body ...` never touches git, so no
-git hook can see a pull request body — and that is the surface where this rule
+git hook can see a pull request body - and that is the surface where this rule
 has actually been broken. It is a Claude Code `PreToolUse` hook that inspects
 the title, body and message arguments of a publishing command and blocks the
 call before it runs. It checks only the text being published, not the whole
 command line, so `gh pr create --repo <a-private-repo>` still works: a pull
 request *into* the private repository is exactly where its name belongs. It
 also refuses `--no-verify` on commit and push, since an agent has no legitimate
-reason to skip a local gate — a human at a terminal is unaffected, because the
+reason to skip a local gate - a human at a terminal is unaffected, because the
 hook only ever sees an agent's calls. Wire it up with:
 
 ```json
@@ -622,7 +622,7 @@ person is at a terminal and can read it. Nobody reads a warning printed by a
 hook that then allows the call: the pull request is created, the text is
 public, and the warning scrolls past.
 
-A hook that cannot check — no name list on this machine — says so and lets the
+A hook that cannot check - no name list on this machine - says so and lets the
 commit or push through. That is deliberate and is why "could not check" has its
 own exit code: a setup problem must not look like a clean tree, and it must not
 block every commit on a new machine either.
@@ -648,7 +648,7 @@ bash scripts/local_test_go.sh --quick
 bash scripts/local_test_rust.sh --quick
 ```
 
-By default the Rust gate runs against rustup's `stable` — what CI installs — rather
+By default the Rust gate runs against rustup's `stable` - what CI installs - rather
 than whatever `cargo` is first on `PATH`; a distribution cargo shadowing it fails
 with a lockfile error that names the wrong thing. `RUST_TOOLCHAIN=1.80.0` pins a
 channel or version; `--any-cargo` opts out for a repository that genuinely
@@ -687,7 +687,7 @@ The PHP runner targets PHP/Laravel projects: it runs `composer install`
 (falling back to `vendor/bin/phpunit`). When tests are not skipped and no
 runner is found, the script exits non-zero so callers do not treat "no runner"
 as a passing suite. Set `SKIP_PHP_TESTS=1` for a style-only run that skips the
-(often DB-backed) test suite — handy for a pre-push on a machine without a
+(often DB-backed) test suite - handy for a pre-push on a machine without a
 local database. In `scripts/run_repo_tests.sh`, `composer.json` is
 authoritative: a repo that has it runs the PHP suite rather than falling through
 to the Node runner, even when a `package.json` is also present for Vite. If PHP
@@ -1068,14 +1068,14 @@ bash scripts/preflight.sh --stack ios
 ```
 
 Off macOS, or without Xcode, the iOS checks report `SKIP` with a reason rather
-than failing — a skip is reported separately so it cannot be mistaken for a
+than failing - a skip is reported separately so it cannot be mistaken for a
 pass. The Flutter stack builds an APK only when it can: without
 an `android/` directory or an Android SDK it skips that step, so a Mac set up
 only for iOS work is not asked for the Android toolchain.
 
 `--quick` skips the iOS stack entirely, and says so. Its analyze and test steps
 belong to the flutter stack for the same directory, so the build is the whole
-of what the iOS step does — and `--quick` is defined as skipping builds. The
+of what the iOS step does - and `--quick` is defined as skipping builds. The
 old behaviour ran `ci_ios.sh` with every step disabled and still reported a
 passed "ios build", which is a claim about a build that never happened.
 
@@ -1092,7 +1092,7 @@ separately from passes, and the run still succeeds:
 | `local_test_python.sh` | pytest, or a ruff the project configures, is not installed (the reason names the install command), or pytest collects no tests |
 
 ```text
-SKIP  node (frontend/) lint + test — package.json declares no test script; nothing to test
+SKIP  node (frontend/) lint + test - package.json declares no test script; nothing to test
 ```
 
 Code that does not compile, and tests that fail, still fail. Exit 3 counts as
@@ -1136,7 +1136,7 @@ no `--device`, it fails with a message naming the fix rather than guessing.
 
 The two modes are not interchangeable. `--release` builds a signed `.ipa` and
 installs it through `devicectl` onto an **attached device**, so it resolves an
-attached device rather than a simulator, and stops at installed — `simctl
+attached device rather than a simulator, and stops at installed - `simctl
 launch` has no devicectl equivalent that works without a debug session. A debug
 deploy targets a booted **simulator**.
 
@@ -1166,7 +1166,7 @@ are enumerated and then drift.
 
 The same function is what a CI job calls. A reusable workflow supplies the
 credentials, the environment gate and the kill switch, then invokes
-`./dev deploy cloudflare` as its deploy command — so the laptop and the pipeline
+`./dev deploy cloudflare` as its deploy command - so the laptop and the pipeline
 run one sequence, not two that have to be kept in step by hand.
 
 Where CI has already decided a value it exports it, and the matching function
@@ -1185,7 +1185,7 @@ Two behaviours worth knowing before you automate anything:
 
 - `production` (and anything in `CLOUDFLARE_PROTECTED_ENVS`) asks you to type
   the environment name. With **no terminal** it returns `5` immediately rather
-  than blocking on a read nobody can answer — pass `--yes`, or set
+  than blocking on a read nobody can answer - pass `--yes`, or set
   `CLOUDFLARE_DEPLOY_YES=1`.
 - The smoke test asserts the **version**, not just a 200. Give it
   `--status-path`; without one it only proves something answered, which is the
@@ -1202,7 +1202,7 @@ reaches `argv` or `.git/config`.
 
 **Fingerprints, not allowlists, and that distinction is measured rather than
 assumed.** A `.gitleaks.toml` allowlist keyed on a path excludes that entire
-file from every rule — even with `condition = "AND"`, which reads as though it
+file from every rule - even with `condition = "AND"`, which reads as though it
 should narrow it. Two randomly generated secrets planted in the allowlisted
 files took this repository from 4 findings to **0**. The same two planted with
 the fingerprint file in place are still reported. A fingerprint names one rule
@@ -1227,7 +1227,7 @@ path as the scanner saw it, and `--source=/repo` writes `/repo/...` into it,
 which then matches nothing anywhere else.
 
 TruffleHog has no fingerprint file, and its only narrow control is a
-`trufflehog:ignore` comment on the offending line — which a line ending in a
+`trufflehog:ignore` comment on the offending line - which a line ending in a
 `\` continuation cannot carry. Rather than excluding whole paths, run it
 against the working tree and read the unverified results:
 
@@ -1237,7 +1237,7 @@ trufflehog filesystem . --exclude-paths <(echo '^\.git/')   # commit SHAs are 40
                                                             # Cloudflare key shape
 ```
 
-Excluding `.git` is not suppression of content — it is scanning the working
+Excluding `.git` is not suppression of content - it is scanning the working
 tree rather than the object store, and it removed 18 of 19 findings here. The
 one that remains is the dotenv parser's connection-string fixture, reported
 unverified. Leaving it visible and triaged is the intended state; a gate that

@@ -11,7 +11,7 @@ Functions
 
 - load_env [env_file=.env]
   - Purpose: Load environment variables from a dotenv file; exports them for the current shell.
-  - Args: env_file — path to a `.env` file; default `.env` in CWD.
+  - Args: env_file - path to a `.env` file; default `.env` in CWD.
   - Behavior: Sources the file with `allexport` on; a caller that already had `allexport` on keeps it on afterwards.
 
 - require_env VAR [VAR...]
@@ -20,9 +20,9 @@ Functions
 - resolve_env_value key default [env_file=.env]
   - Purpose: Resolve a value from the current environment or from a dotenv file; falls back to a default.
   - Args:
-    - key — variable name to resolve.
-    - default — value when not set anywhere.
-    - env_file — path to search when not present in the environment.
+    - key - variable name to resolve.
+    - default - value when not set anywhere.
+    - env_file - path to search when not present in the environment.
   - Parsing: the value is everything after the first `=`. A value in double or single quotes is the text between them (`#` inside is literal; in double quotes `\"` and `\\` are unescaped); a comment may follow the closing quote. An unquoted value ends at a `#` that follows whitespace (`ab#cd` is a value); a value that starts with `#` (`KEY=#x`) is read as empty and returns the default, although the shell and dotenv read `#x`. Leading/trailing whitespace and a trailing CR are trimmed. Internal whitespace and backslashes are kept as written. Text after a closing quote that is not a comment makes the value unquoted, with a stray leading and trailing quote dropped: `E='it''s'` returns `it''s`, not the shell's `its`.
   - Environment: a value taken from the environment goes through the same parser as one read from the file, so `KEY='"x" # c'` in the environment resolves to `x`.
   - Output: printed with `printf '%s\n'`, so values such as `-n` survive.

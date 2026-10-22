@@ -1,6 +1,6 @@
 # screencap
 
-Screenshots and screen video off a phone, tablet, emulator or simulator — for
+Screenshots and screen video off a phone, tablet, emulator or simulator - for
 README media, store listings and bug reports.
 
 One surface, two backends, chosen by platform:
@@ -27,15 +27,15 @@ Functions
 ---------
 
 - `screencap_available`
-  - Purpose: Report whether at least one backend can capture — `adb` with a ready device, or a booted iOS simulator.
+  - Purpose: Report whether at least one backend can capture - `adb` with a ready device, or a booted iOS simulator.
   - Returns: 0 when capture is possible; 1 otherwise.
 
 - `screencap_shot [--device <id>] [--platform android|ios] [--out <path>]`
   - Purpose: Capture a single PNG. With no arguments, targets the only connected device.
   - Args:
-    - `--device` — adb serial or simulator UDID. Inferred when exactly one device is present.
-    - `--platform` — required only when both an Android device and an iOS simulator are present.
-    - `--out` — destination; defaults to `docs/screenshots/<UTC-timestamp>-<device>.png`.
+    - `--device` - adb serial or simulator UDID. Inferred when exactly one device is present.
+    - `--platform` - required only when both an Android device and an iOS simulator are present.
+    - `--out` - destination; defaults to `docs/screenshots/<UTC-timestamp>-<device>.png`.
   - Returns: 0 and the path written, so it can be piped into a docs step; 2 when the target is ambiguous or an option is given without its value; 3 when no device is available; 1 on a capture failure.
   - Example: `screencap_shot --device R5CRC2WANMT --out docs/img/home.png`
 

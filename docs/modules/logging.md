@@ -8,10 +8,10 @@ Functions
 - print_color color|ansi text [text2] [color2]
   - Purpose: Print text in color; supports color names or raw ANSI codes.
   - Arguments:
-    - color|ansi — name (`red`, `green`, `yellow`, `blue`, `cyan`, `magenta`, `white`, `grey`, `bold`, `underline`) or ANSI code constant.
-    - text — first line to print.
-    - text2 — optional second line to print (different color supported).
-    - color2 — optional color for the second line; defaults to the first color.
+    - color|ansi - name (`red`, `green`, `yellow`, `blue`, `cyan`, `magenta`, `white`, `grey`, `bold`, `underline`) or ANSI code constant.
+    - text - first line to print.
+    - text2 - optional second line to print (different color supported).
+    - color2 - optional color for the second line; defaults to the first color.
   - Returns: 0.
 
 - print_info message

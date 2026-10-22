@@ -4,11 +4,11 @@ A general toolkit for **inspecting and debugging Android devices** over USB via
 the Android Debug Bridge (`adb`): list devices with their OS/API/IP, install
 APKs, copy files to/from a device, run shell commands, and read logcat/status.
 
-Everything is **multi-device safe** — functions target a device with
+Everything is **multi-device safe** - functions target a device with
 `adb -s <serial>` rather than a bare `adb shell`, which errors with *more than one
 device* once a second device is attached. Every function no-ops when `adb` is
-missing — the Bash functions return non-zero, the PowerShell functions return
-`$false` / `$null` / nothing — so callers degrade cleanly.
+missing - the Bash functions return non-zero, the PowerShell functions return
+`$false` / `$null` / nothing - so callers degrade cleanly.
 
 Available in both Bash (`lib/adb.sh`) and PowerShell (`ps/lib/adb.ps1`) with the
 same function names. A ready-to-use CLI wrapper lives at `scripts/adb_tool.sh`.
@@ -23,53 +23,53 @@ Functions
 
 Discovery
 
-- `adb_available` — 0 if `adb` is on `PATH`.
-- `adb_ready_serials` — serials of *ready* devices, one per line (skips header +
+- `adb_available` - 0 if `adb` is on `PATH`.
+- `adb_ready_serials` - serials of *ready* devices, one per line (skips header +
   offline/unauthorized).
 
 Device info
 
-- `adb_getprop <serial> <prop>` — read a system property.
-- `adb_device_model <serial>` — `ro.product.model`.
-- `adb_android_version <serial>` — Android OS release (e.g. `9`).
-- `adb_device_api <serial>` — supported API / SDK level (e.g. `28`).
-- `adb_device_ip <serial> [iface=wlan0]` — IPv4 on an interface (Wi-Fi by default;
+- `adb_getprop <serial> <prop>` - read a system property.
+- `adb_device_model <serial>` - `ro.product.model`.
+- `adb_android_version <serial>` - Android OS release (e.g. `9`).
+- `adb_device_api <serial>` - supported API / SDK level (e.g. `28`).
+- `adb_device_ip <serial> [iface=wlan0]` - IPv4 on an interface (Wi-Fi by default;
   pass e.g. `rmnet_data0` for cellular).
-- `adb_list_devices [iface=wlan0]` — a `SERIAL  MODEL  ANDROID  API  IP` table for
+- `adb_list_devices [iface=wlan0]` - a `SERIAL  MODEL  ANDROID  API  IP` table for
   every ready device.
 
 Shell / debugging
 
-- `adb_shell <serial> <cmd...>` — run a shell command on a device.
-- `adb_logcat <serial> [regex]` — dump the logcat buffer (`-d`), optionally
+- `adb_shell <serial> <cmd...>` - run a shell command on a device.
+- `adb_logcat <serial> [regex]` - dump the logcat buffer (`-d`), optionally
   filtered to lines matching `regex`. For a live tail use `adb -s <serial> logcat`.
-- `adb_clear_logcat <serial>` — clear the logcat buffer.
+- `adb_clear_logcat <serial>` - clear the logcat buffer.
 
 File transfer
 
-- `adb_push <serial> <local> <remote>` — copy a file/dir **to** the device.
-- `adb_pull <serial> <remote> [local=.]` — copy a file/dir **from** the device.
+- `adb_push <serial> <local> <remote>` - copy a file/dir **to** the device.
+- `adb_pull <serial> <remote> [local=.]` - copy a file/dir **from** the device.
 
 Apps
 
-- `adb_install <serial> <apk> [--user <id>] [adb install args...]` — (re)install
+- `adb_install <serial> <apk> [--user <id>] [adb install args...]` - (re)install
   an APK (`-r`). `--user` defaults to `0`, the device owner, and is passed
   through to adb. Returns 2 when it is not a number.
-- `adb_installed_for_user <serial> <package> [user=0]` — is the package visible
+- `adb_installed_for_user <serial> <package> [user=0]` - is the package visible
   to that user? Returns 0 yes, 1 no, 3 when the shell may not query that user at
   all, printing `pm list users` to stderr.
-- `adb_install_verified <serial> <apk> <package> [--user <id>] [args...]` —
+- `adb_install_verified <serial> <apk> <package> [--user <id>] [args...]` -
   install, then confirm it landed. Returns 0 only when both hold; 4 when the
   install reported success but the package is not visible to the target user;
   3 when the install reported success but the shell is not permitted to query
-  that user at all (a work profile or Secure Folder it cannot read — the same
+  that user at all (a work profile or Secure Folder it cannot read - the same
   3 as `adb_installed_for_user`); 2 on missing arguments or a `--user` without
   a value. When the install itself fails, `adb_install`'s status is returned
   unchanged: 1 when adb is unavailable, 2 for a missing APK or a non-numeric
   `--user`, otherwise `adb install`'s own exit status.
-- `adb_install_all <apk> [adb install args...]` — install to **every** ready
+- `adb_install_all <apk> [adb install args...]` - install to **every** ready
   device; continues past failures, returns non-zero if any failed.
-- `adb_uninstall <serial> <package>` — uninstall an app package.
+- `adb_uninstall <serial> <package>` - uninstall an app package.
 
 ### Why `--user` is pinned, and why the check exists
 
@@ -85,7 +85,7 @@ access user 150
 ```
 
 The app is then absent from the launcher, cannot be started by `am start`, and
-`pm list packages --user 0` does not list it — while the deploy script has
+`pm list packages --user 0` does not list it - while the deploy script has
 already reported success and exited zero. Every signal says the install worked,
 so the symptom reads as an app fault rather than a deploy fault.
 
@@ -96,12 +96,12 @@ accepted the command, not that the app is usable.
 
 Status
 
-- `adb_battery_level <serial>` — battery percent (0–100).
-- `adb_screen_on <serial>` — 0 = on, 1 = off, 2 = unknown.
-- `adb_device_status <serial>` — a status block: model, Android + API, battery,
+- `adb_battery_level <serial>` - battery percent (0-100).
+- `adb_screen_on <serial>` - 0 = on, 1 = off, 2 = unknown.
+- `adb_device_status <serial>` - a status block: model, Android + API, battery,
   screen, Wi-Fi IP.
 
-CLI — `scripts/adb_tool.sh`
+CLI - `scripts/adb_tool.sh`
 ---------------------------
 
 A thin dispatcher so the helpers are usable straight from the shell:
@@ -127,7 +127,7 @@ shlib_import adb
 adb_list_devices                                  # table of attached phones
 
 for s in $(adb_ready_serials); do
-  echo "$(adb_device_model "$s") — Android $(adb_android_version "$s") (API $(adb_device_api "$s")) @ $(adb_device_ip "$s")"
+  echo "$(adb_device_model "$s") - Android $(adb_android_version "$s") (API $(adb_device_api "$s")) @ $(adb_device_ip "$s")"
 done
 
 adb_install_all ./app-debug.apk                   # roll out a build everywhere
@@ -142,7 +142,7 @@ adb_device_status (adb_ready_serials | Select-Object -First 1)
 
 ## Wireless adb (adb over Wi-Fi)
 
-Address comes from **`DEV_DEVICE`** — the dev-cli convention (`templates/dev-cli`)
+Address comes from **`DEV_DEVICE`** - the dev-cli convention (`templates/dev-cli`)
 for which device, and what `--device` sets. For a wireless device the id *is*
 `ip:port`, so one variable covers both "which device" and "where to connect".
 A USB serial there has no colon and is correctly not treated as an address.
@@ -154,7 +154,7 @@ form. `load_env` (`lib/env.sh`) puts them in scope from a project's gitignored
 shlib_import adb env
 load_env .env
 
-# Attach before an Android command. Safe to call every time — it returns 0 when
+# Attach before an Android command. Safe to call every time - it returns 0 when
 # the device is already attached. If it cannot connect, show the recovery hint
 # and preserve the failure for callers running with `set -e`.
 adb_wireless_connect || { adb_wireless_recovery_hint; exit 1; }
@@ -176,21 +176,21 @@ addr="$(adb_wireless_setup)" \
 | function | notes |
 |---|---|
 | `adb_wireless_addr` | `DEV_DEVICE` first, else `ANDROID_DEVICE_IP`/`_PORT`; port defaults to `5555` |
-| `adb_wireless_attached <addr>` | state column must be exactly `device` — `offline` and `unauthorized` are not attached |
+| `adb_wireless_attached <addr>` | state column must be exactly `device` - `offline` and `unauthorized` are not attached |
 | `adb_wireless_connect [addr]` | confirms against `adb devices`; `adb connect` exits 0 on a bare TCP handshake and cannot be trusted |
 | `adb_wireless_disconnect [addr]` | always returns 0 |
-| `adb_wireless_enable <serial> [port]` | `adb tcpip` on a USB device — the step that needs the cable |
+| `adb_wireless_enable <serial> [port]` | `adb tcpip` on a USB device - the step that needs the cable |
 | `adb_wireless_setup [serial] [port] [iface]` | discover + enable + connect; prints `ip:port` |
 | `adb_wireless_write_env <file> <ip> [port]` | upserts `DEV_DEVICE`, leaving the rest of the file alone |
 | `adb_wireless_recovery_hint [port]` | what to do after a reboot drops tcpip mode |
 | `adb_wireless_valid_host <value>` | true for an IPv4 address or hostname |
-| `adb_wireless_valid_port <value>` | true for 1–65535 |
+| `adb_wireless_valid_port <value>` | true for 1-65535 |
 
 `adb_wireless_write_env` validates with `adb_wireless_valid_host` and
 `adb_wireless_valid_port` before writing, and both are public so a caller can
 fail earlier with its own message. This is a security boundary: an env file is
 **sourced** by whatever reads it, so a newline in the value injects an extra
-line that then executes. The value is not always hand-typed — `adb_wireless_setup`
+line that then executes. The value is not always hand-typed - `adb_wireless_setup`
 takes it from `adb shell ip ...`, i.e. from whatever the attached device prints.
 
 **tcpip mode does not survive a reboot**, and Android 11+ "Wireless debugging"

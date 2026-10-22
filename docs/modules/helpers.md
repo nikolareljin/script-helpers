@@ -9,10 +9,10 @@ Functions
   - Purpose: Source module files by name from `lib/`.
   - Signature: `shlib_import name [name ...]`
   - Arguments:
-    - name — module name without extension (e.g., `logging`, `docker`).
+    - name - module name without extension (e.g., `logging`, `docker`).
   - Behavior:
-    - Ensures `logging` is available first unless it’s explicitly included.
-    - Emits an error and returns non‑zero if a requested module is not found.
+    - Ensures `logging` is available first unless it's explicitly included.
+    - Emits an error and returns non-zero if a requested module is not found.
   - Example:
     ```bash
     source "$SCRIPT_HELPERS_DIR/helpers.sh"
@@ -27,7 +27,7 @@ Functions
 Environment
 -----------
 
-- SCRIPT_HELPERS_DIR — path to this repository. The loader auto-detects when sourced; override when necessary.
+- SCRIPT_HELPERS_DIR - path to this repository. The loader auto-detects when sourced; override when necessary.
 
 Internals
 ---------

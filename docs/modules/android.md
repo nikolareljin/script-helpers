@@ -1,14 +1,14 @@
 # android
 
-Android build, SDK, emulator and signing utilities — the build-side counterpart
+Android build, SDK, emulator and signing utilities - the build-side counterpart
 to the `adb` module, which owns everything that happens on an already-running
 device.
 
 | Module | Owns |
 |---|---|
-| `adb` | Devices that exist — install, logcat, push/pull, properties |
-| `android` | Getting there — SDK, Gradle build, AVDs, emulators, signing |
-| `gradle` | The build tool — wrapper resolution, task invocation |
+| `adb` | Devices that exist - install, logcat, push/pull, properties |
+| `android` | Getting there - SDK, Gradle build, AVDs, emulators, signing |
+| `gradle` | The build tool - wrapper resolution, task invocation |
 
 This module depends on `gradle` and `adb`, and loads both itself if the caller
 did not ask for them, so `shlib_import android` is sufficient on its own.
@@ -29,12 +29,12 @@ Functions
   - Returns: 0 and the path; 2 for a missing argument; 3 when not found.
 
 - `android_ensure_sdk [api=34] [build_tools=34.0.0]`
-  - Purpose: Accept SDK licenses and install `platform-tools`, the platform for `api`, and the given build-tools. Idempotent — `sdkmanager` skips anything already present.
+  - Purpose: Accept SDK licenses and install `platform-tools`, the platform for `api`, and the given build-tools. Idempotent - `sdkmanager` skips anything already present.
   - Returns: 3 when `sdkmanager` is not installed, since bootstrapping the bootstrapper is a deliberate human step; otherwise `sdkmanager`'s status.
 
 - `android_gradlew <dir> <task...>`
   - Purpose: Run Gradle tasks in an Android project with `ANDROID_HOME` and `ANDROID_SDK_ROOT` exported for the build.
-  - The export is the point. The Android Gradle plugin resolves the SDK from those variables or from a `local.properties` `sdk.dir`, and neither is reliably set in a plain shell — so a build that works in an IDE fails from a script with `SDK location not found`, which reads as a project fault rather than an environment one. An already-set value is respected.
+  - The export is the point. The Android Gradle plugin resolves the SDK from those variables or from a `local.properties` `sdk.dir`, and neither is reliably set in a plain shell - so a build that works in an IDE fails from a script with `SDK location not found`, which reads as a project fault rather than an environment one. An already-set value is respected.
 
 - `android_build [dir=.] [debug|release] [apk|aab]`
   - Purpose: Assemble an APK or bundle an AAB. This is the one spelling of the debug/release toggle.
@@ -46,18 +46,18 @@ Functions
   - Returns: 0 and the path; 1 when none exists, so a caller can tell "not built yet" from "built and here it is".
 
 - `android_package_name [dir=.] [artifact]`
-  - Purpose: Print the application id. Read from the built artifact with `aapt2`/`aapt` when one is available, since that is the only source that accounts for `applicationIdSuffix` and product flavors; otherwise parsed out of the Gradle build file. The name is taken from the `package: name=` attribute only — newer build-tools add further `name` attributes (such as `compileSdkVersionCodename`) to the same badging line.
-  - Returns: 0 and the package name; 1 when neither source works — a caller that needs a package name should say so rather than guess one.
+  - Purpose: Print the application id. Read from the built artifact with `aapt2`/`aapt` when one is available, since that is the only source that accounts for `applicationIdSuffix` and product flavors; otherwise parsed out of the Gradle build file. The name is taken from the `package: name=` attribute only - newer build-tools add further `name` attributes (such as `compileSdkVersionCodename`) to the same badging line.
+  - Returns: 0 and the package name; 1 when neither source works - a caller that needs a package name should say so rather than guess one.
   - Used by the `deploy` verb to feed `adb_install_verified`, which is what turns a silent work-profile install into one line of output.
 
 - `android_sign <artifact> [--keystore <path>] [--base64-env <VAR>] [--storepass <pw>] [--alias <name>] [--keypass <pw>] [--allow-unsigned]`
   - Purpose: Sign an APK or AAB with `apksigner` when available, otherwise `jarsigner`. The keystore comes from a file, or is base64-decoded out of the named environment variable into a temp file that is removed on return.
   - Args:
-    - `--base64-env VAR` — name of an environment variable holding a base64 keystore, the CI-shaped secret.
-    - `--allow-unsigned` — a missing keystore becomes a warning and success rather than a failure: the debug-signed fallback that lets a local build proceed without release credentials.
+    - `--base64-env VAR` - name of an environment variable holding a base64 keystore, the CI-shaped secret.
+    - `--allow-unsigned` - a missing keystore becomes a warning and success rather than a failure: the debug-signed fallback that lets a local build proceed without release credentials.
   - Env: `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` supply defaults.
   - Passwords reach both signers through the environment (`--ks-pass env:` for `apksigner`, `-storepass:env` / `-keypass:env` for `jarsigner`), never as command-line arguments, which any local user can read from the process list.
-  - A failing signer — including under `set -e` — still removes the decoded temp keystore, logs the failure, and returns the signer's exit status.
+  - A failing signer - including under `set -e` - still removes the decoded temp keystore, logs the failure, and returns the signer's exit status.
   - An option given without its value returns 2.
   - Returns: 2 on bad arguments; 3 when no signer tool is available; otherwise the signer's status.
   - Example: `android_sign app.aab --base64-env ANDROID_KEYSTORE_BASE64 --alias upload`
@@ -68,7 +68,7 @@ Functions
 
 - `android_avd_create <name> [api=34] [abi=x86_64]`
   - Purpose: Create an AVD if it does not already exist.
-  - Dependencies: The matching system image must be installed — `system-images;android-<api>;google_apis;<abi>`.
+  - Dependencies: The matching system image must be installed - `system-images;android-<api>;google_apis;<abi>`.
   - Returns: 2 for a missing name; 3 when `avdmanager` is not available.
 
 - `android_emulator_start <avd> [--no-window] [--wait <seconds>]`

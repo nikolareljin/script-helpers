@@ -60,9 +60,9 @@ Functions
 - dialog_download_file url [output_path] [tool=auto]
   - Purpose: Download a URL with a live `dialog` gauge showing percentage, size, speed, and ETA.
   - Args:
-    - url — source URL.
-    - output_path — destination path (defaults from URL).
-    - tool — `auto` (default), `curl`, or `wget`.
+    - url - source URL.
+    - output_path - destination path (defaults from URL).
+    - tool - `auto` (default), `curl`, or `wget`.
   - Behavior:
     - Shows progress while downloading; handles unknown `Content-Length` with rolling progress and no ETA.
     - On errors, shows a dialog box with exit code and error details unless disabled by env.
@@ -90,10 +90,10 @@ Functions
 Environment
 -----------
 
-- `DIALOG_WIDTH`, `DIALOG_HEIGHT` — set by `dialog_init`.
+- `DIALOG_WIDTH`, `DIALOG_HEIGHT` - set by `dialog_init`.
 - `SHLIB_UI` (`dialog`, `plain`, `none`) and `SHLIB_UI_PLAIN=1`: see `ui_mode`.
 - `SHLIB_DIALOG_TTY`: the terminal device the functions above draw on. Default `/dev/tty`. For tests, which give it a file. (`DIALOG_TTY` is a variable of `dialog`'s own and is not read here.)
-- `DIALOG_DOWNLOAD_SHOW_ERROR_DIALOG` — set to `0`, `false`, or `never` to suppress dialog error popups in `dialog_download_file`.
+- `DIALOG_DOWNLOAD_SHOW_ERROR_DIALOG` - set to `0`, `false`, or `never` to suppress dialog error popups in `dialog_download_file`.
 
 Dependencies
 ------------

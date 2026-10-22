@@ -13,7 +13,7 @@ Functions
 ---------
 
 - `gradle_available [dir=.]`
-  - Purpose: Report whether `dir` can be built — a Gradle wrapper is present, or a system `gradle` is on `PATH`.
+  - Purpose: Report whether `dir` can be built - a Gradle wrapper is present, or a system `gradle` is on `PATH`.
   - Returns: 0 when Gradle is reachable; non-zero otherwise.
 
 - `gradle_wrapper [dir=.]`
@@ -23,8 +23,8 @@ Functions
 - `gradle_run <dir> <task...>`
   - Purpose: Run Gradle tasks in `dir`. Adds `--no-daemon`, because a daemon left running between local checks is a surprise memory cost on a laptop.
   - Args:
-    - `dir` — existing project directory.
-    - `task...` — one or more Gradle task names.
+    - `dir` - existing project directory.
+    - `task...` - one or more Gradle task names.
   - Returns: 2 for missing arguments or a non-existent directory; 3 when no Gradle is available; otherwise Gradle's own exit status.
   - Example: `gradle_run android testDebugUnitTest`
 

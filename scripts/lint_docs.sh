@@ -45,7 +45,7 @@ if [[ -f "$api_index" ]]; then
     # links; the plain-text form must keep passing while anything still uses it:
     #
     #   - [name](./modules/name.md)     a link, which renders on the site
-    #   - name — ./modules/name.md      plain text, the original
+    #   - name - ./modules/name.md      plain text
     #
     # Anchored at both ends on purpose. A single permissive pattern with
     # optional brackets also matched a commented-out line, a line inside a
@@ -56,7 +56,7 @@ if [[ -f "$api_index" ]]; then
     mod=""; target=""
     if [[ "$line" =~ ^[[:space:]]*-[[:space:]]\[([a-zA-Z0-9_-]+)\]\(\./modules/([a-zA-Z0-9_-]+)\.md\)[[:space:]]*$ ]]; then
       mod="${BASH_REMATCH[1]}"; target="${BASH_REMATCH[2]}"
-    elif [[ "$line" =~ ^[[:space:]]*-[[:space:]]([a-zA-Z0-9_-]+)[[:space:]]+—[[:space:]]+\./modules/([a-zA-Z0-9_-]+)\.md[[:space:]]*$ ]]; then
+    elif [[ "$line" =~ ^[[:space:]]*-[[:space:]]([a-zA-Z0-9_-]+)[[:space:]]+-[[:space:]]+\./modules/([a-zA-Z0-9_-]+)\.md[[:space:]]*$ ]]; then
       mod="${BASH_REMATCH[1]}"; target="${BASH_REMATCH[2]}"
     fi
     if [[ -n "$mod" ]]; then
@@ -180,6 +180,17 @@ if (( ${#history_files[@]} > 0 )); then
     [[ -n "$hit" ]] && error "History in a published page (move it to CHANGELOG.md): $hit"
   done < <(grep -n -i -E "$history_re" "${history_files[@]}" /dev/null || true)
 fi
+
+# Published pages are plain ASCII prose: no em or en dash, arrow, curly quote,
+# ellipsis, middle dot, non-breaking hyphen or space. The one exception is the
+# literal CHANGELOG release header (`## 2026-01-02 — v1.2.3`), which
+# lib/changelog.sh requires; it is blanked before the search.
+typo_re=$'(\xe2\x80[\x93\x94\x98\x99\x9c\x9d\xa6\x91]|\xe2\x86[\x90-\x94]|\xc2[\xa0\xb7])'
+for _typo_file in "${history_files[@]}"; do
+  while IFS= read -r hit; do
+    [[ -n "$hit" ]] && error "Typographic character in a published page (use plain ASCII): ${_typo_file}:$hit"
+  done < <(LC_ALL=C sed -E $'s/## [0-9.-]+ \xe2\x80\x94 v//g' "$_typo_file" | LC_ALL=C grep -n -E "$typo_re" || true)
+done
 
 # "N Bash modules" and "N PowerShell mirrors" must match lib/ and ps/lib/.
 # Tags are stripped first: hero.svg puts the number and the words in separate

@@ -105,8 +105,8 @@ f="$(make_fixture plaintext)"
 cat > "$f/docs/api.md" <<'MD'
 # API Index
 
-- helpers — ./modules/helpers.md
-- widget — ./modules/widget.md
+- helpers - ./modules/helpers.md
+- widget - ./modules/widget.md
 MD
 if run_lint "$f"; then
   ok "the original plain-text index form still passes"
@@ -305,6 +305,25 @@ if run_lint "$f"; then
 else
   error "present-tense text was flagged as history"
 fi
+
+for typo in $'a \xe2\x80\x94 b' $'1\xe2\x80\x932' $'a \xe2\x86\x92 b' $'it\xe2\x80\x99s' $'x\xc2\xa0y'; do
+  f="$(make_fixture typo)"
+  printf '# Usage\n%s\n' "$typo" > "$f/docs/usage.md"
+  if run_lint "$f"; then
+    error "typographic character in a docs page PASSED: $typo"
+  else
+    ok "typographic character in a docs page fails"
+  fi
+  rm -rf "$f"
+done
+f="$(make_fixture typo_ok)"
+printf '# Usage\nThe header is `## 2026-01-02 \xe2\x80\x94 v1.2.3`, and `\xc3\xbcn\xc3\xaf/.env` is a path.\n' > "$f/docs/usage.md"
+if run_lint "$f"; then
+  ok "the CHANGELOG header em dash and other non-ASCII letters pass"
+else
+  error "the CHANGELOG header em dash or a non-ASCII letter was flagged"
+fi
+rm -rf "$f"
 
 f="$(make_fixture count)"
 sed -i.bak 's/1 Bash modules/37 Bash modules/' "$f/README.md"
