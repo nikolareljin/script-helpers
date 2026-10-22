@@ -272,7 +272,7 @@ got="$(plat Darwin arm64)"
 
 # 13. A caller that sets only CI_DEFAULT_FOXGUARD_VERSION still gets the pinned
 #     checksums from ci_defaults, so set -u does not abort and the check is real.
-got="$(env -i PATH="$PATH" HOME="$HOME" CI_DEFAULT_FOXGUARD_VERSION=0.0.1 UNAME_S=Linux UNAME_M=x86_64 PATH="$tmp/uname:$PATH" bash -uc 'source "$1/helpers.sh" && shlib_import foxguard && foxguard_expected_sha256 foxguard-linux-x86_64 && echo "$CI_DEFAULT_FOXGUARD_VERSION"' _ "$ROOT_DIR" 2>&1)" || true
+got="$(env -i PATH="$PATH" HOME="$HOME" CI_DEFAULT_FOXGUARD_VERSION=0.0.1 bash -uc 'source "$1/helpers.sh" && shlib_import foxguard && foxguard_expected_sha256 foxguard-linux-x86_64 && echo "$CI_DEFAULT_FOXGUARD_VERSION"' _ "$ROOT_DIR" 2>&1)" || true
 want="$(env -i PATH="$PATH" bash -c 'source "$1/lib/ci_defaults.sh" && echo "$CI_DEFAULT_FOXGUARD_SHA256_LINUX_X86_64"' _ "$ROOT_DIR")"
 [[ "$got" == "$want"$'\n'"0.0.1" ]] && note "version override alone: pinned checksums still loaded, override kept" \
   || error "version override: '$got'"
