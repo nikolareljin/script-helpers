@@ -2796,12 +2796,13 @@ Example:
 
 ### `scripts/signing_secrets.sh`
 
-Set the package-signing secrets and variables (the names in ci-helpers docs/packaging.md) on a list of GitHub repositories, or check which repositories miss which name. Values go to gh on stdin, never on a command line, and are never printed.
+Set the package-signing secrets and variables (the names in ci-helpers docs/packaging.md) on a list of GitHub repositories, or check which repositories miss which name. Values go to gh on stdin, never on a command line, and are never printed. The windows group sets the names of ci-helpers docs/windows-signing.md.
 
 ```text
-Usage: ./signing_secrets.sh --repos <owner/a,owner/b> --group <gpg|apple> [--group ...] [options] [--check|--dry-run]
+Usage: ./signing_secrets.sh --repos <owner/a,owner/b> --group <gpg|apple|windows> [--group ...] [options] [--check|--dry-run]
   --repos <list>            Comma-separated owner/name list (required).
-  --group <gpg|apple>       Names to set or check; repeat for both (required).
+  --group <gpg|apple|windows>
+                            Names to set or check; repeat for more (required).
   --gpg-key <fingerprint>   gpg: key to export (40 hex characters).
                             Passphrase: GPG_PASSPHRASE env, else prompted.
   --ppa <owner/name=ppa:id/name>
@@ -2820,6 +2821,17 @@ Usage: ./signing_secrets.sh --repos <owner/a,owner/b> --group <gpg|apple> [--gro
                             certificate expires within 30 days.
   --skip-p12-check          apple: store the .p12 without opening it
                             (where openssl is not installed).
+  --windows-pfx <file>      windows: Authenticode code-signing .pfx.
+                            Password: --windows-password-file, else
+                            WINDOWS_CERTIFICATE_PASSWORD env, else prompted.
+                            The .pfx must open with its password and hold
+                            a private key and its certificate with the
+                            code-signing EKU (1.3.6.1.5.5.7.3.3), in date
+                            (openssl). Warns within 30 days of expiry.
+  --windows-password-file <file>
+                            windows: read the .pfx password from this file;
+                            a trailing LF or CRLF is dropped.
+  --skip-pfx-check          windows: store the .pfx without opening it.
   --check                   Report missing names per repository; exit 1 if any.
   --dry-run                 Print the names that would be set; set nothing.
   -h, --help                Show help.
@@ -2835,8 +2847,9 @@ could not set a name.
 keyring, a passphrase that does not unlock it, an --apple-identity
 that does not end in the --apple-team, a .p12 that does not open with
 APPLE_CERTIFICATE_PASSWORD, lacks the --apple-identity certificate or
-its private key, or holds it expired, or an empty value; nothing was
-set.
+its private key, or holds it expired, a .pfx that does not open
+with its password, has no private key with an in-date code-signing
+certificate, or an empty value; nothing was set.
 130, 143  Interrupted (INT, TERM); the scratch directory is removed.
 ```
 
@@ -2845,6 +2858,7 @@ Example:
 ```text
   ./signing_secrets.sh --repos me/tool --group gpg --gpg-key <FPR> --ppa me/tool=ppa:me/tool
   ./signing_secrets.sh --repos me/a,me/b --group gpg --group apple --check
+  ./signing_secrets.sh --repos me/app --group windows --windows-pfx sign.pfx --windows-password-file pw.txt
 ```
 
 ### `scripts/site_verify.py`
