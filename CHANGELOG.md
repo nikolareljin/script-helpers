@@ -1,3 +1,17 @@
+## Unreleased
+
+### Added
+
+- `scripts/signing_secrets.sh --group windows --windows-pfx <file>` sets
+  `WINDOWS_CERTIFICATE` (base64 of the `.pfx`, no line wraps) and
+  `WINDOWS_CERTIFICATE_PASSWORD`, the names ci-helpers `tauri-release.yml`
+  reads for `windows_sign_mode: pfx`. The password comes from
+  `--windows-password-file`, `WINDOWS_CERTIFICATE_PASSWORD` or a prompt, and
+  reaches gh and openssl only on stdin or as a file. Before anything is set
+  the `.pfx` must open with it (with the `-legacy` retry) and hold a private
+  key whose certificate has the code-signing EKU (1.3.6.1.5.5.7.3.3) and is
+  in date (a warning within 30 days); `--skip-pfx-check` skips this.
+
 ## 2026-10-22 — v0.56.0
 
 ### Added
@@ -23,15 +37,6 @@
   not expired (a warning within 30 days), and `--apple-identity` must end in
   `(<--apple-team>)`. A file with several identities, or with a renewed
   certificate next to the expired one, passes.
-- `scripts/signing_secrets.sh --group windows --windows-pfx <file>` sets
-  `WINDOWS_CERTIFICATE` (base64 of the `.pfx`, no line wraps) and
-  `WINDOWS_CERTIFICATE_PASSWORD`, the names ci-helpers `tauri-release.yml`
-  reads for `windows_sign_mode: pfx`. The password comes from
-  `--windows-password-file`, `WINDOWS_CERTIFICATE_PASSWORD` or a prompt, and
-  reaches gh and openssl only on stdin or as a file. Before anything is set
-  the `.pfx` must open with it (with the `-legacy` retry) and hold a private
-  key whose certificate has the code-signing EKU (1.3.6.1.5.5.7.3.3) and is
-  in date (a warning within 30 days); `--skip-pfx-check` skips this.
 - `ps/lib/rust.ps1` resolves the selected rustup Cargo before native Rust checks run.
 - `tests/machine/rust_resolver_check.sh` and `ps/tests/machine/rust_resolver_check.ps1` check the Rust resolver against the installed rustup and cargo: PATH order, the PATH-cargo-differs warning, `ErrorActionPreference = 'Stop'`, and preflight on a throwaway cargo project.
 
