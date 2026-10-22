@@ -299,9 +299,9 @@ for phrase in "it used to print a warning" "This no longer happens" \
   rm -rf "$f"
 done
 f="$(make_fixture present)"
-printf '# Usage\nRun it before the push. The tool used to sign is gpg.\n' > "$f/docs/usage.md"
+printf '# Usage\nRun it before the push. The tool used to sign is gpg.\nIt restores the previously set path.\nA name no longer than 64 bytes.\n' > "$f/docs/usage.md"
 if run_lint "$f"; then
-  ok "present-tense 'before' and 'used to sign' pass"
+  ok "present-tense 'before', 'used to sign', 'previously set', 'no longer than' pass"
 else
   error "present-tense text was flagged as history"
 fi

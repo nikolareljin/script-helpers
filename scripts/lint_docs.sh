@@ -167,9 +167,10 @@ done
 
 # Published pages say what the product does now; history belongs in
 # CHANGELOG.md. Only phrases that are history in every reading are matched, so
-# "before the push" or "the key used to sign" pass. docs/commands.md counts:
-# it is built from the script headers.
-history_re='(^|[^A-Za-z])((it|this|that|which|they) used to|no longer|an earlier version|previously|formerly|since this change|there was none|for years it)([^A-Za-z]|$)'
+# "before the push", "the key used to sign", "the previously set path" and
+# "no longer than 64 bytes" pass. docs/commands.md counts: it is built from the
+# script headers.
+history_re='(^|[^A-Za-z])(((it|this|that|which|they) used to|an earlier version|previously[ ,]+(it|this|that|the|a|an|there|we|you)|formerly|since this change|there was none|for years it)([^A-Za-z]|$)|no longer( [^t]| t[^h]| th[^a]|[^ A-Za-z]|$))'
 history_files=()
 [[ -f README.md ]] && history_files+=("README.md")
 while IFS= read -r _sh_line; do history_files+=("$_sh_line"); done < <(
