@@ -14,12 +14,10 @@
 #   1  the operation failed (download, checksum mismatch)
 #   3  not installed, a required tool is missing, or the platform has no binary
 
-# Keyed on a checksum, not the version: a caller that overrides only the
-# version still needs the pinned checksums. ci_defaults keeps any value set.
-if [[ -z "${CI_DEFAULT_FOXGUARD_SHA256_LINUX_X86_64:-}" ]]; then
-  # shellcheck source=/dev/null
-  source "$(dirname "${BASH_SOURCE[0]}")/ci_defaults.sh"
-fi
+# Always sourced: ci_defaults only fills variables that are unset or empty, so a
+# caller's version or checksum overrides are kept and the rest stay pinned.
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/ci_defaults.sh"
 
 # The file names foxguard reads its configuration from, in each directory from
 # the scan path upward. Measured on 0.14.1: all four are read.

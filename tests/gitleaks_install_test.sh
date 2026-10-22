@@ -136,6 +136,13 @@ else
   error "no-install: rc=$rc curl='$(cat "$tmp/curl.log")' out='$(printf '%s' "$out" | tail -4)'"
 fi
 
+# A caller that overrides one checksum keeps the pinned ones for the other
+# platforms, instead of leaving them unset (set -u abort, empty compare).
+got="$(env -i PATH="$PATH" HOME="$HOME" CI_DEFAULT_GITLEAKS_SHA256_LINUX_X64=own bash -c 'set -u; source "$1/helpers.sh" && shlib_import gitleaks && gitleaks_expected_sha256 x_linux_x64.tar.gz && gitleaks_expected_sha256 x_darwin_arm64.tar.gz' _ "$ROOT_DIR" 2>&1)" || true
+want="$(env -i PATH="$PATH" bash -c 'source "$1/lib/ci_defaults.sh" && echo "$CI_DEFAULT_GITLEAKS_SHA256_DARWIN_ARM64"' _ "$ROOT_DIR")"
+[[ "$got" == "own"$'\n'"$want" ]] && note "one checksum overridden: override kept, other platforms pinned" \
+  || error "one checksum override: '$got'"
+
 if [[ $failures -gt 0 ]]; then
   note "$failures failure(s)"
   exit 1

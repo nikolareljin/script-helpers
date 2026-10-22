@@ -43,18 +43,10 @@ jobs:
         run: |
           make examples
 
-      # tests/ci_security_foxguard_test.sh stubs curl, so this is the only check
-      # that the pinned SHA-256 in lib/ci_defaults.sh matches the real release.
-      - name: Pinned foxguard downloads, matches its SHA-256 and runs (real, not stubbed)
+      # The unit test stubs curl; this checks the pinned SHA-256 against the real release.
+      - name: Pinned foxguard downloads, matches its SHA-256 and runs
         shell: bash
-        run: |
-          set -euo pipefail
-          XDG_CACHE_HOME="$(mktemp -d)"; export XDG_CACHE_HOME
-          # ci_security.sh refuses to run under CI, so call the library it uses.
-          bash -c 'set -euo pipefail; source ./helpers.sh; shlib_import logging foxguard
-            foxguard_install
-            bin="$(foxguard_cache_path)"; got="$("$bin" --version)"; echo "$bin: $got"
-            [ "$got" = "foxguard $CI_DEFAULT_FOXGUARD_VERSION" ]'
+        run: bash tests/machine/foxguard_release_check.sh
 
       - name: Run test suite
         run: |
@@ -99,18 +91,10 @@ jobs:
         run: |
           bash tests/gate_tempdir_test.sh
           bash tests/security_gate_test.sh
-      # tests/ci_security_foxguard_test.sh stubs curl, so this is the only check
-      # that the pinned SHA-256 in lib/ci_defaults.sh matches the real release.
-      - name: Pinned foxguard downloads, matches its SHA-256 and runs (real, not stubbed)
+      # The unit test stubs curl; this checks the pinned SHA-256 against the real release.
+      - name: Pinned foxguard downloads, matches its SHA-256 and runs
         shell: bash
-        run: |
-          set -euo pipefail
-          XDG_CACHE_HOME="$(mktemp -d)"; export XDG_CACHE_HOME
-          # ci_security.sh refuses to run under CI, so call the library it uses.
-          bash -c 'set -euo pipefail; source ./helpers.sh; shlib_import logging foxguard
-            foxguard_install
-            bin="$(foxguard_cache_path)"; got="$("$bin" --version)"; echo "$bin: $got"
-            [ "$got" = "foxguard $CI_DEFAULT_FOXGUARD_VERSION" ]'
+        run: bash tests/machine/foxguard_release_check.sh
       - name: Hook destination and latency tests under Git Bash
         shell: bash
         run: bash tests/claude_hook_destinations_test.sh

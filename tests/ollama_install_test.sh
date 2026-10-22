@@ -289,7 +289,13 @@ check "no library code pipes a download into a shell" "" \
 # checksums from ci_defaults, so set -u does not abort and the check is real.
 check "version override alone keeps the pinned checksums" \
   "$(env -i PATH="$PATH" bash -c 'source "$1/lib/ci_defaults.sh" && echo "$CI_DEFAULT_OLLAMA_SHA256_LINUX_AMD64"' _ "$ROOT") 0.0.1" \
-  "$(env -i PATH="$PATH" HOME="$HOME" CI_DEFAULT_OLLAMA_VERSION=0.0.1 bash -uc 'source "$1/helpers.sh" && shlib_import ollama_install && echo "$(ollama_install_expected_sha256 ollama-linux-amd64.tar.zst) $CI_DEFAULT_OLLAMA_VERSION"' _ "$ROOT" 2>&1)"
+  "$(env -i PATH="$PATH" HOME="$HOME" CI_DEFAULT_OLLAMA_VERSION=0.0.1 bash -c 'set -u; source "$1/helpers.sh" && shlib_import ollama_install && echo "$(ollama_install_expected_sha256 ollama-linux-amd64.tar.zst) $CI_DEFAULT_OLLAMA_VERSION"' _ "$ROOT" 2>&1)"
+
+# A caller that overrides one checksum keeps the pinned ones for the other
+# platforms, instead of leaving them unset (set -u abort, empty compare).
+check "one checksum overridden keeps the other platforms pinned" \
+  "own $(env -i PATH="$PATH" bash -c 'source "$1/lib/ci_defaults.sh" && echo "$CI_DEFAULT_OLLAMA_SHA256_DARWIN"' _ "$ROOT")" \
+  "$(env -i PATH="$PATH" HOME="$HOME" CI_DEFAULT_OLLAMA_SHA256_LINUX_AMD64=own bash -c 'set -u; source "$1/helpers.sh" && shlib_import ollama_install && echo "$(ollama_install_expected_sha256 ollama-linux-amd64.tar.zst) $(ollama_install_expected_sha256 ollama-darwin.tgz)"' _ "$ROOT" 2>&1)"
 
 if [[ "$failures" -gt 0 ]]; then
   note "FAILED: $failures"

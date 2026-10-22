@@ -36,6 +36,8 @@ All values can be overridden by setting the variable before invoking a script.
 
 Not a Docker image. `ci_security.sh --install-foxguard` downloads that release binary and refuses it unless its SHA-256 matches; see the [foxguard module](./foxguard.md). Bump the version and every checksum together, from the release's `checksums.txt`.
 
+Overrides are per variable. `lib/foxguard.sh`, `lib/gitleaks.sh` and `lib/ollama_install.sh` always load these defaults, so a variable you set is kept and every other one stays pinned. A different version with the pinned checksums is refused as a checksum mismatch: set the version and the checksum of each platform you install on.
+
 ### Wrangler (Cloudflare)
 - `CI_DEFAULT_WRANGLER_VERSION` (default: `4.42.0`)
 
