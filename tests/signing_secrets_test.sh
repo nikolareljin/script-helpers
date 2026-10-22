@@ -421,6 +421,11 @@ CNF
     --windows-password-file "$tmp/pfxpwcrlf" </dev/null 2>&1)" || rc=$?
   [ "$rc" = 0 ] || error "pfx password file with CRLF: exit $rc: $out"
   [ "$(cat "$STORE/o/w3/secret/WINDOWS_CERTIFICATE_PASSWORD" 2>/dev/null)" = "file-pw" ] || error "pfx password file with CRLF: CR stored"
+  # A CR without a LF is part of the password, so this one does not open.
+  printf 'file-pw\r' > "$tmp/pfxpwcr"
+  rc=0; out="$(env -u WINDOWS_CERTIFICATE_PASSWORD bash "$SCRIPT" --repos o/w4 --group windows --windows-pfx "$tmp/sign2.pfx" \
+    --windows-password-file "$tmp/pfxpwcr" </dev/null 2>&1)" || rc=$?
+  [ "$rc" = 2 ] || error "pfx password file ending in a lone CR: CR dropped, exit $rc: $out"
   pfx_refused "wrong pfx password" "wrong WINDOWS_CERTIFICATE_PASSWORD" "$tmp/sign.pfx" wrong-pfx-pw
   grep -qF wrong-pfx-pw "$STORE/openssl_argv" && error "wrong pfx password reached openssl's arguments"
   P12_CERT="$tmp/pfxcert.pem" make_p12 "$tmp/nokey.pfx" pfx-pw-value -nokeys || error "pkcs12 -export (pfx nokey) failed"

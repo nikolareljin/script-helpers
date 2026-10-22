@@ -484,8 +484,10 @@ if has_group windows; then
     # part of the password.
     WINDOWS_CERTIFICATE_PASSWORD="$(cat "$windows_pw_file"; echo x)"
     WINDOWS_CERTIFICATE_PASSWORD="${WINDOWS_CERTIFICATE_PASSWORD%x}"
-    WINDOWS_CERTIFICATE_PASSWORD="${WINDOWS_CERTIFICATE_PASSWORD%$'\n'}"
-    WINDOWS_CERTIFICATE_PASSWORD="${WINDOWS_CERTIFICATE_PASSWORD%$'\r'}"
+    if [[ "$WINDOWS_CERTIFICATE_PASSWORD" == *$'\n' ]]; then
+      WINDOWS_CERTIFICATE_PASSWORD="${WINDOWS_CERTIFICATE_PASSWORD%$'\n'}"
+      WINDOWS_CERTIFICATE_PASSWORD="${WINDOWS_CERTIFICATE_PASSWORD%$'\r'}"
+    fi
   fi
   ask WINDOWS_CERTIFICATE_PASSWORD "Password of $windows_pfx"
   if [[ "$mode" != "dry-run" ]] && [[ "$skip_pfx_check" -eq 0 ]]; then
