@@ -51,6 +51,7 @@
 
 ### Fixed
 
+- `lib/foxguard.sh` and `lib/ollama_install.sh` load the pinned checksums from `ci_defaults` even when the caller set only `CI_DEFAULT_FOXGUARD_VERSION` or `CI_DEFAULT_OLLAMA_VERSION`. Before, the checksums stayed unset: an install aborted under `set -u` with "unbound variable", or compared against an empty value.
 - `tests/docs_site_test.sh` no longer fails at random on a busy machine: its
   test listener picks its own port and the `port_choose` checks start only once
   it listens; it stays up until the test exits (#206).

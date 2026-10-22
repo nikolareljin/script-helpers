@@ -14,7 +14,9 @@
 #   1  the operation failed (download, checksum mismatch)
 #   3  not installed, a required tool is missing, or the platform has no binary
 
-if [[ -z "${CI_DEFAULT_FOXGUARD_VERSION:-}" ]]; then
+# Keyed on a checksum, not the version: a caller that overrides only the
+# version still needs the pinned checksums. ci_defaults keeps any value set.
+if [[ -z "${CI_DEFAULT_FOXGUARD_SHA256_LINUX_X86_64:-}" ]]; then
   # shellcheck source=/dev/null
   source "$(dirname "${BASH_SOURCE[0]}")/ci_defaults.sh"
 fi

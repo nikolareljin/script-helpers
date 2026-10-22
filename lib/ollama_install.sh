@@ -26,7 +26,9 @@
 #   1  the download failed, or it does not match the pinned SHA-256
 #   3  a required tool is missing, or the platform has no checkable source
 
-if [[ -z "${CI_DEFAULT_OLLAMA_VERSION:-}" ]]; then
+# Keyed on a checksum, not the version: a caller that overrides only the
+# version still needs the pinned checksums. ci_defaults keeps any value set.
+if [[ -z "${CI_DEFAULT_OLLAMA_SHA256_LINUX_AMD64:-}" ]]; then
   # shellcheck source=/dev/null
   source "$(dirname "${BASH_SOURCE[0]}")/ci_defaults.sh"
 fi
