@@ -219,9 +219,9 @@ GiB; a value such as `19.5` is refused.
 `scripts/ollama_tiers_check.sh [file]` checks a tiers file and exits 1 on any
 refused line: a malformed line, a second line for one threshold, type or
 model, a size line for a model no type row names, a file with no type rows, a
-model whose size class is above the cell it sits in, a GPU floor outside its
-class (standard: under `large_vram_gb`; large: at least `large_vram_gb` and
-under `xlarge_vram_gb`; xlarge: at least `xlarge_vram_gb`), or, in one row, a
+type name that is not lower case, a model whose size class is above the cell
+it sits in, a GPU floor outside its class (standard: under `large_vram_gb`;
+large: at least `large_vram_gb` and under `xlarge_vram_gb`; xlarge: at least `xlarge_vram_gb`), or, in one row, a
 higher tier's model that needs less GPU than a lower tier's model of the same
 class. Models of different classes are not compared.
 

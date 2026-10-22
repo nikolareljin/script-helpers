@@ -2673,7 +2673,8 @@ Usage: scripts/ollama_models.sh class [models_file]
           models file, the model each NAME gets.
   select  Print the one model to use for a type of work (general, reasoning,
           classify, extract, vision, embed, code, ...): the approved model for this
-          host's tier (config/ollama_model_tiers.txt), or the project's own model
+          host's tier (config/ollama_model_tiers.txt; a lower tier's when this host
+          is under the model's size-line floor), or the project's own model
           (NAME from the environment, else from env_file, else default_model). When
           they differ, a terminal is asked once and the answer is stored in env_file
           (NAME_CHOICE, NAME_CHOICE_FOR, NAME_CHOICE_PROJECT) when git ignores
@@ -2728,7 +2729,8 @@ Usage: scripts/ollama_tiers_check.sh [tiers_file]
   - a line that is not a threshold, type or size line, a threshold that is
     not a whole number, a type row without four model references, a
     malformed size line, a second line for one threshold, type or model,
-    a size line for a model no type row names, a file with no type rows;
+    a size line for a model no type row names, a file with no type rows,
+    a type name that is not lower-case letters, digits, - and _;
   - a cell whose model has a size class above the cell's tier (an xlarge
     model in a large cell);
   - a size line whose GPU floor is outside its class: large needs at least

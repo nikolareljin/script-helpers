@@ -763,6 +763,13 @@ said "naming the model" "$tmp/err" "gone:30b"
 check "an empty file (no type rows) is refused (1)" "1" "$(bash "$checker" "$tmp/empty.txt" >/dev/null 2>&1; echo $?)"
 grep -v '^type' "$tmp/floors.txt" | grep -v '^size' >"$tmp/notypes.txt"
 check "thresholds but no type rows is refused (1)" "1" "$(bash "$checker" "$tmp/notypes.txt" >/dev/null 2>&1; echo $?)"
+{ cat "$tmp/floors.txt"; echo 'type Code c-s:4b c-m:7b c-m:7b c-m:7b'; } >"$tmp/uptype.txt"
+check "a type name select can never reach (upper case) is refused (1)" "1" "$(bash "$checker" "$tmp/uptype.txt" 2>"$tmp/err" >/dev/null; echo $?)"
+said "naming the type" "$tmp/err" "type Code"
+check "the module docs give ollama_tier_model's floors and the size line error" "2:" \
+  "$(awk '/^- ollama_tier_model /,/^- ai_model_resolve /' docs/modules/ollama_endpoint.md | grep -c -i 'size line'):"
+check "the module docs give ai_model_resolve's exit 10 for a malformed size line" "1:" \
+  "$(awk '/^- ai_model_resolve /,/^$/' docs/modules/ollama_endpoint.md | grep 'Returns:' | grep -c 'size line'):"
 check "a missing file: 2" "2" "$(bash "$checker" "$tmp/none" >/dev/null 2>&1; echo $?)"
 check "--help: 0" "0" "$(bash "$checker" --help >/dev/null 2>&1; echo $?)"
 check "the shipped code and reasoning rows are the approved ones" \

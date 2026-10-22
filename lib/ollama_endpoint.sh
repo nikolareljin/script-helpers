@@ -2585,7 +2585,8 @@ _ollama_ep_env_private() {
 # Prints, on stdout and alone, the model the project uses for one role. All
 # messages go to stderr, so `model="$(ai_model_resolve ...)"` captures it.
 #
-#   Y  the approved model for <type> on this host's tier (ollama_tier_model)
+#   Y  the approved model for <type> on this host's tier (ollama_tier_model;
+#      a lower tier's when this host is under the model's size-line floor)
 #   X  the project's model: NAME from the environment, else from env_file,
 #      else default_model
 #
@@ -2621,8 +2622,8 @@ _ollama_ep_env_private() {
 #   1-8  as ollama_endpoint_ensure_models (4: no Ollama answers; 5: missing
 #        and not pulled under OLLAMA_PULL_MISSING)
 #   10   bad arguments: more than five, unknown type, NAME not a variable
-#        name, a model that is not a model reference, no data file or a
-#        threshold in it that is not a whole number, env_file
+#        name, a model that is not a model reference, no data file, a
+#        threshold in it that is not a whole number or a malformed size line, env_file
 #        not readable or not writable
 #   11   AI_MODEL_TIER is not small, standard, large or xlarge
 #   12   no terminal, the two differ, and that Ollama has neither

@@ -11,7 +11,8 @@
 #           models file, the model each NAME gets.
 #   select  Print the one model to use for a type of work (general, reasoning,
 #           classify, extract, vision, embed, code, ...): the approved model for this
-#           host's tier (config/ollama_model_tiers.txt), or the project's own model
+#           host's tier (config/ollama_model_tiers.txt; a lower tier's when this host
+#           is under the model's size-line floor), or the project's own model
 #           (NAME from the environment, else from env_file, else default_model). When
 #           they differ, a terminal is asked once and the answer is stored in env_file
 #           (NAME_CHOICE, NAME_CHOICE_FOR, NAME_CHOICE_PROJECT) when git ignores

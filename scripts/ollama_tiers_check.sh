@@ -9,7 +9,8 @@
 #   - a line that is not a threshold, type or size line, a threshold that is
 #     not a whole number, a type row without four model references, a
 #     malformed size line, a second line for one threshold, type or model,
-#     a size line for a model no type row names, a file with no type rows;
+#     a size line for a model no type row names, a file with no type rows,
+#     a type name that is not lower-case letters, digits, - and _;
 #   - a cell whose model has a size class above the cell's tier (an xlarge
 #     model in a large cell);
 #   - a size line whose GPU floor is outside its class: large needs at least
@@ -63,6 +64,8 @@ while IFS= read -r msg; do refuse "$msg"; done < <(
       if (NF >= 2 && seen[$1, $2]++) { print "line " NR ": a second " $1 " line for " $2 "; the last one wins"; next }
     }
     $1 == "threshold" { if (NF != 3 || $3 !~ /^[0-9]+$/) print "line " NR ": threshold needs a key and a whole number of GiB"; next }
+    # select lowercases the type it is given, so any other name is never reached.
+    $1 == "type" && $2 !~ /^[a-z][a-z0-9_-]*$/ { print "line " NR ": type " $2 " is not lower-case letters, digits, - and _; select never reaches it"; next }
     $1 == "type" { if (NF != 6) print "line " NR ": type " $2 " needs four models (small standard large xlarge)"; next }
     $1 == "size" { if (NF != 5) print "line " NR ": size needs <model> <class> <GPU GiB> <memory GiB or ->"; next }
     { print "line " NR ": unknown kind of line \"" $1 "\"" }' "$file")
