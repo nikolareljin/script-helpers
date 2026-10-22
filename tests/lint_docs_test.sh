@@ -261,6 +261,12 @@ if run_lint "$f"; then
 else
   ok "an undocumented bin/ command fails"
 fi
+printf '# Usage\nRun `bin/toolbox`.\n' > "$f/docs/usage.md"
+if run_lint "$f"; then
+  error "a bin/ command named only as the prefix of a longer name (toolbox) PASSED"
+else
+  ok "a longer name starting with the command's does not count"
+fi
 
 f="$(make_fixture noconfig)"
 mkdir -p "$f/config"; printf 'x\n' > "$f/config/tool.txt"
@@ -340,6 +346,17 @@ if run_lint "$f"; then
   error "a stale 'N PowerShell mirrors' count in hero.svg PASSED"
 else
   ok "a stale 'N PowerShell mirrors' count in hero.svg fails"
+fi
+
+# No README.md and no docs/ pages: the page lists are empty. bash 3.2 aborts
+# with "unbound variable" on an unguarded empty array under set -u.
+f="$(make_fixture nopages)"
+rm -f "$f/README.md"; find "$f/docs" -name '*.md' -delete
+out="$( (cd "$f" && bash scripts/lint_docs.sh) 2>&1 )"
+if [[ "$out" == *"unbound variable"* || "$out" != *"Missing module doc"* ]]; then
+  error "a tree with no published pages aborted instead of reporting gaps"
+else
+  ok "a tree with no published pages reports gaps without aborting"
 fi
 
 # --- result ---------------------------------------------------------------------

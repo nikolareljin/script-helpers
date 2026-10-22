@@ -89,7 +89,6 @@ for f in "${lib_files[@]+"${lib_files[@]}"}"; do
   fi
 
   # Check functions are mentioned in the module doc (skip internals starting with _)
-  # Extract function names from the file (first 500 lines is enough for these small modules)
   funcs=()
   while IFS= read -r _sh_line; do funcs+=("$_sh_line"); done < <(
     # The whole file: several modules are longer than 2000 lines.
@@ -158,9 +157,9 @@ while IFS= read -r _sh_line; do guides+=("$_sh_line"); done < <(
 for f in scripts/*.sh scripts/*.py scripts/*/* ps/scripts/*.ps1 bin/* config/*; do
   [[ -f "$f" ]] || continue
   name="$(basename "$f")"
-  # Bounded on the left, so mytool.sh does not count for tool.sh.
+  # Bounded on both sides, so mytool.sh and tool.sh2 do not count for tool.sh.
   name_re="$(printf '%s' "$name" | sed 's/[.[\*^$+?(){}|]/\\&/g')"
-  if (( ${#guides[@]} == 0 )) || ! grep -q -E "(^|[^A-Za-z0-9_-])${name_re}" "${guides[@]}"; then
+  if (( ${#guides[@]} == 0 )) || ! grep -q -E "(^|[^A-Za-z0-9_-])${name_re}([^A-Za-z0-9_-]|$)" "${guides[@]}"; then
     error "Not named in README.md or any docs/ guide: $f"
   fi
 done
@@ -187,7 +186,7 @@ fi
 # literal CHANGELOG release header (`## 2026-01-02 — v1.2.3`), which
 # lib/changelog.sh requires; it is blanked before the search.
 typo_re=$'(\xe2\x80[\x93\x94\x98\x99\x9c\x9d\xa6\x91]|\xe2\x86[\x90-\x94]|\xc2[\xa0\xb7])'
-for _typo_file in "${history_files[@]}"; do
+for _typo_file in "${history_files[@]+"${history_files[@]}"}"; do
   while IFS= read -r hit; do
     [[ -n "$hit" ]] && error "Typographic character in a published page (use plain ASCII): ${_typo_file}:$hit"
   done < <(LC_ALL=C sed -E $'s/## [0-9.-]+ \xe2\x80\x94 v//g' "$_typo_file" | LC_ALL=C grep -n -E "$typo_re" || true)
