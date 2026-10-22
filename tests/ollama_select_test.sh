@@ -722,6 +722,16 @@ check "a size line with no fields: 2, not ignored" "2" \
 check "memory that cannot be read: the tier is standard, not measured, so no floor drops it to small" "c-m:7b" \
   "$(machine; ollama_mem_total_bytes() { return 1; }; OLLAMA_MODEL_TIERS_FILE="$tmp/stdfloor.txt" ollama_tier_model code 2>/dev/null)"
 
+{ cat "$tmp/floors.txt"; echo 'size c-s:4b small 9 12'; } >"$tmp/smallfloor.txt"
+check "a small model is never refused: an 8 GiB host under its floor still gets it" "c-s:4b" "$(pick code 8 0 "$tmp/smallfloor.txt")"
+{ cat "$tmp/floors.txt"; echo 'size c-m:7b standard 14 20'; } >"$tmp/stdchain.txt"
+check "a 12 GB card under the large and the standard floor falls to small, and stops there" "c-s:4b" "$(pick code 16 12 "$tmp/stdchain.txt")"
+sed "s/\$/$(printf '\r')/" "$tmp/floors.txt" >"$tmp/floors-crlf.txt"
+check "a CRLF tiers file: the floors apply in select" "c-m:7b" \
+  "$(reset c-m:7b; OLLAMA_MODEL_TIERS_FILE="$tmp/floors-crlf.txt" OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((12 * GiB)) ai_model_resolve code "$URL" 2>/dev/null)"
+check "a CRLF tiers file: a 24 GB card gets the xlarge pick in select" "c-x:27b" \
+  "$(reset c-x:27b; OLLAMA_MODEL_TIERS_FILE="$tmp/floors-crlf.txt" OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((24564 * 1048576)) ai_model_resolve code "$URL" 2>/dev/null)"
+
 # --- the checker -----------------------------------------------------------------------------
 checker=scripts/ollama_tiers_check.sh
 check "the shipped tiers file passes the checker" "0" "$(OLLAMA_MODEL_TIERS_FILE='' bash "$checker" >/dev/null 2>&1; echo $?)"
@@ -770,6 +780,8 @@ check "the module docs give ollama_tier_model's floors and the size line error" 
   "$(awk '/^- ollama_tier_model /,/^- ai_model_resolve /' docs/modules/ollama_endpoint.md | grep -c -i 'size line'):"
 check "the module docs give ai_model_resolve's exit 10 for a malformed size line" "1:" \
   "$(awk '/^- ai_model_resolve /,/^$/' docs/modules/ollama_endpoint.md | grep 'Returns:' | grep -c 'size line'):"
+check "ollama_models.sh gives select's exit 10 for a malformed size line" "1" \
+  "$(awk '/^# EXIT_CODES:/,/^# EXAMPLE:/' scripts/ollama_models.sh | tr '\n' ' ' | grep -c 'malformed size')"
 check "a missing file: 2" "2" "$(bash "$checker" "$tmp/none" >/dev/null 2>&1; echo $?)"
 check "--help: 0" "0" "$(bash "$checker" --help >/dev/null 2>&1; echo $?)"
 check "the shipped code and reasoning rows are the approved ones" \
