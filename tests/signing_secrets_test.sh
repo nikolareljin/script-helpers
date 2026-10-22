@@ -4,7 +4,8 @@
 #              throwaway GPG key: values reach gh on stdin and never in its
 #              arguments or the output; --check reports missing names and
 #              exits 1; bad input is refused before anything is set; the
-#              .p12 must open with its password before it is stored.
+#              .p12 and the .pfx must open with their password and hold a
+#              usable certificate and key before they are stored.
 # USAGE: bash tests/signing_secrets_test.sh
 # PARAMETERS: No required parameters.
 # EXAMPLE: bash tests/signing_secrets_test.sh
@@ -357,6 +358,126 @@ grep -q "openssl is not installed.*--skip-p12-check" <<< "$out" || error "no ope
 APPLE_CERTIFICATE_PASSWORD=a APPLE_APP_PASSWORD=b refuse "identity of another team" --repos o/a --group apple --apple-p12 "$tmp/cert.p12" \
   --apple-identity "Developer ID Application: Me (ZZZZZ99999)" --apple-team ABCDE12345 --apple-id me@example.invalid --dry-run
 refuse "skip-p12-check without apple group" --repos o/a --group gpg --gpg-key "$fpr" --skip-p12-check
+
+# 7c. --group windows: the .pfx must open with its password, hold a private
+# key and a code-signing certificate for it, in date. Values reach gh on
+# stdin; the password also comes from --windows-password-file.
+windows() { # pfx password [args...]
+  local f="$1" pw="$2"; shift 2
+  WINDOWS_CERTIFICATE_PASSWORD="$pw" bash "$SCRIPT" --repos o/w --group windows --windows-pfx "$f" "$@" 2>&1
+}
+pfx_refused() { # name expected-message pfx password [args...]
+  local name="$1" msg="$2" rc=0; shift 2
+  before="$(wc -l < "$STORE/argv")"
+  out="$(windows "$@")" || rc=$?
+  [ "$rc" = 2 ] || error "$name: exit $rc, expected 2: $out"
+  grep -qF -- "$msg" <<< "$out" || error "$name: message: $out"
+  [ "$(wc -l < "$STORE/argv")" = "$before" ] || error "$name: gh was called"
+}
+if [ -n "$real_openssl" ]; then
+  # -config/-extensions, not -addext: LibreSSL has no -addext.
+  cat > "$tmp/pfx.cnf" <<'CNF'
+[req]
+distinguished_name = dn
+[dn]
+[cs]
+extendedKeyUsage = codeSigning
+[srv]
+extendedKeyUsage = serverAuth
+CNF
+  pfx_cert() { # out-cert ext days
+    "$real_openssl" x509 -req -in "$tmp/pfx.csr" -signkey "$tmp/pfxkey.pem" -days "$3" \
+      -extfile "$tmp/pfx.cnf" -extensions "$2" -out "$1" >/dev/null 2>&1
+  }
+  "$real_openssl" req -new -newkey rsa:2048 -nodes -keyout "$tmp/pfxkey.pem" -subj "/CN=Me Windows Signing" \
+    -config "$tmp/pfx.cnf" -out "$tmp/pfx.csr" >/dev/null 2>&1 || error "openssl req (pfx) failed"
+  pfx_cert "$tmp/pfxcert.pem" cs 365 || error "x509 (pfx) failed"
+  P12_CERT="$tmp/pfxcert.pem" P12_KEY="$tmp/pfxkey.pem" make_p12 "$tmp/sign.pfx" pfx-pw-value || error "pkcs12 -export (pfx) failed"
+  : > "$STORE/argv"; : > "$STORE/openssl_argv"
+  rc=0; out="$(windows "$tmp/sign.pfx" pfx-pw-value)" || rc=$?
+  [ "$rc" = 0 ] || error "good pfx: exit $rc: $out"
+  w="$STORE/o/w/secret"
+  [ "$(base64 -d < "$w/WINDOWS_CERTIFICATE" 2>/dev/null | cksum)" = "$(cksum < "$tmp/sign.pfx")" ] || error "WINDOWS_CERTIFICATE is not the base64 of the .pfx"
+  [ "$(wc -l < "$w/WINDOWS_CERTIFICATE" 2>/dev/null | tr -d ' ')" = 0 ] || error "WINDOWS_CERTIFICATE is wrapped"
+  [ "$(cat "$w/WINDOWS_CERTIFICATE_PASSWORD" 2>/dev/null)" = "pfx-pw-value" ] || error "WINDOWS_CERTIFICATE_PASSWORD wrong"
+  grep -qF -- "pfx-pw-value" "$STORE/argv" && error "pfx password reached gh's arguments"
+  grep -qF -- "pfx-pw-value" "$STORE/openssl_argv" && error "pfx password reached openssl's arguments"
+  grep -qF -- "pfx-pw-value" <<< "$out" && error "pfx password printed"
+  grep -qx "secret set WINDOWS_CERTIFICATE -R o/w" "$STORE/argv" || error "gh not called as 'secret set WINDOWS_CERTIFICATE -R o/w': $(cat "$STORE/argv")"
+  grep -q "windows_sign_mode: pfx" <<< "$out" || error "good pfx: no next step: $out"
+  grep -q "ci-helpers docs/windows-signing.md" <<< "$out" || error "good pfx: no docs pointer: $out"
+  grep -q 'expires on' <<< "$out" && error "pfx valid for a year: warned of expiry: $out"
+  # The password from a file; its trailing newline is not part of it.
+  printf 'file-pw\n' > "$tmp/pfxpwfile"
+  P12_CERT="$tmp/pfxcert.pem" P12_KEY="$tmp/pfxkey.pem" make_p12 "$tmp/sign2.pfx" file-pw || error "pkcs12 -export (pfx2) failed"
+  rc=0; out="$(env -u WINDOWS_CERTIFICATE_PASSWORD bash "$SCRIPT" --repos o/w2 --group windows --windows-pfx "$tmp/sign2.pfx" \
+    --windows-password-file "$tmp/pfxpwfile" </dev/null 2>&1)" || rc=$?
+  [ "$rc" = 0 ] || error "pfx password file: exit $rc: $out"
+  [ "$(cat "$STORE/o/w2/secret/WINDOWS_CERTIFICATE_PASSWORD" 2>/dev/null)" = "file-pw" ] || error "pfx password file: password not stored as written"
+  grep -qF -- "file-pw" "$STORE/argv" && error "pfx password file: password reached gh's arguments"
+  # Written on Windows: CRLF.
+  printf 'file-pw\r\n' > "$tmp/pfxpwcrlf"
+  rc=0; out="$(env -u WINDOWS_CERTIFICATE_PASSWORD bash "$SCRIPT" --repos o/w3 --group windows --windows-pfx "$tmp/sign2.pfx" \
+    --windows-password-file "$tmp/pfxpwcrlf" </dev/null 2>&1)" || rc=$?
+  [ "$rc" = 0 ] || error "pfx password file with CRLF: exit $rc: $out"
+  [ "$(cat "$STORE/o/w3/secret/WINDOWS_CERTIFICATE_PASSWORD" 2>/dev/null)" = "file-pw" ] || error "pfx password file with CRLF: CR stored"
+  # A CR without a LF is part of the password, so this one does not open.
+  printf 'file-pw\r' > "$tmp/pfxpwcr"
+  rc=0; out="$(env -u WINDOWS_CERTIFICATE_PASSWORD bash "$SCRIPT" --repos o/w4 --group windows --windows-pfx "$tmp/sign2.pfx" \
+    --windows-password-file "$tmp/pfxpwcr" </dev/null 2>&1)" || rc=$?
+  [ "$rc" = 2 ] || error "pfx password file ending in a lone CR: CR dropped, exit $rc: $out"
+  pfx_refused "wrong pfx password" "wrong WINDOWS_CERTIFICATE_PASSWORD" "$tmp/sign.pfx" wrong-pfx-pw
+  grep -qF wrong-pfx-pw "$STORE/openssl_argv" && error "wrong pfx password reached openssl's arguments"
+  P12_CERT="$tmp/pfxcert.pem" make_p12 "$tmp/nokey.pfx" pfx-pw-value -nokeys || error "pkcs12 -export (pfx nokey) failed"
+  pfx_refused "pfx without a key" "holds no private key" "$tmp/nokey.pfx" pfx-pw-value
+  pfx_cert "$tmp/srvcert.pem" srv 365 || error "x509 (server) failed"
+  P12_CERT="$tmp/srvcert.pem" P12_KEY="$tmp/pfxkey.pem" make_p12 "$tmp/srv.pfx" pfx-pw-value || error "pkcs12 -export (server) failed"
+  pfx_refused "pfx without code signing" "no code-signing (1.3.6.1.5.5.7.3.3)" "$tmp/srv.pfx" pfx-pw-value
+  # A code-signing certificate for another key does not count.
+  P12_CERT="$tmp/othercert.pem" P12_KEY="$tmp/otherkey.pem" make_p12 "$tmp/mismatch.pfx" pfx-pw-value -certfile "$tmp/pfxcert.pem" \
+    || error "pkcs12 -export (pfx mismatch) failed"
+  pfx_refused "code-signing certificate without its key" "no code-signing (1.3.6.1.5.5.7.3.3)" "$tmp/mismatch.pfx" pfx-pw-value
+  pfx_cert "$tmp/pfxsoon.pem" cs 1 || error "x509 (pfx soon) failed"
+  P12_CERT="$tmp/pfxsoon.pem" P12_KEY="$tmp/pfxkey.pem" make_p12 "$tmp/soon.pfx" pfx-pw-value || error "pkcs12 -export (pfx soon) failed"
+  rc=0; out="$(windows "$tmp/soon.pfx" pfx-pw-value)" || rc=$?
+  [ "$rc" = 0 ] || error "pfx expiring soon: exit $rc: $out"
+  grep -q "expires on .*renew it" <<< "$out" || error "pfx expiring soon: no warning: $out"
+  # OpenSSL 3.0 refuses -days -1; "ca" takes explicit past dates.
+  pfx_old() {
+    pfx_cert "$tmp/pfxold.pem" cs -1 && return 0
+    mkdir -p "$tmp/ca" && : > "$tmp/ca/index.txt"
+    printf '[ca]\ndefault_ca = c\n[c]\ndatabase = %s\nnew_certs_dir = %s\nserial = %s\ndefault_md = sha256\npolicy = p\n[p]\ncommonName = supplied\n[cs]\nextendedKeyUsage = codeSigning\n' \
+      "$tmp/ca/index.txt" "$tmp/ca" "$tmp/ca/serial" > "$tmp/ca.cnf"
+    echo 01 > "$tmp/ca/serial"
+    "$real_openssl" ca -batch -config "$tmp/ca.cnf" -selfsign -keyfile "$tmp/pfxkey.pem" -in "$tmp/pfx.csr" \
+      -startdate 20200101000000Z -enddate 20210101000000Z -extensions cs -out "$tmp/pfxold.pem" >/dev/null 2>&1
+  }
+  if pfx_old; then
+    P12_CERT="$tmp/pfxold.pem" P12_KEY="$tmp/pfxkey.pem" make_p12 "$tmp/old.pfx" pfx-pw-value || error "pkcs12 -export (pfx old) failed"
+    pfx_refused "expired pfx" "expired on" "$tmp/old.pfx" pfx-pw-value
+  else
+    note "SKIP expired .pfx: this openssl cannot write a certificate in the past"
+  fi
+  if P12_CERT="$tmp/pfxcert.pem" P12_KEY="$tmp/pfxkey.pem" make_p12 "$tmp/legacy.pfx" legacy-pw -legacy \
+    || P12_CERT="$tmp/pfxcert.pem" P12_KEY="$tmp/pfxkey.pem" make_p12 "$tmp/legacy.pfx" legacy-pw -certpbe PBE-SHA1-RC2-40 -keypbe PBE-SHA1-3DES; then
+    rc=0; out="$(windows "$tmp/legacy.pfx" legacy-pw)" || rc=$?
+    [ "$rc" = 0 ] || error "legacy pfx: exit $rc: $out"
+  fi
+  rc=0; out="$(windows "$tmp/srv.pfx" wrong-pfx-pw --skip-pfx-check)" || rc=$?
+  [ "$rc" = 0 ] || error "--skip-pfx-check: exit $rc: $out"
+fi
+rc=0; out="$(windows "$tmp/cert.p12" x --dry-run)" || rc=$?
+[ "$rc" = 0 ] || error "windows dry-run: exit $rc: $out"
+grep -qx "o/w: would set secret WINDOWS_CERTIFICATE_PASSWORD" <<< "$out" || error "windows dry-run output: $out"
+grep -q "windows_sign_mode: pfx" <<< "$out" || error "windows dry-run: no next step: $out"
+rc=0; out="$(bash "$SCRIPT" --repos o/c --group windows --check 2>&1)" || rc=$?
+[ "$rc" = 1 ] || error "windows --check exit $rc, expected 1"
+grep -qx "o/c: missing WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD" <<< "$out" || error "windows --check: $out"
+WINDOWS_CERTIFICATE_PASSWORD=x refuse "windows without --windows-pfx" --repos o/a --group windows
+WINDOWS_CERTIFICATE_PASSWORD=x refuse "missing pfx file" --repos o/a --group windows --windows-pfx "$tmp/none.pfx"
+refuse "windows option without windows group" --repos o/a --group gpg --gpg-key "$fpr" --windows-pfx "$tmp/cert.p12"
+refuse "skip-pfx-check without windows group" --repos o/a --group gpg --gpg-key "$fpr" --skip-pfx-check
+WINDOWS_CERTIFICATE_PASSWORD=x refuse "missing password file" --repos o/a --group windows --windows-pfx "$tmp/cert.p12" --windows-password-file "$tmp/none"
 
 # 8. TERM while gh runs: the private directory and its values are removed.
 hang="$tmp/hang"
