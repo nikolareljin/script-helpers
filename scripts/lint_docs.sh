@@ -92,8 +92,7 @@ for f in "${lib_files[@]+"${lib_files[@]}"}"; do
   # Extract function names from the file (first 500 lines is enough for these small modules)
   funcs=()
   while IFS= read -r _sh_line; do funcs+=("$_sh_line"); done < <(
-    # The whole file. This read only the first 500 lines once, and functions
-    # further down in the longer modules went unchecked.
+    # The whole file: several modules are longer than 2000 lines.
     cat "$f" \
       | grep -E '^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*\(\)[[:space:]]*\{' \
       | sed -E 's/^[[:space:]]*([a-zA-Z_][a-zA-Z0-9_]*)[[:space:]]*\(\).*/\1/' \
@@ -113,7 +112,7 @@ for f in "${lib_files[@]+"${lib_files[@]}"}"; do
 
   # The two module lists a reader meets first: README.md names the file,
   # docs/README.md (the site's home page) starts a list item with the name.
-  if [[ -f README.md && "$f" != "helpers.sh" ]] && ! grep -q -F "${module}.sh" README.md; then
+  if [[ -f README.md && "$f" != "helpers.sh" ]] && ! grep -q -E "(^|[^A-Za-z0-9_-])${module}\.sh" README.md; then
     error "Module missing from README.md: ${module}.sh"
   fi
   if [[ -f docs/README.md ]] && ! grep -q -E "^- ${module}( |:)" docs/README.md; then
@@ -156,7 +155,7 @@ guides=()
 while IFS= read -r _sh_line; do guides+=("$_sh_line"); done < <(
   find docs -type f -name '*.md' ! -path docs/commands.md 2>/dev/null | sort
 )
-for f in scripts/*.sh scripts/*.py ps/scripts/*.ps1 bin/* config/*; do
+for f in scripts/*.sh scripts/*.py scripts/*/* ps/scripts/*.ps1 bin/* config/*; do
   [[ -f "$f" ]] || continue
   name="$(basename "$f")"
   # Bounded on the left, so mytool.sh does not count for tool.sh.

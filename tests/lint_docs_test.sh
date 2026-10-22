@@ -246,6 +246,14 @@ else
   ok "an undocumented ps/scripts/*.ps1 fails"
 fi
 
+f="$(make_fixture nohook)"
+mkdir -p "$f/scripts/global-hooks"; printf '#!/bin/sh\n' > "$f/scripts/global-hooks/dispatch.sh"
+if run_lint "$f"; then
+  error "an undocumented script under scripts/<dir>/ PASSED"
+else
+  ok "an undocumented script under scripts/<dir>/ fails"
+fi
+
 f="$(make_fixture nobin)"
 mkdir -p "$f/bin"; printf '#!/bin/sh\n' > "$f/bin/tool"
 if run_lint "$f"; then
