@@ -8,7 +8,7 @@ Functions
 - version_bump bump_type [-f VERSION_FILE]
   - Purpose: Increment the semantic version stored in a file.
   - Args:
-    - bump_type — `major` | `minor` | `patch`.
+    - bump_type - `major` | `minor` | `patch`.
     - `-f`, `--file`: path to the version file; a relative path is relative to the current directory. Without it: `VERSION` at `version_project_root`, never in a vendored script-helpers copy.
   - Behavior:
     - Creates the file with `0.1.0` when missing.

@@ -2,6 +2,18 @@
 
 Helpers to install the Ollama CLI, prepare a models index, select a model/size via dialog, pull/run models, and manage local vs Docker Ollama runtime.
 
+`scripts/install_ollama_model.sh` wraps them in one command: `-i` installs the
+CLI, `-D` the common dependencies, then it shows the model and size menus and
+pulls the choice. `-e <env_file>` stores the choice (default `./.env`), `-n`
+pulls what that file names without a menu, and `-R` starts the model after the
+pull. Exit 1 for an unknown option or `-n` with no `model` in the file, 2 for
+`-r` or `-e` without a value.
+
+```bash
+scripts/install_ollama_model.sh -i -e .env        # install, choose, pull
+scripts/install_ollama_model.sh -n -e .env -R     # pull and start the saved choice
+```
+
 Expected imports
 ----------------
 
@@ -51,11 +63,11 @@ Environment
 
 - ollama_dialog_select_model json_file [current_model]
   - Purpose: Use a dialog menu to select a model from the index; returns the selected full model name on stdout.
-  - Behavior: Uses the cache at `OLLAMA_MODEL_MENU_CACHE_FILE`, or at the default cache path, while it says it was made from this index, is newer than it, is less than 30 minutes old and has no empty column (one written by an earlier version may); otherwise the cache is rebuilt first. So an index with a newer modification time is in the menu at once (a file put in place with an older time is not, until the cache ages). A cached row whose name cannot be a model reference is skipped. `current_model` is made the default item whatever its letter case; of names that differ only by case, the one written the same way. When the dialog is cancelled, the function prints a message to stderr and returns a non-zero status, so callers using `set -e` must handle cancellations explicitly to avoid script termination. If the prepared cache contains no selectable models, the function returns a clear stderr error instead of invoking an empty dialog.
+  - Behavior: Uses the cache at `OLLAMA_MODEL_MENU_CACHE_FILE`, or at the default cache path, while it says it was made from this index, is newer than it, is less than 30 minutes old and has no empty column; otherwise the cache is rebuilt first. So an index with a newer modification time is in the menu at once (a file put in place with an older time is not, until the cache ages). A cached row whose name cannot be a model reference is skipped. `current_model` is made the default item whatever its letter case; of names that differ only by case, the one written the same way. When the dialog is cancelled, the function prints a message to stderr and returns a non-zero status, so callers using `set -e` must handle cancellations explicitly to avoid script termination. If the prepared cache contains no selectable models, the function returns a clear stderr error instead of invoking an empty dialog.
 
 - ollama_dialog_select_size json_file model [current_size]
   - Purpose: Use a dialog menu to select a size for the model; returns `latest` if none are listed. Only a size that can be a tag (letters, digits and `. _ -`) is offered, each as its own item whatever the caller's `IFS` is. A model name that carries its tag (`hf.co/org/model:Q4_K_M`) gets no menu and `latest`: the name is the whole reference.
-  - Behavior: Returns status `2` when the size dialog is cancelled so callers can reopen model selection; `1` when jq cannot read the index (it used to answer `latest`).
+  - Behavior: Returns status `2` when the size dialog is cancelled so callers can reopen model selection; `1` when jq cannot read the index.
 
 - ollama_model_ref model [size=latest]
   - Purpose: Build model reference for Ollama (`name` or `name:tag` when tag is not `latest`). A name that already carries a tag (`hf.co/org/model:Q4_K_M`) is returned as it is; a port in a registry host is not a tag.
@@ -116,6 +128,10 @@ Runtime functions
 - ollama_runtime_local_models_dir env_file
   - Purpose: Resolve and create runtime model data directories.
   - Returns: absolute path on success; non-zero if directory creation fails.
+
+- ollama_runtime_local_env_assignment env_file
+  - Purpose: Print `OLLAMA_MODELS=<dir>` for the runtime-local model directory, ready for `env`.
+  - Returns: 0 printed; 1 when the directory cannot be created.
 
 - ollama_runtime_local_cmd env_file command [args...]
   - Purpose: Run `ollama` command with runtime-local model directory.

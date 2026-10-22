@@ -23,8 +23,8 @@ Functions
     - The download goes to a temporary file beside the destination (`output.XXXXXX`) and is moved into place only on success, with the mode the umask gives a new file. On failure the temporary file is removed: no partial or error-page file is left at the destination, and a file that was already there is left untouched.
   - Returns: 0 on success; the downloader's non-zero status on failure; 1 when neither `curl` nor `wget` is installed or the temporary file cannot be created.
   - Args:
-    - url — source URL.
-    - output — destination path; default derived from URL.
+    - url - source URL.
+    - output - destination path; default derived from URL.
   - Env:
     - `DOWNLOAD_USE_DIALOG`: `auto` (default) | `true`/`1` | `false`/`0`/`never`.
 

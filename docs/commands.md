@@ -1481,8 +1481,9 @@ Exit codes:
 packaging step failed.
 2  Bad arguments: unknown option, an option without its value, missing
 --workdir, a bad --slug, --version or --zip, a tool missing on PATH, an
---out-dir inside the plugin, no usable Version: header, or --exclude-
-from not found.
+--out-dir that is the plugin directory or contains it, no usable
+Version: header, or --exclude-from not found. An --out-dir inside the
+plugin is allowed and left out of the package.
 N  A failing composer or asset command exits with its own code.
 ```
 
@@ -1580,7 +1581,7 @@ Exit codes:
 ```text
 0  No plugin-check errors, or findings reported only with --fail-on-findings
 false (also -h/--help).
-1  The database did not become ready, or a setup step failed.
+1  The database did not become ready within --db-wait-seconds.
 2  Bad arguments: unknown option, an option without its value, a bad
 true/false, port or wait value, missing --plugin-slug, compose file or
 plugin source not found, a bad --plugin-src-env name, or python3 missing
@@ -1588,6 +1589,8 @@ with --fail-on-findings true.
 4  Plugin-check reported errors, or wp plugin check is unavailable, with
 --fail-on-findings true.
 5  The plugin-check or meta-check JSON could not be parsed.
+N  A failing --php-lint-command or --phpunit-command, or a failing
+docker compose or wp setup step, exits with its own code.
 ```
 
 Example:
@@ -2639,7 +2642,7 @@ Example:
 
 ### `scripts/lint_docs.sh`
 
-Validate docs coverage and API index consistency for script-helpers modules.
+Validate docs coverage: modules, functions, the API index, the module lists in README.md and docs/README.md, every script, bin/ command and config/ file, and the module counts.
 
 ```text
 Usage: ./lint_docs.sh
@@ -2649,7 +2652,8 @@ Usage: ./lint_docs.sh
 Exit codes:
 
 ```text
-0  Every module and function is documented and listed in docs/api.md.
+0  Every module, function, script, command and config file is documented,
+and the module counts are current.
 1  At least one documentation gap (each printed on stderr).
 ```
 

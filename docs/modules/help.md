@@ -9,7 +9,7 @@ Functions
   - Purpose: Parse header tags from a script and print a concise help block using the shared renderer.
   - Signature: `display_help [path]`
   - Sets `SHLIB_HELP_SHOWN=true` for callers that want to skip UI cleanup.
-  - Args: script_file — script to parse; defaults to `$0`.
+  - Args: script_file - script to parse; defaults to `$0`.
   - Reads header keys: `# SCRIPT:`, `# DESCRIPTION:`, `# USAGE:`, `# PARAMETERS:`, `# EXAMPLE:`.
 
 - print_help [script_file]
@@ -28,8 +28,8 @@ Functions
   - Purpose: Parse standardized header tags from a script into a set of shell variables.
   - Signature: `get_script_metadata <script_file> <prefix>`
   - Args:
-    - script_file — script path to scan.
-    - prefix — variable-name prefix to receive the fields.
+    - script_file - script path to scan.
+    - prefix - variable-name prefix to receive the fields.
   - Returns: `0` on success, `2` when `script_file` is missing or unreadable
     (checked up front, so a caller under `set -e` gets a controlled return and
     a message naming the path rather than a redirection error citing
@@ -68,9 +68,9 @@ Functions
 - parse_common_args "$@"
   - Purpose: Parse common flags.
   - Flags:
-    - `-h`, `--help` — prints `show_help` for the caller script when available; otherwise `show_usage`, then exits 0.
-    - `-v`, `--verbose` — sets `VERBOSE=true`.
-    - `-d`, `--debug` — sets `DEBUG=true`.
+    - `-h`, `--help` - prints `show_help` for the caller script when available; otherwise `show_usage`, then exits 0.
+    - `-v`, `--verbose` - sets `VERBOSE=true`.
+    - `-d`, `--debug` - sets `DEBUG=true`.
   - Stops parsing on the first non-flag.
 
 - require_value "$@"
@@ -87,4 +87,4 @@ Dependencies
 Environment
 -----------
 
-- `SHLIB_CALLER_SCRIPT` — optional; when set to a readable path, `parse_common_args` and helper usage output can render script-level help.
+- `SHLIB_CALLER_SCRIPT` - optional; when set to a readable path, `parse_common_args` and helper usage output can render script-level help.

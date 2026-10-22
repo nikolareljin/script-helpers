@@ -11,7 +11,7 @@ Functions
   - Behavior: Writes directly when the file is writable, otherwise through
     `sudo tee`. Prints a success or info message.
   - Env:
-    - `HOSTS_FILE` — the file to edit, default `/etc/hosts`. Provided so the
+    - `HOSTS_FILE` - the file to edit, default `/etc/hosts`. Provided so the
       "already present" test is verifiable without touching the real file.
   - Validation: `domain` must be a hostname (letters, digits, `.`, `-`, `_`)
     and `ip_address` an IPv4 dotted quad or an IPv6 address; anything else --

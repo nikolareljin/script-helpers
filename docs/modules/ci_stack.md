@@ -7,7 +7,7 @@ Extracted from `ci_laravel.sh`, which had the most complete implementation. The
 point is that there is one copy: `ci_laravel.sh` and `ci_wp_phpunit.sh` each
 carried their own `start_database` and `cleanup`, and the two had drifted far
 enough that one guarded its EXIT trap against inherited subshells and the other
-did not — a bug that removes the caller's database container mid-run.
+did not - a bug that removes the caller's database container mid-run.
 
 Functions
 ---------
@@ -18,7 +18,7 @@ Functions
     how a container comes up and is then talked to in the wrong dialect.
 
 - ci_stack_default_port
-  - Purpose: Echo the port an engine listens on inside its container — 3306 for
+  - Purpose: Echo the port an engine listens on inside its container - 3306 for
     mysql, 5432 for pgsql.
 
 - ci_stack_start_database
@@ -49,9 +49,8 @@ Functions
   - Purpose: Remove the container and, if given, the network. Never fails: it is
     called from an EXIT trap, where a non-zero return would replace the script's
     real exit status with the cleanup's.
-  - Says nothing about a container that does not exist. A caller sets the
-    name before starting, so on a failed start this used to announce
-    removing something that was never created.
+  - Says nothing about a container that does not exist, so a failed start
+    does not announce removing something that was never created.
   - Options: `--container`, `--network`.
 
 Notes

@@ -4,14 +4,14 @@
 bash 4 and 5, and `./dev` prefers them.**
 
 The library is written so that stock macOS can use it without installing
-anything. That is a *minimum*, not a ceiling — nothing is held back to 3.2-era
+anything. That is a *minimum*, not a ceiling - nothing is held back to 3.2-era
 behaviour on a machine that has something newer.
 
 ## Which bash actually runs
 
 | Situation | What runs |
 |---|---|
-| Linux, most containers | bash 5.x — whatever `/usr/bin/env bash` finds |
+| Linux, most containers | bash 5.x - whatever `/usr/bin/env bash` finds |
 | macOS with Homebrew bash | bash 5.x from `/opt/homebrew/bin` or `/usr/local/bin` |
 | macOS with nothing installed | bash 3.2, `/bin/bash` |
 | Anything older than 3.2 | refused at load, with a message |
@@ -19,12 +19,12 @@ behaviour on a machine that has something newer.
 `./dev` resolves this deliberately. It walks these candidates:
 
 ```
-$BASH → /opt/homebrew/bin/bash → /usr/local/bin/bash → $(command -v bash) → /bin/bash
+$BASH -> /opt/homebrew/bin/bash -> /usr/local/bin/bash -> $(command -v bash) -> /bin/bash
 ```
 
 and takes **the first one that is bash 4 or newer**; only if none of them is
 does it fall back to the first that is at least 3.2. So a Mac whose `$BASH` is
-the stock 3.2 but which has Homebrew bash installed gets the Homebrew one — a
+the stock 3.2 but which has Homebrew bash installed gets the Homebrew one; a
 flat first-match order would not do that. `/bin/bash` is **last**. That ordering exists so a Mac with a modern bash
 installed actually uses it: a bare `exec bash` would resolve from `PATH` and
 discard the script's own shebang, which on macOS lands back on 3.2.
@@ -50,7 +50,7 @@ bash tests/portability_test.sh   # static scan for bash-4-only and GNU-only cons
 ```
 
 CI runs the suite on macOS under `/bin/bash` for every change touching shell
-code. `make test-bash32` needs no Mac — it runs the same suite in the
+code. `make test-bash32` needs no Mac - it runs the same suite in the
 `bash:3.2` image.
 
 ## What that costs, in practice
@@ -64,7 +64,7 @@ These are bash 4+ features, and they are **not** used in `lib/`:
 | Namerefs (`declare -n`) | print a value and capture it, or pass a name and `eval` carefully |
 | `${var^^}` / `${var,,}` | `tr '[:lower:]' '[:upper:]'` |
 | `shopt -s globstar` (`**`) | `find` |
-| `&>>` | `>>file 2>&1` (not currently banned by the scanner — see below) |
+| `&>>` | `>>file 2>&1` (not currently banned by the scanner - see below) |
 
 The same discipline rules out GNU-only tool flags, because macOS ships BSD
 versions: no `sed -i`/`sed -r`, no `readlink -f`, no `realpath`, no `grep -P`,
@@ -73,7 +73,7 @@ no `date -d`, no `find -printf`, no `xargs -r`, no `base64 -w`, no
 
 `tests/portability_test.sh` enforces **the GNU-only tool flags above, and every
 bash-4 construct in the previous table except `&>>`**, statically, over tracked
-**and untracked** files — so a new script is checked before it is committed.
+**and untracked** files - so a new script is checked before it is committed.
 `&>>` is unused today and has no ban rule; do not rely on the scanner for it.
 
 ## When a function genuinely needs bash 4
@@ -82,7 +82,7 @@ Some things cannot be done on 3.2 at all. The clearest case is a function that
 takes an **associative array from the caller**: there is no way to receive one
 on 3.2, so there is nothing to degrade to.
 
-Three functions are in that position — `select_distro`,
+Three functions are in that position - `select_distro`,
 `select_multiple_distros` and `download_iso`. They do not silently misbehave;
 they call `require_bash4` and fail with a message naming the feature and, on
 macOS, the remedy:
@@ -109,10 +109,10 @@ Write it 3.2-safe. It then runs everywhere, 4+ included, and both gates pass
 without you thinking about them again.
 
 Reach for `require_bash4` **only** when the feature is impossible on 3.2 rather
-than merely more convenient with bash 4 — and when you do, add the file to the
+than merely more convenient with bash 4 - and when you do, add the file to the
 allow-list in `tests/portability_test.sh` with a comment saying why, so the
 exception is visible rather than assumed.
 
 If you find yourself wanting an associative array, a newline-delimited string
-usually does the job — `scripts/lint_docs.sh` uses one exactly where a map would
+usually does the job - `scripts/lint_docs.sh` uses one exactly where a map would
 be the obvious bash 4 answer, and says so in a comment.

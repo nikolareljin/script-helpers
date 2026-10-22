@@ -37,7 +37,7 @@ Functions
 
 - get_value title message [default]
   - Purpose: Prompt a value using a dialog input box; prints the value to stdout.
-  - Behavior: Drawn through `dialog_capture`, so the box shows when the caller captures stdout: `value=$(get_value ...)` used to put the whole screen into the value and nothing on the terminal. On cancel or an empty answer it returns 1, the message goes to stderr and nothing is printed: stdout is the value.
+  - Behavior: Drawn through `dialog_capture`, so the box shows on the terminal when the caller captures stdout, and `value=$(get_value ...)` holds only the answer. On cancel or an empty answer it returns 1, the message goes to stderr and nothing is printed: stdout is the value.
   - Returns: 0 on success; non-zero (with error message) if canceled or empty.
 
 > **Requires bash 4.0 or newer.** The two selectors below take a `DISTROS`
@@ -60,9 +60,9 @@ Functions
 - dialog_download_file url [output_path] [tool=auto]
   - Purpose: Download a URL with a live `dialog` gauge showing percentage, size, speed, and ETA.
   - Args:
-    - url — source URL.
-    - output_path — destination path (defaults from URL).
-    - tool — `auto` (default), `curl`, or `wget`.
+    - url - source URL.
+    - output_path - destination path (defaults from URL).
+    - tool - `auto` (default), `curl`, or `wget`.
   - Behavior:
     - Shows progress while downloading; handles unknown `Content-Length` with rolling progress and no ETA.
     - On errors, shows a dialog box with exit code and error details unless disabled by env.
@@ -90,10 +90,10 @@ Functions
 Environment
 -----------
 
-- `DIALOG_WIDTH`, `DIALOG_HEIGHT` — set by `dialog_init`.
+- `DIALOG_WIDTH`, `DIALOG_HEIGHT` - set by `dialog_init`.
 - `SHLIB_UI` (`dialog`, `plain`, `none`) and `SHLIB_UI_PLAIN=1`: see `ui_mode`.
 - `SHLIB_DIALOG_TTY`: the terminal device the functions above draw on. Default `/dev/tty`. For tests, which give it a file. (`DIALOG_TTY` is a variable of `dialog`'s own and is not read here.)
-- `DIALOG_DOWNLOAD_SHOW_ERROR_DIALOG` — set to `0`, `false`, or `never` to suppress dialog error popups in `dialog_download_file`.
+- `DIALOG_DOWNLOAD_SHOW_ERROR_DIALOG` - set to `0`, `false`, or `never` to suppress dialog error popups in `dialog_download_file`.
 
 Dependencies
 ------------

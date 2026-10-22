@@ -18,7 +18,7 @@ Every function in this module uses the same set:
 | `2` | bad arguments, or a value outside its allowed set |
 | `3` | a required tool is missing |
 | `4` | no usable Cloudflare credentials |
-| `5` | refused — a protected environment was not confirmed |
+| `5` | refused - a protected environment was not confirmed |
 
 No function here calls `exit`. These are library functions, and a sourced function that exits takes the caller's shell with it.
 
@@ -57,12 +57,12 @@ Functions
 
 - cloudflare_confirm_environment environment [--yes]
   - Purpose: Require a deliberate confirmation before deploying to a protected environment.
-  - Behavior: Only environments listed in `CLOUDFLARE_PROTECTED_ENVS` (default `production`, space separated) prompt at all. `--yes`, or `CLOUDFLARE_DEPLOY_YES=1`, confirms without a prompt. On a terminal the operator must type the environment name exactly. With **no terminal on stdin** it returns `5` immediately rather than blocking on a read nobody can answer — an unattended run that hangs to its timeout is worse than one that says what it needed.
+  - Behavior: Only environments listed in `CLOUDFLARE_PROTECTED_ENVS` (default `production`, space separated) prompt at all. `--yes`, or `CLOUDFLARE_DEPLOY_YES=1`, confirms without a prompt. On a terminal the operator must type the environment name exactly. With **no terminal on stdin** it returns `5` immediately rather than blocking on a read nobody can answer - an unattended run that hangs to its timeout is worse than one that says what it needed.
   - Returns: `0` confirmed; `2` empty environment; `5` declined, or unattended without `--yes`.
 
 - cloudflare_smoke_test base-url expected-version [status-path] [field]
   - Purpose: Prove that the deploy took effect, not merely that something answers.
-  - Behavior: Two separate assertions. First `curl` the health path (`CLOUDFLARE_HEALTH_PATH`, default `/health`) with retries, since a deploy that has just landed may take a moment to be reachable everywhere. Then, when `status-path` is given, fetch it and compare its `field` (default `version`) against `expected-version`. Without the second assertion a smoke test passes against the previous release, which is the failure it exists to catch — so reachability-only runs log a warning saying so. JSON is read with `jq`, else `python3`, else a `grep`/`sed` fallback.
+  - Behavior: Two separate assertions. First `curl` the health path (`CLOUDFLARE_HEALTH_PATH`, default `/health`) with retries, since a deploy that has just landed may take a moment to be reachable everywhere. Then, when `status-path` is given, fetch it and compare its `field` (default `version`) against `expected-version`. Without the second assertion a smoke test passes against the previous release, which is the failure it exists to catch - so reachability-only runs log a warning saying so. JSON is read with `jq`, else `python3`, else a `grep`/`sed` fallback.
   - Returns: `0` pass; `1` unreachable, no such field, or the wrong version is live; `2` bad arguments; `3` no `curl`.
 
 - cloudflare_deploy [options] [-- extra wrangler args...]
@@ -81,7 +81,7 @@ Environment
 | `CLOUDFLARE_ACCOUNT_ID` | The account to deploy to. Checked explicitly, because wrangler treats an empty value as "resolve from the token". |
 | `CLOUDFLARE_WRANGLER_CMD` | Overrides how wrangler is invoked, e.g. `pnpm exec wrangler`. |
 | `CLOUDFLARE_WRANGLER_VERSION` | Version used by the `npx` fallback. Defaults to `CI_DEFAULT_WRANGLER_VERSION`, which this module sources from `ci_defaults` so the pin has one home. |
-| `CLOUDFLARE_PROTECTED_ENVS` | Space-separated environments needing a typed confirmation. Default `production`. Matched literally — globbing is disabled while the list is read, so the value cannot be altered by files in the working directory. |
+| `CLOUDFLARE_PROTECTED_ENVS` | Space-separated environments needing a typed confirmation. Default `production`. Matched literally - globbing is disabled while the list is read, so the value cannot be altered by files in the working directory. |
 | `CLOUDFLARE_DEPLOY_YES` | Set to `1` to confirm a protected environment without a prompt. |
 | `CLOUDFLARE_HEALTH_PATH` | Reachability path for the smoke test. Default `/health`. |
 | `CLOUDFLARE_DEPLOY_CONFIG` | Names the generated deploy config directly, skipping derivation. |
@@ -114,7 +114,7 @@ cloudflare_deploy --env staging --command "pages deploy" -- \
 Dependencies
 ------------
 
-- `curl` — the smoke test.
+- `curl` - the smoke test.
 - wrangler, through a package manager, a `PATH` binary, or `npx`.
 - `jq` or `python3` for JSON; a `grep`/`sed` fallback is used when neither is present.
 - `lib/logging.sh`, and `lib/env.sh` for `resolve_env_value`.
@@ -124,12 +124,12 @@ Pushing KV entries or seed data
 
 **This module deliberately does not do it, and will not gain a function for it.**
 If a deploy also has to write KV entries, seed a namespace, or upload data, put
-that in your own script — alongside `cloudflare_deploy`, not inside it.
+that in your own script - alongside `cloudflare_deploy`, not inside it.
 
 Why it stays out:
 
-- **It needs a wider token.** Deploying needs *Workers Scripts → Edit*; writing
-  KV needs *Workers KV Storage → Edit* as well. Binding a namespace does not.
+- **It needs a wider token.** Deploying needs *Workers Scripts -> Edit*; writing
+  KV needs *Workers KV Storage -> Edit* as well. Binding a namespace does not.
   A helper that writes data would push every caller toward the broader token
   whether or not they need it.
 - **It is the one step that cannot be undone by the next deploy.** A Worker is
@@ -144,10 +144,10 @@ If you write one, four things to get right:
 1. **Guard it with a string comparison, never a bare truthiness test.** In a CI
    job, an output crossing a job boundary is a *string*, so a guard like
    `if: needs.x.outputs.push_data` is true even when the value is the literal
-   `"false"` — every non-empty string is truthy. The same shape in bash is
+   `"false"` - every non-empty string is truthy. The same shape in bash is
    `[[ -n "$PUSH_DATA" ]]`, which is true for `"false"` too. Compare against the
    value you mean: `[[ "$PUSH_DATA" = "true" ]]`.
-2. **Make it idempotent, or make it refuse.** Deploys get re-run — a retried
+2. **Make it idempotent, or make it refuse.** Deploys get re-run - a retried
    job, a re-pushed tag, a person clicking the button again. A push that
    overwrites unconditionally gives a different result each time. If it cannot
    be idempotent, detect existing data and stop rather than clobber it.

@@ -73,6 +73,18 @@ MD
 - [helpers](./modules/helpers.md)
 - [widget](./modules/widget.md)
 MD
+  # The two module lists a reader meets first, and a guide naming the linter.
+  cat > "$root/README.md" <<'MD'
+# fixture
+- `helpers.sh`: the loader.
+- `widget.sh`: widgets. 1 Bash modules, 0 PowerShell mirrors.
+- `scripts/lint_docs.sh` checks the docs.
+MD
+  cat > "$root/docs/README.md" <<'MD'
+# fixture
+- helpers - the loader.
+- widget: widgets.
+MD
   printf '%s' "$root"
 }
 
@@ -93,8 +105,8 @@ f="$(make_fixture plaintext)"
 cat > "$f/docs/api.md" <<'MD'
 # API Index
 
-- helpers — ./modules/helpers.md
-- widget — ./modules/widget.md
+- helpers - ./modules/helpers.md
+- widget - ./modules/widget.md
 MD
 if run_lint "$f"; then
   ok "the original plain-text index form still passes"
@@ -171,6 +183,180 @@ if run_lint "$f"; then
   error "a commented-out or prose mention satisfied the index for 'widget'"
 else
   ok "commented-out, prose and table mentions do not satisfy the index"
+fi
+
+# --- coverage beyond the module pages -----------------------------------------
+note "functions, lists, scripts, config and counts are all checked"
+
+# The linter read only the first 500 lines of a module, so a function defined
+# further down was never checked. lib/ollama_endpoint.sh is 2795 lines.
+f="$(make_fixture late)"
+{ echo '#!/usr/bin/env bash'; echo 'widget_make() { :; }'
+  for i in $(seq 1 600); do echo "# filler $i"; done
+  echo 'widget_late() { :; }'; } > "$f/lib/widget.sh"
+if run_lint "$f"; then
+  error "an undocumented function past line 500 PASSED"
+else
+  ok "an undocumented function past line 500 fails"
+fi
+
+f="$(make_fixture nohome)"
+printf '# fixture\n- helpers - the loader.\n' > "$f/docs/README.md"
+if run_lint "$f"; then
+  error "a module missing from the docs/README.md overview PASSED"
+else
+  ok "a module missing from the docs/README.md overview fails"
+fi
+
+f="$(make_fixture noreadme)"
+printf '# fixture\n- `helpers.sh`\n- `scripts/lint_docs.sh`\n' > "$f/README.md"
+if run_lint "$f"; then
+  error "a module missing from README.md PASSED"
+else
+  ok "a module missing from README.md fails"
+fi
+
+f="$(make_fixture noscript)"
+printf '#!/usr/bin/env bash\n' > "$f/scripts/tool.sh"
+printf '# Commands\n`scripts/tool.sh`\n' > "$f/docs/commands.md"
+if run_lint "$f"; then
+  error "a script named only in the generated docs/commands.md PASSED"
+else
+  ok "a script no guide names fails (docs/commands.md does not count)"
+fi
+printf '# Usage\nRun `scripts/mytool.sh`.\n' > "$f/docs/usage.md"
+if run_lint "$f"; then
+  error "a script named only inside a longer name (mytool.sh) PASSED"
+else
+  ok "a longer name containing the script's does not count"
+fi
+printf '# Usage\nRun `scripts/tool.sh`.\n' > "$f/docs/usage.md"
+if run_lint "$f"; then
+  ok "a script a guide names passes"
+else
+  error "a script named in docs/usage.md still failed"
+fi
+
+f="$(make_fixture nops)"
+mkdir -p "$f/ps/scripts" "$f/bin" "$f/config"
+printf '# x\n' > "$f/ps/scripts/tool.ps1"
+if run_lint "$f"; then
+  error "an undocumented ps/scripts/*.ps1 PASSED"
+else
+  ok "an undocumented ps/scripts/*.ps1 fails"
+fi
+
+f="$(make_fixture nohook)"
+mkdir -p "$f/scripts/global-hooks"; printf '#!/bin/sh\n' > "$f/scripts/global-hooks/dispatch.sh"
+if run_lint "$f"; then
+  error "an undocumented script under scripts/<dir>/ PASSED"
+else
+  ok "an undocumented script under scripts/<dir>/ fails"
+fi
+
+f="$(make_fixture nobin)"
+mkdir -p "$f/bin"; printf '#!/bin/sh\n' > "$f/bin/tool"
+if run_lint "$f"; then
+  error "an undocumented bin/ command PASSED"
+else
+  ok "an undocumented bin/ command fails"
+fi
+printf '# Usage\nRun `bin/toolbox`.\n' > "$f/docs/usage.md"
+if run_lint "$f"; then
+  error "a bin/ command named only as the prefix of a longer name (toolbox) PASSED"
+else
+  ok "a longer name starting with the command's does not count"
+fi
+
+f="$(make_fixture noconfig)"
+mkdir -p "$f/config"; printf 'x\n' > "$f/config/tool.txt"
+if run_lint "$f"; then
+  error "an undocumented config/ file PASSED"
+else
+  ok "an undocumented config/ file fails"
+fi
+
+f="$(make_fixture pstable)"
+mkdir -p "$f/ps/lib"; printf '# x\n' > "$f/ps/lib/widget.ps1"
+sed -i.bak 's/0 PowerShell mirrors/1 PowerShell mirrors/' "$f/README.md"
+if run_lint "$f"; then
+  error "a ps/lib module missing from the README.md PowerShell table PASSED"
+else
+  ok "a ps/lib module missing from the README.md PowerShell table fails"
+fi
+printf '| `widget.ps1` | widget_make |\n' >> "$f/README.md"
+if run_lint "$f"; then
+  ok "a ps/lib module with a README.md table row passes"
+else
+  error "a ps/lib module with a README.md table row still failed"
+fi
+
+# Published pages describe the product as it is. History goes in CHANGELOG.md.
+for phrase in "it used to print a warning" "This no longer happens" \
+              "An earlier version did this" "Previously it failed" \
+              "Since this change, it refuses" "There was none here before"; do
+  f="$(make_fixture history)"
+  printf '# Usage\n%s.\n' "$phrase" > "$f/docs/usage.md"
+  if run_lint "$f"; then
+    error "history phrase in a docs page PASSED: $phrase"
+  else
+    ok "history phrase in a docs page fails: $phrase"
+  fi
+  rm -rf "$f"
+done
+f="$(make_fixture present)"
+printf '# Usage\nRun it before the push. The tool used to sign is gpg.\nIt restores the previously set path.\nA name no longer than 64 bytes.\n' > "$f/docs/usage.md"
+if run_lint "$f"; then
+  ok "present-tense 'before', 'used to sign', 'previously set', 'no longer than' pass"
+else
+  error "present-tense text was flagged as history"
+fi
+
+for typo in $'a \xe2\x80\x94 b' $'1\xe2\x80\x932' $'a \xe2\x86\x92 b' $'it\xe2\x80\x99s' $'x\xc2\xa0y'; do
+  f="$(make_fixture typo)"
+  printf '# Usage\n%s\n' "$typo" > "$f/docs/usage.md"
+  if run_lint "$f"; then
+    error "typographic character in a docs page PASSED: $typo"
+  else
+    ok "typographic character in a docs page fails"
+  fi
+  rm -rf "$f"
+done
+f="$(make_fixture typo_ok)"
+printf '# Usage\nThe header is `## 2026-01-02 \xe2\x80\x94 v1.2.3`, and `\xc3\xbcn\xc3\xaf/.env` is a path.\n' > "$f/docs/usage.md"
+if run_lint "$f"; then
+  ok "the CHANGELOG header em dash and other non-ASCII letters pass"
+else
+  error "the CHANGELOG header em dash or a non-ASCII letter was flagged"
+fi
+rm -rf "$f"
+
+f="$(make_fixture count)"
+sed -i.bak 's/1 Bash modules/37 Bash modules/' "$f/README.md"
+if run_lint "$f"; then
+  error "a stale 'N Bash modules' count PASSED"
+else
+  ok "a stale 'N Bash modules' count fails"
+fi
+
+f="$(make_fixture pscount)"
+mkdir -p "$f/docs/assets"
+printf '<svg><text>29</text>\n<text>PowerShell mirrors</text></svg>\n' > "$f/docs/assets/hero.svg"
+if run_lint "$f"; then
+  error "a stale 'N PowerShell mirrors' count in hero.svg PASSED"
+else
+  ok "a stale 'N PowerShell mirrors' count in hero.svg fails"
+fi
+
+# No README.md and no docs/ pages: the page lists are empty. bash 3.2 aborts
+# with "unbound variable" on an unguarded empty array under set -u.
+f="$(make_fixture nopages)"
+rm -f "$f/README.md"; find "$f/docs" -name '*.md' -delete
+out="$( (cd "$f" && bash scripts/lint_docs.sh) 2>&1 )"
+if [[ "$out" == *"unbound variable"* || "$out" != *"Missing module doc"* ]]; then
+  error "a tree with no published pages aborted instead of reporting gaps"
+else
+  ok "a tree with no published pages reports gaps without aborting"
 fi
 
 # --- result ---------------------------------------------------------------------

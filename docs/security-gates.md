@@ -43,8 +43,8 @@ came from a parent, which is checked as its own commit. A pushed annotated tag
 adds its message (without the signature). A binary file has no lines to read:
 it is named as `binary file not checked`, never skipped silently.
 
-Since this change, a missing private-name list, gitleaks or checker script
-refuses a push where it used to print "push allowed". Build the list and
+A missing private-name list, gitleaks or checker script refuses the push; it
+is never reported as "push allowed". Build the list and
 install gitleaks, or let one push through with
 `SECURITY_GATE_ALLOW_UNCHECKED=1 git push`.
 
@@ -278,7 +278,8 @@ bash <script-helpers>/scripts/setup-hooks.sh --status
 
 `--global` copies the hooks and their own copy of the check scripts to
 `${XDG_DATA_HOME:-~/.local/share}/script-helpers/git-hooks`, prints the current
-global `core.hooksPath`, saves it, and points the global value at the copy. The
+global `core.hooksPath`, saves it, and points the global value at the copy. Each hook there calls `scripts/global-hooks/dispatch.sh`,
+which runs the checks and then the hooks that were set before. The
 copy does not depend on any checkout; run `--global` again to update it.
 
 - Checked: a repository where the URL being pushed to (`pre-push`) or any
@@ -379,7 +380,11 @@ one to one: 0 allows, 1 refuses with the reason, 2 refuses as above.
 The same check runs before each shell command these agents issue, through
 `scripts/agent-hooks/agent_hook.sh <agent>`: it reads the agent's payload,
 runs the Claude hook on the command, and refuses in the agent's own terms
-(exit 2, plus its deny JSON). If the check cannot run, the command is
+(exit 2, plus its deny JSON). `--agent` writes that hook into each agent's
+own hook file with `scripts/agent-hooks/merge_agent_hooks.py`, and `--claude`
+writes the Claude Code one into `settings.json` with
+`scripts/claude-hooks/merge_settings.py`; both keep every other key and hook.
+If the check cannot run, the command is
 refused, since Cursor otherwise lets a command through on a crash.
 
 ```bash

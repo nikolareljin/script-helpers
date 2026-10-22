@@ -1,7 +1,7 @@
 # ios
 
 A general toolkit for **inspecting iOS devices and simulators and installing
-builds** — the iOS counterpart to the [`adb`](./adb.md) module. List attached
+builds** - the iOS counterpart to the [`adb`](./adb.md) module. List attached
 devices and available simulators, boot/shut down simulators, install `.app`/`.ipa`
 artifacts, launch apps, and build a release app or IPA with Flutter.
 
@@ -98,9 +98,9 @@ returns non-zero for missing prerequisites, paths, or failed Flutter commands.
 Prints the simulator UDID to act on. Uses `preferred` when it is booted, else
 `IOS_DEVICE`, else the only booted simulator. `preferred` may be a UDID or a
 display name; a simulator that is not booted is booted first, and the result is
-always resolved back to a **UDID** — `simctl install` and `simctl launch` take a
+always resolved back to a **UDID** - `simctl install` and `simctl launch` take a
 UDID (or the literal `booted`), never a display name. Returns `1` with a listing on stderr
-when no simulator is booted or when more than one is — an ambiguous device is a
+when no simulator is booted or when more than one is - an ambiguous device is a
 question for the caller rather than something to guess at, the same contract as
 `flutter_resolve_device`.
 
@@ -108,7 +108,7 @@ question for the caller rather than something to guess at, the same contract as
 
 Prints the UDID of an attached iPhone or iPad, accepting a UDID or a device
 name and always returning a UDID. Same none/one/many discipline as
-`ios_resolve_device`, but for real hardware — a signed `.ipa` installs through
+`ios_resolve_device`, but for real hardware - a signed `.ipa` installs through
 `devicectl` onto a device and can never be installed on a simulator, so the two
 need separate resolvers. Returns `1` when nothing is attached, when the choice
 is ambiguous, or when `preferred` matches no attached device.
@@ -126,9 +126,9 @@ has no `Info.plist`, or carries no identifier.
 Prints the newest matching build output, the iOS counterpart of
 `android_artifact`. Modes:
 
-- `simulator` — `build/ios/iphonesimulator/*.app`
-- `device` — `build/ios/iphoneos/*.app`
-- `release` / `ipa` — `build/ios/ipa/*.ipa`
+- `simulator` - `build/ios/iphonesimulator/*.app`
+- `device` - `build/ios/iphoneos/*.app`
+- `release` / `ipa` - `build/ios/ipa/*.ipa`
 
 Returns `1` when nothing matches and `2` for an unknown mode.
 

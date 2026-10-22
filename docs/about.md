@@ -10,7 +10,7 @@ utilities, and local-first AI. Everything listed here is public.
 !!! tip "Companion library"
     **script-helpers** is the Bash side; [**ci-helpers**](https://nikolareljin.github.io/ci-helpers/)
     is the GitHub Actions side. ci-helpers vendors this library for its own
-    scripting, and the two share one documentation system — if you are writing
+    scripting, and the two share one documentation system - if you are writing
     the scripts that CI runs, you probably want both.
 
 ## CI, release and repository tooling
@@ -18,7 +18,7 @@ utilities, and local-first AI. Everything listed here is public.
 | | |
 |---|---|
 | [ci-helpers](https://nikolareljin.github.io/ci-helpers/) | Reusable GitHub Actions workflows, stack presets and composite actions. Four lines in your repository, the pipeline in ours. |
-| [git-lantern](https://nikolareljin.github.io/git-lantern/) | CLI mapping local and GitHub repositories — branch status, ahead/behind, visibility, releases. |
+| [git-lantern](https://nikolareljin.github.io/git-lantern/) | CLI mapping local and GitHub repositories - branch status, ahead/behind, visibility, releases. |
 | [docforge](https://nikolareljin.github.io/docforge/) | Generates developer references and end-user guides from any codebase. |
 | [claude-docsmith](https://nikolareljin.github.io/claude-docsmith/) | User and developer documentation from a repository, using Claude or a local model. |
 | [git-pulse](https://github.com/nikolareljin/git-pulse) | Self-hosted dashboard analysing repositories for contributor impact, health and code quality. |
@@ -42,11 +42,11 @@ utilities, and local-first AI. Everything listed here is public.
 
 | | |
 |---|---|
-| [local-ai-lab](https://nikolareljin.github.io/local-ai-lab/) | Hands-on course for private local AI — RAG, MCP, LangChain, LangGraph. No Docker required. |
+| [local-ai-lab](https://nikolareljin.github.io/local-ai-lab/) | Hands-on course for private local AI - RAG, MCP, LangChain, LangGraph. No Docker required. |
 | [ai-runner](https://nikolareljin.github.io/ai-runner/) | Run Ollama models locally with a simple selection UI. |
 | [nikos](https://nikolareljin.github.io/nikos/) | Turns Ubuntu 24.04 into a local-first AI workstation in one Ansible run. |
-| [ink-mate](https://nikolareljin.github.io/ink-mate/) | Local-first ESP32-S3 e-paper desk companion — voice, FastAPI gateway, Ollama. |
-| [finetorch](https://github.com/nikolareljin/finetorch) | Rust-native LLM finetuning — LoRA/QLoRA, datasets, training and eval on one GPU. |
+| [ink-mate](https://nikolareljin.github.io/ink-mate/) | Local-first ESP32-S3 e-paper desk companion - voice, FastAPI gateway, Ollama. |
+| [finetorch](https://github.com/nikolareljin/finetorch) | Rust-native LLM finetuning - LoRA/QLoRA, datasets, training and eval on one GPU. |
 | [shrink-llm](https://github.com/nikolareljin/shrink-llm) | Compressing models for phones: quantisation, pruning, distillation. |
 
 ## Devices and hardware
@@ -55,11 +55,11 @@ utilities, and local-first AI. Everything listed here is public.
 |---|---|
 | [android-device-rescue-kit](https://nikolareljin.github.io/android-device-rescue-kit/) | ADB toolkit for Android dumps, backups, restores and reboot-loop triage. |
 | [pharos](https://nikolareljin.github.io/pharos/) | General-purpose Android display and control node for dashboards, telemetry and alerts. |
-| [x240-kbd](https://nikolareljin.github.io/x240-kbd/) | ThinkPad X240 keyboard and ClickPad USB HID controller — RP2040, QMK, OpenSCAD. |
+| [x240-kbd](https://nikolareljin.github.io/x240-kbd/) | ThinkPad X240 keyboard and ClickPad USB HID controller - RP2040, QMK, OpenSCAD. |
 | [kiosk-frame](https://nikolareljin.github.io/kiosk-frame/) | 32-bit kiosk photo frame and magic mirror on AntiX, with a web config UI. |
 | [iso-forge](https://nikolareljin.github.io/iso-forge/) | Terminal tool for downloading Linux images and writing them to USB. |
 | [distrodeck](https://nikolareljin.github.io/distrodeck/) | Maintain, install and upgrade a Debian-based distribution. |
-| [kinect-forge](https://github.com/nikolareljin/kinect-forge) | Turns a Kinect v1 into a 3D scanner — capture, reconstruct, measure, export. |
+| [kinect-forge](https://github.com/nikolareljin/kinect-forge) | Turns a Kinect v1 into a 3D scanner - capture, reconstruct, measure, export. |
 | [ShelfCast](https://github.com/nikolareljin/ShelfCast) | Turns a Raspberry Pi into a touch-first dashboard for a Nook Simple Touch or an old tablet. |
 
 ## Applications
@@ -67,8 +67,8 @@ utilities, and local-first AI. Everything listed here is public.
 | | |
 |---|---|
 | [orthodox-calendar](https://nikolareljin.github.io/orthodox-calendar/) | Saints, name-days, readings, moon phases and ICS feeds across 17 traditions. |
-| [500ad](https://nikolareljin.github.io/500ad/) | Mobile turn-based Byzantine strategy game, 500–1453 AD, on a 24,000-tile Mediterranean map. |
-| [PravKal](https://nikolareljin.github.io/PravKal/) | Serbian Orthodox liturgical calendar — a Free Pascal TUI port of the DOS original. |
+| [500ad](https://nikolareljin.github.io/500ad/) | Mobile turn-based Byzantine strategy game, 500-1453 AD, on a 24,000-tile Mediterranean map. |
+| [PravKal](https://nikolareljin.github.io/PravKal/) | Serbian Orthodox liturgical calendar - a Free Pascal TUI port of the DOS original. |
 | [denial-shield](https://nikolareljin.github.io/denial-shield/) | Automated medical denial rebuttal assistant. |
 | [scancontext](https://nikolareljin.github.io/scancontext/) | Local-first medical image and report viewer with optional AI. Not a medical device. |
 | [nr-post-exporter](https://nikolareljin.github.io/nr-post-exporter/) | Moves a single WordPress post between sites with fields, terms and revisions. |
@@ -80,7 +80,7 @@ utilities, and local-first AI. Everything listed here is public.
 
 | | |
 |---|---|
-| [vellum](https://github.com/nikolareljin/vellum) | Rich Markdown viewer for the terminal — highlighting, inline images, search, TUI. |
+| [vellum](https://github.com/nikolareljin/vellum) | Rich Markdown viewer for the terminal - highlighting, inline images, search, TUI. |
 | [image-view](https://github.com/nikolareljin/image-view) | Lightweight Rust CLI for terminal image previews and directory browsing. |
 | [agentvault](https://github.com/nikolareljin/agentvault) | CLI and TUI for managing and proxying AI agents, keys and instructions. |
 | [spank](https://github.com/nikolareljin/spank) | Linux laptop accelerometer impact detector for Lenovo and IIO systems. |
