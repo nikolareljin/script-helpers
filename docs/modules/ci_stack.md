@@ -49,9 +49,8 @@ Functions
   - Purpose: Remove the container and, if given, the network. Never fails: it is
     called from an EXIT trap, where a non-zero return would replace the script's
     real exit status with the cleanup's.
-  - Says nothing about a container that does not exist. A caller sets the
-    name before starting, so on a failed start this used to announce
-    removing something that was never created.
+  - Says nothing about a container that does not exist, so a failed start
+    does not announce removing something that was never created.
   - Options: `--container`, `--network`.
 
 Notes

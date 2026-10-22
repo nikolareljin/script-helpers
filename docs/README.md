@@ -16,7 +16,7 @@ $ check_required_ports_available 8000 5432
 
 Reusable Bash helpers extracted from projects in this workspace. Source the loader, import only the modules you need, and call the functions in your own scripts.
 
-Thirty-six modules — with a PowerShell mirror — that run unchanged on the bash 3.2 macOS ships and always will.
+45 Bash modules and 31 PowerShell mirrors. The Bash modules run unchanged on the bash 3.2 macOS ships.
 
 - [Installation](installation.md)
 - [Adopt script-helpers in a repository](adopt.md): the submodule, hooks, scanners and tests, step by step
@@ -27,6 +27,7 @@ Thirty-six modules — with a PowerShell mirror — that run unchanged on the ba
 - [Packaging](packaging.md)
 - [Full API](api.md)
 - [CI helper scripts](usage.md#ci-helper-scripts)
+- [Stacks](stacks.md): WordPress, PHP, Python, Node, Go, Rust, mobile and packaging runners, per stack
 - [CI default versions](ci_defaults.md)
 - [About this work](about.md)
 
@@ -91,6 +92,10 @@ Modules overview
 - changelog — check, extract and generate the CHANGELOG release-header format that `ci-helpers` builds release notes from; Bash + PowerShell.
 - rust — resolve the Rust toolchain CI compiles with, rather than whatever `PATH` offers first; a distribution cargo shadowing rustup's fails with a lockfile error that names the wrong thing.
 - hub — corpus-hub setup for capture clients: local-vs-remote dialog, probe, API-key check, symlink-safe `.env` writing, bootstrap through the hub's own scripts, and an update offer.
+- ci_stack: disposable database containers for a CI run: start, wait until ready, remove with the volume.
+- docs_site: build, serve, preview and check a repository's documentation site with MkDocs.
+- foxguard: find, install and verify the pinned foxguard scanner that `scripts/ci_security.sh` runs.
+- gitleaks: install the pinned gitleaks secret scanner on a host that has none.
 - cloudflare — deploy to Cloudflare with wrangler: credential and account-id resolution, version and deploy-config derivation, a typed confirmation for protected environments, and a smoke test that asserts the deployed version is the one now live. Shares one deploy definition with CI through `CF_DEPLOY_*`.
 
 If you add a new module or function, update [the API index](api.md), the relevant page under `modules/`, and the `nav:` list in `mkdocs.yml`. `make lint-docs` checks the first two; `mkdocs build --strict` checks the third. See AGENTS.md for the process and checklist.

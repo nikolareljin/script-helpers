@@ -1,4 +1,4 @@
-![script-helpers — reusable Bash and PowerShell helpers. 37 Bash modules, 29 PowerShell mirrors, runs on the bash 3.2 macOS ships.](docs/assets/hero.svg)
+![script-helpers: reusable Bash and PowerShell helpers. 45 Bash modules, 31 PowerShell mirrors, runs on the bash 3.2 macOS ships.](docs/assets/hero.svg)
 
 Reusable Bash helpers extracted from projects in this workspace. Source modules you need (docker, logging, dialog, file, json, ports, etc.) and reuse them across scripts.
 
@@ -22,7 +22,7 @@ associative array **from the caller**: `select_distro`,
 `select_multiple_distros` and `download_iso`. They fail with an actionable
 message rather than returning wrong values.
 
-Two gates keep this true, because it was not true for twenty-three releases:
+Two gates keep this true:
 
 ```bash
 make test-bash32   # the suite under a real bash 3.2, in Docker — needs no Mac
@@ -81,6 +81,13 @@ PowerShell modules (mirrors each Bash lib/*.sh):
 | `serve.ps1`      | `serve_static_site` — local static-site preview; python3 > python > `npx http-server` |
 | `svg.ps1`        | `svg_rasterizer`, `svg_rasterize`, `svg_rasterize_sizes` — Inkscape > ImageMagick |
 | `rust.ps1`       | `rust_toolchain_ci_uses` - resolve rustup's named Cargo before a native Windows gate runs |
+| `gradle.ps1`     | `gradle_available`, `gradle_wrapper`, `gradle_run`, `gradle_lint`, `gradle_test`, `gradle_clean`, `gradle_assemble` |
+| `android.ps1`    | `android_sdk_root`, `android_ensure_sdk`, `android_build`, `android_artifact`, `android_sign`, `android_generate_keystore`, `android_avd_list`, `android_avd_create`, `android_emulator_start`, `android_emulator_stop` and the rest of `lib/android.sh` |
+| `flutter.ps1`    | `flutter_resolve_sdk`, `flutter_available`, `flutter_pub_get`, `flutter_analyze`, `flutter_format_check`, `flutter_test`, `flutter_build`, `flutter_devices`, `flutter_resolve_device` |
+| `screencap.ps1`  | `screencap_available`, `screencap_shot`, `screencap_record`, `screencap_record_stop`, `screencap_frame`, `screencap_gif` |
+| `manifest.ps1`   | `manifest_detect`, `manifest_kind`, `manifest_read_version`, `manifest_write_version`, `manifest_sync_version`, `manifest_android_version_code` |
+| `changelog.ps1`  | `changelog_check_header`, `changelog_extract`, `changelog_has_entries`, `changelog_new_section` |
+| `ollama_install.ps1` | `ollama_install`, `ollama_installed_version`, `ollama_install_asset`, `ollama_install_expected_sha256` - the pinned Windows installer, checked against its SHA-256 |
 
 PowerShell CI scripts (`ps/scripts/`):
 
@@ -104,6 +111,12 @@ PowerShell CI scripts (`ps/scripts/`):
 
 # Tag and push release
 .\ps\scripts\tag_release.ps1
+
+# Lint, unit-test and assemble a Gradle project (-Android for Android task names)
+.\ps\scripts\local_test_gradle.ps1 -Dir android -Quick
+
+# See the logging module's output
+.\ps\scripts\example_logging.ps1
 ```
 
 All CI scripts also accept `-UseDocker` to run inside Docker Desktop (Linux containers) instead of natively.
@@ -172,6 +185,8 @@ What runs on commit and push, the options and settings:
 Bringing a repository onto script-helpers, step by step:
 [docs/adopt.md](docs/adopt.md). Every script and its options:
 [docs/commands.md](docs/commands.md).
+That page is generated from the script headers by
+`scripts/gen_command_reference.py`; `--check` exits 1 when it is out of date.
 
 Pinning the production branch
 -----------------------------
@@ -223,6 +238,27 @@ Loader and modules
 - `ollama.sh` — Ollama helpers (`ollama_install_cli`, prepare models index from webfarmer/ollama-get-models, dialog selection, `ollama_pull_model`, `ollama_run_model`) and runtime helpers for local/docker (`ollama_runtime_*`).
 - `ollama_endpoint.sh`: for a start script. Which models a project needs, as this machine's class of hardware gets them (`ollama_models_required`, `ollama_model_for_class`, `scripts/ollama_models.sh`), which an Ollama has (`ollama_endpoint_models`), a disk and memory check before anything is pulled (`ollama_budget_check`, `ollama_endpoint_ensure_models`), and whether a container can reach this machine's Ollama (`ollama_endpoint_container_reach`).
 - `ollama_install.sh`: install Ollama itself from the pinned release, checked against its SHA-256 (`ollama_install`), instead of piping its installer into a shell.
+- `help.sh`: print help from a script's header comments, and common argument parsing.
+- `adb.sh`: Android Debug Bridge toolkit: list and inspect devices, install apps, copy files, shell, logcat. CLI: `scripts/adb_tool.sh`.
+- `android.sh`: Android SDK resolution, debug and release builds, APK/AAB signing, AVDs and the emulator.
+- `gradle.sh`: Gradle wrapper resolution and task invocation; prefers the project's `./gradlew`.
+- `flutter.sh`: Flutter SDK resolution, analyze, format, test and build, device listing.
+- `ios.sh`: iOS devices and simulators: discover, boot, install, launch, and build Flutter apps or signed IPAs (macOS only).
+- `screencap.sh`: screenshots and screen video from a device, emulator or simulator; frame extraction and GIFs with ffmpeg.
+- `rust.sh`: which Rust toolchain a gate compiles with (rustup's, not the first `cargo` on `PATH`).
+- `manifest.sh`: read and write the project version across pubspec, Gradle, `VERSION`, `package.json` and `pyproject.toml`.
+- `changelog.sh`: check, extract and generate the CHANGELOG release headers.
+- `packaging.sh`: packaging metadata and template rendering.
+- `package_publish.sh`: Debian package builds and PPA upload.
+- `git_branches.sh`: whether a branch has landed, including squash and rebase merges. Backs `scripts/prune_branches.sh`.
+- `ci_defaults.sh`: pinned image versions for the CI runner scripts.
+- `ci_stack.sh`: disposable database containers for a CI run: start, wait until ready, remove.
+- `docker_install.sh`: install Docker Engine (Linux) or Docker Desktop (macOS, Windows); `ensure_docker`.
+- `foxguard.sh`: find, install and verify the pinned foxguard scanner.
+- `gitleaks.sh`: install the pinned gitleaks secret scanner.
+- `serve.sh`: serve a static site directory for preview. CLI: `bin/serve-pages`.
+- `service.sh`: start, stop, status, logs and readiness for a repository's services, through docker compose or as native processes.
+- `docs_site.sh`: build, serve, preview and check a repository's documentation site with MkDocs.
 
 Notes for Ollama model indexing:
 - Requires Python 3 (`python3` preferred; falls back to `python` if it is 3.x).

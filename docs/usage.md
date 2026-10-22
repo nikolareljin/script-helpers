@@ -120,8 +120,7 @@ Bundled CLIs
   a whole token, not preceded or followed by a letter or digit, so `beaconed`
   and `unbeaconed` stop matching while `beacon`, `owner/beacon` and
   `<beacon>/path` still do. Ambiguous names are checked everywhere, including
-  the tree; an earlier version exempted the tree and the hole swallowed a real
-  path naming a private repository.
+  the tree.
 
   Exit codes: `0` clean, `1` a name was found, `2` it could not check. A missing
   or empty list is a failure, never a pass, because a green line from a check
@@ -664,6 +663,7 @@ skipping.
 ```bash
 bash scripts/local_test_flutter.sh --quick --dir app
 bash scripts/local_test_php.sh --quick --dir backend
+bash scripts/local_test_gradle.sh --quick --dir android --android
 
 # In a consuming repo (script-helpers as a submodule under scripts/script-helpers)
 bash scripts/script-helpers/scripts/local_test_node.sh --quick
@@ -672,7 +672,14 @@ bash scripts/script-helpers/scripts/local_test_go.sh --quick
 bash scripts/script-helpers/scripts/local_test_rust.sh --quick
 bash scripts/script-helpers/scripts/local_test_flutter.sh --quick --dir app
 bash scripts/script-helpers/scripts/local_test_php.sh --quick --dir backend
+bash scripts/script-helpers/scripts/local_test_gradle.sh --quick --dir android --android
 ```
+
+The Gradle runner uses the project's `gradlew`. It runs lint, unit tests and the
+assemble step; `--quick` runs the unit tests only. `--android` picks the Android
+task names (`lintDebug`, `testDebugUnitTest`, `assembleDebug`); without it they
+are detected from the build files. `ps/scripts/local_test_gradle.ps1` is the
+Windows equivalent (`-Quick`, `-Dir`, `-Android`).
 
 The PHP runner targets PHP/Laravel projects: it runs `composer install`
 (skipped with `--quick`), checks style with Laravel Pint when
@@ -782,8 +789,8 @@ Produce the body of a GitHub Release:
   directory.
 - It says on stderr which of those it used, and when there is genuinely nothing
   to report it names the version and the source rather than printing a bare
-  placeholder. `* No changes listed.` was indistinguishable from a range computed
-  wrongly, and for years it was always the latter.
+  placeholder such as `* No changes listed.`, which reads the same as a range
+  computed wrongly.
 - Prefer `--output`: a release body should reach `gh` or an action through a file
   (`body_path:`), not through an interpolated string.
 
@@ -933,7 +940,8 @@ Run a Django project's tests, locally or in CI:
   is discarded, and the next step would fail with `ModuleNotFoundError` after
   the install step reported success. The directory is removed on the way out.
 
-Build the package a WordPress plugin ships, and run a plugin's own test suite:
+Build the package a WordPress plugin ships, and run a plugin's own test suite
+(all three WordPress scripts: [Stacks](stacks.md#wordpress)):
 
 ```bash
 ./scripts/ci_wp_build.sh --workdir . --slug my-plugin --out-dir build
@@ -1061,7 +1069,7 @@ bash scripts/preflight.sh --stack ios
 
 Off macOS, or without Xcode, the iOS checks report `SKIP` with a reason rather
 than failing — a skip is reported separately so it cannot be mistaken for a
-pass. The Flutter stack no longer builds an APK unconditionally either: without
+pass. The Flutter stack builds an APK only when it can: without
 an `android/` directory or an Android SDK it skips that step, so a Mac set up
 only for iOS work is not asked for the Android toolchain.
 
@@ -1073,8 +1081,8 @@ passed "ios build", which is a claim about a build that never happened.
 
 ### When a check cannot run
 
-A `local_test_*.sh` runner that finds nothing it can check exits 3 and gives one
-reason; `preflight` (bash and PowerShell) reports it as `SKIP` with that reason,
+The Go, Node and Python runners exit 3 when they find nothing they can check,
+and give one reason; `preflight` (bash and PowerShell) reports it as `SKIP` with that reason,
 separately from passes, and the run still succeeds:
 
 | Runner | Exit 3 when |
@@ -1138,9 +1146,8 @@ without one is fine: `ios_build_release` falls back to `flutter build ios
 Installing one is not, so `IOS_EXPORT_OPTIONS_PLIST` is **required** for
 `deploy ios --release`, and is checked before the build starts. Without that
 check the same fallback runs, writing an unsigned `.app` and nothing under
-`build/ios/ipa` -- so the install step picked up an `.ipa` left by an earlier
-signed build and pushed that stale binary to the device, with every step
-reporting success.
+`build/ios/ipa`, and the install step would pick up a stale `.ipa` left by an
+earlier signed build.
 
 Set `IOS_EXPORT_OPTIONS_PLIST` for a signed release build, and `IOS_DEVICE` to
 pin a simulator without passing `--device` each time.

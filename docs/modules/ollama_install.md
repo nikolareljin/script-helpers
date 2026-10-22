@@ -107,5 +107,5 @@ Functions
 Used by
 -------
 
-- `install_dependencies_ai_runner` (`lib/deps.sh`) and `ollama_install_cli` (`lib/ollama.sh`), which used to run the one-line installer.
+- `install_dependencies_ai_runner` (`lib/deps.sh`) and `ollama_install_cli` (`lib/ollama.sh`).
 - The start check of a project (`lib/ollama_endpoint.sh`) does not install anything; see [local models](../local-models.md#installing-ollama).

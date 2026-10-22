@@ -166,7 +166,8 @@ git opens the push's connection before `pre-push` runs and keeps it idle until
 the checks pass. Over SSH a long run (a first or very large push) can be cut off:
 the push exits 141 with `Connection to github.com closed by remote host`, after
 the checks passed. The hook prints a note before the checks when no keepalive is
-set, and `setup-hooks.sh --status` reports it. Set one:
+set (`scripts/ssh_keepalive.sh`, which the hook sources), and
+`setup-hooks.sh --status` reports it. Set one:
 
 | Scope | Set it with |
 |---|---|

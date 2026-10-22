@@ -1,3 +1,18 @@
+## Unreleased
+
+### Added
+
+- `docs/stacks.md`: which script runs which stack, with a WordPress section for `ci_wp_build.sh`, `ci_wp_phpunit.sh` and `ci_wp_plugin_check.sh` (what each does, options, exit codes, local use) and short sections for Pimcore, Node, Go, Rust and mobile.
+- `make lint-docs` fails on history in a published page (`README.md`, `docs/**/*.md`): "it used to", "no longer", "an earlier version", "previously", "formerly", "since this change", "there was none". History belongs in this file. Twelve such passages were rewritten as present-tense facts.
+- `make lint-docs` now also fails when a module is missing from the module lists in `README.md` or `docs/README.md`, a `ps/lib` module has no row in the README PowerShell table, a script in `scripts/` or `ps/scripts/`, a `bin/` command or a `config/` file is not named by any guide (`docs/commands.md` does not count), or a "N Bash modules" / "N PowerShell mirrors" count disagrees with `lib/` and `ps/lib/`.
+
+### Fixed
+
+- `make lint-docs` read only the first 500 lines of a module, so functions further down were never checked. `ollama_runtime_local_env_assignment` was undocumented.
+- The module counts on the home page and the hero image said 36 or 37 Bash modules and 29 PowerShell mirrors; there are 45 and 31. 21 modules were missing from the `README.md` list and 4 from `docs/README.md`; 7 PowerShell modules were missing from the README table.
+- `scripts/install_ollama_model.sh`, `scripts/local_test_gradle.sh`, `scripts/ssh_keepalive.sh`, `scripts/gen_command_reference.py`, `ps/scripts/local_test_gradle.ps1` and `ps/scripts/example_logging.ps1` were in no guide.
+- Exit codes: `ci_wp_build.sh` refuses an `--out-dir` that is the plugin directory or contains it, not one inside it; `ci_wp_plugin_check.sh` exits 1 only for a database that is not ready, and a failing lint, PHPUnit or setup command exits with its own code. The docs said only the Go, Node and Python local runners' exit 3 applied to every `local_test_*.sh`.
+
 ## 2026-10-22 — v0.56.0
 
 ### Added

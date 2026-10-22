@@ -43,8 +43,8 @@ came from a parent, which is checked as its own commit. A pushed annotated tag
 adds its message (without the signature). A binary file has no lines to read:
 it is named as `binary file not checked`, never skipped silently.
 
-Since this change, a missing private-name list, gitleaks or checker script
-refuses a push where it used to print "push allowed". Build the list and
+A missing private-name list, gitleaks or checker script refuses the push; it
+is never reported as "push allowed". Build the list and
 install gitleaks, or let one push through with
 `SECURITY_GATE_ALLOW_UNCHECKED=1 git push`.
 

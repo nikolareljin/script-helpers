@@ -37,7 +37,7 @@ Functions
 
 - get_value title message [default]
   - Purpose: Prompt a value using a dialog input box; prints the value to stdout.
-  - Behavior: Drawn through `dialog_capture`, so the box shows when the caller captures stdout: `value=$(get_value ...)` used to put the whole screen into the value and nothing on the terminal. On cancel or an empty answer it returns 1, the message goes to stderr and nothing is printed: stdout is the value.
+  - Behavior: Drawn through `dialog_capture`, so the box shows on the terminal when the caller captures stdout, and `value=$(get_value ...)` holds only the answer. On cancel or an empty answer it returns 1, the message goes to stderr and nothing is printed: stdout is the value.
   - Returns: 0 on success; non-zero (with error message) if canceled or empty.
 
 > **Requires bash 4.0 or newer.** The two selectors below take a `DISTROS`
