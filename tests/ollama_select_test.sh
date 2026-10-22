@@ -726,6 +726,9 @@ check "memory that cannot be read: the tier is standard, not measured, so no flo
 check "a small model is never refused: an 8 GiB host under its floor still gets it" "c-s:4b" "$(pick code 8 0 "$tmp/smallfloor.txt")"
 { cat "$tmp/floors.txt"; echo 'size c-m:7b standard 14 20'; } >"$tmp/stdchain.txt"
 check "a 12 GB card under the large and the standard floor falls to small, and stops there" "c-s:4b" "$(pick code 16 12 "$tmp/stdchain.txt")"
+check "select on that card names the small tier when neither model is there" "12" \
+  "$(reset; OLLAMA_PULL_MISSING=0 OLLAMA_MODEL_TIERS_FILE="$tmp/stdchain.txt" OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((12 * GiB)) ai_model_resolve code "$URL" "" "" other:1b 2>"$tmp/err" </dev/null; echo "$?")"
+said "the small tier" "$tmp/err" "c-s:4b (approved for the small tier)"
 sed "s/\$/$(printf '\r')/" "$tmp/floors.txt" >"$tmp/floors-crlf.txt"
 check "a CRLF tiers file: the floors apply in select" "c-m:7b" \
   "$(reset c-m:7b; OLLAMA_MODEL_TIERS_FILE="$tmp/floors-crlf.txt" OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((12 * GiB)) ai_model_resolve code "$URL" 2>/dev/null)"
