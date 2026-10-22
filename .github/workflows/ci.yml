@@ -54,6 +54,7 @@ jobs:
           bash -c 'set -euo pipefail; source ./helpers.sh; shlib_import foxguard
             bin="$(foxguard_cache_path)"; got="$("$bin" --version)"; echo "$bin: $got"
             [ "$got" = "foxguard $CI_DEFAULT_FOXGUARD_VERSION" ]'
+
       - name: Run test suite
         run: |
           make test
