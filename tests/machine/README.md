@@ -25,9 +25,10 @@ Rules for a check here:
 | Ollama install | `bash tests/machine/ollama_install_check.sh` | `pwsh -NoProfile -File ps/tests/machine/ollama_install_check.ps1` | the pinned release, downloaded and checked; install, nothing-to-do, mismatch, damaged archive, upgrade of a running older install, launcher prefix | Linux x86_64, 2026-10-07 |
 | Rust resolver | `bash tests/machine/rust_resolver_check.sh` | `pwsh -NoProfile -File ps/tests/machine/rust_resolver_check.ps1` | the installed rustup and cargo, no toolchain changes: `rust_toolchain_ci_uses` for stable and `RUST_TOOLCHAIN`, a different cargo earlier on PATH, `ErrorActionPreference = 'Stop'` (PowerShell), preflight `--quick --skip-security` on a throwaway cargo project | Linux x86_64, 2026-10-18; Windows, macOS: not yet |
 | Model select | `bash tests/machine/model_select_check.sh` | none (no PowerShell `ollama_models`) | `ollama_models.sh class` tier, `select general` against the Ollama on 127.0.0.1:11434 with `OLLAMA_PULL_MISSING=0`, the no-terminal order, nothing pulled or removed | Linux x86_64, 2026-10-19; macOS: not yet |
+| foxguard install | `bash tests/machine/foxguard_release_check.sh` | the same, under Git Bash | the pinned release, downloaded through `foxguard_install` into a throwaway cache; SHA-256 checked, `--version` equals the pin; no scan | Linux x86_64, 2026-10-21; CI runs it on Linux, macOS and Windows |
 
 Entry scripts for the same feature: `scripts/install_ollama.sh --check`,
-`ps/scripts/install_ollama.ps1 -Check`.
+`ps/scripts/install_ollama.ps1 -Check`; `scripts/ci_security.sh --install-foxguard`.
 
 When you run a check on a machine, add the OS and date to the last column in the pull
 request that next touches the feature.

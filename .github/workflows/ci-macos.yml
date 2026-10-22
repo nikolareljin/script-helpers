@@ -79,6 +79,11 @@ jobs:
       - name: make lint-docs
         run: make lint-docs
 
+      # The unit test stubs curl; this checks the pinned SHA-256 against the real release.
+      - name: Pinned foxguard downloads, matches its SHA-256 and runs
+        shell: bash
+        run: bash tests/machine/foxguard_release_check.sh
+
       - name: make test
         run: make test
 

@@ -43,6 +43,11 @@ jobs:
         run: |
           make examples
 
+      # The unit test stubs curl; this checks the pinned SHA-256 against the real release.
+      - name: Pinned foxguard downloads, matches its SHA-256 and runs
+        shell: bash
+        run: bash tests/machine/foxguard_release_check.sh
+
       - name: Run test suite
         run: |
           make test
@@ -86,6 +91,10 @@ jobs:
         run: |
           bash tests/gate_tempdir_test.sh
           bash tests/security_gate_test.sh
+      # The unit test stubs curl; this checks the pinned SHA-256 against the real release.
+      - name: Pinned foxguard downloads, matches its SHA-256 and runs
+        shell: bash
+        run: bash tests/machine/foxguard_release_check.sh
       - name: Hook destination and latency tests under Git Bash
         shell: bash
         run: bash tests/claude_hook_destinations_test.sh

@@ -28,6 +28,8 @@
 
 ### Changed
 
+- `ci_security.sh` pins foxguard 0.14.1 (was 0.14.0), with the five release checksums. 0.14.1 drops false-positive critical `js/no-sql-injection` findings on parameterized `sql` tags, and now scans C, Bash, JavaScript and TypeScript files that 0.14.0 skipped on a parse error, so such a file can report new findings; config file names, CLI flags, exit codes and the JSON `total` are unchanged.
+- CI downloads the pinned foxguard on Linux, macOS and Windows with `tests/machine/foxguard_release_check.sh` and fails unless it matches its SHA-256 and reports the pinned version. The unit test stubs the download, so a wrong checksum used to pass CI.
 - `docs/commands.md` now includes `ps/scripts`; Bash and PowerShell entry commands use the same structured header fields and publish their examples.
 - Exit and return codes a caller can see changed. Check `if`, `|| true`
   and `$?` handling that depends on the old values:
@@ -50,6 +52,7 @@
 
 ### Fixed
 
+- `lib/foxguard.sh`, `lib/gitleaks.sh` and `lib/ollama_install.sh` always load the pinned defaults from `ci_defaults`. Before, they loaded them only when one variable was empty, so a caller that set the version, or one platform's checksum, left the other checksums unset: an install aborted under `set -u` with "unbound variable", or compared against an empty value.
 - `tests/docs_site_test.sh` no longer fails at random on a busy machine: its
   test listener picks its own port and the `port_choose` checks start only once
   it listens; it stays up until the test exits (#206).

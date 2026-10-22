@@ -11,10 +11,10 @@
 # Return codes: 0 success; 1 the operation failed (download, checksum, unpack);
 # 3 not installed, a required tool is missing, or the platform has no binary.
 
-if [[ -z "${CI_DEFAULT_GITLEAKS_SHA256_LINUX_X64:-}" ]]; then
-  # shellcheck source=/dev/null
-  source "$(dirname "${BASH_SOURCE[0]}")/ci_defaults.sh"
-fi
+# Always sourced: ci_defaults only fills variables that are unset or empty, so a
+# caller's version or checksum overrides are kept and the rest stay pinned.
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/ci_defaults.sh"
 
 # Usage: gitleaks_asset
 # gitleaks_asset; the release archive for this machine, e.g.

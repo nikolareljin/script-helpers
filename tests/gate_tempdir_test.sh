@@ -117,7 +117,7 @@ mkdir -p "$tmp/slowbin"
 # The stub writes its arguments to a marker when the scan starts, then sleeps.
 cat > "$tmp/slowbin/foxguard" <<'EOF'
 #!/usr/bin/env bash
-[[ "${1:-}" == --version ]] && { echo "foxguard 0.14.0"; exit 0; }
+[[ "${1:-}" == --version ]] && { echo "foxguard 0.14.1"; exit 0; }
 printf '%s\n' "$*" > "$FOX_STARTED"
 sleep 30
 EOF

@@ -14,13 +14,13 @@
 #   1  the operation failed (download, checksum mismatch)
 #   3  not installed, a required tool is missing, or the platform has no binary
 
-if [[ -z "${CI_DEFAULT_FOXGUARD_VERSION:-}" ]]; then
-  # shellcheck source=/dev/null
-  source "$(dirname "${BASH_SOURCE[0]}")/ci_defaults.sh"
-fi
+# Always sourced: ci_defaults only fills variables that are unset or empty, so a
+# caller's version or checksum overrides are kept and the rest stay pinned.
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/ci_defaults.sh"
 
 # The file names foxguard reads its configuration from, in each directory from
-# the scan path upward. Measured on 0.14.0: all four are read.
+# the scan path upward. Measured on 0.14.1: all four are read.
 FOXGUARD_CONFIG_NAMES=".foxguard.yml .foxguard.yaml foxguard.yml foxguard.yaml"
 
 # Usage: foxguard_asset

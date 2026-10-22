@@ -17,7 +17,7 @@ Functions
 
 - foxguard_config_in dir
   - Purpose: Print the foxguard config file in that directory, if there is one.
-  - Behavior: Looks for each name in `FOXGUARD_CONFIG_NAMES` (`.foxguard.yml .foxguard.yaml foxguard.yml foxguard.yaml`; foxguard 0.14.0 reads all four).
+  - Behavior: Looks for each name in `FOXGUARD_CONFIG_NAMES` (`.foxguard.yml .foxguard.yaml foxguard.yml foxguard.yaml`; foxguard 0.14.1 reads all four).
   - Returns: 1 when there is none.
   - Used by: `scripts/ci_security.sh`, which counts findings only where a config is found from the scan directory up to the repository top.
 
