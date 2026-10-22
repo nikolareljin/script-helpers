@@ -2163,6 +2163,20 @@ _ollama_ep_tiers_get() {
     END { if (found != "") print found }' "$file" 2>/dev/null || true
 }
 
+# Usage: _ollama_ep_tiers_has <kind> <key>; true when the data file has a
+# "<kind> <key>" line, with or without fields after it.
+# Returns: 0 present; 1 absent or no file.
+_ollama_ep_tiers_has() {
+  local file
+  file="$(ollama_model_tiers_file)"
+  [[ -f "$file" ]] || return 1
+  LC_ALL=C _OEP_BOM=$'\xef\xbb\xbf' awk -v k="${1:-}" -v n="${2:-}" '
+    { sub(/\r$/, "") }
+    NR == 1 && substr($0, 1, 3) == ENVIRON["_OEP_BOM"] { $0 = substr($0, 4) }
+    $1 == k && $2 == n { found = 1 }
+    END { exit found ? 0 : 1 }' "$file" 2>/dev/null
+}
+
 # Usage: ollama_model_tier_types; prints every type the data file names, one
 # per line, in file order.
 # Returns: 0 (also when the file is missing).
@@ -2231,21 +2245,53 @@ _ollama_ep_tiers_threshold() {
   fi
 }
 
+# Usage: _ollama_ep_tiers_size <model>; prints the model's size line as
+# "<class> <gpu GiB> <ram GiB or ->", or nothing when the file has none.
+# Returns: 0; 1 the line is malformed (error on stderr).
+_ollama_ep_tiers_size() {
+  local raw class gpu ram extra
+  raw="$(_ollama_ep_tiers_get size "${1:-}")"
+  # "size <model>" with no fields is malformed, not absent.
+  [[ -n "$raw" ]] || _ollama_ep_tiers_has size "${1:-}" || return 0
+  read -r class gpu ram extra <<<"$raw"
+  # Leading zeros removed: bash reads "019" as a bad octal number.
+  gpu="$(_ollama_ep_uint "${gpu:-}")" || gpu="bad"
+  [[ "${ram:-}" == - ]] || ram="$(_ollama_ep_uint "${ram:-}")" || ram="bad"
+  if ! _ollama_ep_tier_rank "${class:-}" >/dev/null || [[ -n "$extra" || "$gpu" == bad || "$ram" == bad ]]; then
+    print_error "The model tiers file $(_ollama_ep_said "$(ollama_model_tiers_file)") has 'size ${1:-} $(_ollama_ep_said "$raw")'; expected: size <model> <small|standard|large|xlarge> <GPU GiB> <memory GiB or ->." >&2
+    return 1
+  fi
+  printf '%s %s %s\n' "$class" "$gpu" "$ram"
+}
+
 # Usage: ollama_tier_model <type> [tier]; prints the approved model for the
 # type on that tier (default: ollama_host_tier).
+# When the tier is measured (no tier argument, no AI_MODEL_TIER), a model with
+# a size line must fit this host: its largest GPU at least <GPU GiB>, or memory
+# at least <memory GiB> ("-": GPU only). A model that does not fit falls to
+# the next lower tier's model for the type, until one fits or small is
+# reached. A stated tier is used as stated, and so is the standard tier given
+# when memory cannot be read.
 # Returns: 0 printed; 2 a type the data file does not name, a type row
-# without a valid model for the tier, or a missing data file; 3 a bad
-# AI_MODEL_TIER or tier argument.
+# without a valid model for the tier, a malformed size line, or a missing
+# data file; 3 a bad AI_MODEL_TIER or tier argument.
 # Output: stdout the model and a newline; stderr errors.
 ollama_tier_model() {
-  local _oep_type="${1:-}" _oep_tier="${2:-}" _oep_row _oep_rank _oep_model
+  local _oep_type="${1:-}" _oep_tier="${2:-}" _oep_row _oep_rank _oep_model _oep_measured=0
+  local _oep_size _oep_class _oep_gpu_need _oep_ram_need _oep_mem _oep_gpu
   _oep_type="$(printf '%s' "$_oep_type" | tr '[:upper:]' '[:lower:]')" || true
   if [[ ! -f "$(ollama_model_tiers_file)" ]]; then
     print_error "No model tiers file at $(_ollama_ep_said "$(ollama_model_tiers_file)") (OLLAMA_MODEL_TIERS_FILE)." >&2
     return 2
   fi
   if [[ -z "$_oep_tier" ]]; then
+    [[ -n "$(printf '%s' "${AI_MODEL_TIER:-}" | tr -d ' \t\r')" ]] || _oep_measured=1
     _oep_tier="$(ollama_host_tier)" || return $?
+  fi
+  if [[ "$_oep_measured" -eq 1 ]]; then
+    IFS=: read -r _oep_mem _oep_gpu <<<"$(ollama_machine_figures)"
+    # Memory that cannot be read gives standard by rule, not by measure: no floor.
+    [[ -n "$_oep_mem" ]] || _oep_measured=0
   fi
   if ! _oep_rank="$(_ollama_ep_tier_rank "$_oep_tier")"; then
     print_error "A tier is one of small, standard, large, xlarge; not '$(_ollama_ep_said "$_oep_tier")'" >&2
@@ -2257,11 +2303,21 @@ ollama_tier_model() {
     print_error "Unknown model type '$(_ollama_ep_said "$_oep_type")'. Known: $(ollama_model_tier_types | tr '\n' ' ' | sed 's/ $//')." >&2
     return 2
   fi
-  _oep_model="$(printf '%s\n' "$_oep_row" | awk -v i=$((_oep_rank + 1)) '{ print $i }')" || _oep_model=""
-  if [[ -z "$_oep_model" ]] || ! _ollama_ep_is_model "$_oep_model"; then
-    print_error "The model tiers file has no valid $_oep_tier model for type $_oep_type." >&2
-    return 2
-  fi
+  while :; do
+    _oep_model="$(printf '%s\n' "$_oep_row" | awk -v i=$((_oep_rank + 1)) '{ print $i }')" || _oep_model=""
+    if [[ -z "$_oep_model" ]] || ! _ollama_ep_is_model "$_oep_model"; then
+      print_error "The model tiers file has no valid $_oep_tier model for type $_oep_type." >&2
+      return 2
+    fi
+    [[ "$_oep_measured" -eq 1 && "$_oep_rank" -gt 0 ]] || break
+    _oep_size="$(_ollama_ep_tiers_size "$_oep_model")" || return 2
+    [[ -n "$_oep_size" ]] || break
+    read -r _oep_class _oep_gpu_need _oep_ram_need <<<"$_oep_size"
+    [[ "${_oep_gpu:-0}" -lt "$_oep_gpu_need" ]] || break
+    [[ "$_oep_ram_need" == - || "$_oep_mem" -lt "$_oep_ram_need" ]] || break
+    _oep_rank=$((_oep_rank - 1))
+    case "$_oep_rank" in 0) _oep_tier=small ;; 1) _oep_tier=standard ;; 2) _oep_tier=large ;; esac
+  done
   printf '%s\n' "$_oep_model"
 }
 
@@ -2529,7 +2585,8 @@ _ollama_ep_env_private() {
 # Prints, on stdout and alone, the model the project uses for one role. All
 # messages go to stderr, so `model="$(ai_model_resolve ...)"` captures it.
 #
-#   Y  the approved model for <type> on this host's tier (ollama_tier_model)
+#   Y  the approved model for <type> on this host's tier (ollama_tier_model;
+#      a lower tier's when this host is under the model's size-line floor)
 #   X  the project's model: NAME from the environment, else from env_file,
 #      else default_model
 #
@@ -2565,8 +2622,8 @@ _ollama_ep_env_private() {
 #   1-8  as ollama_endpoint_ensure_models (4: no Ollama answers; 5: missing
 #        and not pulled under OLLAMA_PULL_MISSING)
 #   10   bad arguments: more than five, unknown type, NAME not a variable
-#        name, a model that is not a model reference, no data file or a
-#        threshold in it that is not a whole number, env_file
+#        name, a model that is not a model reference, no data file, a
+#        threshold in it that is not a whole number or a malformed size line, env_file
 #        not readable or not writable
 #   11   AI_MODEL_TIER is not small, standard, large or xlarge
 #   12   no terminal, the two differ, and that Ollama has neither
@@ -2603,7 +2660,12 @@ ai_model_resolve() (
   # Another machine's Ollama: its tier is not this machine's.
   ollama_endpoint_is_local "$_oep_url" || _ollama_ep_remote_tier
   _oep_tier="$(ollama_host_tier)" || { _oep_status=$?; [[ "$_oep_status" -eq 3 ]] && exit 11; exit 10; }
-  _oep_y="$(ollama_tier_model "$_oep_type" "$_oep_tier")" || exit 10
+  # No tier argument: a measured tier also checks the model's size line.
+  _oep_y="$(ollama_tier_model "$_oep_type")" || exit 10
+  # Under a model's floor the pick is a lower tier's; messages name that tier.
+  while [[ "$_oep_tier" != small && "$(ollama_tier_model "$_oep_type" "$_oep_tier" 2>/dev/null)" != "$_oep_y" ]]; do
+    case "$_oep_tier" in xlarge) _oep_tier=large ;; large) _oep_tier=standard ;; *) _oep_tier=small ;; esac
+  done
 
   _oep_x=""
   if [[ -n "$_oep_name" ]]; then

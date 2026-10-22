@@ -7,6 +7,14 @@
 #
 #   threshold <key> <whole GiB>
 #   type <type> <small> <standard> <large> <xlarge>
+#   size <model> <class> <GPU GiB> <memory GiB or ->
+#
+# A size line (optional; a file without any still works) gives a model's size
+# class (the lowest tier it is meant for) and its floor: a measured host runs
+# it when its largest GPU has at least <GPU GiB>, or its memory is at least
+# <memory GiB> ("-": GPU only; a mixture-of-experts model runs on the CPU).
+# A host under the floor gets the next lower tier's model for that type.
+# scripts/ollama_tiers_check.sh checks the file.
 #
 # Every type names a model for all four tiers. A tier with no model of its own
 # repeats the one below it, so a reader never has to work out a fallback.
@@ -27,11 +35,20 @@ threshold xlarge_vram_gb 23
 
 #    type       small          standard          large             xlarge
 type general    qwen3.5:2b     qwen3.5:4b        qwen3.5:9b        qwen3.5:9b
-type reasoning  qwen3.5:4b     qwen3:8b          qwen3:8b          gpt-oss:20b
+type reasoning  qwen3.5:4b     qwen3:8b          gemma4:26b        qwen3.6:27b
 type classify   qwen3:1.7b     qwen3:1.7b        qwen3:1.7b        qwen3:1.7b
 type extract    qwen3.5:2b     qwen3.5:4b        qwen3.5:9b        qwen3.5:9b
 type vision     qwen3-vl:4b    qwen3-vl:4b       qwen3-vl:8b       qwen3-vl:8b
 type embed      nomic-embed-text nomic-embed-text nomic-embed-text nomic-embed-text
-type code       qwen3.5:4b     qwen2.5-coder:7b  qwen2.5-coder:7b  qwen3-coder:30b
+type code       qwen3.5:4b     qwen2.5-coder:7b  qwen3-coder:30b   qwen3.6:27b-coding
 type creative   qwen3.5:4b     gemma4:latest     gemma4:latest     gemma4:latest
 type tiny       qwen3:0.6b     qwen3:0.6b        qwen3:0.6b        qwen3:0.6b
+
+# Floors of the models too big for every host of their tier. The large picks
+# are mixture-of-experts models (CPU-only is acceptable); the xlarge picks are
+# dense and need the GPU.
+#    model               class   GPU  memory
+size gemma4:26b          large   19   30
+size qwen3-coder:30b     large   19   30
+size qwen3.6:27b         xlarge  23   -
+size qwen3.6:27b-coding  xlarge  23   -
