@@ -6,6 +6,15 @@
 - `make lint-docs` fails on history in a published page (`README.md`, `docs/**/*.md`): "it used to", "no longer", "an earlier version", "previously", "formerly", "since this change", "there was none". History belongs in this file. Twelve such passages were rewritten as present-tense facts.
 - `make lint-docs` now also fails when a module is missing from the module lists in `README.md` or `docs/README.md`, a `ps/lib` module has no row in the README PowerShell table, a script in `scripts/`, `scripts/<dir>/` or `ps/scripts/`, a `bin/` command or a `config/` file is not named by any guide (`docs/commands.md` does not count), or a "N Bash modules" / "N PowerShell mirrors" count disagrees with `lib/` and `ps/lib/`.
 - `make lint-docs` fails on a typographic character in a published page: em or en dash, arrow, curly quote, ellipsis, middle dot, non-breaking hyphen or space. The literal `## <date> — v<version>` CHANGELOG header is allowed. The plain-text `docs/api.md` entry form is `- name - ./modules/name.md`.
+- `scripts/signing_secrets.sh --group windows --windows-pfx <file>` sets
+  `WINDOWS_CERTIFICATE` (base64 of the `.pfx`, no line wraps) and
+  `WINDOWS_CERTIFICATE_PASSWORD`, the names ci-helpers `tauri-release.yml`
+  reads for `windows_sign_mode: pfx`. The password comes from
+  `--windows-password-file`, `WINDOWS_CERTIFICATE_PASSWORD` or a prompt, and
+  reaches gh and openssl only on stdin or as a file. Before anything is set
+  the `.pfx` must open with it (with the `-legacy` retry) and hold a private
+  key whose certificate has the code-signing EKU (1.3.6.1.5.5.7.3.3) and is
+  in date (a warning within 30 days); `--skip-pfx-check` skips this.
 
 ### Fixed
 
