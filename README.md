@@ -2,8 +2,8 @@
 
 Reusable Bash and PowerShell helpers. Source modules you need (docker, logging, dialog, file, json, ports, etc.) and reuse them across scripts.
 
-Shell requirements - and macOS
-------------------------------
+Shell requirements and macOS
+----------------------------
 
 **bash 3.2 or newer.** That is deliberate: macOS ships bash 3.2 as `/bin/bash`
 and, for licensing reasons, always will. The library is written to run unchanged

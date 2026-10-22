@@ -24,7 +24,7 @@ $BASH -> /opt/homebrew/bin/bash -> /usr/local/bin/bash -> $(command -v bash) -> 
 
 and takes **the first one that is bash 4 or newer**; only if none of them is
 does it fall back to the first that is at least 3.2. So a Mac whose `$BASH` is
-the stock 3.2 but which has Homebrew bash installed gets the Homebrew one - a
+the stock 3.2 but which has Homebrew bash installed gets the Homebrew one; a
 flat first-match order would not do that. `/bin/bash` is **last**. That ordering exists so a Mac with a modern bash
 installed actually uses it: a bare `exec bash` would resolve from `PATH` and
 discard the script's own shebang, which on macOS lands back on 3.2.
