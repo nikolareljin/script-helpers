@@ -159,7 +159,9 @@ while IFS= read -r _sh_line; do guides+=("$_sh_line"); done < <(
 for f in scripts/*.sh scripts/*.py ps/scripts/*.ps1 bin/* config/*; do
   [[ -f "$f" ]] || continue
   name="$(basename "$f")"
-  if (( ${#guides[@]} == 0 )) || ! grep -q -F "$name" "${guides[@]}"; then
+  # Bounded on the left, so mytool.sh does not count for tool.sh.
+  name_re="$(printf '%s' "$name" | sed 's/[.[\*^$+?(){}|]/\\&/g')"
+  if (( ${#guides[@]} == 0 )) || ! grep -q -E "(^|[^A-Za-z0-9_-])${name_re}" "${guides[@]}"; then
     error "Not named in README.md or any docs/ guide: $f"
   fi
 done

@@ -224,6 +224,12 @@ if run_lint "$f"; then
 else
   ok "a script no guide names fails (docs/commands.md does not count)"
 fi
+printf '# Usage\nRun `scripts/mytool.sh`.\n' > "$f/docs/usage.md"
+if run_lint "$f"; then
+  error "a script named only inside a longer name (mytool.sh) PASSED"
+else
+  ok "a longer name containing the script's does not count"
+fi
 printf '# Usage\nRun `scripts/tool.sh`.\n' > "$f/docs/usage.md"
 if run_lint "$f"; then
   ok "a script a guide names passes"
