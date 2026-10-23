@@ -215,7 +215,9 @@ fi
 contained_private=false
 if [[ "$HAVE_PY" == true ]]; then
   names_list="${PRIVATE_NAMES_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names.tsv}"
-  if [[ "$("$PY" -I - "$payload_file" "$names_list" "$PWD" <<'PY' 2>/dev/null
+  # Not inside $(...): bash 3.2 (macOS) parses a heredoc there as part of the
+  # substitution and fails on the backtick in the Python below.
+  "$PY" -I - "$payload_file" "$names_list" "$PWD" > "${payload_file}.contained" 2>/dev/null <<'PY'
 import json, os, pathlib, re, shlex, subprocess, sys
 
 payload, names_list, cwd = sys.argv[1:4]
@@ -493,9 +495,8 @@ if not urls or None in slugs or any("%s/%s" % s not in private or "%s/%s" % s in
     strict()
 print("yes")
 PY
-)" == yes ]]; then
-    contained_private=true
-  fi
+  [[ "$(cat "${payload_file}.contained" 2>/dev/null)" == yes ]] && contained_private=true
+  rm -f "${payload_file}.contained"
 fi
 
 # One python pass: is this a publishing command, which repository is it aimed
