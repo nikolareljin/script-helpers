@@ -325,6 +325,8 @@ ran = False
 tree_changed = False
 TREE_GIT = {"checkout", "switch", "restore", "reset", "merge", "rebase", "pull",
             "stash", "rm", "mv"}
+READ_ONLY = {"ls", "cat", "head", "tail", "wc", "grep", "rg", "sed", "diff", "cut", "tr",
+             "echo", "printf", "true", "pwd", "stat", "file", "git"}
 
 def git_dir(d):
     try:
@@ -401,10 +403,9 @@ for seg, (before, after) in zip(segments, joins):
     if word not in SAFE or seg[0] != word:
         strict()
     # Paths are checked before anything runs. After a checkout or merge, a path
-    # checked as missing can be a symlink out of the repository, so nothing
-    # after it may write or cd.
-    if tree_changed and (word in ("cd", "cp", "mv", "touch", "mkdir")
-                         or any(a in REDIRECTS for a in seg[1:])):
+    # checked as missing can be a symlink out of the repository, so after it
+    # only commands that cannot write count (sort -o and uniq in out write).
+    if tree_changed and (word not in READ_ONLY or any(a in REDIRECTS for a in seg[1:])):
         strict()
     # sed scripts can run commands (e, s///e) and write files (w), so sed only
     # prints line ranges: sed -n 5,20p file.

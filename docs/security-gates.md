@@ -359,8 +359,9 @@ parser of shell commands always misses some shape bash runs (`bash -c`,
   the start or after `;`, `&&` or `&`, with `&&` or the end of the command
   after it: elsewhere the next command can run in the old directory. After a
   `git` command that can rewrite the work tree (`checkout`, `switch`, `merge`,
-  `pull`, `stash`, ...), no later `cd`, `cp`, `mv`, `touch`, `mkdir` or
-  redirection counts: a path checked while missing can be a symlink by then. Only these commands count: `cd ls cat head tail
+  `pull`, `stash`, ...), only commands that cannot write count, without a
+  redirection (no `cd`, `cp`, `mv`, `touch`, `mkdir`, `sort`, `uniq`): a path
+  checked while missing can be a symlink by then. Only these commands count: `cd ls cat head tail
   wc grep rg sed diff sort uniq cut tr echo printf true pwd stat file mkdir
   touch cp mv`, `sed` only as `sed -n <a>,<b>p`, `rg` without `--pre`,
   `--hostname-bin` or `-z` (also inside `-iz`), `sort` without
