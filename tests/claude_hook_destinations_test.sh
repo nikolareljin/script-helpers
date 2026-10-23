@@ -109,6 +109,8 @@ hook 2 "gh without -R" "$pub" "gh issue create --body '$n'"
 hook 2 "-R on a command that is not gh" "$pub" "ls -R $n"
 hook 2 "curl to github" "$pub" "curl -d '$n' https://api.github.com/repos/example/zzqopenbox/issues"
 
+# A public repository checked out inside the private one.
+git init -q "$priv/nested" && git -C "$priv/nested" remote add origin git@github.com:example/zzqopenbox.git
 # Contained in the private repository: allowed.
 for v in "git commit -m $n" \
          "git add $n.md" \
@@ -123,7 +125,6 @@ for v in "git commit -m $n" \
          "git diff --ext-diff $n" \
          "git log --textconv $n" \
          "git diff -Oorder $n" \
-         "git log -x $n" \
          "sed -n p $n.md" \
          "grep -R $n docs" \
          "grep --dereference-recursive $n docs" \
@@ -179,6 +180,29 @@ git push" \
          "echo $n
 nice gh issue create -R example/zzqopenbox --body $n" \
          "echo $n |& nice gh issue create -R example/zzqopenbox --body $n" \
+         "git log -x $n" \
+         "cd - && echo $n" \
+         "cd -P $pub && echo $n" \
+         "true && cd - && echo $n" \
+         "true && cd zzqopenbox && echo $n" \
+         "cd zzqopenbox && echo $n" \
+         "sed 's/x/y/e' $n.md" \
+         "sed -n 1p -i $n.md" \
+         "sed -n 's/a/b/w out' $n.md" \
+         "rg --pre ./run $n" \
+         "sort --compress-program=./run $n.md" \
+         "git rebase -x ./run $n" \
+         "git rebase --exec ./run $n" \
+         "git fetch --upload-pack=./run origin $n" \
+         "git push --receive-pack=./run origin $n" \
+         "cp $n.md .git/hooks/pre-push" \
+         "echo $n >> .git/config" \
+         "git push; echo $n" \
+         "git pull; echo $n" \
+         "sort -o/tmp/zzq-out $n.md" \
+         "cd ./nested && git commit -m $n" \
+         "true && cd ./nested && git commit -m $n" \
+         "echo $n > nested/x.md" \
          "cp $n.md *-link" \
          "echo $n > docs/../../zzqopenbox/$n.md" \
          "gh issue create -Rexample/zzqopenbox --body $n" \
@@ -202,6 +226,8 @@ hook 0 "contained: an issue in the repository itself" "$priv" "gh issue create -
 hook 0 "contained: -R the repository itself" "$priv" "gh pr create -R example/zzqsecretbox --body $n"
 # A leading cd picks the repository, whatever the session is in.
 hook 0 "contained: a leading cd into the private repository" "$pub" "cd $priv && git log --grep=$n"
+hook 0 "contained: sed prints a line range" "$priv" "sed -n 1,5p $n.md"
+hook 0 "contained: push to a named remote" "$priv" "git push origin $n"
 hook 2 "a leading cd, then a path back out" "$pub" "cd $priv && cat ../zzqopenbox/$n.md"
 hook 2 "a leading cd, then a second cd out" "$pub" "cd $priv && cd $pub && echo $n"
 hook 2 "a command in the session repository before the cd" "$pub" "echo $n; cd $priv"
@@ -222,6 +248,11 @@ rw="$tmp/zzqsecretbox-rewrite"; git init -q "$rw"
 git -C "$rw" remote add origin git@github.com:example/zzqsecretbox.git
 git -C "$rw" config url.git@github.com:example/zzqopenbox.git.pushInsteadOf git@github.com:example/zzqsecretbox.git
 hook 2 "a pushInsteadOf to a public URL: not contained" "$rw" "git push origin $n"
+# A local path remote is not judged by how its path is spelled.
+lp="$tmp/zzqsecretbox-localremote"; git init -q "$lp"
+git -C "$lp" remote add origin git@github.com:example/zzqsecretbox.git
+git -C "$lp" remote add backup "$tmp/srv/example/zzqsecretbox"
+hook 2 "a local path remote: not contained" "$lp" "echo $n"
 # Origins that are the owner's but are not in the canonical forms: in scope.
 for u in "ssh://github.com/example/zzqalias.git" "ssh://git@ssh.github.com:443/example/zzqalias.git" "ghx:example/zzqalias"; do
   a="$tmp/alias-$RANDOM"; git init -q "$a"; git -C "$a" remote add origin "$u"

@@ -290,14 +290,44 @@ repo = toplevel(cwd)
 workdir = cwd
 ran = False
 
+def git_dir(d):
+    try:
+        out = subprocess.run(["git", "-C", d, "rev-parse", "--absolute-git-dir"],
+                             capture_output=True, text=True, timeout=5)
+    except Exception:
+        return ""
+    return os.path.realpath(out.stdout.strip()) if out.returncode == 0 else ""
+
+gitdir = git_dir(cwd)
+
+_owner = {}
+
+def owning_repo(path):
+    # The repository of the nearest existing directory at or above path.
+    d = path
+    while d and not os.path.isdir(d):
+        d = os.path.dirname(d)
+    if d not in _owner:
+        _owner[d] = toplevel(d)
+    return _owner[d]
+
 def inside(path):
-    return bool(repo) and (path == repo or path.startswith(repo + os.sep))
+    # The git dir is never contained: a hook or config written there runs later.
+    if not repo or not gitdir or path == gitdir or path.startswith(gitdir + os.sep):
+        return False
+    if not (path == repo or path.startswith(repo + os.sep)):
+        return False
+    # A nested repository (a submodule, a checkout inside the tree) is another place.
+    return owning_repo(path) == repo
 
 URL_RE = re.compile(r"://|^[^/\s]+@[^/\s]+:|^[A-Za-z][\w.-]*:[\w.-]+/")
 SPLIT_RE = re.compile(r"[\s=:,;'\"]+")
 
 def check_arg(arg):
     if URL_RE.search(arg):
+        strict()
+    # -o/x and -o~/x: the path after a short option is not a word of its own.
+    if re.match(r"^-[^-=]+[/~]", arg):
         strict()
     # Every path in the argument, also inside a value (--output=/x, 'w /x'),
     # resolved through symlinks.
@@ -312,8 +342,20 @@ def check_arg(arg):
             strict()
 
 def slug_names(url):
+    # owner/name of a network URL; a local path is not judged by its spelling.
+    if not re.match(r"^[A-Za-z][\w+.-]*://|^[^/\s]+@[^/\s]+:", url):
+        return None
     m = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?/?$", url)
     return (m.group(1).lower(), m.group(2).lower()) if m else None
+
+def remote_urls(d):
+    # The URL column of git remote -v (insteadOf applied), fetch and push.
+    out = subprocess.run(["git", "-C", d, "remote", "-v"], capture_output=True,
+                         text=True, timeout=5)
+    if out.returncode != 0:
+        strict()
+    return [line.split("\t", 1)[1].rsplit(" ", 1)[0]
+            for line in out.stdout.splitlines() if "\t" in line]
 
 for seg in segments:
     # VAR=value prefixes: GIT_DIR=, GIT_WORK_TREE= and friends move git elsewhere.
@@ -322,21 +364,34 @@ for seg in segments:
     word = os.path.basename(seg[0]).lower()
     if word not in SAFE or seg[0] != word:
         strict()
-    # sed -i and w commands write files; their paths are checked below, but an
-    # e command runs a shell, so any sed script with one is refused outright.
-    if word == "sed" and any(re.search(r"(^|[;{}\s])e(\s|$)", a) for a in seg[1:]):
+    # sed scripts can run commands (e, s///e) and write files (w), so sed only
+    # prints line ranges: sed -n 5,20p file.
+    if word == "sed":
+        script = [a for a in seg[1:] if not a.startswith("-")][:1]
+        if any(a.startswith("-") and a not in ("-n", "-E", "-r") for a in seg[1:]) \
+                or not script or not re.fullmatch(r"(\d+(,\d+)?)?p", script[0]):
+            strict()
+    if word == "rg" and any(a.startswith(("--pre", "-z", "--search-zip")) for a in seg[1:]):
+        strict()
+    if word == "sort" and any(a.startswith("--compress-program") for a in seg[1:]):
         strict()
     if word == "cd":
-        if len(seg) != 2:
+        # cd - is $OLDPWD, and CDPATH can send a bare name anywhere; only
+        # /, ./, ../ and ~ forms go where they say.
+        if len(seg) != 2 or seg[1].startswith("-") \
+                or not seg[1].startswith(("/", "./", "../", "~")) and seg[1] not in (".", ".."):
             strict()
         workdir = resolve(workdir, seg[1])
         # A leading cd picks the repository; a later one must stay inside it.
         if not ran:
             repo = toplevel(workdir)
+            gitdir = git_dir(workdir)
         if not inside(workdir):
             strict()
         continue
     if word == "git":
+        if toplevel(workdir) != repo:
+            strict()
         rest = seg[1:]
         while rest and rest[0].startswith("-"):
             if rest[0] in ("--no-pager", "--paginate", "-P", "--no-replace-objects"):
@@ -346,17 +401,20 @@ for seg in segments:
             strict()
         if not rest or rest[0] not in GIT_SAFE:
             strict()
-        # --output writes wherever it points, even the repository root.
-        if any(a.startswith("--output") for a in rest):
+        # --output writes wherever it points, even the repository root; the
+        # others run a command.
+        if any(a.startswith(("--output", "--exec", "--upload-pack", "--receive-pack",
+                             "--extcmd", "-x")) for a in rest):
             strict()
         if rest[0] == "grep" and any(a.startswith(("-O", "--open-files-in-pager")) for a in rest):
             strict()
-        if rest[0] in ("push", "fetch", "pull") and len(rest) > 1:
-            # Only a remote of this repository, by name.
+        if rest[0] in ("push", "fetch", "pull"):
+            # Only a remote of this repository, named: without one, git follows
+            # branch.<b>.remote or pushRemote, which can be a URL.
             remotes = subprocess.run(["git", "-C", workdir, "remote"], capture_output=True,
                                      text=True, timeout=5).stdout.split()
             pos = [a for a in rest[1:] if not a.startswith("-")]
-            if pos and pos[0] not in remotes:
+            if not pos or pos[0] not in remotes:
                 strict()
     if word == "gh":
         if os.environ.get("GH_REPO") or os.environ.get("GH_HOST"):
@@ -364,15 +422,9 @@ for seg in segments:
         low = [a.lower() for a in seg]
         if len(low) < 3 or (low[1], low[2]) not in GH_SAFE:
             strict()
-        own = set()
-        try:
-            for u in subprocess.run(["git", "-C", workdir, "remote", "-v"], capture_output=True,
-                                    text=True, timeout=5).stdout.split():
-                s = slug_names(u)
-                if s:
-                    own.add("%s/%s" % s)
-        except Exception:
+        if toplevel(workdir) != repo:
             strict()
+        own = {"%s/%s" % s for s in (slug_names(u) for u in remote_urls(workdir)) if s}
         for k, a in enumerate(seg):
             target = None
             if a in ("-R", "--repo") and k + 1 < len(seg):
@@ -414,10 +466,11 @@ try:
             continue
 except OSError:
     strict()
-urls = subprocess.run(["git", "-C", repo, "remote", "-v"], capture_output=True,
-                      text=True, timeout=5).stdout.split()
-slugs = {"%s/%s" % s for s in (slug_names(u) for u in urls if "/" in u or ":" in u) if s}
-if not slugs or any(s not in private or s in public for s in slugs):
+# A remote that is not a network URL (a local path) cannot be judged: strict.
+urls = remote_urls(repo)
+slugs = [slug_names(u) for u in urls]
+if not urls or None in slugs or any("%s/%s" % s not in private or "%s/%s" % s in public
+                                    for s in slugs):
     strict()
 print("yes")
 PY

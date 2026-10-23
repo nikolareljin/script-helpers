@@ -350,16 +350,21 @@ parser of shell commands always misses some shape bash runs (`bash -c`,
   code in command text, never by name.
 - contained: the private-name check is skipped (the sensitive-data checks
   still run) when the command provably stays inside one repository whose every
-  remote is listed `private` in the name list. A leading `cd` picks that
-  repository; every other `cd`, every path (symlinks resolved, also inside a
-  value such as `--opt=/x`) and every `gh -R`/`--repo` must stay in it. Only
-  these commands count: `cd ls cat head tail wc grep rg sed diff sort uniq cut
-  tr echo printf true pwd stat file mkdir touch cp mv`, `git` with a local or
-  own-remote subcommand (no `-C`, `-c`, `--git-dir`, `--output`, `remote`,
-  `config`), and `gh pr|issue create|edit|comment|view|list`. No `$`, backtick,
-  backslash, glob, `(`, `{` or `VAR=value` prefix. Anything else, including a
-  private file sent as the body of an issue in a public repository, gets the
-  full check.
+  remote is a network URL listed `private` in the name list (a local path
+  remote is never contained). A leading `cd` picks that repository; every other
+  `cd`, every path (symlinks resolved, also inside a value such as `--opt=/x`)
+  and every `gh -R`/`--repo` must stay in it, outside its git dir and outside
+  any nested repository. `cd` takes only `/`, `./`, `../` or `~` paths (no
+  `cd -`, no `CDPATH` lookup). Only these commands count: `cd ls cat head tail
+  wc grep rg sed diff sort uniq cut tr echo printf true pwd stat file mkdir
+  touch cp mv`, `sed` only as `sed -n <a>,<b>p`, `git` with a local subcommand
+  or `push`/`fetch`/`pull` to a named remote (no `-C`, `-c`, `--git-dir`,
+  `--output`, `--exec`, `-x`, `--upload-pack`, `--receive-pack`), and `gh
+  pr|issue create|edit|comment|view|list`. No `$`, backtick, backslash, glob,
+  newline, `(`, `{`, operator other than `&& || ; | &` and redirections, or
+  `VAR=value` prefix. Anything else, including a private file sent as the body
+  of an issue in a public repository, gets the full check. Shell aliases,
+  functions and `PATH` are trusted, as everywhere in this hook.
 - refused outright: `--no-verify`, `git commit -n`, a `core.hooksPath`
   override (`-c`, `GIT_CONFIG_*`); a command that sets the gate's own
   overrides or configuration (`SECURITY_GATE_ALLOW_UNCHECKED=`,
