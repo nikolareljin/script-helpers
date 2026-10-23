@@ -136,10 +136,15 @@ for v in "git commit -m $n" \
          "git push --force-with-lease origin $n"; do
   hook 0 "contained: [${v//$tmp/<tmp>}]" "$priv" "$v"
 done
+# Git Bash makes ln -s a copy unless native symlinks are on; a copy is contained.
+if [[ -L "$priv/$n-link" ]]; then
+  hook 2 "strict: a symlink out of the repository [cat $n-link]" "$priv" "cat $n-link"
+else
+  note "SKIP: ln -s made a copy here, so the symlink case cannot run"
+fi
 # From inside the private repository, anything that can reach another place
 # keeps the full check. Each of these blocks.
-for v in "cat $n-link" \
-         "cd $pub && git commit -m $n" \
+for v in "cd $pub && git commit -m $n" \
          "cd $pub/$n" \
          "c''d $pub; git commit -m $n" \
          "pushd $pub && git commit -m $n" \

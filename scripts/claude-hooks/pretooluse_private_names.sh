@@ -292,11 +292,28 @@ def toplevel(d):
         return ""
     return str(pathlib.Path(out.stdout.strip()).resolve()) if out.returncode == 0 else ""
 
+_native = {}
+
+def native(p):
+    # Windows: the shell passes /tmp/x and /c/x, which Python reads as C:\tmp\x.
+    if os.name != "nt" or not p.startswith("/"):
+        return p
+    if p not in _native:
+        try:
+            out = subprocess.run(["cygpath", "-w", p], capture_output=True,
+                                 text=True, timeout=5)
+        except Exception:
+            strict()
+        if out.returncode != 0 or not out.stdout.strip():
+            strict()
+        _native[p] = out.stdout.strip()
+    return _native[p]
+
 def resolve(base, p):
     p = os.path.expanduser(p)
     if p.startswith("~"):
         strict()
-    return str(pathlib.Path(base, p).resolve())
+    return str(pathlib.Path(base, native(p)).resolve())
 
 repo = toplevel(cwd)
 workdir = cwd
