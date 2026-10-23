@@ -213,6 +213,8 @@ nice gh issue create -R example/zzqopenbox --body $n" \
          "echo $n >~+/../zzqopenbox/x" \
          "echo $n >~-/x" \
          "git rebase -ix ./run $n" \
+         "cp $n.md x{,/../../zzqopenbox/x}" \
+         "echo $n >{~+,x}/../zzqopenbox/y" \
          "cp $n.md *-link" \
          "echo $n > docs/../../zzqopenbox/$n.md" \
          "gh issue create -Rexample/zzqopenbox --body $n" \

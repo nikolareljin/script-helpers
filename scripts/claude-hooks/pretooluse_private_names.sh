@@ -233,8 +233,9 @@ command = (data.get("tool_input") or {}).get("command") or ""
 # Expansions, substitutions and globs are text the parser cannot read: a glob
 # can expand to a symlink that points out of the repository.
 # A newline is refused too: shlex reads it as whitespace, so the next line's
-# command would be judged as arguments of this one.
-if not command or re.search(r"[$`\\*?\[\n\r]|<\(|>\(", command):
+# command would be judged as arguments of this one. Braces too: {a,../x}
+# expands to paths the checks below never see.
+if not command or re.search(r"[$`\\*?\[{}\n\r]|<\(|>\(", command):
     strict()
 try:
     lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
