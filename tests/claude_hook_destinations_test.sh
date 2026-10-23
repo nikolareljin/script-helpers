@@ -245,7 +245,7 @@ nice gh issue create -R example/zzqopenbox --body $n" \
          "git push --repo=https://example.invalid/x $n"; do
   hook 2 "strict: [${v//$tmp/<tmp>}]" "$priv" "$v"
 done
-# Also contained: the other private repositories the repository documents.
+# Also contained: another private repository named inside this one.
 hook 0 "contained: another private repository named" "$priv" "echo zzqotherbox >> notes.md"
 hook 0 "contained: an issue in the repository itself" "$priv" "gh issue create --body 'see $n and zzqotherbox'"
 hook 0 "contained: -R the repository itself" "$priv" "gh pr create -R example/zzqsecretbox --body $n"
@@ -256,6 +256,15 @@ hook 0 "contained: push to a named remote" "$priv" "git push origin $n"
 hook 2 "a leading cd, then a path back out" "$pub" "cd $priv && cat ../zzqopenbox/$n.md"
 hook 2 "a leading cd, then a second cd out" "$pub" "cd $priv && cd $pub && echo $n"
 hook 2 "a command in the session repository before the cd" "$pub" "echo $n; cd $priv"
+# A cd that may not move the next command: a subshell, or a command run when it failed.
+for v in "cd $priv | gh issue create --body $n" \
+         "cd $priv & gh issue create --body $n" \
+         "cd $priv || gh issue create --body $n" \
+         "cd $priv; gh issue create --body $n" \
+         "true | cd $priv && gh issue create --body $n" \
+         "true || cd $priv && gh issue create --body $n"; do
+  hook 2 "a cd that may not move the next command: [${v//$tmp/<tmp>}]" "$pub" "$v"
+done
 # Text written in the private repository, sent to a public one: refused.
 printf 'plan for %s\n' "$n" > "$priv/task.md"
 hook 2 "a private file as the body of a public issue" "$priv" "gh issue create -R example/zzqopenbox --body-file task.md"

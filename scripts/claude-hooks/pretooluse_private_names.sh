@@ -38,8 +38,8 @@
 #   - a check could not run and the USER set SECURITY_GATE_ALLOW_UNCHECKED=1
 #     in this hook's own environment (a command that sets it is refused);
 #   - an empty command: nothing runs.
-#   - contained_private: the command provably stays inside one repository
-#     whose every remote is listed private, so a private name in it reaches
+#   - contained_private: the command, as this hook reads it, stays inside one
+#     repository whose every remote is listed private, so a private name in it reaches
 #     no public place; only the private-name check is skipped.
 # Apart from contained_private there is no allow before the whole-command
 # pass. The private-name prefilter only decides whether the slow full check is
@@ -206,9 +206,9 @@ if [[ "$session_scope" -ne 0 ]]; then
   exit 2
 fi
 
-# contained_private: inside a private repository, the repository may name itself
-# and the other private repositories it documents. That holds only when the whole
-# command provably stays inside one repository whose every remote is listed
+# contained_private: inside a private repository, a command may name that
+# repository and other private ones. That holds only when the whole command, as
+# this hook reads it, stays inside one repository whose every remote is listed
 # private. Anything that could carry text elsewhere (another directory, a URL,
 # an interpreter, an expansion, a gh call aimed at another repository) keeps the
 # full check. Prints "yes" or nothing; the caller treats nothing as strict.
@@ -255,12 +255,14 @@ if any(TILDE_RE.search(t) for t in tokens):
 
 SEPARATORS = {"&&", "||", ";", "|", "&", "\n"}
 REDIRECTS = {">", ">>", "<", "<<", "<<<", ">|", "&>", "&>>", ">&", "<&"}
-segments, cur = [], []
+# joins[i]: the operators before and after segments[i] (None at either end).
+segments, joins, cur, last = [], [], [], None
 for t in tokens:
     if t in SEPARATORS:
         if cur:
             segments.append(cur)
-        cur = []
+            joins.append([last, t])
+        cur, last = [], t
     elif t in ("(", ")", "{", "}"):
         strict()
     elif t and all(ch in "();<>|&" for ch in t) and t not in REDIRECTS:
@@ -269,6 +271,7 @@ for t in tokens:
         cur.append(t)
 if cur:
     segments.append(cur)
+    joins.append([last, None])
 
 # An allowlist: only commands known to read or write local files, plus git and
 # gh with the subcommands below. Anything else (wrappers such as nice or make,
@@ -386,7 +389,7 @@ def remote_urls(d):
     return [line.split("\t", 1)[1].rsplit(" ", 1)[0]
             for line in out.stdout.splitlines() if "\t" in line]
 
-for seg in segments:
+for seg, (before, after) in zip(segments, joins):
     # VAR=value prefixes: GIT_DIR=, GIT_WORK_TREE= and friends move git elsewhere.
     if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", seg[0]):
         strict()
@@ -414,6 +417,11 @@ for seg in segments:
         # /, ./, ../ and ~ forms go where they say.
         if len(seg) != 2 or seg[1].startswith("-") \
                 or not seg[1].startswith(("/", "./", "../", "~")) and seg[1] not in (".", ".."):
+            strict()
+        # A cd moves what follows only when it runs in this shell and what
+        # follows runs only after it worked: after |, || or before |, &, ||, ;
+        # the next command can run in the old directory.
+        if before not in (None, ";", "&&", "&") or after not in (None, "&&"):
             strict()
         workdir = resolve(workdir, seg[1])
         # A leading cd picks the repository; a later one must stay inside it.
