@@ -210,6 +210,9 @@ nice gh issue create -R example/zzqopenbox --body $n" \
          "git push --rec=./run origin $n" \
          "git rebase --exe ./run $n" \
          "git log --outp=../zzqopenbox/$n" \
+         "echo $n >~+/../zzqopenbox/x" \
+         "echo $n >~-/x" \
+         "git rebase -ix ./run $n" \
          "cp $n.md *-link" \
          "echo $n > docs/../../zzqopenbox/$n.md" \
          "gh issue create -Rexample/zzqopenbox --body $n" \

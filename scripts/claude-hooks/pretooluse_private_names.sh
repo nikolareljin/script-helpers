@@ -236,15 +236,18 @@ command = (data.get("tool_input") or {}).get("command") or ""
 # command would be judged as arguments of this one.
 if not command or re.search(r"[$`\\*?\[\n\r]|<\(|>\(", command):
     strict()
-# Tilde forms other than ~ and ~/x: ~+ is $PWD, ~- is $OLDPWD, ~user another home.
-if re.search(r"(^|[\s=:])~(?![/\s;&|)]|$)", command):
-    strict()
 try:
     lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
     lexer.commenters = ""
     tokens = list(lexer)
 except ValueError:
+    strict()
+
+# Tilde forms other than ~ and ~/x: ~+ is $PWD, ~- is $OLDPWD, ~user another
+# home. Judged per token, and per piece of one (--opt=~+/x), after tokenizing.
+TILDE_RE = re.compile(r"(^|[=:,<>&|;])~(?!/|$)")
+if any(TILDE_RE.search(t) for t in tokens):
     strict()
 
 SEPARATORS = {"&&", "||", ";", "|", "&", "\n"}
@@ -287,7 +290,10 @@ def toplevel(d):
     return os.path.realpath(out.stdout.strip()) if out.returncode == 0 else ""
 
 def resolve(base, p):
-    return os.path.realpath(os.path.join(base, os.path.expanduser(p)))
+    p = os.path.expanduser(p)
+    if p.startswith("~"):
+        strict()
+    return os.path.realpath(os.path.join(base, p))
 
 repo = toplevel(cwd)
 workdir = cwd
@@ -412,7 +418,7 @@ for seg in segments:
                  "open-files-in-pager")
         for a in rest:
             name = a[2:].split("=", 1)[0] if a.startswith("--") else ""
-            if name and any(r.startswith(name) for r in risky) or a.startswith(("-x", "-O")):
+            if name and any(r.startswith(name) for r in risky) or re.match(r"^-[^-]*[xO]", a):
                 strict()
         if rest[0] in ("push", "fetch", "pull"):
             # Only a remote of this repository, named: without one, git follows
