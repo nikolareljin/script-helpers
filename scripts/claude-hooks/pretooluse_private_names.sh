@@ -381,9 +381,14 @@ for seg in segments:
         if any(a.startswith("-") and a not in ("-n", "-E", "-r") for a in seg[1:]) \
                 or not script or not re.fullmatch(r"(\d+(,\d+)?)?p", script[0]):
             strict()
-    if word == "rg" and any(a.startswith(("--pre", "-z", "--search-zip")) for a in seg[1:]):
+    # rg runs --pre and --hostname-bin, and -z (also inside -iz) runs a
+    # decompressor. GNU sort takes any unambiguous prefix (--compress=).
+    if word == "rg" and any(a.startswith(("--pre", "--search-zip", "--hostname-bin"))
+                            or re.match(r"^-[^-]*z", a) for a in seg[1:]):
         strict()
-    if word == "sort" and any(a.startswith("--compress-program") for a in seg[1:]):
+    if word == "sort" and any(a.startswith("--") and len(a) > 3 and
+                              "compress-program".startswith(a[2:].split("=", 1)[0])
+                              for a in seg[1:]):
         strict()
     if word == "cd":
         # cd - is $OLDPWD, and CDPATH can send a bare name anywhere; only
@@ -411,12 +416,13 @@ for seg in segments:
             strict()
         if not rest or rest[0] not in GIT_SAFE:
             strict()
-        # --output writes wherever it points, even the repository root; the
+        # --output writes wherever it points, even the repository root;
+        # recurse-submodules pushes each submodule to its own remote; the
         # others run a command.
         # git takes any unambiguous prefix of a long option (--up= is
         # --upload-pack), so a prefix of one of these is refused too.
         risky = ("output", "exec", "upload-pack", "receive-pack", "extcmd",
-                 "open-files-in-pager")
+                 "open-files-in-pager", "recurse-submodules")
         for a in rest:
             name = a[2:].split("=", 1)[0] if a.startswith("--") else ""
             if name and any(r.startswith(name) for r in risky) or re.match(r"^-[^-]*[xO]", a):

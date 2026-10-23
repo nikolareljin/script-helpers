@@ -130,7 +130,10 @@ for v in "git commit -m $n" \
          "git commit -m $n &" \
          "git push origin $n" \
          "git stash push -m $n" \
-         "git log --ext-diff $n"; do
+         "git log --ext-diff $n" \
+         "rg -in $n docs" \
+         "sort -u --check $n.md" \
+         "git push --force-with-lease origin $n"; do
   hook 0 "contained: [${v//$tmp/<tmp>}]" "$priv" "$v"
 done
 # From inside the private repository, anything that can reach another place
@@ -190,6 +193,11 @@ nice gh issue create -R example/zzqopenbox --body $n" \
          "sed -n 's/a/b/w out' $n.md" \
          "rg --pre ./run $n" \
          "sort --compress-program=./run $n.md" \
+         "sort --compress=./run -S 64K $n.md" \
+         "rg --hostname-bin=./run --hyperlink-format=default $n" \
+         "rg -iz $n" \
+         "git push --recurse-submodules=on-demand origin $n" \
+         "git push --recurse=on-demand origin $n" \
          "git rebase -x ./run $n" \
          "git rebase --exec ./run $n" \
          "git fetch --upload-pack=./run origin $n" \

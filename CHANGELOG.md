@@ -2,7 +2,7 @@
 
 ### Changed
 
-- **The Claude hook lets a private repository name private repositories.** A command that stays wholly inside one repository whose every remote is listed `private` skips the private-name check; credentials and PII are still checked. Containment is an allowlist: a leading `cd` picks the repository, every path and `gh -R` must stay in it, and only listed local commands, `git` subcommands and `gh pr|issue` subcommands count. Anything else gets the full check, including a private file as the body of an issue in a public repository. `git status` in a private repository that documents other repositories was refused. Tests: `tests/claude_hook_destinations_test.sh` (37 cases fail against the 0.57.0 hook).
+- **The Claude hook lets a private repository name private repositories.** A command that stays wholly inside one repository whose every remote is listed `private` skips the private-name check; credentials and PII are still checked. Containment is an allowlist: a leading `cd` picks the repository, every path and `gh -R` must stay in it, and only listed local commands, `git` subcommands and `gh pr|issue` subcommands count. Anything else gets the full check, including a private file as the body of an issue in a public repository. `git status` in a private repository that documents other repositories was refused. Tests: `tests/claude_hook_destinations_test.sh` (39 cases fail against the 0.57.0 hook).
 
 ## 2026-10-22 — v0.57.0
 
