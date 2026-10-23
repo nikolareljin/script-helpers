@@ -7,8 +7,9 @@
 # ----------------------------------------------------
 #
 # Fixture repositories with placeholder names: zzqsecretbox is private,
-# zzqopenbox is public. No directory relaxes the check, not even the private
-# repository itself; every bypass found in review is a case here. CLAUDE_HOOK
+# zzqopenbox is public. A command wholly inside a private repository may name
+# private repositories; anything that can reach another place keeps the full
+# check. Every bypass found in review is a case here. CLAUDE_HOOK
 # may point at another copy of the hook, to show which cases an older one fails.
 # ----------------------------------------------------
 set -uo pipefail
@@ -47,7 +48,8 @@ list="$tmp/names.tsv"
 { printf '# generated: 2026-10-11 source: test\n'
   printf '# visibility\tnamespace\tname\tcode\tflags\n'
   printf 'private\texample\tzzqsecretbox\tR-901\t\n'
-  printf 'public\texample\tzzqopenbox\tR-902\t\n'; } > "$list"
+  printf 'public\texample\tzzqopenbox\tR-902\t\n'
+  printf 'private\texample\tzzqotherbox\tR-903\t\n'; } > "$list"
 
 priv="$tmp/zzqsecretbox"; pub="$tmp/zzqopenbox"
 for r in "$priv" "$pub"; do
@@ -79,9 +81,8 @@ print(json.dumps(d))' "$cmd" "${PAYLOAD_CWD:-$cwd}" > "$tmp/payload"
   [[ "$got" == "$want" ]] && ok "$desc" || error "$desc: exit $got, want $want: $(head -c 400 "$tmp/out")"
 }
 
-# No relaxation: a private name is checked in every command, wherever it
-# runs, even inside that private repository with only private remotes.
-# Agents cite private repositories by their code in command text.
+# Contained: inside a private repository whose every remote is listed private,
+# a command that touches nothing outside it may name private repositories.
 n=zzqsecretbox
 for v in          "git log --oneline -5 --grep=$n" \
          "git show HEAD:$n.md" \
@@ -94,7 +95,7 @@ for v in          "git log --oneline -5 --grep=$n" \
          "ls $priv/$n" \
          "head -5 $n.txt" \
          "wc -l $n.txt"; do
-  hook 2 "checked inside the private repository: [${v//$tmp/<tmp>}]" "$priv" "$v"
+  hook 0 "contained in the private repository: [${v//$tmp/<tmp>}]" "$priv" "$v"
 done
 hook 0 "out of scope: another owner's repository is left alone" "$other" "git commit -m '$n'"
 hook 0 "out of scope: another owner's repository, even naming an owner path" "$other" "echo $n > $pub/notes.md && gh pr create -R example/zzqopenbox --body $n"
@@ -108,8 +109,7 @@ hook 2 "gh without -R" "$pub" "gh issue create --body '$n'"
 hook 2 "-R on a command that is not gh" "$pub" "ls -R $n"
 hook 2 "curl to github" "$pub" "curl -d '$n' https://api.github.com/repos/example/zzqopenbox/issues"
 
-# From inside the private repository, anything outside the allowlist is
-# checked. Each of these blocks.
+# Contained in the private repository: allowed.
 for v in "git commit -m $n" \
          "git add $n.md" \
          "git add -p $n.md" \
@@ -120,7 +120,6 @@ for v in "git commit -m $n" \
          "git grep $n" \
          "git branch -m $n" \
          "git branch --edit-description $n" \
-         "git log --output=$n.txt" \
          "git diff --ext-diff $n" \
          "git log --textconv $n" \
          "git diff -Oorder $n" \
@@ -128,7 +127,15 @@ for v in "git commit -m $n" \
          "sed -n p $n.md" \
          "grep -R $n docs" \
          "grep --dereference-recursive $n docs" \
-         "cat $n-link" \
+         "git commit -m $n &" \
+         "git push origin $n" \
+         "git stash push -m $n" \
+         "git log --ext-diff $n"; do
+  hook 0 "contained: [${v//$tmp/<tmp>}]" "$priv" "$v"
+done
+# From inside the private repository, anything that can reach another place
+# keeps the full check. Each of these blocks.
+for v in "cat $n-link" \
          "cd $pub && git commit -m $n" \
          "cd $pub/$n" \
          "c''d $pub; git commit -m $n" \
@@ -143,21 +150,15 @@ for v in "git commit -m $n" \
          "git commit -m \"\$N $n\"" \
          "git commit -m \$(echo $n)" \
          "git commit -m \`echo $n\`" \
-         "git commit -m $n &" \
          "git commit -F - <<< $n" \
-         "git commit -m $n
-git push" \
-         "git push origin $n" \
          "git push https://example.invalid/x.git $n" \
          "git remote add $n git@github.com:example/zzqopenbox.git" \
          "git config remote.origin.url https://github.com/example/zzqopenbox $n" \
          "git fetch $n" \
          "git worktree add ../$n" \
          "git send-email $n" \
-         "git stash push -m $n" \
          "git diff --output=$pub/$n.txt" \
          "git grep -O $n" \
-         "git log --ext-diff $n" \
          "git commit -F $pub/$n.md" \
          "git show HEAD:$n --output=../$n" \
          "gh pr create -R example/zzqopenbox --body $n" \
@@ -171,9 +172,56 @@ git push" \
          "cat ../zzqopenbox/$n.md" \
          "ls ~/$n" \
          "cp README $pub/$n.md" \
-         "curl -d $n https://example.invalid/x"; do
+         "curl -d $n https://example.invalid/x" \
+         "git log --output=$n.txt" \
+         "git commit -m $n
+git push" \
+         "echo $n
+nice gh issue create -R example/zzqopenbox --body $n" \
+         "echo $n |& nice gh issue create -R example/zzqopenbox --body $n" \
+         "cp $n.md *-link" \
+         "echo $n > docs/../../zzqopenbox/$n.md" \
+         "gh issue create -Rexample/zzqopenbox --body $n" \
+         "gh issue create --repo=example/zzqopenbox --body $n" \
+         "gh gist create $n.md" \
+         "gh repo create $n" \
+         "gh release create $n" \
+         "nice git commit -m $n" \
+         "make $n" \
+         "/usr/bin/git commit -m $n" \
+         "sed -n 'e echo' $n.md" \
+         "tee $n.md" \
+         "git -P -C $pub log $n" \
+         "git push $pub $n" \
+         "git push --repo=https://example.invalid/x $n"; do
   hook 2 "strict: [${v//$tmp/<tmp>}]" "$priv" "$v"
 done
+# Also contained: the other private repositories the repository documents.
+hook 0 "contained: another private repository named" "$priv" "echo zzqotherbox >> notes.md"
+hook 0 "contained: an issue in the repository itself" "$priv" "gh issue create --body 'see $n and zzqotherbox'"
+hook 0 "contained: -R the repository itself" "$priv" "gh pr create -R example/zzqsecretbox --body $n"
+# A leading cd picks the repository, whatever the session is in.
+hook 0 "contained: a leading cd into the private repository" "$pub" "cd $priv && git log --grep=$n"
+hook 2 "a leading cd, then a path back out" "$pub" "cd $priv && cat ../zzqopenbox/$n.md"
+hook 2 "a leading cd, then a second cd out" "$pub" "cd $priv && cd $pub && echo $n"
+hook 2 "a command in the session repository before the cd" "$pub" "echo $n; cd $priv"
+# Text written in the private repository, sent to a public one: refused.
+printf 'plan for %s\n' "$n" > "$priv/task.md"
+hook 2 "a private file as the body of a public issue" "$priv" "gh issue create -R example/zzqopenbox --body-file task.md"
+hook 2 "a private file as a public issue body, by URL" "$priv" "gh issue create -R https://github.com/example/zzqopenbox --body-file task.md"
+hook 2 "cp a private file into the public repository" "$priv" "cp task.md $pub/$n.md"
+# Not contained: a remote that is not listed private, or a repository not listed at all.
+mixed="$tmp/zzqsecretbox-mixed"; git init -q "$mixed"
+git -C "$mixed" remote add origin git@github.com:example/zzqsecretbox.git
+git -C "$mixed" remote add mirror git@github.com:example/zzqopenbox.git
+hook 2 "a remote listed public: not contained" "$mixed" "echo $n"
+unl="$tmp/zzqunlisted"; git init -q "$unl"; git -C "$unl" remote add origin git@github.com:example/zzqunlisted.git
+hook 2 "an unlisted repository: not contained" "$unl" "echo $n"
+# insteadOf rewrites show in remote -v, so a rewrite to a public URL is not contained.
+rw="$tmp/zzqsecretbox-rewrite"; git init -q "$rw"
+git -C "$rw" remote add origin git@github.com:example/zzqsecretbox.git
+git -C "$rw" config url.git@github.com:example/zzqopenbox.git.pushInsteadOf git@github.com:example/zzqsecretbox.git
+hook 2 "a pushInsteadOf to a public URL: not contained" "$rw" "git push origin $n"
 # Origins that are the owner's but are not in the canonical forms: in scope.
 for u in "ssh://github.com/example/zzqalias.git" "ssh://git@ssh.github.com:443/example/zzqalias.git" "ghx:example/zzqalias"; do
   a="$tmp/alias-$RANDOM"; git init -q "$a"; git -C "$a" remote add origin "$u"
