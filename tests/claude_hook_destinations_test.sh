@@ -265,6 +265,19 @@ for v in "cd $priv | gh issue create --body $n" \
          "true || cd $priv && gh issue create --body $n"; do
   hook 2 "a cd that may not move the next command: [${v//$tmp/<tmp>}]" "$pub" "$v"
 done
+# A branch whose tree has a symlink into the public repository: after a checkout
+# or merge, a path checked while missing can be that symlink.
+git -C "$priv" checkout -q -b with-out-link
+ln -s "$pub/notes.md" "$priv/out-link"
+git -C "$priv" add out-link && git -C "$priv" commit -q -m out-link
+git -C "$priv" checkout -q -
+for v in "git checkout with-out-link && echo $n >> out-link" \
+         "git merge with-out-link && cp $n.md out-link" \
+         "git stash pop && touch $n-out-link/x" \
+         "git switch with-out-link && cd ./out-dir && echo $n"; do
+  hook 2 "a write after the tree changed: [$v]" "$priv" "$v"
+done
+hook 0 "contained: reads after a checkout" "$priv" "git checkout with-out-link && git log --grep=$n"
 # Text written in the private repository, sent to a public one: refused.
 printf 'plan for %s\n' "$n" > "$priv/task.md"
 hook 2 "a private file as the body of a public issue" "$priv" "gh issue create -R example/zzqopenbox --body-file task.md"

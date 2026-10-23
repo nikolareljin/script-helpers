@@ -321,6 +321,10 @@ def resolve(base, p):
 repo = toplevel(cwd)
 workdir = cwd
 ran = False
+# Set once a git command may rewrite the work tree (see below).
+tree_changed = False
+TREE_GIT = {"checkout", "switch", "restore", "reset", "merge", "rebase", "pull",
+            "stash", "rm", "mv"}
 
 def git_dir(d):
     try:
@@ -396,6 +400,12 @@ for seg, (before, after) in zip(segments, joins):
     word = os.path.basename(seg[0]).lower()
     if word not in SAFE or seg[0] != word:
         strict()
+    # Paths are checked before anything runs. After a checkout or merge, a path
+    # checked as missing can be a symlink out of the repository, so nothing
+    # after it may write or cd.
+    if tree_changed and (word in ("cd", "cp", "mv", "touch", "mkdir")
+                         or any(a in REDIRECTS for a in seg[1:])):
+        strict()
     # sed scripts can run commands (e, s///e) and write files (w), so sed only
     # prints line ranges: sed -n 5,20p file.
     if word == "sed":
@@ -443,6 +453,7 @@ for seg, (before, after) in zip(segments, joins):
             strict()
         if not rest or rest[0] not in GIT_SAFE:
             strict()
+        changes_tree = rest[0] in TREE_GIT
         # --output writes wherever it points, even the repository root;
         # recurse-submodules pushes each submodule to its own remote; the
         # others run a command.
@@ -482,6 +493,8 @@ for seg, (before, after) in zip(segments, joins):
             if target is not None and target.lower().split("github.com/")[-1].rstrip("/") not in own:
                 strict()
     ran = True
+    if word == "git" and changes_tree:
+        tree_changed = True
     if not repo:
         strict()
     for a in seg[1:]:
