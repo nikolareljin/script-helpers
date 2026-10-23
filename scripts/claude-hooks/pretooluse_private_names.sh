@@ -216,7 +216,7 @@ contained_private=false
 if [[ "$HAVE_PY" == true ]]; then
   names_list="${PRIVATE_NAMES_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names.tsv}"
   if [[ "$("$PY" -I - "$payload_file" "$names_list" "$PWD" <<'PY' 2>/dev/null
-import json, os, re, shlex, subprocess, sys
+import json, os, pathlib, re, shlex, subprocess, sys
 
 payload, names_list, cwd = sys.argv[1:4]
 
@@ -288,13 +288,13 @@ def toplevel(d):
                              capture_output=True, text=True, timeout=5)
     except Exception:
         return ""
-    return os.path.realpath(out.stdout.strip()) if out.returncode == 0 else ""
+    return str(pathlib.Path(out.stdout.strip()).resolve()) if out.returncode == 0 else ""
 
 def resolve(base, p):
     p = os.path.expanduser(p)
     if p.startswith("~"):
         strict()
-    return os.path.realpath(os.path.join(base, p))
+    return str(pathlib.Path(base, p).resolve())
 
 repo = toplevel(cwd)
 workdir = cwd
@@ -306,7 +306,7 @@ def git_dir(d):
                              capture_output=True, text=True, timeout=5)
     except Exception:
         return ""
-    return os.path.realpath(out.stdout.strip()) if out.returncode == 0 else ""
+    return str(pathlib.Path(out.stdout.strip()).resolve()) if out.returncode == 0 else ""
 
 gitdir = git_dir(cwd)
 
@@ -456,7 +456,7 @@ for seg in segments:
             continue
         check_arg(a)
 
-if not repo or not inside(os.path.realpath(workdir)):
+if not repo or not inside(str(pathlib.Path(workdir).resolve())):
     strict()
 
 # Every remote of the repository must be listed private, namespace and name.
