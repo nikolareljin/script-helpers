@@ -236,6 +236,9 @@ command = (data.get("tool_input") or {}).get("command") or ""
 # command would be judged as arguments of this one.
 if not command or re.search(r"[$`\\*?\[\n\r]|<\(|>\(", command):
     strict()
+# Tilde forms other than ~ and ~/x: ~+ is $PWD, ~- is $OLDPWD, ~user another home.
+if re.search(r"(^|[\s=:])~(?![/\s;&|)]|$)", command):
+    strict()
 try:
     lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
@@ -403,11 +406,14 @@ for seg in segments:
             strict()
         # --output writes wherever it points, even the repository root; the
         # others run a command.
-        if any(a.startswith(("--output", "--exec", "--upload-pack", "--receive-pack",
-                             "--extcmd", "-x")) for a in rest):
-            strict()
-        if rest[0] == "grep" and any(a.startswith(("-O", "--open-files-in-pager")) for a in rest):
-            strict()
+        # git takes any unambiguous prefix of a long option (--up= is
+        # --upload-pack), so a prefix of one of these is refused too.
+        risky = ("output", "exec", "upload-pack", "receive-pack", "extcmd",
+                 "open-files-in-pager")
+        for a in rest:
+            name = a[2:].split("=", 1)[0] if a.startswith("--") else ""
+            if name and any(r.startswith(name) for r in risky) or a.startswith(("-x", "-O")):
+                strict()
         if rest[0] in ("push", "fetch", "pull"):
             # Only a remote of this repository, named: without one, git follows
             # branch.<b>.remote or pushRemote, which can be a URL.

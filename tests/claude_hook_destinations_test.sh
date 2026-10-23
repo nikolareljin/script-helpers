@@ -124,7 +124,6 @@ for v in "git commit -m $n" \
          "git branch --edit-description $n" \
          "git diff --ext-diff $n" \
          "git log --textconv $n" \
-         "git diff -Oorder $n" \
          "sed -n p $n.md" \
          "grep -R $n docs" \
          "grep --dereference-recursive $n docs" \
@@ -203,6 +202,14 @@ nice gh issue create -R example/zzqopenbox --body $n" \
          "cd ./nested && git commit -m $n" \
          "true && cd ./nested && git commit -m $n" \
          "echo $n > nested/x.md" \
+         "git diff -Oorder $n" \
+         "cd ~- && echo $n" \
+         "true && cd ~+/../zzqopenbox && echo $n" \
+         "cat ~root/$n" \
+         "git fetch --up=./run origin $n" \
+         "git push --rec=./run origin $n" \
+         "git rebase --exe ./run $n" \
+         "git log --outp=../zzqopenbox/$n" \
          "cp $n.md *-link" \
          "echo $n > docs/../../zzqopenbox/$n.md" \
          "gh issue create -Rexample/zzqopenbox --body $n" \

@@ -355,11 +355,12 @@ parser of shell commands always misses some shape bash runs (`bash -c`,
   `cd`, every path (symlinks resolved, also inside a value such as `--opt=/x`)
   and every `gh -R`/`--repo` must stay in it, outside its git dir and outside
   any nested repository. `cd` takes only `/`, `./`, `../` or `~` paths (no
-  `cd -`, no `CDPATH` lookup). Only these commands count: `cd ls cat head tail
+  `cd -`, no `CDPATH` lookup, no `~+`, `~-` or `~user` anywhere). Only these commands count: `cd ls cat head tail
   wc grep rg sed diff sort uniq cut tr echo printf true pwd stat file mkdir
   touch cp mv`, `sed` only as `sed -n <a>,<b>p`, `git` with a local subcommand
   or `push`/`fetch`/`pull` to a named remote (no `-C`, `-c`, `--git-dir`,
-  `--output`, `--exec`, `-x`, `--upload-pack`, `--receive-pack`), and `gh
+  `--output`, `--exec`, `-x`, `-O`, `--upload-pack`, `--receive-pack`, or
+  any prefix of those that git would accept), and `gh
   pr|issue create|edit|comment|view|list`. No `$`, backtick, backslash, glob,
   newline, `(`, `{`, operator other than `&& || ; | &` and redirections, or
   `VAR=value` prefix. Anything else, including a private file sent as the body
