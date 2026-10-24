@@ -354,7 +354,8 @@ parser of shell commands always misses some shape bash runs (`bash -c`,
   list (a local path remote is never contained). A leading `cd` picks that
   repository; every other `cd`, every path (symlinks resolved, also inside a
   value such as `--opt=/x` or `-t..`) and every `gh -R`/`--repo` must stay in
-  it, outside its git dir and outside any nested repository. `cd` takes only `/`, `./`, `../` or `~` paths (no
+  it, outside its git dir and outside any nested repository. `cd` takes only
+  `/`, `./`, `../` or `~` paths (no
   `cd -`, no `CDPATH` lookup, no `~+`, `~-` or `~user` anywhere), and only at
   the start or after `;`, `&&` or `&`, with `&&` or the end of the command
   after it: elsewhere the next command can run in the old directory. After a
@@ -364,7 +365,8 @@ parser of shell commands always misses some shape bash runs (`bash -c`,
   `mv`, `touch`, `mkdir`, `sort`, `uniq`, `file`): a path checked while
   missing can be a symlink by then. Only these commands count: `cd ls cat
   head tail wc grep rg sed diff sort uniq cut tr echo printf true pwd stat
-  file mkdir touch cp mv`, `sed` only as `sed -n <a>,<b>p`, `rg` without `--pre`,
+  file mkdir touch cp mv`, `sed` only as `sed -n <a>,<b>p`, `rg` without
+  `--pre`,
   `--hostname-bin` or `-z` (also inside `-iz`), `sort` without
   `--compress-program` or a prefix of it, `git` with a local subcommand
   or `push`/`fetch`/`pull` to a named remote (no `-C`, `-c`, `--git-dir`,
