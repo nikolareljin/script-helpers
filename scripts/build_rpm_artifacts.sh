@@ -5,7 +5,10 @@
 # PARAMETERS:
 #   --repo <path>        Repo path (default: GITHUB_WORKSPACE or cwd).
 #   --spec <path>        Spec file path (default: packaging/rpm/<app>.spec).
-#   --prebuild <command> Command to run before build.
+#   --prebuild <command> Command to run before build. The source tarball is then the
+#                        working tree (prebuild output included), without .git,
+#                        packaging/rpm/build or an --artifact-dir inside the tree;
+#                        without it, git archive HEAD.
 #   --artifact-dir <path> Output directory for built RPMs (default: ..).
 #   -h, --help           Show help.
 # EXIT_CODES:

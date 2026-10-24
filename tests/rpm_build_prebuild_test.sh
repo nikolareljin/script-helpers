@@ -23,6 +23,10 @@ if ! grep -q 'GNU tar' <<<"$(tar --version 2>/dev/null)"; then
   exit 0
 fi
 
+# No global or system git config: a signing key or hooks path there would
+# make the commits below sign, prompt or run hooks.
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+
 tmp="$(mktemp -d)"
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
