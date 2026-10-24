@@ -345,9 +345,38 @@ parser of shell commands always misses some shape bash runs (`bash -c`,
   file it names that can be read (`--body-file X`, `-F X`, `@X`, `< X`), goes
   through the private-name check and `check_sensitive.sh --no-machine
   --no-inline-allow`. Paths after `cd` and `-C` are left out of the text.
-  In scope, private names are checked in every command, including one run
-  inside a private repository and a pull request into one: agents cite a
-  private repository by its code in command text, never by name.
+  In scope, private names are checked in every command except one contained
+  in a private repository (below): agents cite a private repository by its
+  code in command text, never by name.
+- contained: the private-name check is skipped (the sensitive-data checks
+  still run) when the command, as the hook reads it, stays inside one
+  repository whose every remote is a network URL listed `private` in the name
+  list (a local path remote is never contained). A leading `cd` picks that
+  repository; every other `cd`, every path (symlinks resolved, also inside a
+  value such as `--opt=/x` or `-t..`) and every `gh -R`/`--repo` must stay in
+  it, outside its git dir and outside any nested repository. `cd` takes only
+  `/`, `./`, `../` or `~` paths (no
+  `cd -`, no `CDPATH` lookup, no `~+`, `~-` or `~user` anywhere), and only at
+  the start or after `;`, `&&` or `&`, with `&&` or the end of the command
+  after it: elsewhere the next command can run in the old directory. After a
+  `git` command that can rewrite the work tree (`checkout`, `switch`, `merge`,
+  `pull`, `stash`, ...) or a `cp` or `mv` (they carry symlinks), only
+  commands that cannot write count, without a redirection (no `cd`, `cp`,
+  `mv`, `touch`, `mkdir`, `sort`, `uniq`, `file`): a path checked while
+  missing can be a symlink by then. Only these commands count: `cd ls cat
+  head tail wc grep rg sed diff sort uniq cut tr echo printf true pwd stat
+  file mkdir touch cp mv`, `sed` only as `sed -n <a>,<b>p`, `rg` without
+  `--pre`,
+  `--hostname-bin` or `-z` (also inside `-iz`), `sort` without
+  `--compress-program` or a prefix of it, `git` with a local subcommand
+  or `push`/`fetch`/`pull` to a named remote (no `-C`, `-c`, `--git-dir`,
+  `--output`, `--exec`, `-x`, `-O`, `--upload-pack`, `--receive-pack`,
+  `--recurse-submodules`, or any prefix of those that git would accept), and `gh
+  pr|issue create|edit|comment|view|list`. No `$`, backtick, backslash, glob,
+  newline, `(`, `{`, operator other than `&& || ; | &` and redirections, or
+  `VAR=value` prefix. Anything else, including a private file sent as the body
+  of an issue in a public repository, gets the full check. Shell aliases,
+  functions and `PATH` are trusted, as everywhere in this hook.
 - refused outright: `--no-verify`, `git commit -n`, a `core.hooksPath`
   override (`-c`, `GIT_CONFIG_*`); a command that sets the gate's own
   overrides or configuration (`SECURITY_GATE_ALLOW_UNCHECKED=`,
