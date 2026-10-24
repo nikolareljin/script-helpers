@@ -142,7 +142,9 @@ run_tests() {
       )"
       if [[ -n "$test_script" ]]; then
         echo "[tests] npm test"
-        npm test || return $?
+        # CI=true unless set: a watch-mode runner (react-scripts, Jest, Vitest)
+        # otherwise waits for input and the push never returns.
+        CI="${CI:-true}" npm test || return $?
         _ran_tests=true
         return 0
       fi

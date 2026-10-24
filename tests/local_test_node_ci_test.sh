@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SCRIPT: local_test_node_ci_test.sh
-# DESCRIPTION: Tests that local_test_node.sh runs npm test with CI=true, so a watch-mode test runner (react-scripts, Jest, Vitest) exits instead of waiting.
+# DESCRIPTION: Tests that local_test_node.sh, run_repo_tests.sh and ci_node.sh run npm test with CI=true, so a watch-mode test runner (react-scripts, Jest, Vitest) exits instead of waiting.
 # USAGE: bash tests/local_test_node_ci_test.sh
 # PARAMETERS: No required parameters.
 # EXAMPLE: bash tests/local_test_node_ci_test.sh
@@ -52,5 +52,51 @@ check() {
 check "CI unset: npm test gets CI=true" "test CI=true" -- --dir "$tmp/app"
 check "a workspace's npm test gets CI=true" "test --workspace web CI=true" -- --dir "$tmp/app" --workspace web
 check "a CI the caller set is kept" "test CI=1" CI=1 -- --dir "$tmp/app"
+
+# run_repo_tests.sh without script-helpers beside it (the pre-push fallback):
+# a repository with no scripts/ directory, and a stub node that reports the
+# test script.
+cat > "$tmp/bin/node" <<'EOF2'
+#!/usr/bin/env bash
+echo "react-scripts test"
+EOF2
+chmod +x "$tmp/bin/node"
+: > "$NPM_LOG"
+rc=0
+(cd "$tmp/app" && env -u CI PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/run_repo_tests.sh") >/dev/null 2>&1 || rc=$?
+if [[ $rc -eq 0 ]] && grep -qxF -e "test CI=true" "$NPM_LOG"; then
+  note "ok  run_repo_tests.sh's npm test fallback gets CI=true"
+else
+  error "run_repo_tests.sh fallback: exit $rc, npm got: $(cat "$NPM_LOG")"
+fi
+
+# ci_node.sh on the host, then in Docker (a stub docker records its arguments).
+: > "$NPM_LOG"
+rc=0
+# The test command runs under bash -lc, whose profile can put system paths
+# (and a real npm) ahead of the stub, so it records CI itself.
+# shellcheck disable=SC2016
+env -u CI PATH="$tmp/bin:$PATH" bash scripts/ci_node.sh --workdir "$tmp/app" --no-docker \
+  --no-install --skip-lint --skip-build \
+  --test-cmd 'printf "run test CI=%s\n" "${CI-unset}" >> "$NPM_LOG"' >/dev/null 2>&1 || rc=$?
+if [[ $rc -eq 0 ]] && grep -qxF -e "run test CI=true" "$NPM_LOG"; then
+  note "ok  ci_node.sh --no-docker: the test command gets CI=true"
+else
+  error "ci_node.sh --no-docker: exit $rc, npm got: $(cat "$NPM_LOG")"
+fi
+cat > "$tmp/bin/docker" <<'EOF2'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$NPM_LOG"
+EOF2
+chmod +x "$tmp/bin/docker"
+: > "$NPM_LOG"
+rc=0
+env -u CI PATH="$tmp/bin:$PATH" bash scripts/ci_node.sh --workdir "$tmp/app" \
+  --no-install --skip-lint --skip-build >/dev/null 2>&1 || rc=$?
+if [[ $rc -eq 0 ]] && grep -q -e " -e CI=true " "$NPM_LOG"; then
+  note "ok  ci_node.sh in Docker passes CI=true to the container"
+else
+  error "ci_node.sh in Docker: exit $rc, docker got: $(cat "$NPM_LOG")"
+fi
 
 exit "$failures"
