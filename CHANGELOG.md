@@ -1,3 +1,9 @@
+## Unreleased
+
+### Fixed
+
+- **Scripts check out with LF on Windows.** With no `.gitattributes`, a clone under `core.autocrlf=true` (the Git for Windows default) checked every script out with CRLF, and bash failed with `set: pipefail: invalid option name` or `$'\r': command not found`. `.gitattributes` now sets `* text=auto eol=lf`, which also covers the hooks and `bin/` commands with no extension. Tests: `tests/line_endings_test.sh` clones with `autocrlf=true` (395 files with CRLF and a failing `commit-msg` hook against 0.58.0); CI runs it on Windows too. A checkout made before this keeps its CRLF files after a pull (389 of them); with no local changes, `git rm -r -q --cached . && git reset -q --hard` rewrites them with LF.
+
 ## 2026-10-24 — v0.58.0
 
 ### Changed
