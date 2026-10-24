@@ -1828,7 +1828,7 @@ Example:
 
 ### `scripts/local_test_node.sh`
 
-Install dependencies and run tests for Node/npm projects.
+Install dependencies and run tests for Node/npm projects. npm test runs with CI=true unless CI is set, so a watch-mode runner exits.
 
 ```text
 Usage: bash scripts/local_test_node.sh [--quick] [--workspace <name>]
