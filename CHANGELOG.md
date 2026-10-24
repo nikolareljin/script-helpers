@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- **`local_test_python.sh` installs `requirements-dev.txt`.** A project that keeps pytest in `requirements-dev.txt` got only `requirements.txt` installed, so the tests reported SKIP and `preflight.sh` passed without running them. It now installs after `requirements.txt` (or alone), and `preflight.sh` detects a Python project from it. Tests: `tests/local_test_python_requirements_test.sh` (a stub venv logs pip installs; 3 of 4 cases fail against 0.58.0).
 - **Scripts check out with LF on Windows.** With no `.gitattributes`, a clone under `core.autocrlf=true` (the Git for Windows default) checked every script out with CRLF, and bash failed with `set: pipefail: invalid option name` or `$'\r': command not found`. `.gitattributes` now sets `* text=auto eol=lf`, which also covers the hooks and `bin/` commands with no extension. Tests: `tests/line_endings_test.sh` clones with `autocrlf=true` (395 files with CRLF and a failing `commit-msg` hook against 0.58.0); CI runs it on Windows too. A checkout made before this keeps its CRLF files after a pull (389 of them); with no local changes, `git rm -r -q --cached . && git reset -q --hard` rewrites them with LF.
 
 ## 2026-10-24 — v0.58.0
