@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SCRIPT: local_test_python_requirements_test.sh
-# DESCRIPTION: Tests that local_test_python.sh installs requirements-dev.txt after requirements.txt, so a project that keeps pytest there is tested, not skipped.
+# DESCRIPTION: Tests that local_test_python.sh installs requirements-dev.txt after requirements.txt and that preflight and run_repo_tests.sh find a project from it, so a project that keeps pytest there is tested, not skipped.
 # USAGE: bash tests/local_test_python_requirements_test.sh
 # PARAMETERS: No required parameters.
 # EXAMPLE: bash tests/local_test_python_requirements_test.sh
@@ -70,6 +70,16 @@ if [[ "$(CI='' bash scripts/preflight.sh --list --dir "$p" 2>/dev/null)" == *"py
   note "ok  preflight detects a project with only requirements-dev.txt"
 else
   error "preflight does not detect a project with only requirements-dev.txt"
+fi
+
+# run_repo_tests.sh without script-helpers beside it (the pre-push fallback)
+# finds the project from requirements-dev.txt and runs pytest.
+p="$(project fallback requirements-dev.txt)"
+if (cd "$p" && bash "$ROOT_DIR/scripts/run_repo_tests.sh" --require) >/dev/null 2>&1 \
+    && grep -qx pytest "$p/pip.log"; then
+  note "ok  run_repo_tests.sh runs pytest for a project with only requirements-dev.txt"
+else
+  error "run_repo_tests.sh fallback did not run pytest: $(cat "$p/pip.log")"
 fi
 
 exit "$failures"

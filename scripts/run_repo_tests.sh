@@ -153,7 +153,7 @@ run_tests() {
   fi
 
   # Python - only return when tests actually ran; otherwise fall through.
-  if [[ -f pyproject.toml ]] || [[ -f setup.py ]] || [[ -f requirements.txt ]]; then
+  if [[ -f pyproject.toml ]] || [[ -f setup.py ]] || [[ -f requirements.txt ]] || [[ -f requirements-dev.txt ]]; then
     if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_python.sh" ]]; then
       echo "[tests] local_test_python.sh --quick"
       bash "$_scripts_dir/local_test_python.sh" --quick || return $?
