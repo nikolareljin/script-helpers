@@ -44,8 +44,13 @@ else
   ok "no file checks out with CRLF under autocrlf=true"
 fi
 
-# A script with no extension, which a *.sh rule alone would miss.
-if bash "$tmp/clone/scripts/git-hooks/commit-msg" /dev/null >/dev/null 2>"$tmp/hook.err" \
+# A script with no extension, which a *.sh rule alone would miss. It runs in
+# the clone, with HOME and XDG_CONFIG_HOME in the temporary directory, so this
+# checkout's .githooks and the developer's name list play no part. Only a CR
+# in its error counts: without a name list the hook may refuse for other reasons.
+mkdir -p "$tmp/home"
+if (cd "$tmp/clone" && HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/.config" \
+      bash scripts/git-hooks/commit-msg /dev/null) >/dev/null 2>"$tmp/hook.err" \
     || ! grep -q $'\r' "$tmp/hook.err"; then
   ok "scripts/git-hooks/commit-msg runs from the clone with no CR error"
 else
