@@ -43,6 +43,15 @@ arguments:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\script-helpers\scripts\setup-hooks.ps1 --status
 ```
 
+Scripts check out with LF whatever `core.autocrlf` says. If bash reports
+`$'\r': command not found` or `set: pipefail: invalid option name`, the
+checkout still has CRLF files from before `.gitattributes` applied. With no
+local changes in it, rewrite them from `scripts/script-helpers`:
+
+```bash
+git rm -r -q --cached . && git reset -q --hard
+```
+
 Hooks the repository already had (a team's, another tool's, `.git/hooks`)
 keep running, after ours. `--uninstall` puts the previous setup back. To cover
 every repository on the machine instead, use `--global`.
