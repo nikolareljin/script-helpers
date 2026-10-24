@@ -98,6 +98,17 @@ jobs:
       - name: Hook destination and latency tests under Git Bash
         shell: bash
         run: bash tests/claude_hook_destinations_test.sh
+      # With native symlinks, so the symlink-out cases run here too.
+      - name: Hook destination tests under Git Bash with native symlinks
+        shell: bash
+        env:
+          MSYS: winsymlinks:nativestrict
+        run: |
+          bash tests/claude_hook_destinations_test.sh 2>&1 | tee "$RUNNER_TEMP/hook-native.log"
+          if grep -q 'SKIP: ln -s made a copy' "$RUNNER_TEMP/hook-native.log"; then
+            echo "native symlinks were not made; the symlink cases did not run" >&2
+            exit 1
+          fi
       - name: setup-hooks.ps1 finds Git Bash and installs (throwaway profile)
         shell: pwsh
         run: |
