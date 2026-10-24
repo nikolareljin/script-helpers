@@ -367,6 +367,14 @@ def check_arg(arg):
     # -o/x and -o~/x: the path after a short option is not a word of its own.
     if re.match(r"^-[^-=]+[/~]", arg):
         strict()
+    # -t.. and -o<link>: any tail of a short-option cluster (cp -at..) can be
+    # its value, so a tail that is .. or names an existing path must stay inside.
+    if re.match(r"^-[^-]", arg):
+        for k in range(2, len(arg)):
+            tail = arg[k:]
+            if (tail == ".." or os.path.lexists(os.path.join(workdir, tail))) \
+                    and not inside(resolve(workdir, tail)):
+                strict()
     # Every path in the argument, also inside a value (--output=/x, 'w /x'),
     # resolved through symlinks.
     # sub/../../x climbs out without starting with "..".

@@ -212,6 +212,10 @@ nice gh issue create -R example/zzqopenbox --body $n" \
          "git push; echo $n" \
          "git pull; echo $n" \
          "sort -o/tmp/zzq-out $n.md" \
+         "cp $n.md -t.." \
+         "cp -at.. $n.md" \
+         "sort -ozzqsecretbox-link $n.md" \
+         "mv $n.md -tzzqsecretbox-link" \
          "cd ./nested && git commit -m $n" \
          "true && cd ./nested && git commit -m $n" \
          "echo $n > nested/x.md" \
