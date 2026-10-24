@@ -12,7 +12,7 @@ This folder contains cross-distribution packaging metadata and helper files.
 
 ## Build commands
 
-Commands assume script-helpers is the submodule at `scripts/script-helpers`, as the README sets it up; use your own path if the repository keeps it elsewhere.
+Commands assume script-helpers is a submodule at `scripts/script-helpers`, where script-helpers' own README installs it; change the path if this repository keeps it elsewhere.
 
 From the repo root:
 

@@ -21,7 +21,7 @@ This guide describes the cross-distribution packaging flow backed by `script-hel
 
 ## Scaffold the files
 
-Commands assume script-helpers is the submodule at `scripts/script-helpers`, as the README sets it up; use your own path if the repository keeps it elsewhere.
+Commands assume script-helpers is a submodule at `scripts/script-helpers`, where the script-helpers README installs it; use your own path if the repository keeps it elsewhere.
 
 ```
 ./scripts/script-helpers/scripts/packaging_init.sh --repo .
