@@ -139,6 +139,8 @@ done
 # Git Bash makes ln -s a copy unless native symlinks are on; a copy is contained.
 if [[ -L "$priv/$n-link" ]]; then
   hook 2 "strict: a symlink out of the repository [cat $n-link]" "$priv" "cat $n-link"
+  hook 2 "strict: an attached value that is a symlink out [sort -o$n-link]" "$priv" "sort -o$n-link $n.md"
+  hook 2 "strict: an attached value that is a symlink out [mv -t$n-link]" "$priv" "mv $n.md -t$n-link"
 else
   note "SKIP: ln -s made a copy here, so the symlink case cannot run"
 fi
@@ -214,8 +216,6 @@ nice gh issue create -R example/zzqopenbox --body $n" \
          "sort -o/tmp/zzq-out $n.md" \
          "cp $n.md -t.." \
          "cp -at.. $n.md" \
-         "sort -ozzqsecretbox-link $n.md" \
-         "mv $n.md -tzzqsecretbox-link" \
          "cd ./nested && git commit -m $n" \
          "true && cd ./nested && git commit -m $n" \
          "echo $n > nested/x.md" \
