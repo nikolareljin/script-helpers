@@ -1,5 +1,5 @@
 # Behaviour tests for ps/scripts/ci_node.ps1: the test step runs with CI=true
-# unless CI is set, so a watch-mode runner (react-scripts, Jest, Vitest) exits
+# unless CI is set, so a watch-mode runner (react-scripts test, vitest without run) exits
 # instead of waiting for input; in Docker mode the container gets it too.
 #
 # Usage: pwsh -NoProfile -File ps/tests/ci_node_test.ps1

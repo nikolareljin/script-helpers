@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SCRIPT: local_test_node_ci_test.sh
-# DESCRIPTION: Tests that local_test_node.sh, run_repo_tests.sh and ci_node.sh run npm test with CI=true, so a watch-mode test runner (react-scripts, Jest, Vitest) exits instead of waiting.
+# DESCRIPTION: Tests that local_test_node.sh, run_repo_tests.sh and ci_node.sh run npm test with CI=true, so a watch-mode test runner (react-scripts test, vitest without run) exits instead of waiting.
 # USAGE: bash tests/local_test_node_ci_test.sh
 # PARAMETERS: No required parameters.
 # EXAMPLE: bash tests/local_test_node_ci_test.sh

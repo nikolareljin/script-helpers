@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SCRIPT: local_test_node.sh
-# DESCRIPTION: Install dependencies and run tests for Node/npm projects. npm test runs with CI=true unless CI is set, so a watch-mode runner exits.
+# DESCRIPTION: Install dependencies and run tests for Node/npm projects. npm test runs with CI=true unless CI is set, so react-scripts test and vitest run once instead of watching.
 # USAGE: bash scripts/local_test_node.sh [--quick] [--workspace <name>]
 #
 # PARAMETERS:
@@ -111,8 +111,9 @@ if [[ "$QUICK" == "false" ]]; then
   fi
 fi
 
-# CI=true unless the caller set CI: react-scripts, Jest and Vitest start in watch
-# mode without it, and a pre-push hook never returns. Like CI, Jest then writes
+# CI=true unless the caller set CI: react-scripts test and vitest (without run)
+# watch without it, and a pre-push hook never returns. An explicit --watch
+# still watches. Like CI, Jest then writes
 # no new snapshots, so a test whose snapshot is missing fails.
 if [[ -n "$WORKSPACE" ]]; then
   echo "[local-test-node] Testing workspace: $WORKSPACE"
