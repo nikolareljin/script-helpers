@@ -285,6 +285,11 @@ for v in "git checkout with-out-link && echo $n >> out-link" \
          "git checkout with-out-link && file -C -m out-dir/$n"; do
   hook 2 "a write after the tree changed: [$v]" "$priv" "$v"
 done
+# cp -a and mv carry a symlink to a name that is missing when it is checked.
+mkdir "$priv/linkdir" && ln -s "$pub/notes.md" "$priv/linkdir/out"
+hook 2 "a write after cp -a copies a symlink" "$priv" "cp -a linkdir copydir && echo $n >> copydir/out"
+hook 2 "a write after mv moves a symlink" "$priv" "mv linkdir movedir && echo $n >> movedir/out"
+hook 0 "contained: a read after cp" "$priv" "cp $n.md copy.md && cat copy.md"
 hook 0 "contained: reads after a checkout" "$priv" "git checkout with-out-link && git log --grep=$n"
 # Text written in the private repository, sent to a public one: refused.
 printf 'plan for %s\n' "$n" > "$priv/task.md"

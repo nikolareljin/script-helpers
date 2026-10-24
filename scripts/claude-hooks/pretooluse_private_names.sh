@@ -503,7 +503,8 @@ for seg, (before, after) in zip(segments, joins):
             if target is not None and target.lower().split("github.com/")[-1].rstrip("/") not in own:
                 strict()
     ran = True
-    if word == "git" and changes_tree:
+    # cp -a and mv carry symlinks to new names, checked below while missing.
+    if word in ("cp", "mv") or word == "git" and changes_tree:
         tree_changed = True
     if not repo:
         strict()
