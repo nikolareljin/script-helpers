@@ -65,6 +65,10 @@ jobs:
       - name: ollama_endpoint tests under Git Bash
         shell: bash
         run: bash tests/ollama_endpoint_test.sh
+      # Git for Windows defaults to core.autocrlf=true; scripts must still check out with LF.
+      - name: An autocrlf=true clone checks out LF and its hooks run
+        shell: bash
+        run: bash tests/line_endings_test.sh
       - name: This machine's figures and class (real, not stubbed)
         shell: bash
         run: bash scripts/ollama_models.sh class
