@@ -349,9 +349,9 @@ parser of shell commands always misses some shape bash runs (`bash -c`,
   in a private repository (below): agents cite a private repository by its
   code in command text, never by name.
 - contained: the private-name check is skipped (the sensitive-data checks
-  still run) when the command, as the hook reads it, stays inside one repository whose every
-  remote is a network URL listed `private` in the name list (a local path
-  remote is never contained). A leading `cd` picks that repository; every other
+  still run) when the command, as the hook reads it, stays inside one
+  repository whose every remote is a network URL listed `private` in the name
+  list (a local path remote is never contained). A leading `cd` picks that repository; every other
   `cd`, every path (symlinks resolved, also inside a value such as `--opt=/x`)
   and every `gh -R`/`--repo` must stay in it, outside its git dir and outside
   any nested repository. `cd` takes only `/`, `./`, `../` or `~` paths (no
@@ -360,7 +360,7 @@ parser of shell commands always misses some shape bash runs (`bash -c`,
   after it: elsewhere the next command can run in the old directory. After a
   `git` command that can rewrite the work tree (`checkout`, `switch`, `merge`,
   `pull`, `stash`, ...), only commands that cannot write count, without a
-  redirection (no `cd`, `cp`, `mv`, `touch`, `mkdir`, `sort`, `uniq`): a path
+  redirection (no `cd`, `cp`, `mv`, `touch`, `mkdir`, `sort`, `uniq`, `file`): a path
   checked while missing can be a symlink by then. Only these commands count: `cd ls cat head tail
   wc grep rg sed diff sort uniq cut tr echo printf true pwd stat file mkdir
   touch cp mv`, `sed` only as `sed -n <a>,<b>p`, `rg` without `--pre`,

@@ -269,14 +269,16 @@ done
 # or merge, a path checked while missing can be that symlink.
 git -C "$priv" checkout -q -b with-out-link
 ln -s "$pub/notes.md" "$priv/out-link"
-git -C "$priv" add out-link && git -C "$priv" commit -q -m out-link
+ln -s "$pub" "$priv/out-dir"
+git -C "$priv" add out-link out-dir && git -C "$priv" commit -q -m out-link
 git -C "$priv" checkout -q -
 for v in "git checkout with-out-link && echo $n >> out-link" \
          "git merge with-out-link && cp $n.md out-link" \
          "git stash pop && touch $n-out-link/x" \
          "git switch with-out-link && cd ./out-dir && echo $n" \
          "git checkout with-out-link && sort -o out-link $n.md" \
-         "git checkout with-out-link && uniq $n.md out-link"; do
+         "git checkout with-out-link && uniq $n.md out-link" \
+         "git checkout with-out-link && file -C -m out-dir/$n"; do
   hook 2 "a write after the tree changed: [$v]" "$priv" "$v"
 done
 hook 0 "contained: reads after a checkout" "$priv" "git checkout with-out-link && git log --grep=$n"

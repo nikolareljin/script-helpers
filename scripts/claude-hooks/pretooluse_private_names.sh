@@ -39,8 +39,8 @@
 #     in this hook's own environment (a command that sets it is refused);
 #   - an empty command: nothing runs.
 #   - contained_private: the command, as this hook reads it, stays inside one
-#     repository whose every remote is listed private, so a private name in it reaches
-#     no public place; only the private-name check is skipped.
+#     repository whose every remote is listed private, so a private name in
+#     it reaches no public place; only the private-name check is skipped.
 # Apart from contained_private there is no allow before the whole-command
 # pass. The private-name prefilter only decides whether the slow full check is
 # needed, and errs towards it.
@@ -326,7 +326,7 @@ tree_changed = False
 TREE_GIT = {"checkout", "switch", "restore", "reset", "merge", "rebase", "pull",
             "stash", "rm", "mv"}
 READ_ONLY = {"ls", "cat", "head", "tail", "wc", "grep", "rg", "sed", "diff", "cut", "tr",
-             "echo", "printf", "true", "pwd", "stat", "file", "git"}
+             "echo", "printf", "true", "pwd", "stat", "git"}
 
 def git_dir(d):
     try:
@@ -404,7 +404,8 @@ for seg, (before, after) in zip(segments, joins):
         strict()
     # Paths are checked before anything runs. After a checkout or merge, a path
     # checked as missing can be a symlink out of the repository, so after it
-    # only commands that cannot write count (sort -o and uniq in out write).
+    # only commands that cannot write count (sort -o, uniq in out and file -C
+    # write).
     if tree_changed and (word not in READ_ONLY or any(a in REDIRECTS for a in seg[1:])):
         strict()
     # sed scripts can run commands (e, s///e) and write files (w), so sed only
