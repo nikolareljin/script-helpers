@@ -1889,6 +1889,7 @@ Use a local virtualenv when available, run ruff (when the project configures it)
 Usage: bash scripts/local_test_python.sh [--quick] [--dir <path>]
   --quick   Skip install; run lint and tests against the current environment.
   --dir     Subdirectory containing pyproject.toml/requirements.txt (default: .).
+            requirements-dev.txt, when present, installs after requirements.txt.
   -h, --help  Show this help and exit.
 ```
 
