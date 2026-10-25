@@ -788,8 +788,10 @@ check "ollama_models.sh gives select's exit 10 for a malformed size line" "1" \
 check "a missing file: 2" "2" "$(bash "$checker" "$tmp/none" >/dev/null 2>&1; echo $?)"
 check "--help: 0" "0" "$(bash "$checker" --help >/dev/null 2>&1; echo $?)"
 check "the shipped code and reasoning rows are the approved ones" \
-  "qwen3.5:4b qwen3:8b gemma4:26b qwen3.6:27b|qwen3.5:4b qwen2.5-coder:7b qwen3-coder:30b qwen3.6:27b-coding" \
+  "qwen3.5:4b qwen3:8b gemma4:26b qwen3.6:27b|granite4.1:3b qwen2.5-coder:7b qwen3-coder:30b qwen3.6:27b-coding" \
   "$(OLLAMA_MODEL_TIERS_FILE='' _ollama_ep_tiers_get type reasoning)|$(OLLAMA_MODEL_TIERS_FILE='' _ollama_ep_tiers_get type code)"
+check "with the shipped file: an 8 GiB host with no GPU gets the small coding model" "granite4.1:3b" \
+  "$(pick code 8 0 '')"
 check "with the shipped file: a 12 GB card gets the standard code and reasoning picks" "qwen2.5-coder:7b qwen3:8b" \
   "$(pick code 16 12 '') $(pick reasoning 16 12 '')"
 check "with the shipped file: a 24 GB card the xlarge ones, 32 GiB no GPU the large ones" \
