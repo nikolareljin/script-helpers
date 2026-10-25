@@ -21,8 +21,10 @@ This guide describes the cross-distribution packaging flow backed by `script-hel
 
 ## Scaffold the files
 
+Commands assume script-helpers is a submodule at `scripts/script-helpers`, where the script-helpers README installs it; use your own path if the repository keeps it elsewhere.
+
 ```
-./vendor/script-helpers/scripts/packaging_init.sh --repo .
+./scripts/script-helpers/scripts/packaging_init.sh --repo .
 ```
 
 Edit `packaging/packaging.env` and rerun the command to re-render templates.
@@ -30,15 +32,15 @@ Dependencies use `|` as a separator to preserve spaces in version constraints.
 
 ## Build commands
 
-- Debian (.deb): `./vendor/script-helpers/scripts/build_deb_artifacts.sh --repo .`
-- RPM (.rpm): `./vendor/script-helpers/scripts/build_rpm_artifacts.sh --repo .`
-- Arch (.pkg.tar.zst): `./vendor/script-helpers/scripts/build_arch_artifacts.sh --repo .`
-- Homebrew tarball: `./vendor/script-helpers/scripts/build_brew_tarball.sh --name myapp --repo .`
+- Debian (.deb): `./scripts/script-helpers/scripts/build_deb_artifacts.sh --repo .`
+- RPM (.rpm): `./scripts/script-helpers/scripts/build_rpm_artifacts.sh --repo .`
+- Arch (.pkg.tar.zst): `./scripts/script-helpers/scripts/build_arch_artifacts.sh --repo .`
+- Homebrew tarball: `./scripts/script-helpers/scripts/build_brew_tarball.sh --name myapp --repo .`
 
 ## Homebrew formula
 
 ```
-./vendor/script-helpers/scripts/gen_brew_formula.sh --name myapp --desc "My app" --homepage https://example.com --tarball dist/myapp-1.0.0.tar.gz --url https://example.com/myapp-1.0.0.tar.gz
+./scripts/script-helpers/scripts/gen_brew_formula.sh --name myapp --desc "My app" --homepage https://example.com --tarball dist/myapp-1.0.0.tar.gz --url https://example.com/myapp-1.0.0.tar.gz
 ```
 
 ## Signing notes
@@ -50,8 +52,8 @@ Dependencies use `|` as a separator to preserve spaces in version constraints.
 
 ## Publish commands
 
-- PPA (Launchpad): `./vendor/script-helpers/scripts/ppa_upload.sh --repo . --ppa ppa:owner/name --key-id ABCDEF`
-- Homebrew tap: `./vendor/script-helpers/scripts/publish_homebrew.sh --formula packaging/brew/myapp.rb --tap-repo owner/homebrew-example`
+- PPA (Launchpad): `./scripts/script-helpers/scripts/ppa_upload.sh --repo . --ppa ppa:owner/name --key-id ABCDEF`
+- Homebrew tap: `./scripts/script-helpers/scripts/publish_homebrew.sh --formula packaging/brew/myapp.rb --tap-repo owner/homebrew-example`
 
 ## End-user install commands
 

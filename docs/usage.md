@@ -990,24 +990,26 @@ docker_status
 Packaging scaffolding and builds
 --------------------------------
 
+Commands assume script-helpers is the submodule at `scripts/script-helpers`; use your own path if the repository keeps it elsewhere.
+
 Generate packaging files (debian/, RPM spec, PKGBUILD, Homebrew formula):
 
 ```bash
-./vendor/script-helpers/scripts/packaging_init.sh --repo .
+./scripts/script-helpers/scripts/packaging_init.sh --repo .
 ```
 
 Build packages (expects packaging files to exist):
 
 ```bash
-./vendor/script-helpers/scripts/build_deb_artifacts.sh --repo .
-./vendor/script-helpers/scripts/build_rpm_artifacts.sh --repo .
-./vendor/script-helpers/scripts/build_arch_artifacts.sh --repo .
+./scripts/script-helpers/scripts/build_deb_artifacts.sh --repo .
+./scripts/script-helpers/scripts/build_rpm_artifacts.sh --repo .
+./scripts/script-helpers/scripts/build_arch_artifacts.sh --repo .
 ```
 
 Render a Homebrew formula with a release tarball SHA:
 
 ```bash
-./vendor/script-helpers/scripts/render_brew_formula.sh --repo . --url <tarball_url> --sha256 <sha256>
+./scripts/script-helpers/scripts/render_brew_formula.sh --repo . --url <tarball_url> --sha256 <sha256>
 ```
 
 It exits 1 when the checksum is empty or still the scaffold's
@@ -1017,7 +1019,7 @@ It exits 1 when the checksum is empty or still the scaffold's
 Publish the formula to a tap repository:
 
 ```bash
-HOMEBREW_TAP_TOKEN=... ./vendor/script-helpers/scripts/publish_homebrew.sh \
+HOMEBREW_TAP_TOKEN=... ./scripts/script-helpers/scripts/publish_homebrew.sh \
   --formula packaging/brew/myapp.rb --tap-repo owner/homebrew-example
 ```
 
