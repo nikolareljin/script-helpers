@@ -1,7 +1,7 @@
 name: CI
 
-# A release/* branch is checked by its pull request; a push trigger on it too
-# ran every job twice per push. main keeps push so the merged commit is checked.
+# push covers main only: a release/* or feature branch is checked by its pull
+# request, and a push trigger on it would run every job a second time.
 on:
   push:
     branches: [ main ]
