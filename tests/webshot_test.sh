@@ -20,6 +20,18 @@ error() { echo "[webshot_test][ERROR] $*" >&2; failures=$((failures+1)); }
 source ./helpers.sh
 shlib_import python webshot
 
+# Run a command with a time limit and return its status, or 137 when it had to
+# be killed (macOS has no timeout(1)). The watcher's output goes to /dev/null
+# so its sleep cannot hold a pipe open.
+run_bounded() {
+  local secs=$1; shift
+  "$@" & local pid=$!
+  ( sleep "$secs"; kill -9 "$pid" 2>/dev/null ) >/dev/null 2>&1 & local w=$!
+  wait "$pid" 2>/dev/null; local rc=$?
+  kill -9 "$w" 2>/dev/null; wait "$w" 2>/dev/null
+  return $rc
+}
+
 expect_status() {
   local want="$1" label="$2" status
   shift 2
@@ -56,11 +68,10 @@ expect_status 2 "audit with a relative start" webshot_audit index.html
 expect_status 2 "audit with a bad --limit" webshot_audit http://localhost/ --limit 0
 expect_status 2 "audit with an unknown option" webshot_audit http://localhost/ --depth 3
 expect_status 2 "audit with an empty --device" webshot_audit http://localhost/ --device ""
-# A value option with nothing after it returns 2 instead of looping on "shift 2".
-expect_status 2 "audit with a trailing --limit" timeout 10 bash -c \
-  'source ./helpers.sh; shlib_import python webshot; webshot_audit http://localhost/ --limit'
-expect_status 2 "pdf with a trailing --format" timeout 10 bash -c \
-  "source ./helpers.sh; shlib_import python webshot; webshot_pdf '$tmp/in.html' '$tmp/out.pdf' --format"
+# A value option with nothing after it returns 2 instead of looping on
+# "shift 2" (137 = killed after hanging).
+expect_status 2 "audit with a trailing --limit" run_bounded 10 webshot_audit http://localhost/ --limit
+expect_status 2 "pdf with a trailing --format" run_bounded 10 webshot_pdf "$tmp/in.html" "$tmp/out.pdf" --format
 expect_status 2 "pdf with a missing input" webshot_pdf "$tmp/nope.html" "$tmp/out.pdf"
 printf '<p>x</p>' > "$tmp/in.html"
 expect_status 2 "pdf with a bad --format" webshot_pdf "$tmp/in.html" "$tmp/out.pdf" --format Postcard
