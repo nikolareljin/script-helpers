@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Changed
+
+- **CI runs once per push to a release branch.** `ci.yml` and `ci-macos.yml` ran on `push` to `release/*` and again on its `pull_request`, so every job ran twice (8 checks for 4 jobs on a release PR). `push` now covers only `main`, which still checks every merged commit. `ci.yml` also cancels a pull request's superseded run, as `ci-macos.yml` does; push runs are never cancelled. `ci-macos.yml` sets `CI=''` instead of `CI=` (actionlint SC1007).
+
 ### Fixed
 
 - **Packaging docs use the submodule path.** `docs/packaging.md`, `docs/usage.md` and `templates/packaging/README.md` ran `./vendor/script-helpers/scripts/...`, a path that existed only because ci-helpers' packaging workflows symlinked it; https://github.com/nikolareljin/ci-helpers/pull/309 removes that symlink. The commands now use `scripts/script-helpers`, where the README installs the submodule. https://github.com/nikolareljin/script-helpers/issues/219

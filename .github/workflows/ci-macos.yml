@@ -7,7 +7,7 @@ name: CI (macOS)
 # releases, because CI was Linux-only and nobody ran the suite on a Mac.
 on:
   push:
-    branches: [ "release/*", main ]
+    branches: [ main ]
     paths:
       - '**.sh'
       - 'bin/**'
@@ -120,7 +120,7 @@ jobs:
           mkdir -p "$work/ios" "$work/android"
           printf 'name: demo\n' > "$work/pubspec.yaml"
           printf "platform :ios, '13.0'\n" > "$work/ios/Podfile"
-          out="$(CI= bash scripts/preflight.sh --dir "$work" --list)"
+          out="$(CI='' bash scripts/preflight.sh --dir "$work" --list)"
           echo "$out"
           printf '%s\n' "$out" | grep -q '^ios	\.$' || {
             echo "::error::preflight did not detect the ios stack on macOS"; exit 1; }
@@ -132,7 +132,7 @@ jobs:
           mkdir -p "$work/ios"
           printf 'name: demo\n' > "$work/pubspec.yaml"
           printf "platform :ios\n" > "$work/ios/Podfile"
-          out="$(CI= bash scripts/preflight.sh --dir "$work" --quick --skip-security 2>&1 || true)"
+          out="$(CI='' bash scripts/preflight.sh --dir "$work" --quick --skip-security 2>&1 || true)"
           echo "$out"
           case "$out" in
             *"Android SDK"*) echo "::error::preflight demanded the Android SDK on macOS"; exit 1 ;;
