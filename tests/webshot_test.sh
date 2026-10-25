@@ -208,6 +208,12 @@ PY
   else
     error "audit of the fixture site returned $status (expected 1): $(tail -1 "$tmp/audit.err")"
   fi
+  # A page whose path is longer than a file name allows still gets a PNG.
+  long="$tmp/$(printf 'x%.0s' {1..200})/$(printf 'y%.0s' {1..200})"
+  mkdir -p "$long"
+  cp tests/fixtures/webshot/audit/clean-only.html "$long/page.html"
+  expect_status 0 "audit --shots of a page under two 200-character directories" \
+    webshot_audit "file://$long/page.html" --device "Pixel 7" --shots "$tmp/long-shots"
   expect_status 0 "audit of a clean page" webshot_audit "$site/clean-only.html"
   expect_status 1 "audit of a missing start page" webshot_audit "$site/nope.html"
   expect_status 2 "audit with an unknown device" webshot_audit "$site/clean-only.html" --device "Nokia 3310"

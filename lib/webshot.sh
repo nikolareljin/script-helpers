@@ -526,6 +526,17 @@ AUDIT_MEASURE = """() => {
 }"""
 
 
+def shot_slug(url):
+    """File name stem for a page: its path and query, made safe; a long one is cut and keeps a hash."""
+    import hashlib
+    from urllib.parse import urlparse
+    u = urlparse(url)
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "_", (u.path.strip("/") or "index") + (f"_{u.query}" if u.query else ""))
+    if len(slug) > 120:
+        slug = slug[-100:] + "_" + hashlib.sha1(url.encode()).hexdigest()[:12]
+    return slug
+
+
 def audit():
     from urllib.parse import urldefrag, urlparse
     start = os.environ["WEBSHOT_START"]
@@ -536,6 +547,7 @@ def audit():
     shots = Path(os.environ["WEBSHOT_OUT"]) if os.environ.get("WEBSHOT_OUT") else None
     origin = urlparse(start)
     findings, http_errors, seen, queue = {}, {}, set(), [urldefrag(start)[0]]
+    queued = set(queue)
     with sync_playwright() as p:
         unknown = sorted(set(names) - set(p.devices))
         if unknown:
@@ -550,27 +562,25 @@ def audit():
                 pages[n].set_default_timeout(timeout)
             while queue and len(seen) < limit:
                 url = queue.pop(0)
-                if url in seen:
-                    continue
                 seen.add(url)
                 for n, page in pages.items():
+                    # A page that fails to load or navigates away mid-check is
+                    # an http_errors entry, not a crash of the whole crawl.
                     try:
                         resp = page.goto(url, wait_until="load")
+                        if resp is not None and resp.status >= 400:
+                            http_errors[url] = resp.status
+                            break
+                        m = page.evaluate(AUDIT_MEASURE)
+                        if shots:
+                            page.screenshot(path=str(shots / f"{shot_slug(url)}--{re.sub(r'[^A-Za-z0-9._-]+', '_', n)}.png"))
                     except (PWError, PWTimeout) as exc:
                         http_errors[url] = str(exc).splitlines()[0]
                         break
-                    if resp is not None and resp.status >= 400:
-                        http_errors[url] = resp.status
-                        break
-                    m = page.evaluate(AUDIT_MEASURE)
                     if m["scroll_width"] > m["width"] or m["clipped"]:
                         findings.setdefault(url, {})[n] = {
                             "width": m["width"], "scroll_width": m["scroll_width"],
                             "elements": m["elements"], "clipped_headings": m["clipped"]}
-                    if shots:
-                        u = urlparse(url)
-                        slug = re.sub(r"[^A-Za-z0-9._-]+", "_", (u.path.strip("/") or "index") + (f"_{u.query}" if u.query else ""))
-                        page.screenshot(path=str(shots / f"{slug}--{re.sub(r'[^A-Za-z0-9._-]+', '_', n)}.png"))
                     if n != names[0]:
                         continue
                     for href in m["links"]:
@@ -578,7 +588,8 @@ def audit():
                         u = urlparse(target)
                         if (u.scheme, u.netloc) != (origin.scheme, origin.netloc) or u.path.startswith(skips):
                             continue
-                        if target not in seen:
+                        if target not in queued:
+                            queued.add(target)
                             queue.append(target)
         finally:
             browser.close()

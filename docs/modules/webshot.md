@@ -55,7 +55,7 @@ Functions
     `h1`-`h3` is wider than its box: cut off by a hidden overflow, which does not widen the page. For a
     wide page, `elements` names up to five of the deepest elements whose content overflows, such as a
     word that cannot wrap. `--skip` drops URLs whose path starts with `PREFIX` (repeatable, e.g.
-    `--skip /admin --skip /api/`). `--shots DIR` saves `DIR/<path>--<device>.png` per page and device.
+    `--skip /admin --skip /api/`). `--shots DIR` saves `DIR/<path>--<device>.png` per page and device (a long path is cut and keeps a hash).
   - Output: stdout JSON `{"crawled": N, "findings": {url: {device: {width, scroll_width, elements,
     clipped_headings}}}, "http_errors": {url: status or error}}`. A page that fails to load is listed
     in `http_errors` and is not a finding.
