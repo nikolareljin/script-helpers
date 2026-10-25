@@ -75,7 +75,9 @@ if py="$(webshot_python 2>/dev/null)"; then
     '{"shots":[{"name":"a","path":"/x"}]}' '{"shots":[{"name":"a","url":"about:blank","auth":"ghost"}]}' \
     '{"shots":[{"name":"a","url":"about:blank","actions":[{"dance":"x"}]}]}' \
     '{"auth":{"u":{"type":"api_token","url":"/login"}},"shots":[{"name":"a","url":"about:blank"}]}' \
-    '{"shots":[{"name":"a","url":"about:blank"},{"name":"a","url":"about:blank"}]}' 'not json'; do
+    '{"shots":[{"name":"a","url":"about:blank"},{"name":"a","url":"about:blank"}]}' 'not json' \
+    '{"device":"Nokia 3310","shots":[{"name":"a","url":"about:blank"}]}' \
+    '{"shots":[{"name":"a","url":"about:blank","device":7}]}'; do
     printf '%s' "$bad" > "$tmp/bad.json"
     expect_status 2 "invalid spec $bad" webshot_capture "$tmp/bad.json" "$tmp/out"
   done
@@ -131,6 +133,35 @@ PY
   printf '{"shots":[{"name":"gone","url":"%s","selector":"#does-not-exist"}],"timeout_ms":1500}' "$fixture" \
     > "$tmp/missing.json"
   expect_status 1 "capture of a missing selector" webshot_capture "$tmp/missing.json" "$tmp/shots2"
+
+  # A named device sets a phone user agent, touch and its viewport; a shot
+  # viewport still wins over a spec-level device.
+  cat > "$tmp/device.json" <<EOF
+{
+  "device": "Pixel 7",
+  "wait_ms": 0,
+  "shots": [
+    {"name": "phone", "url": "$fixture",
+     "actions": [{"eval": "() => { if (!/Mobile/.test(navigator.userAgent) || navigator.maxTouchPoints < 1 || screen.width !== 412) throw new Error('not emulated: ' + screen.width) }"}]},
+    {"name": "narrow", "url": "$fixture", "viewport": {"width": 360, "height": 640},
+     "actions": [{"eval": "() => { if (screen.width !== 360 || navigator.maxTouchPoints < 1) throw new Error('viewport not applied: ' + screen.width) }"}]},
+    {"name": "desktop", "url": "$fixture", "device": "Desktop Chrome",
+     "actions": [{"eval": "() => { if (/Mobile/.test(navigator.userAgent)) throw new Error('shot device ignored') }"}]}
+  ]
+}
+EOF
+  if webshot_capture "$tmp/device.json" "$tmp/shots5" 2>"$tmp/device.err"; then
+    "$py" - "$tmp/shots5/manifest.json" <<'PY' || error "device manifest checks failed"
+import json, sys
+m = {s["name"]: s for s in json.load(open(sys.argv[1]))}
+assert m["phone"]["device"] == "Pixel 7" and m["desktop"]["device"] == "Desktop Chrome", m
+# Pixel 7: 412px wide at scale factor 2.625.
+assert m["phone"]["width"] == round(412 * 2.625), m["phone"]
+PY
+    note "device emulation: phone user agent, touch, viewport, override and per-shot device"
+  else
+    error "device capture failed: $(tail -1 "$tmp/device.err")"
+  fi
 
   # A hidden element cannot be captured: proves the hide rule applied.
   printf '{"hide":["#banner"],"timeout_ms":1500,"shots":[{"name":"b","url":"%s","selector":"#banner"}]}' \

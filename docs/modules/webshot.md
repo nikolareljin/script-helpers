@@ -103,6 +103,7 @@ Top-level keys (all optional except `shots`):
 |-----|---------|
 | `base_url` | Joined with each shot's `path` and with relative auth URLs. Required when a shot uses `path`. |
 | `viewport`, `device_scale_factor` | Defaults for every shot. Use a factor of 2 for print-sharp images. |
+| `device` | A Playwright device name (`"iPhone 13"`, `"Pixel 7"`, `"Desktop Chrome"`): viewport, scale factor, user agent, touch and mobile layout for every shot. An unknown name exits 2 and lists the known ones. The device's browser type is ignored; shots always run in Chromium. |
 | `wait_ms` | Pause after load and actions, before the capture (default 500). |
 | `wait_until` | Playwright load state for navigation (default `networkidle`). |
 | `timeout_ms` | Timeout for each locator and action (default 15000). |
@@ -120,17 +121,22 @@ Auth profiles:
 - `form`: opens `url`, runs `steps` (same actions as shots), then reuses the resulting cookies and
   storage for every shot with that profile.
 
-Shot keys: `name` (required; letters, digits, `.`, `_`, `-`), `path` or `url`, `auth`, `viewport`,
+Shot keys: `name` (required; letters, digits, `.`, `_`, `-`), `path` or `url`, `auth`, `device`, `viewport`,
 `device_scale_factor`, `full_page`, `selector` (Playwright locator; captures that element),
 `padding` (pixels around a `selector` capture), `wait_for` (selector that must be visible first),
 `wait_ms`, `hide`, `actions`, `title` (copied to the manifest, handy for captions).
+
+Shot keys beat spec keys. At the same level, an explicit `viewport` or `device_scale_factor` beats the
+device's, so `{"device": "Pixel 7", "viewport": {"width": 360, "height": 640}}` is a 360px phone with touch
+and a mobile user agent. With `device`, a page without `<meta name="viewport">` lays out at 980px, as on
+a real phone.
 
 Actions, run in order: `{"click": sel}`, `{"fill": sel, "value": text}`, `{"select": sel, "value": v}`,
 `{"press": key, "selector": sel}` (selector optional), `{"hover": sel}`, `{"scroll_to": sel}`,
 `{"wait_for": sel}`, `{"wait_ms": n}`, `{"eval": "() => ..."}`. An `eval` that throws fails the run,
 which makes it a cheap assertion.
 
-`manifest.json` lists every shot: `name`, `file`, `width`, `height` (pixels), `url`, `title`,
+`manifest.json` lists every shot: `name`, `file`, `width`, `height` (pixels), `url`, `device` (empty without one), `title`,
 `console_errors`, `http_errors` (responses with status 400 or more).
 
 Command line
