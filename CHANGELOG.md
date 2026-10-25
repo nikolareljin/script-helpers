@@ -1,3 +1,9 @@
+## Unreleased
+
+### Changed
+
+- **CI runs once per push to a release branch.** `ci.yml` and `ci-macos.yml` ran on `push` to `release/*` and again on its `pull_request`, so every job ran twice (8 checks for 4 jobs on a release PR). `push` now covers only `main`, which still checks every merged commit. `ci.yml` also cancels a pull request's superseded run, as `ci-macos.yml` does; push runs are never cancelled. `ci-macos.yml` sets `CI=''` instead of `CI=` (actionlint SC1007).
+
 ## 2026-10-24 — v0.58.1
 
 ### Fixed

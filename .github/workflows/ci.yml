@@ -1,10 +1,19 @@
 name: CI
 
+# push covers main only: a release/* or feature branch is checked by its pull
+# request, and a push trigger on it would run every job a second time.
 on:
   push:
-    branches: [ main, master, develop, "release/*" ]
+    branches: [ main ]
   pull_request:
   workflow_dispatch:
+
+# A new push to a pull request cancels that PR's superseded run. Push and
+# dispatch runs get a group of their own (run_id), because GitHub also cancels
+# a *pending* run in a shared group, and main must always be checked.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint-and-examples:
