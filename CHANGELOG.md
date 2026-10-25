@@ -1,3 +1,9 @@
+## Unreleased
+
+### Added
+
+- **`webshot` emulates a named phone.** A `device` key, for the whole spec or one shot, takes a Playwright device name (`"iPhone 13"`, `"Pixel 7"`) and sets the viewport, scale factor, user agent, touch and mobile layout; before, a narrow `viewport` was a desktop browser in a small window. An explicit `viewport` or `device_scale_factor` at the same level still wins, and an unknown name exits 2 with the known ones. `manifest.json` records the device. Tests: new cases in `tests/webshot_test.sh` (3 fail against 0.58.1).
+
 ## 2026-10-24 — v0.58.1
 
 ### Fixed

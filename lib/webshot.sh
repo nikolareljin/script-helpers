@@ -254,6 +254,8 @@ def validate(spec):
                     fail(2, f"auth.{name}.{key} is required for api_token")
         if kind == "form" and not isinstance(prof.get("steps"), list):
             fail(2, f"auth.{name}.steps must be a list for form")
+    if "device" in spec and not (isinstance(spec["device"], str) and spec["device"]):
+        fail(2, "spec.device must be a Playwright device name")
     seen = set()
     for i, shot in enumerate(shots):
         if not isinstance(shot, dict):
@@ -268,6 +270,8 @@ def validate(spec):
             fail(2, f"shot {name}: path or url is required")
         if shot.get("path") and not spec.get("base_url"):
             fail(2, f"shot {name}: path needs spec.base_url")
+        if "device" in shot and not (isinstance(shot["device"], str) and shot["device"]):
+            fail(2, f"shot {name}: device must be a Playwright device name")
         if shot.get("auth") and shot["auth"] not in auth:
             fail(2, f"shot {name}: unknown auth profile {shot['auth']}")
         for step in shot.get("actions") or []:
@@ -320,17 +324,35 @@ def capture():
     manifest, tokens, states = [], {}, {}
 
     with sync_playwright() as p:
+        wanted = {d for d in [spec.get("device")] + [s.get("device") for s in spec["shots"]] if d}
+        unknown = sorted(wanted - set(p.devices))
+        if unknown:
+            fail(2, f"unknown device {', '.join(unknown)}; known: {', '.join(sorted(p.devices))}")
         browser = p.chromium.launch()
         try:
             for shot in spec["shots"]:
                 name = shot["name"]
-                vp = shot.get("viewport") or default_vp
+                device_name = shot.get("device") or spec.get("device")
+                device = dict(p.devices[device_name]) if device_name else {}
+                device.pop("default_browser_type", None)
+                # Shot keys beat spec keys; at the same level an explicit
+                # viewport or scale factor beats the device's.
+                vp = (shot.get("viewport")
+                      or (device.get("viewport") if shot.get("device") else None)
+                      or spec.get("viewport") or device.get("viewport") or default_vp)
+                dsf = (shot.get("device_scale_factor")
+                       or (device.get("device_scale_factor") if shot.get("device") else None)
+                       or spec.get("device_scale_factor") or device.get("device_scale_factor") or default_dsf)
                 ctx_opts = {
+                    **device,
                     "viewport": {"width": int(vp["width"]), "height": int(vp["height"])},
-                    "device_scale_factor": float(shot.get("device_scale_factor", default_dsf)),
+                    "device_scale_factor": float(dsf),
                     "color_scheme": shot.get("color_scheme", spec.get("color_scheme", "light")),
                     "locale": spec.get("locale", "en-US"),
                 }
+                if device and ctx_opts["viewport"] != device.get("viewport"):
+                    # An overridden viewport would sit inside the device's screen.
+                    ctx_opts["screen"] = dict(ctx_opts["viewport"])
                 if spec.get("timezone_id"):
                     ctx_opts["timezone_id"] = spec["timezone_id"]
                 prof_name = shot.get("auth")
@@ -404,6 +426,7 @@ def capture():
                 width, height = png_size(target)
                 manifest.append({
                     "name": name, "file": target.name, "width": width, "height": height, "url": url,
+                    "device": device_name or "",
                     "title": shot.get("title", ""), "console_errors": console_errors, "http_errors": http_errors,
                 })
                 print(f"[webshot] {name}: {width}x{height}", file=sys.stderr)
