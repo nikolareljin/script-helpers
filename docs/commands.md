@@ -1104,7 +1104,8 @@ Usage: scripts/ci_django.sh [options]
   --db-wait-seconds <n>         How long to wait for it to answer (default: 60).
   --settings <module>           DJANGO_SETTINGS_MODULE for every step.
   --install-command <command>   Dependency install. Empty skips it
-                                (default: pip install -r requirements.txt, when that file exists).
+                                (default: pip install -r requirements.txt, then
+                                requirements-dev.txt, each when it exists).
   --migrate-command <command>   Schema. Empty skips it (default: python manage.py migrate --noinput).
   --check-command <command>     Schema drift, as its own step between the schema and the
                                 tests. Empty skips it (default:
@@ -1409,7 +1410,8 @@ Run Python CI steps (install + pytest) with configurable commands.
 Usage: scripts/ci_python.sh [--workdir <path>] [--no-install] [--requirements <file>] [--constraints <file>]
   --workdir <path>     Working directory for Python commands (default: current dir).
   --no-install         Skip dependency install step.
-  --requirements <f>   Requirements file to install (default: requirements.txt if present).
+  --requirements <f>   Requirements file to install (default: requirements.txt, then
+                       requirements-dev.txt, each if present).
   --constraints <f>    Constraints file to use (optional).
   --extra-install <c>  Extra packages to install (e.g. "pytest tldextract").
   --test-cmd <c>       Test command (default: python -m pytest -q).
@@ -1889,6 +1891,7 @@ Use a local virtualenv when available, run ruff (when the project configures it)
 Usage: bash scripts/local_test_python.sh [--quick] [--dir <path>]
   --quick   Skip install; run lint and tests against the current environment.
   --dir     Subdirectory containing pyproject.toml/requirements.txt (default: .).
+            requirements-dev.txt, when present, installs after requirements.txt.
   -h, --help  Show this help and exit.
 ```
 
