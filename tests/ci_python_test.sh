@@ -157,6 +157,36 @@ else
   note "cleanup says nothing about a container that was never created"
 fi
 
+# requirements-dev.txt installs after requirements.txt by default; a project
+# that keeps pytest there otherwise fails with "No module named pytest".
+mkdir -p "$tmp/devproj"
+printf 'requests\n' > "$tmp/devproj/requirements.txt"
+printf 'pytest\n' > "$tmp/devproj/requirements-dev.txt"
+rc=0
+CI="" HOME="$tmp/home" PATH="$tmp/bin:$PATH" bash scripts/ci_python.sh \
+  --workdir "$tmp/devproj" --test-cmd "pytest -q" >/dev/null 2>&1 || rc=$?
+got="$(cat "$tmp/cmd" 2>/dev/null)"
+# shellcheck disable=SC2016 # $PATH is literal text in the expected command
+want='python -m pip install --user --upgrade pip && python -m pip install --user -r "requirements.txt" && python -m pip install --user -r "requirements-dev.txt" && export PATH="/tmp/.local/bin:$PATH" && pytest -q'
+if [[ $rc -eq 0 && "$got" == "$want" ]]; then
+  note "requirements-dev.txt installs after requirements.txt"
+else
+  error "requirements-dev.txt: rc=$rc"
+  error "  want: $want"
+  error "  got:  $got"
+fi
+
+# An explicit --requirements names the only file to install.
+rc=0
+CI="" HOME="$tmp/home" PATH="$tmp/bin:$PATH" bash scripts/ci_python.sh \
+  --workdir "$tmp/devproj" --requirements requirements.txt --test-cmd "pytest -q" >/dev/null 2>&1 || rc=$?
+got="$(cat "$tmp/cmd" 2>/dev/null)"
+if [[ $rc -eq 0 && "$got" == *'-r "requirements.txt"'* && "$got" != *requirements-dev* ]]; then
+  note "--requirements installs only the file it names"
+else
+  error "--requirements requirements.txt: rc=$rc got: $got"
+fi
+
 if [[ "$failures" -eq 0 ]]; then
   note "ALL PASSED"; exit 0
 fi

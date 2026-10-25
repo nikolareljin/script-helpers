@@ -365,6 +365,19 @@ chmod +x "$app/my tools/thing"
 probe_case "a quoted program path with a space is not mangled"      expect-ok      '"my tools/thing" --flag'
 probe_case "a relative ./program is accepted"                       expect-ok      './bin/thing'
 
+# The default install covers requirements-dev.txt after requirements.txt.
+devapp="$tmp/devapp"; mkdir -p "$devapp"
+cp "$app/manage.py" "$devapp/"
+printf 'django\n' > "$devapp/requirements.txt"
+printf 'pytest-django\n' > "$devapp/requirements-dev.txt"
+: > "$tmp/argv"
+run --workdir "$devapp" --python-image python:3.12-slim --migrate-command '' --test-command 'true'
+if grep -qxF 'pip install --no-input -r requirements.txt && pip install --no-input -r requirements-dev.txt' "$tmp/argv"; then
+  note "the default install covers requirements-dev.txt"
+else
+  error "the default install skips requirements-dev.txt: $(grep 'pip install' "$tmp/argv")"
+fi
+
 if [[ $failures -gt 0 ]]; then
   echo "[ci_django_test] FAILED ($failures)" >&2
   exit 1
