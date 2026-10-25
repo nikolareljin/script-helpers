@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Changed
+
+- **Small hosts get a coding model for `code`.** `config/ollama_model_tiers.txt` names `granite4.1:3b` (2.1 GB, Apache-2.0) for the small tier of `code`, which fell back to the general-purpose `qwen3.5:4b`. Run CPU-only on ten tested functions and five code reviews with a planted bug, it passed 10 and named 4, at 10.0 tokens/s; `qwen3.5:4b` passed 9 and named 4 at 5.9. Standard, large and xlarge are unchanged. Tests: `tests/ollama_select_test.sh` (an 8 GiB host with no GPU gets `granite4.1:3b`; fails against 0.58.0).
+
 ### Fixed
 
 - **Packaging docs use the submodule path.** `docs/packaging.md`, `docs/usage.md` and `templates/packaging/README.md` ran `./vendor/script-helpers/scripts/...`, a path that existed only because ci-helpers' packaging workflows symlinked it; https://github.com/nikolareljin/ci-helpers/pull/309 removes that symlink. The commands now use `scripts/script-helpers`, where the README installs the submodule. https://github.com/nikolareljin/script-helpers/issues/219
