@@ -57,8 +57,9 @@ Functions
     word that cannot wrap. `--skip` drops URLs whose path starts with `PREFIX` (repeatable, e.g.
     `--skip /admin --skip /api/`). `--shots DIR` saves `DIR/<path>--<device>.png` per page and device (a long path is cut and keeps a hash).
   - Output: stdout JSON `{"crawled": N, "findings": {url: {device: {width, scroll_width, elements,
-    clipped_headings}}}, "http_errors": {url: status or error}}`. A page that fails to load is listed
-    in `http_errors` and is not a finding.
+    clipped_headings}}}, "http_errors": {url: status or error}, "downloads": [url]}`. A page that fails
+    to load is listed in `http_errors` and is not a finding. A link the browser downloads (a PDF, a zip)
+    is listed in `downloads` and is not counted in `crawled`.
   - Returns: 0 no finding; 1 a finding, or the start page did not load; 2 bad arguments or an unknown
     device; 3 without Playwright.
   - Env: none.

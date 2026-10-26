@@ -547,7 +547,7 @@ def audit():
     shots = Path(os.environ["WEBSHOT_OUT"]) if os.environ.get("WEBSHOT_OUT") else None
     origin = urlparse(start)
     findings, http_errors, seen, queue = {}, {}, set(), [urldefrag(start)[0]]
-    queued = set(queue)
+    queued, downloads = set(queue), set()
     with sync_playwright() as p:
         unknown = sorted(set(names) - set(p.devices))
         if unknown:
@@ -575,7 +575,12 @@ def audit():
                         if shots:
                             page.screenshot(path=str(shots / f"{shot_slug(url)}--{re.sub(r'[^A-Za-z0-9._-]+', '_', n)}.png"))
                     except (PWError, PWTimeout) as exc:
-                        http_errors[url] = str(exc).splitlines()[0]
+                        msg = str(exc).splitlines()[0]
+                        # A link to a file the browser downloads (PDF, zip) is not a page.
+                        if "Download is starting" in msg:
+                            downloads.add(url)
+                        else:
+                            http_errors[url] = msg
                         break
                     if m["scroll_width"] > m["width"] or m["clipped"]:
                         findings.setdefault(url, {})[n] = {
@@ -593,8 +598,9 @@ def audit():
                             queue.append(target)
         finally:
             browser.close()
-    print(json.dumps({"crawled": len(seen), "findings": findings, "http_errors": http_errors}, indent=1))
-    print(f"[webshot] audit: {len(seen)} pages, {len(findings)} with findings, {len(http_errors)} not loaded",
+    print(json.dumps({"crawled": len(seen) - len(downloads), "findings": findings, "http_errors": http_errors,
+                      "downloads": sorted(downloads)}, indent=1))
+    print(f"[webshot] audit: {len(seen) - len(downloads)} pages, {len(findings)} with findings, {len(http_errors)} not loaded",
           file=sys.stderr)
     if urldefrag(start)[0] in http_errors:
         fail(1, f"start page did not load: {http_errors[urldefrag(start)[0]]}")

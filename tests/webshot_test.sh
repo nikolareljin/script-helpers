@@ -185,7 +185,7 @@ PY
   fi
 
   # Audit: index links to a wide page, a clipped heading, a skipped wide page,
-  # an external host and itself. Two findings; the skipped page is not crawled.
+  # an external host, a zip and itself. Two findings; the skipped page is not crawled.
   site="file://$root_dir/tests/fixtures/webshot/audit"
   set +e
   webshot_audit "$site/index.html" --skip "$root_dir/tests/fixtures/webshot/audit/skipped" \
@@ -197,6 +197,8 @@ PY
 import json, sys
 r, site = json.load(open(sys.argv[1])), sys.argv[2]
 assert r["crawled"] == 3, r
+# A link to a download is neither a page nor a load error.
+assert r["downloads"] == [site + "/file.zip"] and not r["http_errors"], r
 f = r["findings"]
 assert set(f) == {site + "/wide.html", site + "/clipped.html"}, f
 wide = f[site + "/wide.html"]
