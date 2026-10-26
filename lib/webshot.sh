@@ -546,8 +546,15 @@ def audit():
     timeout = int(os.environ["WEBSHOT_TIMEOUT_MS"])
     shots = Path(os.environ["WEBSHOT_OUT"]) if os.environ.get("WEBSHOT_OUT") else None
     origin = urlparse(start)
-    findings, http_errors, seen, queue = {}, {}, set(), [urldefrag(start)[0]]
-    queued, downloads = set(queue), set()
+
+    def norm(url):
+        # One key per page: no fragment, and "http://host" is "http://host/".
+        u = urlparse(urldefrag(url)[0])
+        return u._replace(path=u.path or "/").geturl()
+
+    start = norm(start)
+    findings, http_errors, seen, queue = {}, {}, set(), [start]
+    queued, downloads, measured = set(queue), set(), set()
     with sync_playwright() as p:
         unknown = sorted(set(names) - set(p.devices))
         if unknown:
@@ -563,6 +570,7 @@ def audit():
             while queue and len(seen) < limit:
                 url = queue.pop(0)
                 seen.add(url)
+                key = url
                 for n, page in pages.items():
                     # A page that fails to load or navigates away mid-check is
                     # an http_errors entry, not a crash of the whole crawl.
@@ -571,9 +579,16 @@ def audit():
                         if resp is not None and resp.status >= 400:
                             http_errors[url] = resp.status
                             break
+                        if n == names[0]:
+                            # A redirect lands on a page that may be checked
+                            # already; report each page once, by where it ended up.
+                            key = norm(page.url)
+                            if key in measured:
+                                break
+                            measured.add(key)
                         m = page.evaluate(AUDIT_MEASURE)
                         if shots:
-                            page.screenshot(path=str(shots / f"{shot_slug(url)}--{re.sub(r'[^A-Za-z0-9._-]+', '_', n)}.png"))
+                            page.screenshot(path=str(shots / f"{shot_slug(key)}--{re.sub(r'[^A-Za-z0-9._-]+', '_', n)}.png"))
                     except (PWError, PWTimeout) as exc:
                         msg = str(exc).splitlines()[0]
                         # A link to a file the browser downloads (PDF, zip) is not a page.
@@ -583,13 +598,13 @@ def audit():
                             http_errors[url] = msg
                         break
                     if m["scroll_width"] > m["width"] or m["clipped"]:
-                        findings.setdefault(url, {})[n] = {
+                        findings.setdefault(key, {})[n] = {
                             "width": m["width"], "scroll_width": m["scroll_width"],
                             "elements": m["elements"], "clipped_headings": m["clipped"]}
                     if n != names[0]:
                         continue
                     for href in m["links"]:
-                        target = urldefrag(urljoin(url, href))[0]
+                        target = norm(urljoin(page.url, href))
                         u = urlparse(target)
                         if (u.scheme, u.netloc) != (origin.scheme, origin.netloc) or u.path.startswith(skips):
                             continue
@@ -598,12 +613,12 @@ def audit():
                             queue.append(target)
         finally:
             browser.close()
-    print(json.dumps({"crawled": len(seen) - len(downloads), "findings": findings, "http_errors": http_errors,
+    print(json.dumps({"crawled": len(measured), "findings": findings, "http_errors": http_errors,
                       "downloads": sorted(downloads)}, indent=1))
-    print(f"[webshot] audit: {len(seen) - len(downloads)} pages, {len(findings)} with findings, {len(http_errors)} not loaded",
+    print(f"[webshot] audit: {len(measured)} pages, {len(findings)} with findings, {len(http_errors)} not loaded",
           file=sys.stderr)
-    if urldefrag(start)[0] in http_errors:
-        fail(1, f"start page did not load: {http_errors[urldefrag(start)[0]]}")
+    if start in http_errors:
+        fail(1, f"start page did not load: {http_errors[start]}")
     if findings:
         sys.exit(1)
 

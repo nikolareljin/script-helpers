@@ -227,6 +227,31 @@ PY
   cp tests/fixtures/webshot/audit/clean-only.html "$long/page.html"
   expect_status 0 "audit --shots of a page under two 200-character directories" \
     webshot_audit "file://$long/page.html" --device "Pixel 7" --shots "$tmp/long-shots"
+  # Over HTTP: a redirect to a page that is also linked is one page,
+  # reported once under the URL the redirect ends on.
+  port_file="$tmp/audit-port"
+  "$py" tests/fixtures/webshot/audit_server.py >"$port_file" &
+  server_pid=$!
+  for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -s "$port_file" ]] && break; sleep 0.5; done
+  port="$(cat "$port_file")"
+  set +e
+  webshot_audit "http://127.0.0.1:$port/redirects.html" --device "Pixel 7" --skip /skipped >"$tmp/audit-http.json" 2>/dev/null
+  status=$?
+  set -e
+  kill "$server_pid" 2>/dev/null || true
+  wait "$server_pid" 2>/dev/null || true
+  if [[ "$status" -eq 1 ]] && "$py" - "$tmp/audit-http.json" "$port" <<'PY'; then
+import json, sys
+r, base = json.load(open(sys.argv[1])), f"http://127.0.0.1:{sys.argv[2]}"
+# /redirect lands on /wide.html, which is also linked: one entry, not two.
+assert set(r["findings"]) == {base + "/wide.html", base + "/clipped.html"}, r
+assert not r["http_errors"], r
+PY
+    note "audit over HTTP reports a redirected page once, under its final URL"
+  else
+    error "audit over HTTP returned $status or reported a page twice: $(cat "$tmp/audit-http.json")"
+  fi
+
   expect_status 0 "audit of a clean page" webshot_audit "$site/clean-only.html"
   expect_status 1 "audit of a missing start page" webshot_audit "$site/nope.html"
   expect_status 2 "audit with an unknown device" webshot_audit "$site/clean-only.html" --device "Nokia 3310"
