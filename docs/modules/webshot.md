@@ -49,7 +49,7 @@ Functions
 
 - `webshot_audit start_url [--device NAME]... [--skip PREFIX]... [--limit N] [--shots DIR] [--timeout-ms N]`
   - Purpose: Crawl a site on phone devices and list pages wider than the screen. Follows links on the
-    same scheme and host as `start_url` (fragments dropped; a redirect is reported once, under the URL
+    same scheme and host as the page `start_url` ends on after redirects (fragments dropped; a redirect is reported once, under the URL
     it ends on) up to `--limit` pages (default 500), and
     loads each page on every `--device` (Playwright device names; default `iPhone 13` and `Galaxy S8`,
     390 and 360px). A page fails on a device when the document is wider than the viewport, or when an

@@ -238,6 +238,12 @@ PY
   webshot_audit "http://127.0.0.1:$port/redirects.html" --device "Pixel 7" --skip /skipped >"$tmp/audit-http.json" 2>/dev/null
   status=$?
   set -e
+  # A start URL that redirects to another host crawls that host, not one page.
+  set +e
+  webshot_audit "http://localhost:$port/elsewhere" --device "Pixel 7" --skip /skipped \
+    >"$tmp/audit-host.json" 2>/dev/null
+  host_status=$?
+  set -e
   kill "$server_pid" 2>/dev/null || true
   wait "$server_pid" 2>/dev/null || true
   if [[ "$status" -eq 1 ]] && "$py" - "$tmp/audit-http.json" "$port" <<'PY'; then
@@ -250,6 +256,15 @@ PY
     note "audit over HTTP reports a redirected page once, under its final URL"
   else
     error "audit over HTTP returned $status or reported a page twice: $(cat "$tmp/audit-http.json")"
+  fi
+  if [[ "$host_status" -eq 1 ]] && "$py" - "$tmp/audit-host.json" "$port" <<'PY'; then
+import json, sys
+r, base = json.load(open(sys.argv[1])), f"http://127.0.0.1:{sys.argv[2]}"
+assert set(r["findings"]) == {base + "/wide.html", base + "/clipped.html"}, r
+PY
+    note "audit follows a start URL that redirects to another host"
+  else
+    error "audit of a start URL redirecting to another host returned $host_status: $(cat "$tmp/audit-host.json")"
   fi
 
   expect_status 0 "audit of a clean page" webshot_audit "$site/clean-only.html"

@@ -586,6 +586,10 @@ def audit():
                             if key in measured:
                                 break
                             measured.add(key)
+                            if url == start:
+                                # http -> https or example.com -> www.example.com:
+                                # the site is where the start page ended up.
+                                origin = urlparse(key)
                         m = page.evaluate(AUDIT_MEASURE)
                         if shots:
                             page.screenshot(path=str(shots / f"{shot_slug(key)}--{re.sub(r'[^A-Za-z0-9._-]+', '_', n)}.png"))
