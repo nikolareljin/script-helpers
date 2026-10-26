@@ -47,6 +47,25 @@ Functions
     code are never expanded, so a JavaScript template literal is left as written.
   - Example: `APP_PASSWORD=... webshot_capture docs/shots.json build/shots`
 
+- `webshot_audit start_url [--device NAME]... [--skip PREFIX]... [--limit N] [--shots DIR] [--timeout-ms N]`
+  - Purpose: Crawl a site on phone devices and list pages wider than the screen. Follows links on the
+    same scheme and host as the page `start_url` ends on after redirects (fragments dropped; a redirect is reported once, under the URL
+    it ends on) up to `--limit` pages (default 500), and
+    loads each page on every `--device` (Playwright device names; default `iPhone 13` and `Galaxy S8`,
+    390 and 360px). A page fails on a device when the document is wider than the viewport, or when an
+    `h1`-`h3` is wider than its box: cut off by a hidden overflow, which does not widen the page. For a
+    wide page, `elements` names up to five of the deepest elements whose content overflows, such as a
+    word that cannot wrap. `--skip` drops URLs whose path starts with `PREFIX` (repeatable, e.g.
+    `--skip /admin --skip /api/`). `--shots DIR` saves `DIR/<path>--<device>.png` per page and device (a long path is cut and keeps a hash).
+  - Output: stdout JSON `{"crawled": N, "findings": {url: {device: {width, scroll_width, elements,
+    clipped_headings}}}, "http_errors": {url: status or error}, "downloads": [url]}`. A page that fails
+    to load is listed in `http_errors` and is not a finding. A link the browser downloads (a PDF, a zip)
+    is listed in `downloads` and is not counted in `crawled`.
+  - Returns: 0 no finding; 1 a finding, or the start page did not load; 2 bad arguments or an unknown
+    device; 3 without Playwright.
+  - Env: none.
+  - Example: `webshot_audit http://localhost:8080/ --skip /admin --shots build/phone > build/audit.json`
+
 - `webshot_pdf input.html output.pdf [--format Letter|A4|A3|Legal|Tabloid] [--landscape] [--footer TEXT] [--wait-ms N]`
   - Purpose: Print a local HTML file to PDF with backgrounds. CSS `@page` size and margins win when the
     document sets them. `--footer` adds `TEXT` and `page / total` at the bottom of every page.
