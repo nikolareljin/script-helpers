@@ -302,20 +302,20 @@ ollama_model_tagged() {
 # Usage: ollama_models_required <file> [NAME...]; prints the models a start
 # needs, the way Ollama lists them, one per line, each once.
 #
-# With no NAME: every name in the file, except the ones for other machine
-# classes. A name ending in _SMALL, _LARGE or _XLARGE is the model for another
-# class; a name ending in _RAM_GB or _VRAM_GB after that is a number used to
-# pick the class, not a model.
+# With no NAME: the file's roles (ollama_models_file_roles), not the columns
+# and figures for other machine classes.
 # A non-blank value in the environment wins over the file. So a caller that
 # has loaded its own .env gets that machine's choice.
 #
-# Returns 2 and prints nothing if a NAME is not a valid variable name. A list
-# that stopped at the bad name would start a project with only some of its
-# models.
+# Returns 2 and prints nothing if a NAME is not a valid variable name, if
+# AI_MODEL_TIER is not a class, or if a reserve in the file is not valid. A
+# list that stopped at the bad name would start a project with only some of
+# its models.
 # Returns 1 and prints nothing if a file is given and does not exist. A
 # mistyped path would otherwise mean "this project needs no models", and the
 # start would check nothing. Pass "" to use no file.
-# Returns: 0 printed; 1 file given but missing; 2 a NAME is not a variable name.
+# Returns: 0 printed; 1 file given but missing; 2 a bad NAME, AI_MODEL_TIER
+# or reserve.
 # Output: stdout one model per line; stderr errors.
 ollama_models_required() {
   # Its own variables start with _oep_: a NAME is read through ${!NAME}, and a
