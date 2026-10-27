@@ -61,7 +61,8 @@ Functions
   - Output: stdout JSON `{"crawled": N, "findings": {url: {device: {width, scroll_width, elements,
     clipped_headings}}}, "http_errors": {url: status or error}, "downloads": [url]}`. A page that fails
     to load is listed in `http_errors` and is not a finding. A link the browser downloads (a PDF, a zip)
-    is listed in `downloads` and is not counted in `crawled`.
+    is listed in `downloads` and is not counted in `crawled`; so is a non-HTML file served over HTTP that
+    the browser shows itself, such as an image (by its `Content-Type`).
   - Returns: 0 no finding; 1 a finding, or the start page did not load; 2 bad arguments or an unknown
     device; 3 without Playwright.
   - Env: none.

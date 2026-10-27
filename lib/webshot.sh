@@ -217,7 +217,7 @@ webshot_android_audit() {
   (
     # Plain variables: the subshell keeps them private, and the EXIT trap
     # runs after a function scope would be gone.
-    reversed="" cdp="" model="" driver="" dev="$serial"
+    reversed="" cdp="" model="" driver="" existing="" dev="$serial"
     trap '[[ -n "${cdp:-}" ]] && adb -s "$dev" forward --remove "tcp:$cdp" >/dev/null 2>&1
           [[ -n "${reversed:-}" ]] && adb -s "$dev" reverse --remove "tcp:$reversed" >/dev/null 2>&1
           true' EXIT
@@ -226,7 +226,8 @@ webshot_android_audit() {
     case "$host" in
       localhost|127.0.0.1)
         # A reverse the user set up already stays, and is not removed at exit.
-        if ! adb -s "$serial" reverse --list 2>/dev/null | tr -d '\r' | grep -q " tcp:$port tcp:$port\$"; then
+        existing="$(adb -s "$serial" reverse --list 2>/dev/null | tr -d '\r')"
+        if ! grep -q " tcp:$port tcp:$port\$" <<<"$existing"; then
           adb -s "$serial" reverse "tcp:$port" "tcp:$port" >/dev/null || { _webshot_log_error "adb reverse tcp:$port failed"; exit 1; }
           reversed="$port"
         fi ;;
@@ -682,6 +683,13 @@ def audit():
                         resp = page.goto(url, wait_until="load")
                         if resp is not None and resp.status >= 400:
                             http_errors[url] = resp.status
+                            break
+                        # An image or other file the browser shows itself
+                        # (a JPG wallpaper) is not a page: list it with the
+                        # downloads instead of measuring it as a wide page.
+                        ctype = (resp.headers.get("content-type", "") if resp is not None else "").lower()
+                        if ctype and "html" not in ctype:
+                            downloads.add(url)
                             break
                         if n == names[0]:
                             # A redirect lands on a page that may be checked
