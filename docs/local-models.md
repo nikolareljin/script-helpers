@@ -93,10 +93,13 @@ What goes into a repository
    CLASSIFY_MODEL=small-model:1.7b
    # embeddings for search
    OLLAMA_EMBED_MODEL=embedding-model
-   # the same purpose on a machine with a 12 GB GPU or 32 GB of memory
+   # the same purpose on a machine with a 12 GB GPU or 32 GB of memory,
+   # judged by what is left after a 1 GiB GPU reserve and 20% of memory
    OLLAMA_MODEL_LARGE=general-model:9b
-   OLLAMA_MODEL_LARGE_VRAM_GB=11
-   AI_TIER_LARGE_RAM_GB=30
+   OLLAMA_MODEL_LARGE_MIN_USABLE_VRAM_GB=10
+   AI_TIER_LARGE_USABLE_RAM_GB=24
+   AI_TIER_GPU_RESERVE_GB=1
+   AI_TIER_RAM_RESERVE_PERCENT=20
    ```
 
    The names are placeholders; a real file has real model names, such as
@@ -106,7 +109,8 @@ What goes into a repository
    `=`, one pair of quotes, a trailing ` # comment`, Windows line ends and a
    byte-order mark are all tolerated. A name ending in `_SMALL`, `_LARGE` or
    `_XLARGE` is the model for another class of machine; a name ending in
-   `_RAM_GB` or `_VRAM_GB` after that is a number for the pick. Each name gives
+   `_MIN_USABLE_VRAM_GB`, `_VRAM_GB` or `_RAM_GB` after that, and any
+   `AI_TIER_` name, is a number for the pick. Each name gives
    one model: the column this machine qualifies for (below), else the name
    itself. **Every other name is read as a model**, so the file holds models
    only: `AI_MODEL_TIER=standard` or `OLLAMA_TIMEOUT_MS=180000` written there
@@ -120,17 +124,28 @@ What goes into a repository
    **Which column a machine gets.** By its memory and its largest GPU, in whole
    GiB as it reports them (`scripts/ollama_models.sh class` prints both):
 
-   | Class | When | Column |
+   | Class | When (usable) | Column |
    |---|---|---|
-   | xlarge | largest GPU >= `NAME_XLARGE_VRAM_GB` | `NAME_XLARGE` |
-   | large | largest GPU >= `NAME_LARGE_VRAM_GB`, or memory >= `AI_TIER_LARGE_RAM_GB` | `NAME_LARGE` |
-   | small | memory and largest GPU both < `AI_TIER_SMALL_RAM_GB` | `NAME_SMALL` |
+   | xlarge | largest GPU >= `NAME_XLARGE_MIN_USABLE_VRAM_GB` | `NAME_XLARGE` |
+   | large | largest GPU >= `NAME_LARGE_MIN_USABLE_VRAM_GB`, or memory >= `AI_TIER_LARGE_USABLE_RAM_GB` | `NAME_LARGE` |
+   | small | memory and largest GPU both < `AI_TIER_SMALL_USABLE_RAM_GB` | `NAME_SMALL` |
    | default | otherwise | `NAME` |
+
+   Usable is what is left after the reserves: `AI_TIER_GPU_RESERVE_GB` GiB
+   off the largest GPU and `AI_TIER_RAM_RESERVE_PERCENT` percent off memory
+   (both 0 when not set). A 32 GB machine reports 31 GiB; with a 20% reserve
+   24 are usable. A reserve that is not a whole number, or a memory reserve of
+   100 or more, stops the pick (exit 2).
+
+   The older fields `NAME_XLARGE_VRAM_GB`, `NAME_LARGE_VRAM_GB`,
+   `AI_TIER_LARGE_RAM_GB` and `AI_TIER_SMALL_RAM_GB` are installed figures
+   and still work as before: the reserves do not apply to them. When a
+   column has both, the usable one is used.
 
    A class with no model for a name gets the next column below. A model
    above the default that the disk or memory check refuses falls back one
    column. `AI_MODEL_TIER=small|standard|large|xlarge` in `.env` names the
-   class instead.
+   class instead; `medium` is the same as `standard`.
 
    The file is the project's **approved** models. `NAME` set in `.env` to any
    other model is a manual override: the start says it is not approved and asks
