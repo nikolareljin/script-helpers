@@ -1253,14 +1253,16 @@ check "not an address: 9" "9" "$(reach 'http:/nowhere')"
 # reports 31 GiB, so the registry's floors sit one below the nominal sizes.
 GIB=1073741824
 cat >"$tmp/tiers.env" <<'EOF'
-AI_TIER_SMALL_RAM_GB=11
-AI_TIER_LARGE_RAM_GB=30
+AI_TIER_SMALL_USABLE_RAM_GB=9
+AI_TIER_LARGE_USABLE_RAM_GB=24
+AI_TIER_GPU_RESERVE_GB=1
+AI_TIER_RAM_RESERVE_PERCENT=20
 CODE=code-default:7b
 CODE_SMALL=code-small:4b
 CODE_LARGE=code-large:14b
-CODE_LARGE_VRAM_GB=11
+CODE_LARGE_MIN_USABLE_VRAM_GB=23
 CODE_XLARGE=code-xlarge:30b
-CODE_XLARGE_VRAM_GB=23
+CODE_XLARGE_MIN_USABLE_VRAM_GB=31
 PLAIN=plain:1b
 REASON=reason-default:8b
 REASON_XLARGE=reason-xlarge:20b
@@ -1276,20 +1278,18 @@ pick() {
     for kv in "$@"; do export "${kv?}"; done
     ollama_model_for_class "$tmp/tiers.env" "$name" 2>/dev/null )
 }
-check "a 16 GB laptop, no GPU: the default" "code-default:7b" "$(pick 15 0 CODE)"
-check "under the small floor in memory and GPU: small" "code-small:4b" "$(pick 10 0 CODE)"
-check "at the small floor: not small" "code-default:7b" "$(pick 11 0 CODE)"
-check "a small machine with a good GPU is not small" "code-large:14b" "$(pick 7 11 CODE)"
-check "not small even with no large column: the GPU alone decides" "sum-default:4b sum-small:2b" "$(pick 7 11 SUM) $(pick 7 10 SUM)"
-check "a 32 GB machine, no GPU: large by memory" "code-large:14b" "$(pick 31 0 CODE)"
-check "just under the large memory floor: default" "code-default:7b" "$(pick 29 0 CODE)"
-check "a 12 GB GPU: large" "code-large:14b" "$(pick 15 11 CODE)"
-check "a 12 GB GPU is not a 24 GB one: still large" "code-large:14b" "$(pick 64 22 CODE)"
-check "a 24 GB GPU: xlarge" "code-xlarge:30b" "$(pick 64 23 CODE)"
+check "an 8 GB laptop is small after the RAM reserve" "code-small:4b" "$(pick 7 0 CODE)"
+check "a 16 GB laptop is standard after the RAM reserve" "code-default:7b" "$(pick 15 0 CODE)"
+check "a small machine with a 24 GB GPU is large" "code-large:14b" "$(pick 7 24 CODE)"
+check "a 32 GB RAM-only machine is large after the reserve" "code-large:14b" "$(pick 31 0 CODE)"
+check "a 24 GB GPU selects large after its reserve" "code-large:14b" "$(pick 64 24 CODE)"
+check "a 32 GB GPU selects xlarge after its reserve" "code-xlarge:30b" "$(pick 64 32 CODE)"
+check "one GiB below the 32 GB GPU class stays large" "code-large:14b" "$(pick 64 31 CODE)"
 check "64 GB of memory and no GPU never reaches xlarge" "code-large:14b" "$(pick 64 0 CODE)"
 check "a name with no class columns is the same everywhere" "plain:1b plain:1b" "$(pick 10 0 PLAIN) $(pick 64 23 PLAIN)"
 check "xlarge without a large column: xlarge, or the default below it" "reason-xlarge:20b reason-default:8b" "$(pick 64 15 REASON) $(pick 64 14 REASON)"
 check "AI_MODEL_TIER names the class instead of measuring" "code-xlarge:30b" "$(pick 8 0 CODE AI_MODEL_TIER=xlarge)"
+check "medium is the standard tier alias" "code-default:7b" "$(pick 8 0 CODE AI_MODEL_TIER=medium)"
 check "a forced class with no column falls to the next below" "reason-default:8b" "$(pick 64 23 REASON AI_MODEL_TIER=large)"
 check "a model set in the environment wins on any machine" "mine:1b" "$(pick 64 23 CODE CODE=mine:1b)"
 check "AI_MODEL_TIER that is not a class: refused (2)" "2" "$( ( export AI_MODEL_TIER=huge; ollama_model_for_class "$tmp/tiers.env" CODE >/dev/null 2>&1; echo $? ) )"

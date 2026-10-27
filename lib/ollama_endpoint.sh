@@ -324,13 +324,13 @@ ollama_models_required() {
     done
     _oep_names="$(printf '%s\n' "$@")"
   else
-    _oep_names="$(ollama_models_file_names "$_oep_file" | grep -v -E '_(SMALL|LARGE|XLARGE)(_V?RAM_GB)?$' || true)"
+    _oep_names="$(ollama_models_file_names "$_oep_file" | grep -v -E '_(SMALL|LARGE|XLARGE)(_MIN_USABLE_VRAM_GB|_V?RAM_GB)?$|^AI_TIER_' || true)"
   fi
   # Checked here, not per name: the names are read in a pipeline below, where
   # a refusal would end the loop and leave a list with no models in it.
   if [[ -n "$(printf '%s' "${AI_MODEL_TIER:-}" | tr -d ' \t\r')" ]] \
      && ! _ollama_ep_tier_rank "$(printf '%s' "$AI_MODEL_TIER" | tr 'A-Z' 'a-z' | tr -d ' \t\r')" >/dev/null; then
-    print_error "AI_MODEL_TIER is one of small, standard, large, xlarge; not $(_ollama_ep_said "$AI_MODEL_TIER")" >&2
+    print_error "AI_MODEL_TIER is one of small, standard (or medium), large, xlarge; not $(_ollama_ep_said "$AI_MODEL_TIER")" >&2
     return 2
   fi
   while IFS= read -r _oep_name; do
@@ -654,19 +654,23 @@ ollama_gpu_mem_largest_bytes() {
 # A models file may name a model per class of machine besides the default
 # (fleet model registry, ADR-0058 in R-765):
 #
-#   NAME_XLARGE + NAME_XLARGE_VRAM_GB   its largest GPU has at least that much
-#   NAME_LARGE  + NAME_LARGE_VRAM_GB    its largest GPU has at least that much,
-#                 or AI_TIER_LARGE_RAM_GB  or the machine has that much memory
-#   NAME_SMALL  + AI_TIER_SMALL_RAM_GB  the machine has less than that, in
+#   NAME_XLARGE + NAME_XLARGE_MIN_USABLE_VRAM_GB
+#                 its largest GPU has that much usable memory
+#   NAME_LARGE  + NAME_LARGE_MIN_USABLE_VRAM_GB
+#                 its largest GPU has that much usable memory, or it has
+#                 AI_TIER_LARGE_USABLE_RAM_GB usable system memory
+#   NAME_SMALL  + AI_TIER_SMALL_USABLE_RAM_GB
+#                 the machine has less than that usable memory, in
 #                                       memory and in GPU memory both
 #
-# Figures are whole GiB as the machine reports them (rounded down): a "32 GB"
-# machine reports 31, so the registry's floors are one below the nominal size.
+# AI_TIER_GPU_RESERVE_GB and AI_TIER_RAM_RESERVE_PERCENT turn installed
+# capacity into usable capacity. Older _VRAM_GB and _RAM_GB fields remain
+# supported with their former, unreserved semantics.
 
 # The classes, from the lowest. A cap (the fallback) and AI_MODEL_TIER are one
 # of these; "standard" is the default column, NAME itself.
 _ollama_ep_tier_rank() {
-  case "${1:-}" in small) echo 0 ;; standard) echo 1 ;; large) echo 2 ;; xlarge) echo 3 ;; *) return 1 ;; esac
+  case "${1:-}" in small) echo 0 ;; standard|medium) echo 1 ;; large) echo 2 ;; xlarge) echo 3 ;; *) return 1 ;; esac
 }
 _ollama_ep_gib() { echo $(( ${1:-0} / 1073741824 )); }
 
@@ -722,7 +726,7 @@ ollama_machine_figures() {
 # Output: stdout the model; stderr errors.
 ollama_model_for_class() {
   local _oep_file="${1:-}" _oep_name="${2:-}" _oep_value _oep_tier _oep_cap _oep_mem _oep_gpu
-  local _oep_def _oep_small _oep_large _oep_xlarge _oep_large_vram _oep_xlarge_vram _oep_small_ram _oep_large_ram
+  local _oep_def _oep_small _oep_large _oep_xlarge _oep_large_vram _oep_xlarge_vram _oep_small_ram _oep_large_ram _oep_gpu_reserve _oep_ram_reserve
   if ! _ollama_ep_is_name "$_oep_name"; then
     print_error "Not a variable name: $(_ollama_ep_said "$_oep_name")" >&2
     return 2
@@ -736,10 +740,20 @@ ollama_model_for_class() {
   _oep_small="$(_ollama_ep_file_val "$_oep_file" "${_oep_name}_SMALL")"
   _oep_large="$(_ollama_ep_file_val "$_oep_file" "${_oep_name}_LARGE")"
   _oep_xlarge="$(_ollama_ep_file_val "$_oep_file" "${_oep_name}_XLARGE")"
-  _oep_large_vram="$(_ollama_ep_uint "$(_ollama_ep_file_val "$_oep_file" "${_oep_name}_LARGE_VRAM_GB")")" || _oep_large_vram=""
-  _oep_xlarge_vram="$(_ollama_ep_uint "$(_ollama_ep_file_val "$_oep_file" "${_oep_name}_XLARGE_VRAM_GB")")" || _oep_xlarge_vram=""
-  _oep_small_ram="$(_ollama_ep_uint "$(_ollama_ep_file_val "$_oep_file" AI_TIER_SMALL_RAM_GB)")" || _oep_small_ram=""
-  _oep_large_ram="$(_ollama_ep_uint "$(_ollama_ep_file_val "$_oep_file" AI_TIER_LARGE_RAM_GB)")" || _oep_large_ram=""
+  _oep_large_vram="$(_ollama_ep_file_val "$_oep_file" "${_oep_name}_LARGE_MIN_USABLE_VRAM_GB")"
+  [[ -n "$_oep_large_vram" ]] || _oep_large_vram="$(_ollama_ep_file_val "$_oep_file" "${_oep_name}_LARGE_VRAM_GB")"
+  _oep_large_vram="$(_ollama_ep_uint "$_oep_large_vram")" || _oep_large_vram=""
+  _oep_xlarge_vram="$(_ollama_ep_file_val "$_oep_file" "${_oep_name}_XLARGE_MIN_USABLE_VRAM_GB")"
+  [[ -n "$_oep_xlarge_vram" ]] || _oep_xlarge_vram="$(_ollama_ep_file_val "$_oep_file" "${_oep_name}_XLARGE_VRAM_GB")"
+  _oep_xlarge_vram="$(_ollama_ep_uint "$_oep_xlarge_vram")" || _oep_xlarge_vram=""
+  _oep_small_ram="$(_ollama_ep_file_val "$_oep_file" AI_TIER_SMALL_USABLE_RAM_GB)"
+  [[ -n "$_oep_small_ram" ]] || _oep_small_ram="$(_ollama_ep_file_val "$_oep_file" AI_TIER_SMALL_RAM_GB)"
+  _oep_small_ram="$(_ollama_ep_uint "$_oep_small_ram")" || _oep_small_ram=""
+  _oep_large_ram="$(_ollama_ep_file_val "$_oep_file" AI_TIER_LARGE_USABLE_RAM_GB)"
+  [[ -n "$_oep_large_ram" ]] || _oep_large_ram="$(_ollama_ep_file_val "$_oep_file" AI_TIER_LARGE_RAM_GB)"
+  _oep_large_ram="$(_ollama_ep_uint "$_oep_large_ram")" || _oep_large_ram=""
+  _oep_gpu_reserve="$(_ollama_ep_uint "$(_ollama_ep_file_val "$_oep_file" AI_TIER_GPU_RESERVE_GB)")" || _oep_gpu_reserve=0
+  _oep_ram_reserve="$(_ollama_ep_uint "$(_ollama_ep_file_val "$_oep_file" AI_TIER_RAM_RESERVE_PERCENT)")" || _oep_ram_reserve=0
 
   _oep_cap="$(_ollama_ep_tier_rank "${_OLLAMA_EP_TIER_CAP:-xlarge}")" || _oep_cap=3
   _oep_tier="$(printf '%s' "${AI_MODEL_TIER:-}" | tr 'A-Z' 'a-z' | tr -d ' \t\r')" || true
@@ -750,6 +764,8 @@ ollama_model_for_class() {
     fi
   else
     IFS=: read -r _oep_mem _oep_gpu <<<"$(ollama_machine_figures)"
+    [[ -z "$_oep_mem" ]] || _oep_mem=$(( _oep_mem * (100 - _oep_ram_reserve) / 100 ))
+    _oep_gpu=$(( _oep_gpu > _oep_gpu_reserve ? _oep_gpu - _oep_gpu_reserve : 0 ))
     # A class whose column names no model cannot be reached by measuring.
     [[ -n "$_oep_xlarge" ]] || _oep_xlarge_vram=""
     [[ -n "$_oep_large" ]] || { _oep_large_vram=""; _oep_large_ram=""; }
@@ -2205,9 +2221,10 @@ ollama_host_tier() {
   _oep_tier="$(printf '%s' "${AI_MODEL_TIER:-}" | tr '[:upper:]' '[:lower:]' | tr -d ' \t\r')" || true
   if [[ -n "$_oep_tier" ]]; then
     if ! _ollama_ep_tier_rank "$_oep_tier" >/dev/null; then
-      print_error "AI_MODEL_TIER is one of small, standard, large, xlarge; not '$(_ollama_ep_said "${AI_MODEL_TIER:-}")'" >&2
+      print_error "AI_MODEL_TIER is one of small, standard (or medium), large, xlarge; not '$(_ollama_ep_said "${AI_MODEL_TIER:-}")'" >&2
       return 3
     fi
+    [[ "$_oep_tier" != medium ]] || _oep_tier=standard
     printf '%s\n' "$_oep_tier"
     return 0
   fi
