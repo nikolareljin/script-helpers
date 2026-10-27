@@ -2,10 +2,12 @@
 
 ### Added
 
+- **Model classes by usable capacity.** A models file may give floors as usable capacity: `NAME_LARGE_MIN_USABLE_VRAM_GB`, `NAME_XLARGE_MIN_USABLE_VRAM_GB`, `AI_TIER_LARGE_USABLE_RAM_GB` and `AI_TIER_SMALL_USABLE_RAM_GB`, judged after `AI_TIER_GPU_RESERVE_GB` (GiB off the largest GPU) and `AI_TIER_RAM_RESERVE_PERCENT` (off memory). The older `_VRAM_GB` and `_RAM_GB` fields still work and are not reduced by the reserves; a column with both uses the usable one. A reserve that is not a whole number, or a memory reserve of 100 or more, exits 2. `AI_MODEL_TIER=medium`, and a tier argument `medium`, name `standard`. New `ollama_models_file_roles` lists a models file's roles. Tests: new cases in `tests/ollama_endpoint_test.sh`, `tests/ollama_select_test.sh` and `tests/ollama_project_prepare_test.sh`.
 - **`webshot_android_audit` checks a site on a real Android phone.** `webshot_android_audit <url>` (and `bin/webshot android-audit`) opens the URL in Chrome on a phone attached over adb and runs the `webshot_audit` checks (page wider than the screen, cut-off heading) through Chrome's DevTools socket, with Python's standard library: Playwright does not support CDP to Chrome on Android. A `localhost` or `127.0.0.1` URL reaches the phone by `adb reverse`, so the site is not opened to the network. `--path` checks several paths, `--shots DIR` saves a `screencap` PNG per page, `--serial` picks a device. Port forwards are removed on exit, INT and TERM; a reverse that was already set up is left alone. No ready device exits 3. Tests: `tests/webshot_android_test.sh`, with a fake adb and a headless Chromium standing in for the phone's Chrome.
 
 ### Fixed
 
+- **`ollama_project_prepare --standard-tier` no longer warns about `AI_MODEL_TIER=Standard`.** The value was compared case-sensitively, so `Standard` (or now `medium`) was said to be "not used" although it is the standard tier. Tests: a new case in `tests/ollama_project_prepare_test.sh`.
 - **`webshot_audit` no longer reports an image as a wide page.** A link to a large image (a 1920px JPG wallpaper) opened the image in the browser, and the audit measured it as a page wider than the phone. A response over HTTP whose `Content-Type` is not HTML is now listed in `downloads`. Tests: a new case in `tests/webshot_test.sh` (fails against 0.59.0).
 
 ## 2026-10-25 — v0.59.0

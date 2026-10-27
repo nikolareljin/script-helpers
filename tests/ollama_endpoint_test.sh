@@ -1253,14 +1253,16 @@ check "not an address: 9" "9" "$(reach 'http:/nowhere')"
 # reports 31 GiB, so the registry's floors sit one below the nominal sizes.
 GIB=1073741824
 cat >"$tmp/tiers.env" <<'EOF'
-AI_TIER_SMALL_RAM_GB=11
-AI_TIER_LARGE_RAM_GB=30
+AI_TIER_SMALL_USABLE_RAM_GB=9
+AI_TIER_LARGE_USABLE_RAM_GB=24
+AI_TIER_GPU_RESERVE_GB=1
+AI_TIER_RAM_RESERVE_PERCENT=20
 CODE=code-default:7b
 CODE_SMALL=code-small:4b
 CODE_LARGE=code-large:14b
-CODE_LARGE_VRAM_GB=11
+CODE_LARGE_MIN_USABLE_VRAM_GB=23
 CODE_XLARGE=code-xlarge:30b
-CODE_XLARGE_VRAM_GB=23
+CODE_XLARGE_MIN_USABLE_VRAM_GB=31
 PLAIN=plain:1b
 REASON=reason-default:8b
 REASON_XLARGE=reason-xlarge:20b
@@ -1276,27 +1278,65 @@ pick() {
     for kv in "$@"; do export "${kv?}"; done
     ollama_model_for_class "$tmp/tiers.env" "$name" 2>/dev/null )
 }
-check "a 16 GB laptop, no GPU: the default" "code-default:7b" "$(pick 15 0 CODE)"
-check "under the small floor in memory and GPU: small" "code-small:4b" "$(pick 10 0 CODE)"
-check "at the small floor: not small" "code-default:7b" "$(pick 11 0 CODE)"
-check "a small machine with a good GPU is not small" "code-large:14b" "$(pick 7 11 CODE)"
-check "not small even with no large column: the GPU alone decides" "sum-default:4b sum-small:2b" "$(pick 7 11 SUM) $(pick 7 10 SUM)"
-check "a 32 GB machine, no GPU: large by memory" "code-large:14b" "$(pick 31 0 CODE)"
-check "just under the large memory floor: default" "code-default:7b" "$(pick 29 0 CODE)"
-check "a 12 GB GPU: large" "code-large:14b" "$(pick 15 11 CODE)"
-check "a 12 GB GPU is not a 24 GB one: still large" "code-large:14b" "$(pick 64 22 CODE)"
-check "a 24 GB GPU: xlarge" "code-xlarge:30b" "$(pick 64 23 CODE)"
+check "an 8 GB laptop is small after the RAM reserve" "code-small:4b" "$(pick 7 0 CODE)"
+check "a 16 GB laptop is standard after the RAM reserve" "code-default:7b" "$(pick 15 0 CODE)"
+check "a small machine with a 24 GB GPU is large" "code-large:14b" "$(pick 7 24 CODE)"
+check "a 32 GB RAM-only machine is large after the reserve" "code-large:14b" "$(pick 31 0 CODE)"
+check "a 24 GB GPU selects large after its reserve" "code-large:14b" "$(pick 64 24 CODE)"
+check "a 32 GB GPU selects xlarge after its reserve" "code-xlarge:30b" "$(pick 64 32 CODE)"
+check "one GiB below the 32 GB GPU class stays large" "code-large:14b" "$(pick 64 31 CODE)"
 check "64 GB of memory and no GPU never reaches xlarge" "code-large:14b" "$(pick 64 0 CODE)"
 check "a name with no class columns is the same everywhere" "plain:1b plain:1b" "$(pick 10 0 PLAIN) $(pick 64 23 PLAIN)"
 check "xlarge without a large column: xlarge, or the default below it" "reason-xlarge:20b reason-default:8b" "$(pick 64 15 REASON) $(pick 64 14 REASON)"
 check "AI_MODEL_TIER names the class instead of measuring" "code-xlarge:30b" "$(pick 8 0 CODE AI_MODEL_TIER=xlarge)"
+check "medium is the standard tier alias" "code-default:7b" "$(pick 8 0 CODE AI_MODEL_TIER=medium)"
 check "a forced class with no column falls to the next below" "reason-default:8b" "$(pick 64 23 REASON AI_MODEL_TIER=large)"
 check "a model set in the environment wins on any machine" "mine:1b" "$(pick 64 23 CODE CODE=mine:1b)"
 check "AI_MODEL_TIER that is not a class: refused (2)" "2" "$( ( export AI_MODEL_TIER=huge; ollama_model_for_class "$tmp/tiers.env" CODE >/dev/null 2>&1; echo $? ) )"
 check "and ollama_models_required refuses it too, not an empty list" "2" "$( ( export AI_MODEL_TIER=huge; ollama_models_required "$tmp/tiers.env" CODE >/dev/null 2>&1; echo $? ) )"
 check "memory that cannot be read picks the default" "code-default:7b" "$( ( unset OLLAMA_BUDGET_MEM_TOTAL_BYTES CODE; export OLLAMA_BUDGET_GPU_LARGEST_BYTES=0; ollama_mem_total_bytes() { return 1; }; ollama_model_for_class "$tmp/tiers.env" CODE ) )"
-check "the cap (a fallback) limits the class" "code-large:14b code-default:7b" "$(pick 64 23 CODE _OLLAMA_EP_TIER_CAP=large) $(pick 64 23 CODE _OLLAMA_EP_TIER_CAP=standard)"
-check "required models are this machine's picks" "code-xlarge:30b plain:1b reason-xlarge:20b sum-default:4b" "$( ( unset CODE PLAIN REASON SUM AI_MODEL_TIER; export OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((64 * GIB)) OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((23 * GIB)); ollama_models_required "$tmp/tiers.env" | one_line ) )"
+check "the cap (a fallback) limits the class" "code-large:14b code-default:7b" "$(pick 64 32 CODE _OLLAMA_EP_TIER_CAP=large) $(pick 64 32 CODE _OLLAMA_EP_TIER_CAP=standard)"
+# Usable floors are exact: 20% off memory, so 24 usable needs 30 installed
+# (30 * 0.8 = 24) and 9 needs 12 (11 * 0.8 = 8.8); 1 GiB off the GPU.
+check "the large memory floor, at and one below" "code-large:14b code-default:7b" "$(pick 30 0 CODE) $(pick 29 0 CODE)"
+check "the small memory floor, at and one below" "code-default:7b code-small:4b" "$(pick 12 0 CODE) $(pick 11 0 CODE)"
+check "the large GPU floor, at and one below" "code-large:14b code-default:7b" "$(pick 15 24 CODE) $(pick 15 23 CODE)"
+check "a small machine with a GPU at the small floor plus its reserve is not small" "code-default:7b code-small:4b" "$(pick 7 10 CODE) $(pick 7 9 CODE)"
+check "not small even with no large column: the GPU alone decides" "sum-default:4b sum-small:2b" "$(pick 7 10 SUM) $(pick 7 9 SUM)"
+check "an installed floor (_VRAM_GB) is not reduced by the reserve" "reason-xlarge:20b" "$(pick 64 15 REASON)"
+# Installed floors keep their meaning when the file also states reserves, and a
+# usable floor wins over an installed one for the same column.
+cat >"$tmp/mixed.env" <<'EOF'
+AI_TIER_SMALL_RAM_GB=11
+AI_TIER_LARGE_RAM_GB=30
+AI_TIER_GPU_RESERVE_GB=2
+AI_TIER_RAM_RESERVE_PERCENT=50
+CODE=code-default:7b
+CODE_SMALL=code-small:4b
+CODE_LARGE=code-large:14b
+CODE_LARGE_VRAM_GB=11
+CODE_LARGE_MIN_USABLE_VRAM_GB=14
+EOF
+mixed() { ( unset CODE AI_MODEL_TIER _OLLAMA_EP_TIER_CAP; export OLLAMA_BUDGET_MEM_TOTAL_BYTES=$(($1 * GIB)) OLLAMA_BUDGET_GPU_LARGEST_BYTES=$(($2 * GIB)); ollama_model_for_class "$tmp/mixed.env" CODE 2>/dev/null ); }
+check "installed memory floors ignore a 50% reserve" "code-large:14b code-default:7b code-small:4b" "$(mixed 30 0) $(mixed 29 0) $(mixed 10 0)"
+check "the usable GPU floor wins over the installed one (14 + 2, not 11)" "code-large:14b code-default:7b" "$(mixed 16 16) $(mixed 16 15)"
+# A reserve that is not valid is refused, not read as no reserve.
+bad_reserve() { # bad_reserve <line>: the exit of ollama_model_for_class, then of ollama_models_required
+  { printf '%s\n' "$1"; printf 'CODE=code-default:7b\nCODE_LARGE=code-large:14b\nCODE_LARGE_MIN_USABLE_VRAM_GB=10\n'; } >"$tmp/bad.env"
+  ( unset CODE AI_MODEL_TIER; export OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((16 * GIB)) OLLAMA_BUDGET_GPU_LARGEST_BYTES=0
+    a=0; ollama_model_for_class "$tmp/bad.env" CODE >/dev/null 2>"$tmp/err" || a=$?
+    b=0; out="$(ollama_models_required "$tmp/bad.env" 2>/dev/null)" || b=$?
+    echo "$a:$b:$out" )
+}
+check "a memory reserve of 100% is refused (2), and required refuses too, not an empty list" "2:2:" "$(bad_reserve AI_TIER_RAM_RESERVE_PERCENT=100)"
+said "naming the setting and the value" "$tmp/err" "AI_TIER_RAM_RESERVE_PERCENT" "100"
+check "a reserve that is not a whole number is refused (2)" "2:2: 2:2:" "$(bad_reserve AI_TIER_RAM_RESERVE_PERCENT=ten) $(bad_reserve AI_TIER_GPU_RESERVE_GB=-1)"
+check "a reserve written 05 is five" "0:0:code-default:7b" "$(bad_reserve AI_TIER_GPU_RESERVE_GB=05)"
+check "the roles of a models file: no class columns, floors or AI_TIER_ settings" "CODE PLAIN REASON SUM" "$(ollama_models_file_roles "$tmp/tiers.env" | one_line)"
+# A floor named like a model variable is not judged as an override of one.
+check "a usable floor in the environment is not an unapproved model" "0" "$( ( export CI=true CODE_LARGE_MIN_USABLE_VRAM_GB=99; _ollama_ep_check_overrides "$tmp/tiers.env" >/dev/null 2>&1; echo $? ) )"
+check "medium names standard, in any case" "code-default:7b standard" "$(pick 64 32 CODE 'AI_MODEL_TIER= Medium') $(AI_MODEL_TIER=medium ollama_host_tier)"
+check "required models are this machine's picks" "code-xlarge:30b plain:1b reason-xlarge:20b sum-default:4b" "$( ( unset CODE PLAIN REASON SUM AI_MODEL_TIER; export OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((64 * GIB)) OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((32 * GIB)); ollama_models_required "$tmp/tiers.env" | one_line ) )"
 
 # GPUs: AMD through sysfs, connectors skipped, the largest single card decides.
 mkdir -p "$tmp/drm/card0/device" "$tmp/drm/card1/device" "$tmp/drm/card0-DP-1/device" "$tmp/drm/renderD128"
@@ -1335,12 +1375,12 @@ check "an Intel Mac: its cards from system_profiler" "$((8 * GIB))" "$(os_gpu Da
 rm -f "$tmp/os-bin/system_profiler"
 check "Apple silicon: two thirds of its memory is its GPU, for the class" "$((64 * GIB * 2 / 3))" "$(os_gpu Darwin ollama_gpu_mem_largest_bytes _OLLAMA_EP_ARCH=arm64 OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((64 * GIB)))"
 check "and the budget does not count that memory twice" "0" "$(os_gpu Darwin ollama_gpu_mem_bytes _OLLAMA_EP_ARCH=arm64 OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((64 * GIB)))"
-check "so a 64 GB Mac reaches xlarge (42 GiB >= 23) and a 16 GB one stays default" "code-xlarge:30b code-default:7b" "$( ( unset CODE AI_MODEL_TIER OLLAMA_BUDGET_GPU_LARGEST_BYTES; export _OLLAMA_EP_OS=Darwin _OLLAMA_EP_ARCH=arm64 OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((64 * GIB)); ollama_model_for_class "$tmp/tiers.env" CODE ) ) $( ( unset CODE AI_MODEL_TIER OLLAMA_BUDGET_GPU_LARGEST_BYTES; export _OLLAMA_EP_OS=Darwin _OLLAMA_EP_ARCH=arm64 OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((15 * GIB)); ollama_model_for_class "$tmp/tiers.env" CODE ) )"
+check "so a 64 GB Mac reaches xlarge (42 GiB >= 31 + 1 reserve) and a 16 GB one stays default" "code-xlarge:30b code-default:7b" "$( ( unset CODE AI_MODEL_TIER OLLAMA_BUDGET_GPU_LARGEST_BYTES; export _OLLAMA_EP_OS=Darwin _OLLAMA_EP_ARCH=arm64 OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((64 * GIB)); ollama_model_for_class "$tmp/tiers.env" CODE ) ) $( ( unset CODE AI_MODEL_TIER OLLAMA_BUDGET_GPU_LARGEST_BYTES; export _OLLAMA_EP_OS=Darwin _OLLAMA_EP_ARCH=arm64 OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((15 * GIB)); ollama_model_for_class "$tmp/tiers.env" CODE ) )"
 
 # A model above the default that the budget refuses falls back one column.
 fallback() { # fallback <refused model...>: what ensure_models was asked for, in order
   ( unset CODE PLAIN REASON AI_MODEL_TIER _OLLAMA_EP_TIER_CAP
-    export OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((64 * GIB)) OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((23 * GIB)) OLLAMA_URL="$URL"
+    export OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((64 * GIB)) OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((32 * GIB)) OLLAMA_URL="$URL"
     refused=" $* "
     ollama_endpoint_ensure_models() {
       shift 2; echo "asked: $*" >>"$tmp/fallback.log"
@@ -1361,16 +1401,16 @@ elsewhere() { # what ensure_models was asked for, for an Ollama on another machi
     export OLLAMA_URL=http://192.0.2.50:11434 OLLAMA_MODE=remote
     ollama_endpoint_is_local() { return 1; }
     ollama_endpoint_models() { echo other:1b; }
-    # This machine is a workstation (64 GiB, a 24 GB GPU), so taking its own
+    # This machine is a workstation (64 GiB, a 32 GB GPU), so taking its own
     # figures for the other machine would show; stated figures still win.
     ollama_mem_total_bytes() { echo "${OLLAMA_BUDGET_MEM_TOTAL_BYTES:-$((64 * GIB))}"; }
-    _ollama_ep_gpu_list() { echo $((23 * GIB)); }
+    _ollama_ep_gpu_list() { echo $((32 * GIB)); }
     ollama_endpoint_ensure_models() { shift 2; echo "$*"; return 0; }
     ollama_project_ensure_models "$tmp/tiers.env" "" CODE 2>/dev/null )
 }
 check "a remote Ollama with nothing stated: the default column, not this machine's" "code-default:7b" "$(elsewhere)"
 check "its stated memory picks its class (no GPU unless stated)" "code-large:14b" "$(elsewhere OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((31 * GIB)))"
-check "and its stated GPU" "code-xlarge:30b" "$(elsewhere OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((31 * GIB)) OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((23 * GIB)))"
+check "and its stated GPU" "code-xlarge:30b" "$(elsewhere OLLAMA_BUDGET_MEM_TOTAL_BYTES=$((31 * GIB)) OLLAMA_BUDGET_GPU_LARGEST_BYTES=$((32 * GIB)))"
 check "AI_MODEL_TIER names it" "code-small:4b" "$(elsewhere AI_MODEL_TIER=small)"
 
 if [[ "$failures" -gt 0 ]]; then

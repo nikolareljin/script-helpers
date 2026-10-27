@@ -94,10 +94,15 @@ Functions
   - Purpose: Print the model as Ollama lists it: with a tag (`:latest` when none is given), without the default registry's host or its `library/` namespace.
   - Behavior: The tag is looked for in the last path segment only, so `registry.example:5000/team/model` gets `:latest` rather than being read as tagged `5000/team/model`.
 
+- ollama_models_file_roles file
+  - Purpose: Print the roles a models file names (`NAME`), one per line, in file order.
+  - Behavior: Every assigned name except a role's class columns (a name ending in `_SMALL`, `_LARGE` or `_XLARGE`), their floors (`_MIN_USABLE_VRAM_GB`, `_VRAM_GB` or `_RAM_GB` after that) and the `AI_TIER_` settings: those are figures for the pick, not models.
+  - Returns: 0, also when the file is missing.
+
 - ollama_models_required file [NAME...]
   - Purpose: Print the models a start needs, as Ollama lists them, one per line, each once.
-  - Behavior: With no `NAME`, every name in the file except a tier's alternative: a name ending in `_SMALL`, `_LARGE` or `_XLARGE` is the model for another class of machine, and `_VRAM_GB` or `_RAM_GB` after that is a figure for the pick, not a model. Each name gives the model this machine gets (`ollama_model_for_class`): a non-blank value in the environment wins, trimmed; load the project's `.env` first if it should count.
-  - Returns: 0; 2, printing nothing, when a `NAME` is not a variable name or `AI_MODEL_TIER` is not a class (checked before any name, so a typo is never an empty list). A list cut short at the bad name would start a project with some of its models. 1, printing nothing, when `file` is named and is not there: a mistyped path would otherwise read as "needs no models". Pass `""` for no file, to take the names from the environment alone.
+  - Behavior: With no `NAME`, the file's roles (`ollama_models_file_roles`). Each name gives the model this machine gets (`ollama_model_for_class`): a non-blank value in the environment wins, trimmed; load the project's `.env` first if it should count.
+  - Returns: 0; 2, printing nothing, when a `NAME` is not a variable name, `AI_MODEL_TIER` is not a class, or a reserve in the file is not valid (checked before any name, so a typo is never an empty list). A list cut short at the bad name would start a project with some of its models. 1, printing nothing, when `file` is named and is not there: a mistyped path would otherwise read as "needs no models". Pass `""` for no file, to take the names from the environment alone.
 
 - ollama_endpoint_models base_url [timeout_seconds=5]
   - Purpose: Print the models the Ollama at `base_url` has, as it names them.
@@ -136,13 +141,15 @@ Functions
 
 - ollama_model_for_class file NAME
   - Purpose: Print the model this machine gets for `NAME`: the highest class column it qualifies for that names a model, else `NAME`.
-  - Classes (fleet model registry; figures in whole GiB as the machine reports them, so a 32 GB machine is 31):
-    - `xlarge`: its largest GPU has at least `NAME_XLARGE_VRAM_GB`.
-    - `large`: its largest GPU has at least `NAME_LARGE_VRAM_GB`, or it has `AI_TIER_LARGE_RAM_GB` of memory.
-    - `small`: less than `AI_TIER_SMALL_RAM_GB` of memory *and* of GPU memory (a small machine with a good GPU is not small).
+  - Classes (fleet model registry; figures in whole GiB as the machine reports them, so a 32 GB machine is 31), by usable capacity:
+    - `xlarge`: its largest GPU has at least `NAME_XLARGE_MIN_USABLE_VRAM_GB` usable.
+    - `large`: its largest GPU has at least `NAME_LARGE_MIN_USABLE_VRAM_GB` usable, or memory has `AI_TIER_LARGE_USABLE_RAM_GB` usable.
+    - `small`: less than `AI_TIER_SMALL_USABLE_RAM_GB` usable in memory *and* in the largest GPU (a small machine with a good GPU is not small).
     - otherwise the default, `NAME`.
-  - A class with no model for `NAME` falls to the next column below (small to the default). A non-blank `NAME` in the environment wins on any machine. `AI_MODEL_TIER=small|standard|large|xlarge` names the class instead of measuring. Memory that cannot be read picks the default, never a guessed class.
-  - Returns: 0, printing nothing when neither `NAME` nor a column has a value; 2 for a `NAME` that is not a variable name or an `AI_MODEL_TIER` that is not a class.
+  - Usable: the largest GPU less `AI_TIER_GPU_RESERVE_GB` GiB, memory less `AI_TIER_RAM_RESERVE_PERCENT` percent (rounded down); both 0 when not set. A usable floor is compared as the installed figure that leaves it, so the result is exact.
+  - Older fields: `NAME_XLARGE_VRAM_GB`, `NAME_LARGE_VRAM_GB`, `AI_TIER_LARGE_RAM_GB` and `AI_TIER_SMALL_RAM_GB` are installed figures, compared as before: the reserves do not apply to them. A column with both uses the usable one.
+  - A class with no model for `NAME` falls to the next column below (small to the default). A non-blank `NAME` in the environment wins on any machine. `AI_MODEL_TIER=small|standard|large|xlarge` names the class instead of measuring (`medium` is `standard`, any case). Memory that cannot be read picks the default, never a guessed class.
+  - Returns: 0, printing nothing when neither `NAME` nor a column has a value; 2 for a `NAME` that is not a variable name, an `AI_MODEL_TIER` that is not a class, or a reserve that is not a whole number (a memory reserve must be below 100).
 
 - ollama_budget_check pull_bytes largest_model_bytes models_dir
   - Purpose: Say whether the machine can take a download of `pull_bytes` into `models_dir` and then load a model of `largest_model_bytes`.
@@ -261,11 +268,11 @@ OLLAMA_PORT=11435                  # the port published on this machine
 
 - ollama_host_tier
   - Purpose: Print this host's tier: `small`, `standard`, `large` or `xlarge`.
-  - Behavior: `AI_MODEL_TIER` names it (any case). Otherwise memory and the largest GPU (`ollama_machine_figures`) against the data file's thresholds: xlarge when the GPU has `xlarge_vram_gb`; large when the GPU has `large_vram_gb` or memory `large_ram_gb`; small when memory and GPU are both below `small_below_ram_gb`; else standard. Memory that cannot be read is standard.
+  - Behavior: `AI_MODEL_TIER` names it (any case; `medium` is `standard`). Otherwise memory and the largest GPU (`ollama_machine_figures`) against the data file's thresholds: xlarge when the GPU has `xlarge_vram_gb`; large when the GPU has `large_vram_gb` or memory `large_ram_gb`; small when memory and GPU are both below `small_below_ram_gb`; else standard. Memory that cannot be read is standard.
   - Returns: 0; 2 with no data file to measure against (and no `AI_MODEL_TIER`), or a threshold in it that is not a whole number of GiB; 3, printing nothing on stdout, for an `AI_MODEL_TIER` that is not a tier (the message names the variable and the value).
 
 - ollama_tier_model type [tier]
-  - Purpose: Print the approved model for `type` on `tier` (default: `ollama_host_tier`).
+  - Purpose: Print the approved model for `type` on `tier` (default: `ollama_host_tier`; `medium` is `standard`).
   - Behavior: When the tier is measured (no `tier` argument, no `AI_MODEL_TIER`), a model with a size line must fit this host: its largest GPU at least `<GPU GiB>`, or memory at least `<memory GiB>` (`-`: GPU only). Otherwise the next lower tier's model for the type is used, down to small. A stated tier, and the standard tier given when memory cannot be read, are used as stated.
   - Returns: 0; 2 for an unknown type (the known ones are named), a row with no valid model for the tier, a malformed size line, or no data file; 3 for a bad tier.
 
