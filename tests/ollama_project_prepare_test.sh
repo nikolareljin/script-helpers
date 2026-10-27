@@ -138,6 +138,7 @@ check "--url-suffix goes on the default" "OLLAMA_BASE_URL=http://host.docker.int
 check "local mode: 127.0.0.1, no reach check" "OLLAMA_BASE_URL=http://127.0.0.1:11434:0" "$(prep -- --mode local --url-var OLLAMA_BASE_URL --volume vv | grep OLLAMA_BASE_URL):$(got 'reach:')"
 check "local mode: Docker's name for the host is this machine" "OLLAMA_BASE_URL=http://127.0.0.1:11434/api/generate" "$(prep OLLAMA_BASE_URL=http://host.docker.internal:11434/api/generate -- --mode local --url-var OLLAMA_BASE_URL --volume vv | grep OLLAMA_BASE_URL)"
 check "--standard-tier sets standard and warns about another" "AI_MODEL_TIER=standard:1" "$(prep AI_MODEL_TIER=large -- "${D[@]}" --standard-tier | grep AI_MODEL_TIER):$(got 'AI_MODEL_TIER=large is not used' "$tmp/err")"
+check "but not about medium, which is standard" "AI_MODEL_TIER=standard:0" "$(prep AI_MODEL_TIER=medium -- "${D[@]}" --standard-tier | grep AI_MODEL_TIER):$(got 'is not used' "$tmp/err")"
 
 # Failure paths in host mode.
 out="$(prep FAKE_ENSURE=4 -- "${D[@]}")"

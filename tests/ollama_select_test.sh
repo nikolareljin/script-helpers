@@ -339,8 +339,9 @@ said "and that file's model is the one named" "$tmp/err" "envmodel:7b"
 
 # --- bad input ---------------------------------------------------------------------
 machine
-check "bad AI_MODEL_TIER: 11, naming the variable and value" "11" "$(AI_MODEL_TIER=medium ai_model_resolve general "$URL" 2>"$tmp/err"; echo $?)"
-said "the message" "$tmp/err" "AI_MODEL_TIER" "medium"
+check "bad AI_MODEL_TIER: 11, naming the variable and value" "11" "$(AI_MODEL_TIER=huge ai_model_resolve general "$URL" 2>"$tmp/err"; echo $?)"
+said "the message" "$tmp/err" "AI_MODEL_TIER" "huge"
+check "medium is standard: AI_MODEL_TIER and a tier argument" "standard $(ollama_tier_model general standard)" "$(AI_MODEL_TIER=Medium ollama_host_tier) $(ollama_tier_model general medium)"
 check "unknown type: 10" "10" "$(ai_model_resolve chat "$URL" 2>/dev/null; echo $?)"
 # shellcheck disable=SC2016  # the command must stay unexpanded
 check "a NAME that is not a variable name: 10" "10" "$(ai_model_resolve general "$URL" "" 'x[$(id)]' 2>/dev/null; echo $?)"
