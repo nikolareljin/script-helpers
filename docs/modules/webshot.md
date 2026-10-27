@@ -10,7 +10,8 @@ Playwright runs from a Python venv kept outside the repository
 `shlib_import python webshot`; `logging` is optional.
 
 Exit codes for every function: 0 ok, 1 the run failed (login refused, selector not found, page error),
-2 bad arguments or spec, 3 Python or Playwright unavailable.
+2 bad arguments or spec, 3 Python or Playwright unavailable (for `webshot_android_audit`: adb, Python or a
+ready device).
 
 Functions
 ---------
@@ -60,11 +61,32 @@ Functions
   - Output: stdout JSON `{"crawled": N, "findings": {url: {device: {width, scroll_width, elements,
     clipped_headings}}}, "http_errors": {url: status or error}, "downloads": [url]}`. A page that fails
     to load is listed in `http_errors` and is not a finding. A link the browser downloads (a PDF, a zip)
-    is listed in `downloads` and is not counted in `crawled`.
+    is listed in `downloads` and is not counted in `crawled`; so is a non-HTML file served over HTTP that
+    the browser shows itself, such as an image (by its `Content-Type`).
   - Returns: 0 no finding; 1 a finding, or the start page did not load; 2 bad arguments or an unknown
     device; 3 without Playwright.
   - Env: none.
   - Example: `webshot_audit http://localhost:8080/ --skip /admin --shots build/phone > build/audit.json`
+
+- `webshot_android_audit url [--serial S] [--path P]... [--shots DIR] [--timeout-ms N]`
+  - Purpose: Run the `webshot_audit` checks in Chrome on a real Android phone attached over adb (USB,
+    or `adb tcpip`). The phone needs USB debugging on and Chrome installed. A `localhost` or
+    `127.0.0.1` URL reaches the phone through `adb reverse tcp:PORT tcp:PORT`, so a local site is never
+    opened to the network; any other host is opened as given. Chrome opens the URL and the checks run
+    through its DevTools socket (`adb forward tcp:0 localabstract:chrome_devtools_remote`), with Python's
+    standard library: Playwright does not support CDP to Chrome on Android, and Playwright is not
+    needed. `--path` (repeatable) checks those paths of `url` instead of `url` itself; there is no
+    crawl. `--shots DIR` saves `DIR/<path>--<model>.png` from `adb exec-out screencap`, so the PNG is the
+    whole screen with Chrome's toolbar. `--serial` picks a device when more than one is attached. Both
+    port forwards are removed on exit, also on INT and TERM; a reverse that existed before the run is
+    left in place.
+  - Output: stdout JSON `{"device": model, "viewport": {width, height, dpr}, "checked": [url],
+    "findings": {url: {model: {width, scroll_width, elements, clipped_headings}}}, "http_errors": {url:
+    status or error}}`.
+  - Returns: 0 no finding; 1 a finding, or a page did not load; 2 bad arguments (a URL with a quote or
+    space too: it passes through the phone's shell); 3 no adb, no Python, or no ready device.
+  - Env: none.
+  - Example: `webshot_android_audit http://localhost:8080/ --path / --path /calendar --shots build/phone > build/phone.json`
 
 - `webshot_pdf input.html output.pdf [--format Letter|A4|A3|Legal|Tabloid] [--landscape] [--footer TEXT] [--wait-ms N]`
   - Purpose: Print a local HTML file to PDF with backgrounds. CSS `@page` size and margins win when the

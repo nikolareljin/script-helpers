@@ -1,3 +1,13 @@
+## Unreleased
+
+### Added
+
+- **`webshot_android_audit` checks a site on a real Android phone.** `webshot_android_audit <url>` (and `bin/webshot android-audit`) opens the URL in Chrome on a phone attached over adb and runs the `webshot_audit` checks (page wider than the screen, cut-off heading) through Chrome's DevTools socket, with Python's standard library: Playwright does not support CDP to Chrome on Android. A `localhost` or `127.0.0.1` URL reaches the phone by `adb reverse`, so the site is not opened to the network. `--path` checks several paths, `--shots DIR` saves a `screencap` PNG per page, `--serial` picks a device. Port forwards are removed on exit, INT and TERM; a reverse that was already set up is left alone. No ready device exits 3. Tests: `tests/webshot_android_test.sh`, with a fake adb and a headless Chromium standing in for the phone's Chrome.
+
+### Fixed
+
+- **`webshot_audit` no longer reports an image as a wide page.** A link to a large image (a 1920px JPG wallpaper) opened the image in the browser, and the audit measured it as a page wider than the phone. A response over HTTP whose `Content-Type` is not HTML is now listed in `downloads`. Tests: a new case in `tests/webshot_test.sh` (fails against 0.59.0).
+
 ## 2026-10-25 — v0.59.0
 
 ### Added

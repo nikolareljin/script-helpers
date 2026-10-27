@@ -252,8 +252,10 @@ r, base = json.load(open(sys.argv[1])), f"http://127.0.0.1:{sys.argv[2]}"
 # /redirect lands on /wide.html, which is also linked: one entry, not two.
 assert set(r["findings"]) == {base + "/wide.html", base + "/clipped.html"}, r
 assert not r["http_errors"], r
+# An image opened directly is not a page: listed, not measured.
+assert base + "/wide.png" in r["downloads"], r
 PY
-    note "audit over HTTP reports a redirected page once, under its final URL"
+    note "audit over HTTP reports a redirected page once, under its final URL, and lists an image apart"
   else
     error "audit over HTTP returned $status or reported a page twice: $(cat "$tmp/audit-http.json")"
   fi
