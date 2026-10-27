@@ -702,50 +702,73 @@ _ollama_ep_tier_name() {
   printf '%s\n' "$_oep_t"
 }
 
-# Usage: _ollama_ep_tier_reserves <models_file>; prints "<GPU GiB>:<memory
-# percent>", the reserves the file states (0 when it states none).
+# The class floors run on every pick, and a pick is one of many in a start;
+# each read of the file is a few processes (slow under Git Bash). So the
+# file's names are listed once, only fields it has are read, and the numbers
+# are worked out without a subshell.
+
+# Usage: _ollama_ep_tier_whole <value>; succeeds when value is a whole number
+# a shell can count with (at most 15 digits).
+_ollama_ep_tier_whole() { [[ "${1:-}" =~ ^[0-9]+$ && "${#1}" -le 15 ]]; }
+
+# Usage: _ollama_ep_tier_reserves <models_file> [names]; prints "<GPU GiB>:<memory
+# percent>", the reserves the file states (0 when it states none). names, the
+# file's names between spaces (" A B "), saves listing them again.
 # Returns: 0; 2 a reserve that is not a whole number, or a memory reserve of
 # 100 percent or more (no memory would be left).
 # Output: stdout the two reserves; stderr errors.
 _ollama_ep_tier_reserves() {
-  local _oep_file="${1:-}" _oep_v _oep_gpu _oep_ram
-  _oep_v="$(_ollama_ep_file_val "$_oep_file" AI_TIER_GPU_RESERVE_GB)"
-  if ! _oep_gpu="$(_ollama_ep_uint "${_oep_v:-0}")"; then
-    print_error "AI_TIER_GPU_RESERVE_GB in $(_ollama_ep_said "$_oep_file") is a whole number of GiB; not $(_ollama_ep_said "$_oep_v")" >&2
-    return 2
+  local _oep_file="${1:-}" _oep_names="${2-}" _oep_v _oep_gpu=0 _oep_ram=0
+  [[ -n "$_oep_names" ]] || _oep_names=" $(ollama_models_file_names "$_oep_file" | tr '\n' ' ')"
+  if [[ "$_oep_names" == *" AI_TIER_GPU_RESERVE_GB "* ]]; then
+    _oep_v="$(_ollama_ep_file_val "$_oep_file" AI_TIER_GPU_RESERVE_GB)"
+    if ! _ollama_ep_tier_whole "$_oep_v"; then
+      print_error "AI_TIER_GPU_RESERVE_GB in $(_ollama_ep_said "$_oep_file") is a whole number of GiB; not $(_ollama_ep_said "$_oep_v")" >&2
+      return 2
+    fi
+    _oep_gpu=$(( 10#$_oep_v ))
   fi
-  _oep_v="$(_ollama_ep_file_val "$_oep_file" AI_TIER_RAM_RESERVE_PERCENT)"
-  if ! _oep_ram="$(_ollama_ep_uint "${_oep_v:-0}")" || [[ "$_oep_ram" -ge 100 ]]; then
-    print_error "AI_TIER_RAM_RESERVE_PERCENT in $(_ollama_ep_said "$_oep_file") is a whole number below 100; not $(_ollama_ep_said "$_oep_v")" >&2
-    return 2
+  if [[ "$_oep_names" == *" AI_TIER_RAM_RESERVE_PERCENT "* ]]; then
+    _oep_v="$(_ollama_ep_file_val "$_oep_file" AI_TIER_RAM_RESERVE_PERCENT)"
+    if ! _ollama_ep_tier_whole "$_oep_v" || [[ $(( 10#$_oep_v )) -ge 100 ]]; then
+      print_error "AI_TIER_RAM_RESERVE_PERCENT in $(_ollama_ep_said "$_oep_file") is a whole number below 100; not $(_ollama_ep_said "$_oep_v")" >&2
+      return 2
+    fi
+    _oep_ram=$(( 10#$_oep_v ))
   fi
   printf '%s:%s\n' "$_oep_gpu" "$_oep_ram"
 }
 
-# Usage: _ollama_ep_tier_floor <models_file> <usable name> <installed name>
-# <gpu|ram> <GPU reserve GiB> <memory reserve percent>; prints the floor as an
-# installed figure, the one the machine reports: the usable field turned into
-# the installed capacity that leaves that much after the reserve, else the
-# installed field as written. Nothing for neither, or one that is not a whole
-# number (a floor that never matches).
+# Usage: _ollama_ep_tier_floor <models_file> <names> <usable name> <installed
+# name> <GPU reserve GiB> <memory reserve percent> <GPU var> <memory var>; sets
+# the two variables to the floor as an installed figure, the one the machine
+# reports, judged against the GPU and against memory: a usable field becomes
+# the installed capacity that leaves that much after the reserve; an installed
+# field is used as written, for both. Empty for neither, or for a value that is
+# not a whole number (a floor that never matches).
 #   GPU:    usable max(g - R, 0) >= U  is  U = 0, or g >= U + R
 #   memory: usable floor(m * (100 - P) / 100) >= U  is  m >= ceil(100 U / (100 - P))
 # Returns: 0.
-# Output: stdout the floor in GiB, or nothing.
+# Output: none.
 _ollama_ep_tier_floor() {
-  local _oep_v
-  _oep_v="$(_ollama_ep_file_val "$1" "$2")"
-  if [[ -n "$_oep_v" ]]; then
-    _oep_v="$(_ollama_ep_uint "$_oep_v")" || return 0
-    if [[ "$4" == gpu ]]; then
-      [[ "$_oep_v" -eq 0 ]] || _oep_v=$(( _oep_v + $5 ))
-    else
-      _oep_v=$(( (_oep_v * 100 + 99 - $6) / (100 - $6) ))
-    fi
-    printf '%s\n' "$_oep_v"
-    return 0
+  local _oep_v="" _oep_usable=0 _oep_g="" _oep_m=""
+  if [[ "$2" == *" $3 "* ]]; then
+    _oep_v="$(_ollama_ep_file_val "$1" "$3")"
+    _oep_usable=1
+  elif [[ "$2" == *" $4 "* ]]; then
+    _oep_v="$(_ollama_ep_file_val "$1" "$4")"
   fi
-  _ollama_ep_uint "$(_ollama_ep_file_val "$1" "$3")" || true
+  if _ollama_ep_tier_whole "$_oep_v"; then
+    _oep_v=$(( 10#$_oep_v ))
+    if [[ "$_oep_usable" -eq 1 ]]; then
+      _oep_g=$(( _oep_v == 0 ? 0 : _oep_v + $5 ))
+      _oep_m=$(( (_oep_v * 100 + 99 - $6) / (100 - $6) ))
+    else
+      _oep_g="$_oep_v" _oep_m="$_oep_v"
+    fi
+  fi
+  printf -v "$7" '%s' "$_oep_g"
+  printf -v "$8" '%s' "$_oep_m"
 }
 _ollama_ep_gib() { echo $(( ${1:-0} / 1073741824 )); }
 
@@ -807,7 +830,7 @@ ollama_machine_figures() {
 ollama_model_for_class() {
   local _oep_file="${1:-}" _oep_name="${2:-}" _oep_value _oep_tier _oep_cap _oep_mem _oep_gpu
   local _oep_def _oep_small _oep_large _oep_xlarge _oep_large_vram _oep_xlarge_vram _oep_small_ram _oep_large_ram
-  local _oep_reserves _oep_gpu_reserve _oep_ram_reserve _oep_small_vram
+  local _oep_reserves _oep_gpu_reserve _oep_ram_reserve _oep_small_vram _oep_keys _oep_unused
   if ! _ollama_ep_is_name "$_oep_name"; then
     print_error "Not a variable name: $(_ollama_ep_said "$_oep_name")" >&2
     return 2
@@ -821,14 +844,18 @@ ollama_model_for_class() {
   _oep_small="$(_ollama_ep_file_val "$_oep_file" "${_oep_name}_SMALL")"
   _oep_large="$(_ollama_ep_file_val "$_oep_file" "${_oep_name}_LARGE")"
   _oep_xlarge="$(_ollama_ep_file_val "$_oep_file" "${_oep_name}_XLARGE")"
-  _oep_reserves="$(_ollama_ep_tier_reserves "$_oep_file")" || return 2
+  _oep_keys=" $(ollama_models_file_names "$_oep_file" | tr '\n' ' ')"
+  _oep_reserves="$(_ollama_ep_tier_reserves "$_oep_file" "$_oep_keys")" || return 2
   IFS=: read -r _oep_gpu_reserve _oep_ram_reserve <<<"$_oep_reserves"
-  _oep_large_vram="$(_ollama_ep_tier_floor "$_oep_file" "${_oep_name}_LARGE_MIN_USABLE_VRAM_GB" "${_oep_name}_LARGE_VRAM_GB" gpu "$_oep_gpu_reserve" "$_oep_ram_reserve")"
-  _oep_xlarge_vram="$(_ollama_ep_tier_floor "$_oep_file" "${_oep_name}_XLARGE_MIN_USABLE_VRAM_GB" "${_oep_name}_XLARGE_VRAM_GB" gpu "$_oep_gpu_reserve" "$_oep_ram_reserve")"
-  _oep_small_ram="$(_ollama_ep_tier_floor "$_oep_file" AI_TIER_SMALL_USABLE_RAM_GB AI_TIER_SMALL_RAM_GB ram "$_oep_gpu_reserve" "$_oep_ram_reserve")"
+  _ollama_ep_tier_floor "$_oep_file" "$_oep_keys" "${_oep_name}_LARGE_MIN_USABLE_VRAM_GB" "${_oep_name}_LARGE_VRAM_GB" \
+    "$_oep_gpu_reserve" "$_oep_ram_reserve" _oep_large_vram _oep_unused
+  _ollama_ep_tier_floor "$_oep_file" "$_oep_keys" "${_oep_name}_XLARGE_MIN_USABLE_VRAM_GB" "${_oep_name}_XLARGE_VRAM_GB" \
+    "$_oep_gpu_reserve" "$_oep_ram_reserve" _oep_xlarge_vram _oep_unused
+  _ollama_ep_tier_floor "$_oep_file" "$_oep_keys" AI_TIER_LARGE_USABLE_RAM_GB AI_TIER_LARGE_RAM_GB \
+    "$_oep_gpu_reserve" "$_oep_ram_reserve" _oep_unused _oep_large_ram
   # The small floor applies to the GPU too, after the GPU's reserve.
-  _oep_small_vram="$(_ollama_ep_tier_floor "$_oep_file" AI_TIER_SMALL_USABLE_RAM_GB AI_TIER_SMALL_RAM_GB gpu "$_oep_gpu_reserve" "$_oep_ram_reserve")"
-  _oep_large_ram="$(_ollama_ep_tier_floor "$_oep_file" AI_TIER_LARGE_USABLE_RAM_GB AI_TIER_LARGE_RAM_GB ram "$_oep_gpu_reserve" "$_oep_ram_reserve")"
+  _ollama_ep_tier_floor "$_oep_file" "$_oep_keys" AI_TIER_SMALL_USABLE_RAM_GB AI_TIER_SMALL_RAM_GB \
+    "$_oep_gpu_reserve" "$_oep_ram_reserve" _oep_small_vram _oep_small_ram
 
   _oep_cap="$(_ollama_ep_tier_rank "${_OLLAMA_EP_TIER_CAP:-xlarge}")" || _oep_cap=3
   if [[ -n "$(printf '%s' "${AI_MODEL_TIER:-}" | tr -d ' \t\r')" ]]; then
