@@ -77,7 +77,8 @@ Functions
     needed. `--path` (repeatable) checks those paths of `url` instead of `url` itself; there is no
     crawl. `--shots DIR` saves `DIR/<path>--<model>.png` from `adb exec-out screencap`, so the PNG is the
     whole screen with Chrome's toolbar. `--serial` picks a device when more than one is attached. Both
-    port forwards are removed on exit, also on INT and TERM.
+    port forwards are removed on exit, also on INT and TERM; a reverse that existed before the run is
+    left in place.
   - Output: stdout JSON `{"device": model, "viewport": {width, height, dpr}, "checked": [url],
     "findings": {url: {model: {width, scroll_width, elements, clipped_headings}}}, "http_errors": {url:
     status or error}}`.

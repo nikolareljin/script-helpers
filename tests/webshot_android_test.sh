@@ -131,6 +131,16 @@ PY
   fi
 
   expect_status 0 "a clean page" webshot_android_audit "http://127.0.0.1:$site_port/clean-only.html"
+
+  # A reverse that was there before the run is left in place.
+  : >"$FAKE_ADB_LOG"
+  FAKE_ADB_REVERSES="$site_port" expect_status 0 "a clean page with the port already reversed" \
+    webshot_android_audit "http://127.0.0.1:$site_port/clean-only.html"
+  if grep -q -- "reverse tcp:\|reverse --remove" "$FAKE_ADB_LOG"; then
+    error "touched a reverse it did not create: $(cat "$FAKE_ADB_LOG")"
+  else
+    note "an existing reverse is neither added again nor removed"
+  fi
   expect_status 0 "bin/webshot android-audit of a clean page" \
     bin/webshot android-audit "http://127.0.0.1:$site_port/clean-only.html"
 

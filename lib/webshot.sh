@@ -161,7 +161,7 @@ webshot_audit() {
 # checks those paths of the URL instead of the URL itself; there is no crawl.
 # --shots saves DIR/<page>--<model>.png with `adb exec-out screencap`. The
 # phone needs USB debugging on and Chrome installed. Port forwards are removed
-# on exit, also on INT and TERM.
+# on exit, also on INT and TERM; a reverse set up before the run stays.
 # Returns: 0 no finding; 1 a finding or a page did not load; 2 bad arguments; 3 adb, Python or a ready device missing.
 # Output: stdout a JSON report {device, viewport, checked, findings, http_errors}; stderr log lines.
 webshot_android_audit() {
@@ -225,8 +225,11 @@ webshot_android_audit() {
     trap 'exit 143' TERM
     case "$host" in
       localhost|127.0.0.1)
-        adb -s "$serial" reverse "tcp:$port" "tcp:$port" >/dev/null || { _webshot_log_error "adb reverse tcp:$port failed"; exit 1; }
-        reversed="$port" ;;
+        # A reverse the user set up already stays, and is not removed at exit.
+        if ! adb -s "$serial" reverse --list 2>/dev/null | tr -d '\r' | grep -q " tcp:$port tcp:$port\$"; then
+          adb -s "$serial" reverse "tcp:$port" "tcp:$port" >/dev/null || { _webshot_log_error "adb reverse tcp:$port failed"; exit 1; }
+          reversed="$port"
+        fi ;;
     esac
     adb -s "$serial" shell am start -a android.intent.action.VIEW -d "'$url'" -p com.android.chrome >/dev/null 2>&1 \
       || { _webshot_log_error "could not open Chrome on $serial"; exit 1; }
