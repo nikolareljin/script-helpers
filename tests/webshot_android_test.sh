@@ -63,6 +63,7 @@ expect_status 2 "no url" webshot_android_audit
 expect_status 2 "a file url" webshot_android_audit file:///tmp/x.html
 expect_status 2 "a url with a quote" webshot_android_audit "http://localhost:8000/a'b"
 expect_status 2 "a url with a space" webshot_android_audit "http://localhost:8000/a b"
+expect_status 2 "a url with a double quote" webshot_android_audit "http://localhost:8000/a\"b"
 expect_status 2 "an unknown option" webshot_android_audit http://localhost:8000/ --crawl
 expect_status 2 "a trailing --path" webshot_android_audit http://localhost:8000/ --path
 expect_status 2 "a bad --timeout-ms" webshot_android_audit http://localhost:8000/ --timeout-ms 0

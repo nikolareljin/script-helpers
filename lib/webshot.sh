@@ -881,7 +881,7 @@ def android():
                 if png.returncode != 0 or not png.stdout.startswith(b"\x89PNG"):
                     fail(1, f"screencap failed on {serial}: {png.stderr.decode(errors='replace').strip()[:200]}")
                 (shots / f"{shot_slug(url)}--{re.sub(r'[^A-Za-z0-9._-]+', '_', device)}.png").write_bytes(png.stdout)
-    except (OSError, RuntimeError, ValueError, KeyError) as exc:
+    except (OSError, RuntimeError, ValueError, KeyError, TypeError) as exc:
         fail(1, f"DevTools: {exc}")
     print(json.dumps({"device": device, "viewport": viewport, "checked": checked, "findings": findings,
                       "http_errors": http_errors}, indent=1))
