@@ -96,12 +96,12 @@
 # means the word may appear in prose; it does not mean a private repository of
 # that name may be referred to. So an allowed name is taken out of the bare
 # tiers and searched in the shape of a repository reference only: `beacon.git`,
-# "the beacon repo", "repository: beacon", `repo=beacon`, `cd beacon` (also
+# "the beacon repo", "repository: beacon", `repo=beacon`, `project: beacon`, `cd beacon` (also
 # `cd ../beacon`), `clone <url> beacon`, `git -C beacon`, `--repo beacon`, a
 # projects-style path (`~/Projects/beacon/`, `repos/beacon`) and
-# `host/owner/beacon`, with or without a scheme, or `host:owner/beacon`. A boat
-# beacon, `app/beacon/` as a module path, `gcc -c beacon.c` and `beacon` in
-# back-ticks stay silent. Reported like an everyday-word name: a warning, and a failure under
+# `host/owner/beacon`, with or without a scheme, or `git@host:owner/beacon`. A
+# boat beacon, "the project beacon", `beacon-ui`, `app/beacon/` as a module path,
+# `gcc -c beacon.c` and `beacon` in back-ticks stay silent. Reported like an everyday-word name: a warning, and a failure under
 # --strict-ambiguous, since a person at a terminal can tell the two apart and
 # a hook posting text cannot. Looked for in the tree too: the shapes are rare
 # enough there to read.
@@ -692,15 +692,18 @@ search() {        # search <names-file> <label> [token|context]
       }
       return 0
     }
-    function shaped(line, needle,   e, b, a) {
+    function shaped(line, needle,   e, b, a, w) {
       e = needle; gsub(/[][\\.^$*+?(){}|]/, "\\\\&", e)
-      b = "(^|[^a-z0-9])"; a = "([^a-z0-9]|$)"
-      if (line ~ (b e "\\.git" a)) return 1                                     # beacon.git
-      if (line ~ (b e "(\x27s)? +(repo|repository|project)" a)) return 1        # the beacon repo
-      if (line ~ (b "(repo|repository|project)(_name)? *[:=]? *" e a)) return 1  # repo: beacon, repo=beacon
-      if (line ~ (b "(cd|git +-c|--repo|clone( +[^ ]+)?) +([^ ]*/)?" e a)) return 1  # cd ../beacon, git -C beacon
-      if (line ~ (b "(projects?|repos?|repositories|workspace)/" e a)) return 1 # ~/Projects/beacon
-      if (line ~ ("[a-z0-9-]+\\.[a-z]+[/:][^/ ]+/" e a)) return 1             # host/owner/beacon, host:owner/beacon
+      # After the name, "-" or "_" means a longer name: beacon-ui is not beacon.
+      b = "(^|[^a-z0-9])"; a = "([^a-z0-9_-]|$)"; w = "[ \t]"
+      if (line ~ (b e "\\.git" a)) return 1                                        # beacon.git
+      if (line ~ (b e "(\x27s)?" w "+(repo|repository)" a)) return 1                # the beacon repo
+      if (line ~ (b "(repo|repository)(_name)?(" w "*[:=]" w "*|" w "+)" e a)) return 1  # repo beacon, repo=beacon
+      if (line ~ (b "project(_name)?" w "*[:=]" w "*" e a)) return 1                 # project: beacon
+      if (line ~ (b "(cd|git" w "+-c|--repo|clone(" w "+[^ \t]+)?)" w "+([^ \t]*/)?" e a)) return 1  # cd ../beacon
+      if (line ~ (b "(projects?|repos?|repositories|workspace)/" e a)) return 1     # ~/Projects/beacon
+      if (line ~ ("[a-z0-9-]+\\.[a-z]+/[^/ \t]+/" e a)) return 1                  # host/owner/beacon
+      if (line ~ ("@[a-z0-9.-]+:[^/ \t]+/" e a)) return 1                            # git@host:owner/beacon
       return 0
     }
     BEGIN {

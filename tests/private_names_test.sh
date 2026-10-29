@@ -243,7 +243,7 @@ ctx_rc 1 "strict: beacon.git shape fails"                "see bluewidget.git for
 ctx_rc 1 "strict: 'the <name> repo'"                     "pushed to the bluewidget repo yesterday" --strict-ambiguous
 ctx_rc 1 "strict: \"<name>'s repository\""                "bluewidget's repository holds it" --strict-ambiguous
 ctx_rc 1 "strict: 'repository: <name>'"                  "repository: bluewidget" --strict-ambiguous
-ctx_rc 1 "strict: 'project <name>'"                      "see project Bluewidget for the plan" --strict-ambiguous
+ctx_rc 1 "strict: 'project: <name>'"                     "project: Bluewidget" --strict-ambiguous
 ctx_rc 1 "strict: a cd target"                           "run cd bluewidget && make" --strict-ambiguous
 ctx_rc 1 "strict: a clone target"                        "git clone git@example.org:someone/x.git bluewidget" --strict-ambiguous
 ctx_rc 1 "strict: git -C"                                "git -C bluewidget pull" --strict-ambiguous
@@ -270,6 +270,13 @@ ctx_rc 1 "strict: 'REPO_NAME: <name>'"                   "REPO_NAME: bluewidget"
 # -c is not -C: the shape is matched on the lowercased line, so only git's -C counts.
 ctx_rc 0 "strict: a compiler -c"                         "gcc -c bluewidget.c" --strict-ambiguous
 ctx_rc 0 "strict: bash -c"                               "bash -c bluewidget" --strict-ambiguous
+ctx_rc 1 "strict: a tab after cd"                        "$(printf 'cd\tbluewidget')" --strict-ambiguous
+ctx_rc 0 "strict: a longer repo name, URL"               "https://github.com/someone/bluewidget-ui" --strict-ambiguous
+ctx_rc 0 "strict: a longer repo name, cd"                "cd bluewidget-tools" --strict-ambiguous
+ctx_rc 0 "strict: a longer repo name, path"              "Projects/bluewidget_old" --strict-ambiguous
+ctx_rc 0 "strict: 'project' in prose"                    "the project bluewidget light" --strict-ambiguous
+ctx_rc 0 "strict: 'project' after the word"              "see the bluewidget project for details" --strict-ambiguous
+ctx_rc 0 "strict: a file name is not a host"             "file.txt:x/bluewidget" --strict-ambiguous
 ctx_rc 0 "strict: a work/ module path"                   "see src/work/bluewidget/x" --strict-ambiguous
 # The repository's own name (prepare_public.sh sets it) is not a hit in any shape.
 got="$(printf 'git clone https://example.org/me/bluewidget.git && cd bluewidget' \
