@@ -78,10 +78,19 @@ rc=0; bash "$root_dir/scripts/foxguard_report.sh" --output "$tmp/no/such/dir/r.j
 [[ $rc -eq 2 ]] && ok "a report that cannot be written is exit 2, not 1 (findings)" || error "unwritable output: rc=$rc"
 
 rm -f "$tmp/bin/foxguard"
-# Drop every PATH entry with a real foxguard too: one in ~/.local/bin made this pass as installed.
-no_fox_path=""
+# Hide a real foxguard too: one in ~/.local/bin made this pass as installed. A PATH
+# entry holding it is replaced by a mirror of its other commands, so a foxguard in
+# /usr/bin does not take bash and git with it.
+no_fox_path=""; i=0
 IFS=: read -r -a path_dirs <<< "$PATH"
-for d in "${path_dirs[@]}"; do [[ -x "$d/foxguard" ]] || no_fox_path="${no_fox_path:+$no_fox_path:}$d"; done
+for d in "${path_dirs[@]}"; do
+  if [[ -x "$d/foxguard" ]]; then
+    i=$((i+1)); mkdir -p "$tmp/nofox$i"
+    for f in "$d"/*; do [[ "${f##*/}" == foxguard ]] || ln -s "$f" "$tmp/nofox$i/" 2>/dev/null; done
+    d="$tmp/nofox$i"
+  fi
+  no_fox_path="${no_fox_path:+$no_fox_path:}$d"
+done
 rc=0; out="$(PATH="$no_fox_path" bash "$root_dir/scripts/foxguard_report.sh" -- good.sh 2>&1)" || rc=$?
 [[ $rc -eq 3 && "$out" == *"not installing"* ]] && ok "foxguard missing with SCRIPT_HELPERS_NO_AUTO_INSTALL=1: nothing downloaded, exit 3" \
   || error "no-auto-install: rc=$rc out=$out"
