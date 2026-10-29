@@ -74,6 +74,9 @@
 # risk, given the dictionary words above. Three ways past it, loudest last:
 #
 #   PRIVATE_NAMES_ALLOW="term,term"   allow named terms for this run
+#   PRIVATE_NAMES_SELF="name"         the repository's own name, not checked in
+#                                     any shape (prepare_public.sh sets it for
+#                                     the repository it is making public)
 #   .git/private-names-allow          one term per line, for a repository where
 #                                     a word recurs innocently (inside .git, so
 #                                     it can never be committed anywhere); read
@@ -438,6 +441,8 @@ allowed="$work/allowed"
 if [[ -n "${PRIVATE_NAMES_ALLOW:-}" ]]; then
   printf '%s\n' "$PRIVATE_NAMES_ALLOW" | tr ',' '\n' >> "$allowed"
 fi
+self_names="$work/self"
+printf '%s\n' "${PRIVATE_NAMES_SELF:-}" | tr ',' '\n' | sed 's/[[:space:]]//g' | grep -v '^$' > "$self_names" || true
 # The repository's allowlist: <git directory>/private-names-allow.
 # A linked worktree has two git directories:
 #   shared (--git-common-dir): the main checkout's .git
@@ -504,15 +509,27 @@ sed -e 's/#.*//' -e 's/[[:space:]]//g' "$allowed" | grep -v '^$' > "$allowed.cle
 mv "$allowed.clean" "$allowed"
 
 drop_allowed() {  # drop_allowed <names-file>
-  [[ -s "$allowed" ]] || return 0
-  local kept="$1.kept" dropped="$1.dropped" name
+  [[ -s "$allowed" || -s "$self_names" ]] || return 0
+  local kept="$1.kept" dropped="$1.dropped" selfed="$1.self" name
   # One awk pass, not a grep per name: with a list of thousands of names the
   # loop forked thousands of processes and took 7 s on every run. Same match
   # as before: the whole name, case-insensitive, as a fixed string.
-  awk -F'\t' -v allowf="$allowed" -v keptf="$kept" -v dropf="$dropped" '
-    BEGIN { while ((getline a < allowf) > 0) allow[tolower(a)] = 1; printf "" > keptf; printf "" > dropf }
-    { if (tolower($1) in allow) print $1 "\t" $2 > dropf; else print $1 "\t" $2 > keptf }
+  awk -F'\t' -v allowf="$allowed" -v selff="$self_names" -v keptf="$kept" -v dropf="$dropped" -v selfo="$selfed" '
+    BEGIN {
+      while ((getline a < allowf) > 0) allow[tolower(a)] = 1
+      while ((getline a < selff) > 0) own[tolower(a)] = 1
+      printf "" > keptf; printf "" > dropf; printf "" > selfo
+    }
+    {
+      if (tolower($1) in own) print $1 > selfo
+      else if (tolower($1) in allow) print $1 "\t" $2 > dropf
+      else print $1 "\t" $2 > keptf
+    }
   ' "$1" || { log_error "could not apply the allowlist"; exit 2; }
+  while IFS= read -r name; do
+    log_info "the repository's own name, not checked: $name"
+  done < "$selfed"
+  rm -f "$selfed"
   # Not dropped: moved. The word is free in prose; the name is still looked for
   # in the shape of a repository reference (see the header).
   cat "$dropped" >> "$context"
@@ -669,12 +686,12 @@ search() {        # search <names-file> <label> [token|context]
     function shaped(line, needle,   e, b, a) {
       e = needle; gsub(/[][\\.^$*+?(){}|]/, "\\\\&", e)
       b = "(^|[^a-z0-9])"; a = "([^a-z0-9]|$)"
-      if (line ~ (b e "\\.git" a)) return 1                               # beacon.git
-      if (line ~ (b e "(\x27s)? +(repo|repository|project)" a)) return 1  # the beacon repo
-      if (line ~ (b "(repo|repository|project):? +" e a)) return 1         # repo: beacon
-      if (line ~ (b "(cd|-c|--repo|clone +[^ ]+) +" e a)) return 1         # cd beacon, git -C beacon
-      if (line ~ ("(^|[^a-z0-9])(projects?|repos?|repositories|work|workspace)/" e a)) return 1
-      if (line ~ ("://[^/ ]+/[^/ ]+/" e a)) return 1                        # host/owner/beacon
+      if (line ~ (b e "\\.git" a)) return 1                                     # beacon.git
+      if (line ~ (b e "(\x27s)? +(repo|repository|project)" a)) return 1        # the beacon repo
+      if (line ~ (b "(repo|repository|project)(_name)? *[:=]? *" e a)) return 1  # repo: beacon, repo=beacon
+      if (line ~ (b "(cd|git +-c|--repo|clone( +[^ ]+)?) +([^ ]*/)?" e a)) return 1  # cd ../beacon, git -C beacon
+      if (line ~ (b "(projects?|repos?|repositories|workspace)/" e a)) return 1 # ~/Projects/beacon
+      if (line ~ ("[a-z0-9-]+\\.[a-z]+[/:][^/ ]+/" e a)) return 1             # host/owner/beacon, host:owner/beacon
       return 0
     }
     BEGIN {

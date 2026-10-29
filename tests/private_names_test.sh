@@ -255,6 +255,28 @@ ctx_rc 0 "strict: a deeper URL"                          "https://example.org/do
 ctx_rc 0 "strict: 'repo' two words away"                 "the repo of the bluewidget" --strict-ambiguous
 ctx_rc 0 "strict: a longer word"                         "cd bluewidgets && ls" --strict-ambiguous
 ctx_rc 0 "strict: a dot that is not .git"                "bluewidget.gitignore rules" --strict-ambiguous
+ctx_rc 1 "strict: host/owner/<name> without a scheme"   "see github.com/someone/bluewidget" --strict-ambiguous
+ctx_rc 1 "strict: host:owner/<name>"                     "git@example.org:someone/bluewidget" --strict-ambiguous
+ctx_rc 1 "strict: a cd target with a path"               "cd ../bluewidget && make" --strict-ambiguous
+ctx_rc 1 "strict: gh repo clone owner/<name>"            "gh repo clone someone/bluewidget" --strict-ambiguous
+ctx_rc 1 "strict: 'repo=<name>'"                         "repo=bluewidget" --strict-ambiguous
+ctx_rc 1 "strict: 'REPO_NAME: <name>'"                   "REPO_NAME: bluewidget" --strict-ambiguous
+# -c is not -C: the shape is matched on the lowercased line, so only git's -C counts.
+ctx_rc 0 "strict: a compiler -c"                         "gcc -c bluewidget.c" --strict-ambiguous
+ctx_rc 0 "strict: bash -c"                               "bash -c bluewidget" --strict-ambiguous
+ctx_rc 0 "strict: a work/ module path"                   "see src/work/bluewidget/x" --strict-ambiguous
+# The repository's own name (prepare_public.sh sets it) is not a hit in any shape.
+got="$(printf 'git clone https://example.org/me/bluewidget.git && cd bluewidget' \
+  | PRIVATE_NAMES_SELF=bluewidget bash "$GATE" --stdin --strict-ambiguous --list "$list" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 0 ]] && ok "PRIVATE_NAMES_SELF: the repository's own name is not a hit" \
+                  || error "PRIVATE_NAMES_SELF: own name failed: exit $got"
+got="$(printf 'git clone https://example.org/me/bluewidget.git && cd bluewidget' \
+  | PRIVATE_NAMES_SELF=bluewidget PRIVATE_NAMES_ALLOW=bluewidget bash "$GATE" --stdin --strict-ambiguous --list "$list" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 0 ]] && ok "PRIVATE_NAMES_SELF wins over an allow list entry for the same name" \
+                  || error "PRIVATE_NAMES_SELF with allow: exit $got"
+got="$(printf 'cd bluewidget' | PRIVATE_NAMES_SELF=other bash "$GATE" --stdin --list "$list" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 1 ]] && ok "PRIVATE_NAMES_SELF frees only the name it gives" \
+                  || error "PRIVATE_NAMES_SELF freed another name: exit $got"
 # Both warning tiers at once still exit 0 without --strict-ambiguous.
 got="$(printf 'the beacon and cd bluewidget' | PRIVATE_NAMES_ALLOW=bluewidget bash "$GATE" --stdin --list "$list" >/dev/null 2>&1; echo $?)"
 [[ "$got" == 0 ]] && ok "two warning tiers together still exit 0 without --strict-ambiguous" \

@@ -262,9 +262,10 @@ PY
   # caller stands in does not apply. The machine's allowlist still does: each
   # name it frees as a word is checked only in the shape of a repository
   # reference, and is listed in the report as such, never silently passed.
-  (cd "$t" && LC_ALL=C PRIVATE_NAMES_ALLOW="${SELF}${PRIVATE_NAMES_ALLOW:+,$PRIVATE_NAMES_ALLOW}" \
+  # The repository's own name is not a hit in any shape: its README clones it.
+  (cd "$t" && LC_ALL=C PRIVATE_NAMES_SELF="$SELF" \
     bash "$SCRIPT_DIR/check_private_names.sh" "${nargs[@]}") < "$t/units" > "$t/names.out" 2>&1 || rc=$?
-  sed -n 's/.*allowed by override as a word; checked as a repository reference: //p' "$t/names.out" | awk -v s="$SELF" 'tolower($0) != tolower(s)' | sort -u > "$t/allowed-words" || true
+  sed -n 's/.*allowed by override as a word; checked as a repository reference: //p' "$t/names.out" | sort -u > "$t/allowed-words" || true
   [[ -s "$t/allowed-words" ]] && say "names an allowlist frees as words, checked only as a repository reference: $(paste -sd, - < "$t/allowed-words")"
   if [[ $rc -ge 2 ]]; then
     unchecked=1; say "the name check could not run:"; tail -5 "$t/names.out" | sed 's/^/    /' >&2
