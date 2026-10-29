@@ -78,7 +78,11 @@ rc=0; bash "$root_dir/scripts/foxguard_report.sh" --output "$tmp/no/such/dir/r.j
 [[ $rc -eq 2 ]] && ok "a report that cannot be written is exit 2, not 1 (findings)" || error "unwritable output: rc=$rc"
 
 rm -f "$tmp/bin/foxguard"
-rc=0; out="$(PATH="$tmp/bin:$PATH" bash "$root_dir/scripts/foxguard_report.sh" -- good.sh 2>&1)" || rc=$?
+# Drop every PATH entry with a real foxguard too: one in ~/.local/bin made this pass as installed.
+no_fox_path=""
+IFS=: read -r -a path_dirs <<< "$PATH"
+for d in "${path_dirs[@]}"; do [[ -x "$d/foxguard" ]] || no_fox_path="${no_fox_path:+$no_fox_path:}$d"; done
+rc=0; out="$(PATH="$no_fox_path" bash "$root_dir/scripts/foxguard_report.sh" -- good.sh 2>&1)" || rc=$?
 [[ $rc -eq 3 && "$out" == *"not installing"* ]] && ok "foxguard missing with SCRIPT_HELPERS_NO_AUTO_INSTALL=1: nothing downloaded, exit 3" \
   || error "no-auto-install: rc=$rc out=$out"
 
