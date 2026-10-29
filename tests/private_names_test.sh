@@ -232,6 +232,12 @@ case "$rc:$out" in
   0:*"bluewidget.git"*"shape of a repository reference"*"needs a person"*) ok "a .git suffix on an allowed word warns with the line" ;;
   *) error "a .git suffix on an allowed word did not warn (exit $rc): $out" ;;
 esac
+# Strict: a failure, and the hint does not offer an allow list that already holds the word.
+out="$(printf 'see bluewidget.git for it' | PRIVATE_NAMES_ALLOW=bluewidget bash "$GATE" --stdin --strict-ambiguous --list "$list" 2>&1)"
+case "$out" in
+  *"not freed by these: reword the line or cite the code"*) ok "strict: the hint says an allow list does not free the shape" ;;
+  *) error "strict: the hint offered only the allow lists: $out" ;;
+esac
 # Strict: a failure, and the summary is not a clean pass.
 ctx_rc 1 "strict: beacon.git shape fails"                "see bluewidget.git for it" --strict-ambiguous
 ctx_rc 1 "strict: 'the <name> repo'"                     "pushed to the bluewidget repo yesterday" --strict-ambiguous

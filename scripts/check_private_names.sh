@@ -96,11 +96,12 @@
 # means the word may appear in prose; it does not mean a private repository of
 # that name may be referred to. So an allowed name is taken out of the bare
 # tiers and searched in the shape of a repository reference only: `beacon.git`,
-# "the beacon repo", "repository: beacon", `cd beacon`, `clone <url> beacon`,
-# `-C beacon`, `--repo beacon`, a projects-style path (`~/Projects/beacon/`,
-# `repos/beacon`) and a `host/owner/beacon` URL. A boat beacon, an `<a>`
-# beacon, `app/beacon/` as a module path and `beacon` in back-ticks stay
-# silent. Reported like an everyday-word name: a warning, and a failure under
+# "the beacon repo", "repository: beacon", `repo=beacon`, `cd beacon` (also
+# `cd ../beacon`), `clone <url> beacon`, `git -C beacon`, `--repo beacon`, a
+# projects-style path (`~/Projects/beacon/`, `repos/beacon`) and
+# `host/owner/beacon`, with or without a scheme, or `host:owner/beacon`. A boat
+# beacon, `app/beacon/` as a module path, `gcc -c beacon.c` and `beacon` in
+# back-ticks stay silent. Reported like an everyday-word name: a warning, and a failure under
 # --strict-ambiguous, since a person at a terminal can tell the two apart and
 # a hook posting text cannot. Looked for in the tree too: the shapes are rare
 # enough there to read.
@@ -784,7 +785,7 @@ if [[ -s "$ctx_hits" ]]; then
   cat "$ctx_hits" >&2
   matched_names "$context" "$ctx_hits" token >&2
   if [[ "$STRICT_AMBIGUOUS" == true ]]; then
-    found=1
+    found=1; ctx_failed=1
     log_error "An allowed word is written above in the shape of a repository reference (.git, repo,"
     log_error "a clone or cd target, a projects path, host/owner/name), so it needs a person."
   else
@@ -801,6 +802,8 @@ if [[ "$found" -eq 1 ]]; then
   log_error "  PRIVATE_NAMES_ALLOW=<name> <your command>      this run only"
   [[ -z "$repo_allow" ]] || log_error "  $(tilde "$repo_allow")   this repository"
   log_error "  $(tilde "$machine_allow")   every repository here"
+  # The allow lists above already hold such a word, so adding it again changes nothing.
+  [[ "${ctx_failed:-0}" == 1 ]] && log_error "An allowed word in repository shape is not freed by these: reword the line or cite the code."
   if [[ -n "${LIST:-}" && -f "${LIST:-}" ]]; then
     log_error "Checked against $(tilde "$LIST")$(
       awk -F'\t' '!/^#/ && $1=="private" {c++} END {printf " -- %d private names", c+0}' "$LIST")$(
