@@ -108,6 +108,17 @@ hook 2 "a pull request into an unlisted repository" "$pub" "gh pr create -R exam
 hook 2 "gh without -R" "$pub" "gh issue create --body '$n'"
 hook 2 "-R on a command that is not gh" "$pub" "ls -R $n"
 hook 2 "curl to github" "$pub" "curl -d '$n' https://api.github.com/repos/example/zzqopenbox/issues"
+# An allowed word that is also a private name: free as a word, still refused in a
+# published body when written as a repository, and only a warning in the command.
+export PRIVATE_NAMES_ALLOW=zzqotherbox
+hook 2 "allowed word: a PR body naming it as a repository is refused" "$pub" \
+  "gh pr create -R example/zzqopenbox --body 'ported from the zzqotherbox repo'"
+hook 2 "allowed word: a PR body with its clone URL is refused" "$pub" \
+  "gh pr create -R example/zzqopenbox --body 'see github.com/example/zzqotherbox'"
+hook 0 "allowed word: a PR body using it as a plain word passes" "$pub" \
+  "gh pr create -R example/zzqopenbox --body 'a zzqotherbox on the shelf'"
+hook 0 "allowed word: a command that cds into it is not a publication" "$pub" "cd ../zzqotherbox && git status"
+unset PRIVATE_NAMES_ALLOW
 
 # A public repository checked out inside the private one.
 git init -q "$priv/nested" && git -C "$priv/nested" remote add origin git@github.com:example/zzqopenbox.git
