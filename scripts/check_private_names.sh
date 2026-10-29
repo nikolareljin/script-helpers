@@ -12,9 +12,10 @@
 #   --repo <path>       Repository to scan (default: cwd).
 #   --only-public       Do nothing unless this repository is public, per the list.
 #   --for-repo <name>   Judge visibility by this repository name, not the git remote.
-#   --strict-ambiguous  Fail on a bare everyday-word name too, rather than warning, and
-#                       check the tree for one as well. For text about to be posted
-#                       publicly, where nobody will re-read it afterwards.
+#   --strict-ambiguous  Fail on a bare everyday-word name, or an allowed word written in
+#                       the shape of a repository reference, rather than warning, and
+#                       check the tree for a bare one as well. For text about to be
+#                       posted publicly, where nobody will re-read it afterwards.
 #   -h, --help          Show this help message.
 # EXIT_CODES:
 #   0  No private name found (also -h/--help, and --only-public in a repository
@@ -87,6 +88,19 @@
 #
 # Allowed terms are echoed, so an override is visible in the output rather than
 # silently shrinking what was checked.
+#
+# AN ALLOWED WORD IS STILL CHECKED, in one shape. "beacon" on the allow list
+# means the word may appear in prose; it does not mean a private repository of
+# that name may be referred to. So an allowed name is taken out of the bare
+# tiers and searched in the shape of a repository reference only: `beacon.git`,
+# "the beacon repo", "repository: beacon", `cd beacon`, `clone <url> beacon`,
+# `-C beacon`, `--repo beacon`, a projects-style path (`~/Projects/beacon/`,
+# `repos/beacon`) and a `host/owner/beacon` URL. A boat beacon, an `<a>`
+# beacon, `app/beacon/` as a module path and `beacon` in back-ticks stay
+# silent. Reported like an everyday-word name: a warning, and a failure under
+# --strict-ambiguous, since a person at a terminal can tell the two apart and
+# a hook posting text cannot. Looked for in the tree too: the shapes are rare
+# enough there to read.
 #
 # The list is data, generated elsewhere and never committed to a public
 # repository. See --help output above for where it is read from.
@@ -171,12 +185,14 @@ chmod 700 "$work" 2>/dev/null || true
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$work"; fi' EXIT
 hard="$work/hard"
 ambiguous="$work/ambiguous"
+context="$work/context"
 entries="$work/entries"
 qualified="$work/qualified"
 : > "$entries"
 : > "$qualified"
 : > "$hard"
 : > "$ambiguous"
+: > "$context"
 
 # ---- the list -------------------------------------------------------------
 # Every path that cannot produce a list exits 2. A gate that reports success
@@ -347,13 +363,6 @@ else
     exit 2
   fi
 
-  # Warn on published text, not on the tree. Measured: --tree gives 54 hit lines
-  # here and 77 in ci-helpers, nearly all "search" and "anchor" in prose; the
-  # commit range that carried a real leak gives one. Nobody reads 54 warnings.
-  if [[ "$MODE" == tree && "$STRICT_AMBIGUOUS" != true ]]; then
-    : > "$ambiguous"
-  fi
-
   age="$(list_age_days "$LIST")"
   # A non-numeric age must not be compared with -ge. `[[ "$age" -ge 5 ]]` resolves a
   # non-numeric operand as a variable name, finds nothing, evaluates 0, and reads as
@@ -502,16 +511,27 @@ drop_allowed() {  # drop_allowed <names-file>
   # as before: the whole name, case-insensitive, as a fixed string.
   awk -F'\t' -v allowf="$allowed" -v keptf="$kept" -v dropf="$dropped" '
     BEGIN { while ((getline a < allowf) > 0) allow[tolower(a)] = 1; printf "" > keptf; printf "" > dropf }
-    { if (tolower($1) in allow) print $1 > dropf; else print $1 "\t" $2 > keptf }
+    { if (tolower($1) in allow) print $1 "\t" $2 > dropf; else print $1 "\t" $2 > keptf }
   ' "$1" || { log_error "could not apply the allowlist"; exit 2; }
-  while IFS= read -r name; do
-    log_info "allowed by override, not checked: $name"
+  # Not dropped: moved. The word is free in prose; the name is still looked for
+  # in the shape of a repository reference (see the header).
+  cat "$dropped" >> "$context"
+  while IFS="$(printf '\t')" read -r name _; do
+    log_info "allowed by override as a word; checked as a repository reference: $name"
   done < "$dropped"
   rm -f "$dropped"
   mv "$kept" "$1"
 }
 drop_allowed "$hard"
 [[ -s "$ambiguous" ]] && drop_allowed "$ambiguous"
+# Warn on published text, not on the tree. Measured: --tree gives 54 hit lines
+# here and 77 in ci-helpers, nearly all "search" and "anchor" in prose; the
+# commit range that carried a real leak gives one. Nobody reads 54 warnings.
+# After the override, so a name the allow list moved is still looked for in
+# the tree in repository shape, which is rare enough to read.
+if [[ "$MODE" == tree && "$STRICT_AMBIGUOUS" != true ]]; then
+  : > "$ambiguous"
+fi
 
 patterns() {      # patterns <names-file> -> a pattern file grep can take
   cut -f1 "$1" | grep -v '^$' > "$1.patterns"
@@ -608,8 +628,8 @@ esac
 # compiling 1,488 regexes, not scanning. A check that slow is one people remove.
 #
 # Stage two is awk with index() and a character test, so nothing is compiled at all.
-search() {        # search <names-file> <label>
-  local names="$1" label="$2" pat hits status=0
+search() {        # search <names-file> <label> [token|context]
+  local names="$1" label="$2" kind="${3:-token}" pat hits status=0
   [[ -s "$names" ]] || return 1
   pat="$(patterns "$names")"
   [[ -s "$pat" ]] || return 1
@@ -631,7 +651,11 @@ search() {        # search <names-file> <label>
   # was measured at 508 hits on one public repository against this dictionary, essentially
   # all of them one organization repository named `.github`, which is in every workflow
   # path. Token matching takes the same subject to zero.
-  printf '%s\n' "$hits" | awk -F'\t' -v namesfile="$names" '
+  #
+  # "context" is the tier for allowed words: the token must also sit in the shape
+  # of a repository reference. The shapes are listed in the header; each is an
+  # ERE built around the escaped name, matched on the lowercased line.
+  printf '%s\n' "$hits" | awk -F'\t' -v namesfile="$names" -v kind="$kind" '
     function hit(line, needle,   n, pos, before, after) {
       n = length(needle); pos = index(line, needle)
       while (pos > 0) {
@@ -642,13 +666,27 @@ search() {        # search <names-file> <label>
       }
       return 0
     }
+    function shaped(line, needle,   e, b, a) {
+      e = needle; gsub(/[][\\.^$*+?(){}|]/, "\\\\&", e)
+      b = "(^|[^a-z0-9])"; a = "([^a-z0-9]|$)"
+      if (line ~ (b e "\\.git" a)) return 1                               # beacon.git
+      if (line ~ (b e "(\x27s)? +(repo|repository|project)" a)) return 1  # the beacon repo
+      if (line ~ (b "(repo|repository|project):? +" e a)) return 1         # repo: beacon
+      if (line ~ (b "(cd|-c|--repo|clone +[^ ]+) +" e a)) return 1         # cd beacon, git -C beacon
+      if (line ~ ("(^|[^a-z0-9])(projects?|repos?|repositories|work|workspace)/" e a)) return 1
+      if (line ~ ("://[^/ ]+/[^/ ]+/" e a)) return 1                        # host/owner/beacon
+      return 0
+    }
     BEGIN {
       while ((getline row < namesfile) > 0) {
         split(row, f, "\t")
         if (f[1] != "") needle[tolower(f[1])] = 1
       }
     }
-    { low = tolower($0); for (n in needle) if (hit(low, n)) { print; next } }
+    {
+      low = tolower($0)
+      for (n in needle) if (hit(low, n) && (kind != "context" || shaped(low, n))) { print; next }
+    }
   ' | sed "s/^/      /" > "$work/stage2"
 
   [[ -s "$work/stage2" ]] || return 1
@@ -660,14 +698,16 @@ found=0
 hard_hits="$work/hits-hard"
 qual_hits="$work/hits-qual"
 amb_hits="$work/hits-amb"
+ctx_hits="$work/hits-ctx"
 all_hits="$work/all-hits"
-: > "$hard_hits"; : > "$qual_hits"; : > "$amb_hits"; : > "$all_hits"
+: > "$hard_hits"; : > "$qual_hits"; : > "$amb_hits"; : > "$ctx_hits"; : > "$all_hits"
 
 # Every tier is searched before anything is reported, so one pass covers all of them.
 search "$hard"      "tracked text"    > "$hard_hits" || true
 search "$qualified" "qualified names" > "$qual_hits" || true
 search "$ambiguous" "ambiguous names" > "$amb_hits"  || true
-cat "$hard_hits" "$qual_hits" "$amb_hits" > "$all_hits"
+search "$context"   "allowed words"   context > "$ctx_hits" || true
+cat "$hard_hits" "$qual_hits" "$amb_hits" "$ctx_hits" > "$all_hits"
 
 # ---- report ---------------------------------------------------------------
 if [[ -s "$hard_hits" ]]; then
@@ -717,6 +757,22 @@ if [[ -s "$amb_hits" ]]; then
     log_error "That is both an everyday word and a private repository, so it needs a person."
   else
     log_warn "That is both an everyday word and a private repository, so it needs a person."
+    log_warn "Read the lines above. If any of them means the repository, cite it by code."
+    log_warn "This does not fail on its own; --strict-ambiguous makes it."
+    ambiguous_seen=1
+  fi
+fi
+
+if [[ -s "$ctx_hits" ]]; then
+  cat "$ctx_hits" >&2
+  matched_names "$context" "$ctx_hits" token >&2
+  if [[ "$STRICT_AMBIGUOUS" == true ]]; then
+    found=1
+    log_error "An allowed word is written above in the shape of a repository reference (.git, repo,"
+    log_error "a clone or cd target, a projects path, host/owner/name), so it needs a person."
+  else
+    log_warn "An allowed word is written above in the shape of a repository reference (.git, repo,"
+    log_warn "a clone or cd target, a projects path, host/owner/name), so it needs a person."
     log_warn "Read the lines above. If any of them means the repository, cite it by code."
     log_warn "This does not fail on its own; --strict-ambiguous makes it."
     ambiguous_seen=1

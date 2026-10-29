@@ -136,8 +136,13 @@ Bundled CLIs
   | `.git/private-names-allow` | one repository, from every worktree of it (inside `.git`, so it cannot be committed) |
   | `<config>/script-helpers/private-names-allow` | every repository on this machine |
 
-  Each prints what it allowed, so an override is never silent. `git push --no-verify`
-  remains git's own escape. Run `scripts/check_private_names.sh --help` for details.
+  Each prints what it allowed, so an override is never silent. An allowed word is
+  freed as a word, not as a name: it is still looked for in the shape of a
+  repository reference (`beacon.git`, "the beacon repo", `cd beacon`, a clone
+  target, `~/Projects/beacon/`, `host/owner/beacon`), in the tree as well, and a
+  hit warns, or fails under `--strict-ambiguous`; a boat beacon, `app/beacon/` and
+  `beacon` in back-ticks stay silent. `git push --no-verify` remains git's own
+  escape. Run `scripts/check_private_names.sh --help` for details.
 
   The machine's list starts from `config/private-names-allow`: ordinary English
   words that show up in code and docs everywhere (`windows`, `repository`,

@@ -210,6 +210,78 @@ got="$(cd "$tmp/allow-wt" && printf 'about bluewidget and the beacon' | bash "$G
 got="$(cd "$allow_repo" && printf 'about bluewidget and the beacon' | bash "$GATE" --stdin --strict-ambiguous --list "$list" >/dev/null 2>&1; echo $?)"
 [[ "$got" == 1 ]] && ok "a worktree's own allowlist does not reach the main checkout" \
                   || error "one worktree's allowlist applied in another: exit $got"
+# --- an allowed word in the shape of a repository reference ----------------
+# The allow list frees the word, not the name: "beacon" may be a lamp, but
+# `beacon.git`, "the beacon repo" or `cd beacon` is the repository. Before, an
+# allowed name was dropped from every tier and such a line passed in silence.
+ctx_rc() {  # ctx_rc <want> <desc> <text> [args...]
+  local want="$1" desc="$2" text="$3"; shift 3
+  local got
+  printf '%s' "$text" | PRIVATE_NAMES_ALLOW=bluewidget bash "$GATE" --stdin --list "$list" "$@" >/dev/null 2>&1
+  got=$?
+  if [[ "$got" == "$want" ]]; then ok "$desc"; else error "$desc: exit $got, expected $want"; fi
+}
+out="$(printf 'about bluewidget' | PRIVATE_NAMES_ALLOW=bluewidget bash "$GATE" --stdin --list "$list" 2>&1)"
+case "$out" in
+  *"allowed by override"*"checked as a repository reference"*bluewidget*) ok "an override says the word is free and the name still checked" ;;
+  *) error "the override did not say what it still checks: $out" ;;
+esac
+# A warning by default, as for an everyday-word name: exit 0, with the line shown.
+out="$(printf 'see bluewidget.git for it' | PRIVATE_NAMES_ALLOW=bluewidget bash "$GATE" --stdin --list "$list" 2>&1)"; rc=$?
+case "$rc:$out" in
+  0:*"bluewidget.git"*"shape of a repository reference"*"needs a person"*) ok "a .git suffix on an allowed word warns with the line" ;;
+  *) error "a .git suffix on an allowed word did not warn (exit $rc): $out" ;;
+esac
+# Strict: a failure, and the summary is not a clean pass.
+ctx_rc 1 "strict: beacon.git shape fails"                "see bluewidget.git for it" --strict-ambiguous
+ctx_rc 1 "strict: 'the <name> repo'"                     "pushed to the bluewidget repo yesterday" --strict-ambiguous
+ctx_rc 1 "strict: \"<name>'s repository\""                "bluewidget's repository holds it" --strict-ambiguous
+ctx_rc 1 "strict: 'repository: <name>'"                  "repository: bluewidget" --strict-ambiguous
+ctx_rc 1 "strict: 'project <name>'"                      "see project Bluewidget for the plan" --strict-ambiguous
+ctx_rc 1 "strict: a cd target"                           "run cd bluewidget && make" --strict-ambiguous
+ctx_rc 1 "strict: a clone target"                        "git clone git@example.org:someone/x.git bluewidget" --strict-ambiguous
+ctx_rc 1 "strict: git -C"                                "git -C bluewidget pull" --strict-ambiguous
+ctx_rc 1 "strict: --repo <name>"                         "gh pr list --repo bluewidget" --strict-ambiguous
+ctx_rc 1 "strict: a projects path"                       "lives in ~/Projects/bluewidget/scripts" --strict-ambiguous
+ctx_rc 1 "strict: a repos path"                          "copied from repos/bluewidget" --strict-ambiguous
+ctx_rc 1 "strict: host/owner/<name>"                     "https://example.org/someone/bluewidget" --strict-ambiguous
+ctx_rc 1 "strict: host/owner/<name>.git"                 "git@example.org:someone/bluewidget.git" --strict-ambiguous
+ctx_rc 1 "strict: case is ignored in the shape"          "The BlueWidget Repo is private" --strict-ambiguous
+# The word, in every shape that is not a repository, passes even under strict.
+ctx_rc 0 "strict: the plain word"                        "a boat bluewidget on deck" --strict-ambiguous
+ctx_rc 0 "strict: a module path"                         "see app/bluewidget/service.py" --strict-ambiguous
+ctx_rc 0 "strict: back-ticks alone"                      "the \`bluewidget\` helper" --strict-ambiguous
+ctx_rc 0 "strict: a deeper URL"                          "https://example.org/docs/html/bluewidget" --strict-ambiguous
+ctx_rc 0 "strict: 'repo' two words away"                 "the repo of the bluewidget" --strict-ambiguous
+ctx_rc 0 "strict: a longer word"                         "cd bluewidgets && ls" --strict-ambiguous
+ctx_rc 0 "strict: a dot that is not .git"                "bluewidget.gitignore rules" --strict-ambiguous
+# Both warning tiers at once still exit 0 without --strict-ambiguous.
+got="$(printf 'the beacon and cd bluewidget' | PRIVATE_NAMES_ALLOW=bluewidget bash "$GATE" --stdin --list "$list" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 0 ]] && ok "two warning tiers together still exit 0 without --strict-ambiguous" \
+                  || error "two warning tiers together failed without strict: exit $got"
+# The tree is checked too: the shapes are rare enough there to read.
+ctx_repo="$tmp/ctx-repo"
+mkdir -p "$ctx_repo" && git -C "$ctx_repo" init -q
+printf 'boat bluewidget on deck\n' > "$ctx_repo/prose.md"
+printf 'cd bluewidget && make\n' > "$ctx_repo/build.sh"
+git_t -C "$ctx_repo" add . && git_t -C "$ctx_repo" commit -q -m init
+out="$(cd "$ctx_repo" && PRIVATE_NAMES_ALLOW=bluewidget bash "$GATE" --tree --list "$list" 2>&1)"; rc=$?
+case "$rc:$out" in
+  0:*build.sh*"cd bluewidget"*"shape of a repository reference"*"needs a person"*) ok "the tree warns on an allowed word in repository shape" ;;
+  *) error "the tree did not warn on an allowed word in repository shape (exit $rc): $out" ;;
+esac
+case "$out" in
+  *prose.md*) error "the tree warned on the plain word: $out" ;;
+  *) ok "the tree stays silent on the plain word" ;;
+esac
+got="$(cd "$ctx_repo" && PRIVATE_NAMES_ALLOW=bluewidget bash "$GATE" --tree --strict-ambiguous --list "$list" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 1 ]] && ok "strict: the tree fails on an allowed word in repository shape" \
+                  || error "strict: the tree did not fail on an allowed word in repository shape: exit $got"
+git_t -C "$ctx_repo" rm -q build.sh && git_t -C "$ctx_repo" commit -q -m clean
+got="$(cd "$ctx_repo" && PRIVATE_NAMES_ALLOW=bluewidget bash "$GATE" --tree --strict-ambiguous --list "$list" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 0 ]] && ok "strict: a tree with only the plain word is clean" \
+                  || error "strict: a tree with only the plain word was not clean: exit $got"
+
 # Outside a repository the refusal must not name a repository allowlist.
 # Before, it printed "/private-names-allow" (the filesystem root).
 # GIT_CEILING_DIRECTORIES stops git from finding a repository above $tmp.

@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Changed
+
+- **`check_private_names.sh` still checks an allowed word, in the shape of a repository reference.** A word on an allow list (the run's `PRIVATE_NAMES_ALLOW`, `.git/private-names-allow`, the machine's list) that is also a private repository's name was dropped from every tier, so "the beacon repo", `beacon.git` or `cd beacon` passed in silence while a boat beacon was the reason for the allow. The name is now moved to its own tier and matched only in those shapes: `name.git`, "the name repo", "name's repository", `repository: name`, `project name`, `cd name`, `git -C name`, `--repo name`, a clone target, a projects-style path (`~/Projects/name/`, `repos/name`) and a `host/owner/name` URL; the plain word, a module path such as `app/name/`, `name` in back-ticks and a deeper URL stay silent. Reported like an everyday-word name: a warning with the line, a failure under `--strict-ambiguous`, and in the tree as well. The override line now reads "allowed by override as a word; checked as a repository reference". Tests: new cases in `tests/private_names_test.sh` (23 fail against 0.59.0).
+
 ### Added
 
 - **Model classes by usable capacity.** A models file may give floors as usable capacity: `NAME_LARGE_MIN_USABLE_VRAM_GB`, `NAME_XLARGE_MIN_USABLE_VRAM_GB`, `AI_TIER_LARGE_USABLE_RAM_GB` and `AI_TIER_SMALL_USABLE_RAM_GB`, judged after `AI_TIER_GPU_RESERVE_GB` (GiB off the largest GPU) and `AI_TIER_RAM_RESERVE_PERCENT` (off memory). The older `_VRAM_GB` and `_RAM_GB` fields still work and are not reduced by the reserves; a column with both uses the usable one. A reserve that is not a whole number, or a memory reserve of 100 or more, exits 2. `AI_MODEL_TIER=medium`, and a tier argument `medium`, name `standard`. New `ollama_models_file_roles` lists a models file's roles. Tests: new cases in `tests/ollama_endpoint_test.sh`, `tests/ollama_select_test.sh` and `tests/ollama_project_prepare_test.sh`.
