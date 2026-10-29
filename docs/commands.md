@@ -543,9 +543,10 @@ Usage: scripts/check_private_names.sh [--tree|--commits <range>|--file <path>|--
   --repo <path>       Repository to scan (default: cwd).
   --only-public       Do nothing unless this repository is public, per the list.
   --for-repo <name>   Judge visibility by this repository name, not the git remote.
-  --strict-ambiguous  Fail on a bare everyday-word name too, rather than warning, and
-                      check the tree for one as well. For text about to be posted
-                      publicly, where nobody will re-read it afterwards.
+  --strict-ambiguous  Fail on a bare everyday-word name, or an allowed word written in
+                      the shape of a repository reference, rather than warning, and
+                      check the tree for a bare one as well. For text about to be
+                      posted publicly, where nobody will re-read it afterwards.
   -h, --help          Show this help message.
 ```
 

@@ -90,13 +90,21 @@ rc=0; bash "$pp" verify --work "$tmp/src" >/dev/null 2>&1 || rc=$?
 rc=0; out="$(GITLEAKS_BIN="$tmp/bin/none" bash "$pp" audit --source "$tmp/src" --work "$tmp/out/w2" "${names[@]}" 2>&1)" || rc=$?
 [[ $rc -eq 2 && "$out" == *"NOT a clean result"* ]] && ok "gitleaks unavailable: exit 2, never clean" || error "no gitleaks: rc=$rc out=$out"
 
-# A name the machine's allowlist skips is listed in the report, not passed silently.
+# A name the machine's allowlist frees as a word is listed in the report as checked only in
+# repository shape, not passed silently.
 mkdir -p "$XDG_CONFIG_HOME/script-helpers" && echo otherproj > "$XDG_CONFIG_HOME/script-helpers/private-names-allow"
 rc=0; bash "$pp" audit --source "$tmp/src" --work "$tmp/out/w5" --names secretproj,otherproj >/dev/null 2>&1 || rc=$?
-skipped="$("$py" -c 'import json,sys; print(",".join(json.load(open(sys.argv[1]))["names_not_checked"]))' "$tmp/out/w5/report.json" 2>&1)"
-[[ "$skipped" == otherproj ]] && grep -q 'NOT checked: otherproj' "$tmp/out/w5/report.txt" \
-  && ok "a name skipped by an allowlist is reported as not checked" || error "not-checked: skipped='$skipped'"
+skipped="$("$py" -c 'import json,sys; print(",".join(json.load(open(sys.argv[1]))["names_allowed_as_words"]))' "$tmp/out/w5/report.json" 2>&1)"
+[[ "$skipped" == otherproj ]] && grep -q 'checked only as a repository reference: otherproj' "$tmp/out/w5/report.txt" \
+  && ok "a name an allowlist frees is reported as checked only in repository shape" || error "allowed-words: skipped='$skipped'"
 rm -f "$XDG_CONFIG_HOME/script-helpers/private-names-allow"
+
+# The repository's own name, in the clone line of its own README, is not a hit.
+git init -q -b main "$tmp/selfproj" && printf 'git clone https://example.org/me/selfproj.git\ncd selfproj\n' > "$tmp/selfproj/README.md"
+g -C "$tmp/selfproj" add . && g -C "$tmp/selfproj" commit -qm start
+rc=0; bash "$pp" audit --source "$tmp/selfproj" --work "$tmp/out/w6" --names selfproj,otherproj >/dev/null 2>&1 || rc=$?
+own="$("$py" -c 'import json,sys; print(len([h for h in json.load(open(sys.argv[1]))["hits"] if h["check"] == "names"]))' "$tmp/out/w6/report.json" 2>&1)"
+[[ $rc -eq 0 && "$own" == 0 ]] && ok "the repository's own name in its clone line is not a hit" || error "own name: rc=$rc hits='$own'"
 
 # Ref names, binary files and LFS pointers: each a place the line scan never reads.
 git init -q -b main "$tmp/src2" && cd "$tmp/src2" || exit 1

@@ -172,9 +172,11 @@ scripts/prepare_public.sh verify --work ~/audit/my-repo
 
 The repository's own name is not a hit (`--self <name>`, by default the
 source's directory name). A check that cannot run (no name list, no gitleaks)
-makes the result exit 2, never a clean pass. A name your allowlist skips (an
-everyday word that is also a repository name) is not checked; the report lists
-each one under "NOT checked", so you can search for it by hand. Content the
+makes the result exit 2, never a clean pass. A name your allowlist frees (an
+everyday word that is also a repository name) is checked only in the shape of a
+repository reference (`name.git`, "the name repo", `cd name`, a projects path,
+`host/owner/name`), and a hit is a failure here; the report lists each such
+name, so you can search for the plain word by hand. Content the
 history does not hold is not checked either, and the result is exit 2: a Git
 LFS file (only its pointer is in the history) and a binary file version over
 50 MB. Drop those paths in the plan, or check them by hand.
