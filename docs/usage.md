@@ -144,6 +144,10 @@ Bundled CLIs
   `beacon` in back-ticks stay silent. `git push --no-verify` remains git's own
   escape. Run `scripts/check_private_names.sh --help` for details.
 
+  `PRIVATE_NAMES_SELF=<name>` is not an override: it names the repository being
+  checked, whose own name is then not a hit in any shape. `prepare_public.sh`
+  sets it from `--self`, so a README that clones the repository passes.
+
   The machine's list starts from `config/private-names-allow`: ordinary English
   words that show up in code and docs everywhere (`windows`, `repository`,
   `code`, `writing`, ...), never a repository name. It is copied to
