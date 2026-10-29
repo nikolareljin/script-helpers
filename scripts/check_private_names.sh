@@ -542,6 +542,14 @@ drop_allowed() {  # drop_allowed <names-file>
 }
 drop_allowed "$hard"
 [[ -s "$ambiguous" ]] && drop_allowed "$ambiguous"
+# The own name is out of the qualified tier too: `owner/name` in its own README.
+if [[ -s "$self_names" && -s "$qualified" ]]; then
+  awk -F'\t' -v selff="$self_names" '
+    BEGIN { while ((getline a < selff) > 0) own[tolower(a)] = 1 }
+    { n = tolower($1); if (index(n, "/")) sub(/^.*\//, "", n); else n = ""; if (!(n in own)) print }
+  ' "$qualified" > "$qualified.kept" || { log_error "could not apply PRIVATE_NAMES_SELF"; exit 2; }
+  mv "$qualified.kept" "$qualified"
+fi
 # Warn on published text, not on the tree. Measured: --tree gives 54 hit lines
 # here and 77 in ci-helpers, nearly all "search" and "anchor" in prose; the
 # commit range that carried a real leak gives one. Nobody reads 54 warnings.

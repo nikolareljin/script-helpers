@@ -280,6 +280,12 @@ got="$(printf 'git clone https://example.org/me/bluewidget.git && cd bluewidget'
   | PRIVATE_NAMES_SELF=bluewidget PRIVATE_NAMES_ALLOW=bluewidget bash "$GATE" --stdin --strict-ambiguous --list "$list" >/dev/null 2>&1; echo $?)"
 [[ "$got" == 0 ]] && ok "PRIVATE_NAMES_SELF wins over an allow list entry for the same name" \
                   || error "PRIVATE_NAMES_SELF with allow: exit $got"
+got="$(printf 'see github.com/testns/beacon' | PRIVATE_NAMES_SELF=beacon bash "$GATE" --stdin --strict-ambiguous --list "$list" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 0 ]] && ok "PRIVATE_NAMES_SELF: the own name qualified by its namespace is not a hit" \
+                  || error "PRIVATE_NAMES_SELF: namespace/own-name failed: exit $got"
+got="$(printf 'see testns/coverage' | PRIVATE_NAMES_SELF=beacon bash "$GATE" --stdin --list "$list" >/dev/null 2>&1; echo $?)"
+[[ "$got" == 1 ]] && ok "PRIVATE_NAMES_SELF keeps other qualified names" \
+                  || error "PRIVATE_NAMES_SELF dropped another qualified name: exit $got"
 got="$(printf 'cd bluewidget' | PRIVATE_NAMES_SELF=other bash "$GATE" --stdin --list "$list" >/dev/null 2>&1; echo $?)"
 [[ "$got" == 1 ]] && ok "PRIVATE_NAMES_SELF frees only the name it gives" \
                   || error "PRIVATE_NAMES_SELF freed another name: exit $got"
