@@ -315,6 +315,26 @@ PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
   bash "$SCRIPT" --owner testns --stdout --ttl 0 >/dev/null 2>&1
 [[ $? -eq 0 ]] && ok "--ttl 0 is still accepted" || error "--ttl 0 was refused"
 
+# An owner is a file name under the cache directory; a path in it is refused
+# before anything is fetched or written.
+for bad in "../escape" "a/b" "testns,../x" ".hidden"; do
+  PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+    PRIVATE_NAMES_CACHE_DIR="$tmp/ownercache/c" \
+    bash "$SCRIPT" --owner "$bad" --stdout >/dev/null 2>&1
+  rc=$?
+  if [[ $rc -eq 2 && ! -e "$tmp/ownercache/escape.tsv" && ! -e "$tmp/ownercache/x.tsv" ]]; then
+    ok "--owner '${bad}' is refused"
+  else
+    error "--owner '${bad}' was accepted (exit ${rc})"
+  fi
+done
+PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/ownercache2" \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/does-not-exist" \
+  bash "$SCRIPT" --owner "test-ns, Other1" --stdout >/dev/null 2>&1
+[[ $? -eq 0 ]] && ok "valid owner names are still accepted" || error "valid owner names were refused"
+
 if [[ $failures -gt 0 ]]; then
   echo "[refresh_private_names_test] FAILED ($failures)" >&2
   exit 1

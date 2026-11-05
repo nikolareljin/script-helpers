@@ -530,15 +530,15 @@ drop_allowed() {  # drop_allowed <names-file>
   while IFS= read -r name; do
     log_info "the repository's own name, not checked: $name"
   done < "$selfed"
-  rm -f "$selfed"
+  rm -f -- "$selfed"
   # Not dropped: moved. The word is free in prose; the name is still looked for
   # in the shape of a repository reference (see the header).
-  cat "$dropped" >> "$context"
+  cat -- "$dropped" >> "$context"
   while IFS="$(printf '\t')" read -r name _; do
     log_info "allowed by override as a word; checked as a repository reference: $name"
   done < "$dropped"
-  rm -f "$dropped"
-  mv "$kept" "$1"
+  rm -f -- "$dropped"
+  mv -- "$kept" "$1"
 }
 drop_allowed "$hard"
 [[ -s "$ambiguous" ]] && drop_allowed "$ambiguous"
@@ -632,7 +632,7 @@ case "$MODE" in
     ;;
   file)
     [[ -f "$FILE" ]] || { log_error "No such file: $FILE"; exit 2; }
-    cp "$FILE" "$subject"
+    cp -- "$FILE" "$subject"
     ;;
   stdin)
     cat > "$subject"

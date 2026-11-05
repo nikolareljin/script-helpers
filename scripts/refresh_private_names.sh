@@ -185,6 +185,16 @@ if [[ -z "$OWNERS" ]]; then
   log_error "  or set PRIVATE_NAMES_OWNERS=\"a,b\""
   exit 2
 fi
+# Each owner becomes a file name under the cache directory, which is replaced
+# and removed. A GitHub login is letters, digits and hyphens; anything else
+# (`--owner ../x`) would write outside the cache.
+while IFS= read -r _owner; do
+  _owner="$(printf '%s' "$_owner" | tr -d '[:space:]')"
+  [[ -z "$_owner" || "$_owner" =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ]] && continue
+  log_error "'${_owner}' is not a GitHub user or organization name."
+  exit 2
+done < <(printf '%s\n' "$OWNERS" | tr ',' '\n')
+unset _owner
 [[ -n "$SELF_LOGIN" ]] || SELF_LOGIN="$(gh api user -q .login 2>/dev/null || true)"
 
 tmp="$(mktemp)"

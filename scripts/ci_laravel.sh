@@ -314,7 +314,7 @@ if [[ ! -f "${abs_workdir}/.env" ]]; then
       exit 2
     fi
     log_info "Creating .env from ${source_env}"
-    cp "$source_env" "${abs_workdir}/.env"
+    cp -- "$source_env" "${abs_workdir}/.env"
   else
     log_info "No .env, .env.testing or .env.example; creating an empty .env"
     : > "${abs_workdir}/.env"

@@ -933,7 +933,7 @@ if [[ -s "$cmd_file" ]]; then
       || { reason="could not prepare the command text"; unchecked "Reading the command"; }
     while IFS= read -r f; do
       f="${f#@}"; f="${f#\'}"; f="${f%\'}"; f="${f#\"}"; f="${f%\"}"   # "$(<f)" and "$(cat f)": the ")" and quotes went in sed
-      [[ -n "$f" && "$f" != "-" && -f "$f" && -r "$f" ]] && { printf '\n'; head -c 2000000 "$f"; } >> "$broad_text"   # a body is never that large; a log might be
+      [[ -n "$f" && "$f" != "-" && -f "$f" && -r "$f" ]] && { printf '\n'; head -c 2000000 -- "$f"; } >> "$broad_text"   # a body is never that large; a log might be
     done < <(grep -oE -- '(--body-file|--notes-file|--input|--file|-F)[= ]+[^;&|[:space:]]+|@[^;&|[:space:]]+|<[[:space:]]*[^<;&|[:space:]]+|\$\([[:space:]]*cat[[:space:]]+[^;&|)[:space:]]+' "$cmd_file" \
                | sed -E 's/^\$\([[:space:]]*cat[[:space:]]+//; s/^(--body-file|--notes-file|--input|--file|-F)[= ]+//; s/^<[[:space:]]*//; s/^[^=@]*=@?//; s/[)"'"'"']+$//')
     rc=0

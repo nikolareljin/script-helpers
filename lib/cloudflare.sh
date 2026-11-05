@@ -374,7 +374,7 @@ cloudflare_confirm_environment() {
 # Two separate assertions. Reachability proves something answers. The version
 # assertion proves it is the thing just deployed -- without it a smoke test
 # passes against the previous release, which is the failure it exists to catch.
-# Returns: 0 healthy (and the live version matches when a status path is given); 1 no answer, missing field, or version mismatch; 2 missing base URL, or a status path without an expected version; 3 curl missing.
+# Returns: 0 healthy (and the live version matches when a status path is given); 1 no answer, missing field, or version mismatch; 2 missing or non-http(s) base URL, or a status path without an expected version; 3 curl missing.
 # Output: stdout nothing; stderr errors and warnings.
 cloudflare_smoke_test() {
   local base="${1:-}" expected="${2:-}" status_path="${3:-}" field="${4:-version}"
@@ -383,6 +383,10 @@ cloudflare_smoke_test() {
     log_error "cloudflare_smoke_test: base URL required"
     return 2
   fi
+  case "$base" in
+    http://?*|https://?*) : ;;
+    *) log_error "cloudflare_smoke_test: base URL must start with http:// or https:// (got '${base}')"; return 2 ;;
+  esac
   command -v curl >/dev/null 2>&1 || { log_error "cloudflare_smoke_test: curl is required"; return 3; }
   base="${base%/}"
 

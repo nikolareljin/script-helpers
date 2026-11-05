@@ -275,7 +275,7 @@ p12() { openssl pkcs12 -in "$p12_in" -passin "file:$p12_pw" ${p12_legacy:+"$p12_
 pkcs12_open() {
   local opt="$3" pwname="$2" err="$work/p12.err"
   p12_in="$1" p12_pw="$work/$2" p12_legacy=""
-  if [[ "$(cat "$p12_pw"; echo x)" == *$'\n'* ]]; then
+  if [[ "$(cat -- "$p12_pw"; echo x)" == *$'\n'* ]]; then
     log_error "$pwname contains a newline; openssl cannot read it"
     exit 2
   fi
@@ -444,7 +444,7 @@ if has_group gpg; then
   printf '%s' "$gpg_key" > "$work/GPG_KEY_ID"
   if [[ -n "$lp_ssh_key" ]]; then
     [[ -s "$lp_ssh_key" && -r "$lp_ssh_key" ]] || { log_error "--launchpad-ssh-key $lp_ssh_key is missing, empty or unreadable"; exit 2; }
-    cp "$lp_ssh_key" "$work/LAUNCHPAD_SSH_PRIVATE_KEY"
+    cp -- "$lp_ssh_key" "$work/LAUNCHPAD_SSH_PRIVATE_KEY"
   fi
 fi
 
@@ -482,7 +482,7 @@ if has_group windows; then
     [[ -s "$windows_pw_file" && -r "$windows_pw_file" ]] || { log_error "--windows-password-file is missing, empty or unreadable"; exit 2; }
     # One trailing line end (LF or CRLF), as an editor writes it, is not
     # part of the password.
-    WINDOWS_CERTIFICATE_PASSWORD="$(cat "$windows_pw_file"; echo x)"
+    WINDOWS_CERTIFICATE_PASSWORD="$(cat -- "$windows_pw_file"; echo x)"
     WINDOWS_CERTIFICATE_PASSWORD="${WINDOWS_CERTIFICATE_PASSWORD%x}"
     if [[ "$WINDOWS_CERTIFICATE_PASSWORD" == *$'\n' ]]; then
       WINDOWS_CERTIFICATE_PASSWORD="${WINDOWS_CERTIFICATE_PASSWORD%$'\n'}"

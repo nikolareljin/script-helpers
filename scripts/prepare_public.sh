@@ -482,11 +482,11 @@ case "$CMD" in
     printf 'source=%s\nself=%s\n' "$SOURCE" "$SELF" > "$WORK/$MARKER"
     say "mirror clone of $SOURCE"
     git clone -q --mirror --no-hardlinks -- "$SOURCE" "$WORK/source.git" \
-      || { rm -rf "$WORK"; die "could not clone $SOURCE"; }
+      || { rm -rf -- "$WORK"; die "could not clone $SOURCE"; }
     # The mirror must not be able to reach the source again: no remote.
     git -C "$WORK/source.git" remote remove origin 2>/dev/null || true
     stamp="$(date -u +%Y%m%d-%H%M%S)"
-    tar -czf "$WORK/source-$stamp.tar.gz" -C "$WORK" source.git || { rm -rf "$WORK"; die "could not archive the mirror"; }
+    tar -czf "$WORK/source-$stamp.tar.gz" -C "$WORK" source.git || { rm -rf -- "$WORK"; die "could not archive the mirror"; }
     say "archived: $WORK/source-$stamp.tar.gz"
     rc=0; audit_repo "$WORK/source.git" "$WORK/report" head || rc=$?
     [[ $rc -eq 0 ]] || say "next: write a plan (plan-example), then clean --work $WORK --plan <file>"
@@ -495,7 +495,7 @@ case "$CMD" in
   clean)
     require_work
     # verify accepts public.git only from a clean that finished.
-    rm -f "$WORK/$MARKER.clean"
+    rm -f -- "$WORK/$MARKER.clean"
     [[ -n "$PLAN" && -f "$PLAN" ]] || die "--plan <file> is required"
     git filter-repo --version >/dev/null 2>&1 \
       || die "git filter-repo is not installed (https://github.com/newren/git-filter-repo)"
@@ -528,7 +528,7 @@ case "$CMD" in
     [[ -s "$t/refs" ]] || die "the plan names no ref to keep (ref <pattern>)"
 
     pub="$WORK/public.git"
-    rm -rf "$pub"
+    rm -rf -- "$pub"
     git clone -q --mirror --no-hardlinks "$WORK/source.git" "$pub" || die "could not copy the mirror"
     git -C "$pub" remote remove origin 2>/dev/null || true
     kept=0
@@ -552,7 +552,7 @@ case "$CMD" in
     while IFS= read -r r; do args+=(--path-rename "$r"); done < "$t/rename"
     [[ -s "$t/replace" ]] && args+=(--replace-text "$t/replace" --replace-message "$t/replace")
     [[ -s "$t/mailmap" ]] && args+=(--mailmap "$t/mailmap")
-    cp "$pub/filter-repo/commit-map" "$t/map1" 2>/dev/null || true
+    cp -- "$pub/filter-repo/commit-map" "$t/map1" 2>/dev/null || true
     git -C "$pub" filter-repo "${args[@]}" || die "git filter-repo failed"
     git -C "$pub" remote remove origin 2>/dev/null || true
     # A plan that drops every file leaves no commit, so no ref: nothing to copy.

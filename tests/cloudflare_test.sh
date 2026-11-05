@@ -245,6 +245,13 @@ if [[ $? -eq 1 ]]; then ok "unreachable returns 1"; else error "unreachable shou
 cloudflare_smoke_test "" 1.4.2 >/dev/null 2>&1
 if [[ $? -eq 2 ]]; then ok "missing base URL returns 2"; else error "missing base URL should return 2"; fi
 
+for bad in "file:///etc/hostname" "ftp://example.com" "example.com" "https://"; do
+  CURL_BODY='{"version":"1.4.2"}' cloudflare_smoke_test "$bad" 1.4.2 /api/status >/dev/null 2>&1
+  if [[ $? -eq 2 ]]; then ok "base URL '${bad}' is refused"; else error "base URL '${bad}' should return 2"; fi
+done
+CURL_BODY='{"version":"1.4.2"}' cloudflare_smoke_test http://127.0.0.1:8787 1.4.2 /api/status >/dev/null 2>&1
+if [[ $? -eq 0 ]]; then ok "an http:// base URL is accepted"; else error "an http:// base URL should pass"; fi
+
 # --- cloudflare_deploy: the argv ------------------------------------------------
 note "deploy argv"
 

@@ -111,10 +111,10 @@ else
     rm -f "$tmp_tar"
     exit 1
   fi
-  mv "$tmp_tar" "$source_path"
+  mv -- "$tmp_tar" "$source_path"
 fi
 
-cp "$spec_path" "$build_root/SPECS/"
+cp -- "$spec_path" "$build_root/SPECS/"
 
 rpmbuild -ba "$build_root/SPECS/$(basename "$spec_path")" \
   --define "_topdir $build_root" \

@@ -120,7 +120,7 @@ manifest_read_version() {
       version="$(sed -n 's/.*versionName[[:space:]]*[=(]*[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | sed -n 1p)"
       ;;
     version_file)
-      version="$(head -n1 "$file" | tr -d '[:space:]')"
+      version="$(head -n1 -- "$file" | tr -d '[:space:]')"
       ;;
     package_json)
       version="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | sed -n 1p)"

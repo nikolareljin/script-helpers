@@ -145,7 +145,7 @@ if [[ "$xtrace_was_on" -eq 1 ]]; then set -x; fi
 git clone "https://github.com/${tap_repo}.git" "$tmp_dir"
 
 mkdir -p "$tmp_dir/$tap_dir"
-cp "$formula_path" "$tmp_dir/$tap_dir/${formula_name}.rb"
+cp -- "$formula_path" "$tmp_dir/$tap_dir/${formula_name}.rb"
 
 cd "$tmp_dir"
 git config user.name "ci-bot"

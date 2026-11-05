@@ -234,7 +234,7 @@ mkdir -p "$out_dir"
 # Reports from a previous run, not this one. out_dir persists between runs, and
 # when `wp plugin check` produces nothing its output is discarded rather than
 # installed -- so without this the last run's findings are read as this run's.
-rm -f "${out_dir}/plugin-check.json" "${out_dir}/meta-check.json"
+rm -f -- "${out_dir}/plugin-check.json" "${out_dir}/meta-check.json"
 wp_site_url="http://localhost:${host_port}"
 cat > "${out_dir}/wp-cli.yml" <<WPCLI
 path: /var/www/html
@@ -245,7 +245,7 @@ apache_modules:
   - mod_rewrite
 WPCLI
 
-wp_cli_config_contents="$(cat "${out_dir}/wp-cli.yml")"
+wp_cli_config_contents="$(cat -- "${out_dir}/wp-cli.yml")"
 container_wp_config_file="/var/www/html/wp-cli.yml"
 
 run_wp_shell() {
@@ -340,7 +340,7 @@ if docker_compose -f "$compose_file" run --rm \
   sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; wp help plugin check >/dev/null 2>&1'; then
   plugin_check_available="true"
   plugin_check_tmp="${out_dir}/plugin-check.json.tmp"
-  rm -f "$plugin_check_tmp"
+  rm -f -- "$plugin_check_tmp"
   plugin_check_exit=0
   # Built as an array so an empty value passes no flag at all. Passing
   # `--exclude-files=` with nothing after it makes plugin-check treat the empty
@@ -350,9 +350,9 @@ if docker_compose -f "$compose_file" run --rm \
   [[ -n "$exclude_files" ]] && check_args+=("--exclude-files=$exclude_files")
   run_wp "${check_args[@]}" > "$plugin_check_tmp" || plugin_check_exit=$?
   if [[ -s "$plugin_check_tmp" ]]; then
-    mv "$plugin_check_tmp" "${out_dir}/plugin-check.json"
+    mv -- "$plugin_check_tmp" "${out_dir}/plugin-check.json"
   else
-    rm -f "$plugin_check_tmp"
+    rm -f -- "$plugin_check_tmp"
   fi
   if [[ "$plugin_check_exit" -ne 0 ]]; then
     log_info "wp plugin check exited with status ${plugin_check_exit}; evaluating captured JSON output when available."

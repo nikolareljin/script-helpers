@@ -50,7 +50,7 @@ fi
 # 3. Last run's reports must be cleared. out_dir persists between runs, and a
 #    run whose check produces nothing discards its output rather than
 #    installing it, so a stale file would be read as this run's findings.
-if grep -q 'rm -f "${out_dir}/plugin-check.json"' "$SCRIPT"; then
+if grep -q 'rm -f -- "${out_dir}/plugin-check.json"' "$SCRIPT"; then
   note "previous reports are cleared before the run"
 else
   error "$SCRIPT never removes a previous plugin-check.json; stale findings would be reported as current"

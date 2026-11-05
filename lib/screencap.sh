@@ -159,17 +159,17 @@ screencap_shot() {
       # exec-out keeps the PNG binary-clean; `adb shell screencap -p` mangles
       # newlines on some devices.
       adb -s "$device" exec-out screencap -p > "$out" 2>/dev/null || {
-        rm -f "$out"; log_error "screencap_shot: capture failed on $device"; return 1
+        rm -f -- "$out"; log_error "screencap_shot: capture failed on $device"; return 1
       }
       ;;
     ios)
       xcrun simctl io "$device" screenshot "$out" >/dev/null 2>&1 || {
-        rm -f "$out"; log_error "screencap_shot: capture failed on $device"; return 1
+        rm -f -- "$out"; log_error "screencap_shot: capture failed on $device"; return 1
       }
       ;;
   esac
 
-  [[ -s "$out" ]] || { rm -f "$out"; log_error "screencap_shot: produced an empty file"; return 1; }
+  [[ -s "$out" ]] || { rm -f -- "$out"; log_error "screencap_shot: produced an empty file"; return 1; }
   log_info "screencap: wrote $out"
   printf '%s\n' "$out"
 }
@@ -225,7 +225,7 @@ screencap_record() {
     ios)     _screencap__record_ios "$device" "$out" "$seconds" || return $? ;;
   esac
 
-  [[ -s "$out" ]] || { rm -f "$out"; log_error "screencap_record: produced an empty file"; return 1; }
+  [[ -s "$out" ]] || { rm -f -- "$out"; log_error "screencap_record: produced an empty file"; return 1; }
   log_info "screencap: wrote $out"
 
   if [[ "$want_gif" -eq 1 ]]; then

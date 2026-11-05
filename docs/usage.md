@@ -606,6 +606,8 @@ touches what changed:
 | everything cached | ~3s |
 | one owner re-indexed (`--owner X --ttl 0`) | ~5s |
 
+An owner must be a GitHub login (letters, digits, hyphens); anything else exits 2.
+
 `--owner X` refreshes that owner's cache and rebuilds the file from **all** the
 caches, so indexing one organization never drops another. Default TTLs: 1 day
 for your own account, 14 for an organization; `--ttl <days>` overrides.

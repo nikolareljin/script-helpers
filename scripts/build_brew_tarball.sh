@@ -57,7 +57,7 @@ if [[ ! -f "$version_file" ]]; then
   exit 2
 fi
 
-version="$(cat "$version_file")"
+version="$(cat -- "$version_file")"
 if [[ -z "$dist_dir" ]]; then
   dist_dir="$repo_dir/dist"
 fi

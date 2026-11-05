@@ -35,6 +35,18 @@ for bad in "." "/" "relative/path" ""; do
   fi
 done
 
+# 1b. A path that only reaches "/" or a parent through ".." or repeated slashes
+#     is refused too. --skip-provision keeps a regression from removing anything.
+for bad in "//" "/tmp/.." "/tmp/../" "/a/../../" "$HOME" "$HOME/"; do
+  out="$(bash "$SCRIPT" --skip-provision true --wp-tests-dir "$bad" --workdir "$tmp" 2>&1)"
+  rc=$?
+  if [[ $rc -eq 2 ]]; then
+    note "refused --wp-tests-dir '${bad}'"
+  else
+    error "--wp-tests-dir '${bad}' was not refused (exit ${rc}): ${out}"
+  fi
+done
+
 # 2. The working directory itself is refused even when absolute. "." is caught
 #    above; this is the same mistake spelled out in full.
 out="$(bash "$SCRIPT" --wp-tests-dir "$ROOT_DIR" --workdir "$tmp" 2>&1)"
