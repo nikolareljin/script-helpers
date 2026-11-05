@@ -107,12 +107,13 @@ for d in "$wp_tests_dir" "$wp_core_dir"; do
     /?*) : ;;
     *) log_error "--wp-tests-dir and --wp-core-dir must be absolute paths; got '${d}'"; exit 2 ;;
   esac
-  # A ".." component, or only slashes, reaches "/" or a parent the text does
-  # not show: `--wp-tests-dir /tmp/..` would remove all of /.
+  # A "." or ".." component, or only slashes, names "/" or a directory the
+  # text does not show: `--wp-tests-dir /tmp/..` or `/.` would remove all of /.
   case "/${d}/" in
-    */../*) log_error "--wp-tests-dir and --wp-core-dir must not contain '..'; got '${d}'"; exit 2 ;;
+    */../*|*/./*) log_error "--wp-tests-dir and --wp-core-dir must not contain '.' or '..' components; got '${d}'"; exit 2 ;;
   esac
-  if [[ -z "${d//\//}" || "${d%/}" == "$PWD" || "${d%/}" == "${HOME:-}" ]]; then
+  d_trim="${d%"${d##*[!/]}"}"   # every trailing slash dropped
+  if [[ -z "${d_trim}" || "${d_trim}" == "${PWD%/}" || "${d_trim}" == "${HOME%/}" ]]; then
     log_error "Refusing to use '${d}' as a scratch directory."
     exit 2
   fi

@@ -2,7 +2,7 @@
 
 ### Fixed
 
-- **`ci_wp_phpunit.sh` refuses a scratch directory that reaches `/` or `$HOME`.** `--wp-tests-dir` and `--wp-core-dir` are removed with `rm -rf`; `/tmp/..` or `//` passed the old check, which compared the text with `/`. A `..` component, a path of only slashes and `$HOME` now exit 2. Tests: new cases in `tests/ci_wp_phpunit_test.sh`.
+- **`ci_wp_phpunit.sh` refuses a scratch directory that reaches `/` or `$HOME`.** `--wp-tests-dir` and `--wp-core-dir` are removed with `rm -rf`; `/tmp/..`, `/.` or `//` passed the old check, which compared the text with `/`. A `.` or `..` component, a path of only slashes, and `$HOME` or the working directory with any trailing slashes now exit 2. Tests: new cases in `tests/ci_wp_phpunit_test.sh`.
 - **`http_probe_json` and `http_check_key` contact only `http://` and `https://` URLs.** curl was given the URL as-is, so `http_probe_json file:///etc hostname` printed a local file. Tests: a new case in `tests/service_client_test.sh`.
 - **`cloudflare_smoke_test` refuses a base URL that is not `http://` or `https://`** (exit 2). Tests: new cases in `tests/cloudflare_test.sh`.
 - **Caller-supplied paths are passed after `--`** to `cp`, `mv`, `rm`, `cat` and `head` across `lib/` and `scripts/`, so a path that starts with `-` is not read as an option.

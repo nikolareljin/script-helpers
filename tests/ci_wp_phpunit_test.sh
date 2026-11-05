@@ -37,7 +37,7 @@ done
 
 # 1b. A path that only reaches "/" or a parent through ".." or repeated slashes
 #     is refused too. --skip-provision keeps a regression from removing anything.
-for bad in "//" "/tmp/.." "/tmp/../" "/a/../../" "$HOME" "$HOME/"; do
+for bad in "//" "/." "/./" "/tmp/.." "/tmp/../" "/a/../../" "$HOME" "$HOME/" "$HOME//" "$HOME/."; do
   out="$(bash "$SCRIPT" --skip-provision true --wp-tests-dir "$bad" --workdir "$tmp" 2>&1)"
   rc=$?
   if [[ $rc -eq 2 ]]; then
