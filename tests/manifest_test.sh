@@ -98,6 +98,16 @@ grep -q 'versionCode 20000' "$tmp/android/app/build.gradle" \
   || error "versionCode was not recomputed to 20000"
 note "sync updates every manifest and preserves the build number"
 
+# 5b) a relative path that starts with "-" is read, not taken as an option
+mkdir -p "$tmp/-dash"
+printf '1.2.3\n' > "$tmp/-dash/VERSION"
+printf 'name: x\nversion: 4.5.6+7\n' > "$tmp/-dash/pubspec.yaml"
+got="$(cd "$tmp" && manifest_read_version "-dash/VERSION" 2>/dev/null)" || true
+[[ "$got" == "1.2.3" ]] || error "-dash/VERSION reads '$got' (expected 1.2.3)"
+got="$(cd "$tmp" && manifest_read_version "-dash/pubspec.yaml" 2>/dev/null)" || true
+[[ "$got" == "4.5.6" ]] || error "-dash/pubspec.yaml reads '$got' (expected 4.5.6)"
+note "a path that starts with '-' is read as a file"
+
 # 6) a rewrite is refused rather than emptying a file
 set +e
 manifest_write_version "$tmp/VERSION" "not-a-version" >/dev/null 2>&1

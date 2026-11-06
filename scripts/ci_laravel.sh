@@ -163,7 +163,7 @@ db_network=""
 
 cleanup() {
   if [[ -n "$sqlite_file" && -f "$sqlite_file" ]]; then
-    rm -f "$sqlite_file"
+    rm -f -- "$sqlite_file"
   fi
   ci_stack_remove ${db_container:+--container "$db_container"} ${db_network:+--network "$db_network"}
 }

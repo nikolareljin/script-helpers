@@ -88,7 +88,7 @@ case "$mode" in
     if [[ -e "$out" ]]; then
       out_real="$(cd "$out" && pwd -P)"
       case "$out_real" in
-        "$repo"/?*) rm -rf "$out_real"; log_info "docs_site: removed ${out_real}" ;;
+        "$repo"/?*) rm -rf -- "$out_real"; log_info "docs_site: removed ${out_real}" ;;
         *) log_error "docs_site: not removing ${out_real}: the site directory must be inside ${repo}"; exit 1 ;;
       esac
     fi

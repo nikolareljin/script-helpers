@@ -26,7 +26,7 @@ trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 # 1. Anything that is not an absolute path is refused, before any removal.
 for bad in "." "/" "relative/path" ""; do
-  out="$(bash "$SCRIPT" --wp-tests-dir "$bad" --workdir "$tmp" 2>&1)"
+  out="$(bash "$SCRIPT" --skip-provision true --wp-tests-dir "$bad" --workdir "$tmp" 2>&1)"
   rc=$?
   if [[ $rc -ne 0 ]] && grep -q "must be absolute paths" <<<"$out"; then
     note "refused --wp-tests-dir '${bad}'"
@@ -35,10 +35,17 @@ for bad in "." "/" "relative/path" ""; do
   fi
 done
 
-# 1b. A path that only reaches "/" or a parent through ".." or repeated slashes
-#     is refused too. --skip-provision keeps a regression from removing anything.
-for bad in "//" "/." "/./" "/tmp/.." "/tmp/../" "/a/../../" "$HOME" "$HOME/" "$HOME//" "$HOME/."; do
-  out="$(bash "$SCRIPT" --skip-provision true --wp-tests-dir "$bad" --workdir "$tmp" 2>&1)"
+# Every case below passes --skip-provision true, so a guard that regressed
+# reports "absent" instead of removing a directory. $HOME is a directory under
+# $tmp for the same reason.
+mkdir -p "$tmp/proj/plugin" "$tmp/home/user" "$tmp/elsewhere"
+ln -s "$tmp/proj/plugin" "$tmp/lnk"
+fake_home="$tmp/home/user"
+
+# 1b. A path that only reaches "/" or a parent through ".", ".." or repeated
+#     slashes is refused too, and so is $HOME however it is spelled.
+for bad in "//" "/." "/./" "/tmp/.." "/tmp/../" "/a/../../" "$fake_home" "$fake_home/" "$fake_home//" "$fake_home/." "$tmp/home//user" "$tmp/home"; do
+  out="$(HOME="$fake_home" bash "$SCRIPT" --skip-provision true --wp-tests-dir "$bad" --workdir "$tmp/proj/plugin" 2>&1)"
   rc=$?
   if [[ $rc -eq 2 ]]; then
     note "refused --wp-tests-dir '${bad}'"
@@ -47,9 +54,46 @@ for bad in "//" "/." "/./" "/tmp/.." "/tmp/../" "/a/../../" "$HOME" "$HOME/" "$H
   fi
 done
 
+# 1c. The working directory and the plugin, under other spellings: trailing or
+#     repeated slashes, a parent, a symlink, and the plugin when the working
+#     directory is somewhere else.
+scratch_rc() {   # <cwd> <workdir> <scratch>: exit code of the script
+  (cd "$1" && HOME="$fake_home" bash "$ROOT_DIR/$SCRIPT" --skip-provision true \
+    --wp-tests-dir "$3" --workdir "$2" >/dev/null 2>&1)
+}
+while IFS='|' read -r cwd wd scratch label; do
+  scratch_rc "$cwd" "$wd" "$scratch"; rc=$?
+  if [[ $rc -eq 2 ]]; then
+    note "refused ${label}"
+  else
+    error "${label} was not refused (exit ${rc})"
+  fi
+done <<CASES
+$tmp/proj/plugin|.|$tmp/proj/plugin//|the working directory with trailing slashes
+$tmp/proj/plugin|.|$tmp/proj//plugin|the working directory with a repeated slash
+$tmp/proj/plugin|.|$tmp/proj|the parent of the working directory
+$tmp/proj/plugin|.|$tmp/lnk|a symlink to the working directory
+$tmp/proj/plugin|.|$tmp/lnk/|a symlink to the working directory with a trailing slash
+$tmp/elsewhere|$tmp/proj/plugin|$tmp/proj/plugin|the plugin from another working directory
+$tmp/elsewhere|$tmp/proj/plugin|$tmp/proj|the parent of the plugin
+$tmp/elsewhere|$tmp/proj/plugin|$tmp/lnk|a symlink to the plugin
+CASES
+
+# 1d. A directory next to all of those is accepted (exit 1: the library is
+#     absent), with and without HOME.
+scratch_rc "$tmp/elsewhere" "$tmp/proj/plugin" "$tmp/scratch/wp-tests"; rc=$?
+if [[ $rc -eq 1 ]]; then note "accepted a separate scratch directory"; else error "a separate scratch directory was refused (exit ${rc})"; fi
+out="$(cd "$tmp/elsewhere" && env -u HOME bash "$ROOT_DIR/$SCRIPT" --skip-provision true \
+  --wp-tests-dir "$tmp/scratch/wp-tests" --workdir "$tmp/proj/plugin" 2>&1)"; rc=$?
+if [[ $rc -eq 1 ]] && grep -q "is absent" <<<"$out"; then
+  note "runs with HOME unset"
+else
+  error "with HOME unset: exit ${rc}: ${out}"
+fi
+
 # 2. The working directory itself is refused even when absolute. "." is caught
 #    above; this is the same mistake spelled out in full.
-out="$(bash "$SCRIPT" --wp-tests-dir "$ROOT_DIR" --workdir "$tmp" 2>&1)"
+out="$(bash "$SCRIPT" --skip-provision true --wp-tests-dir "$ROOT_DIR" --workdir "$tmp" 2>&1)"
 if grep -qi "refusing to use" <<<"$out"; then
   note "refused the working directory as a scratch path"
 else

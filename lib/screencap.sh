@@ -294,7 +294,7 @@ _screencap__record_android() {
   if [[ "$rc" -eq 0 ]]; then
     ffmpeg -y -f concat -safe 0 -i "$list" -c copy "$out" >/dev/null 2>&1 || rc=1
   fi
-  rm -rf "$tmpdir"
+  rm -rf -- "$tmpdir"
   adb -s "$serial" shell rm -f "$remote" >/dev/null 2>&1 || true
   [[ "$rc" -eq 0 ]] || log_error "_screencap__record_android: chunked recording failed on $serial"
   return $rc
@@ -397,7 +397,7 @@ screencap_gif() {
     # BSD mktemp has no --suffix, and ffmpeg's palettegen infers the output
     # format from the extension, so it cannot simply be dropped.
     palette="$(mktemp)" || return 1
-    mv "$palette" "${palette}.png" || return 1
+    mv -- "$palette" "${palette}.png" || return 1
     palette="${palette}.png"
   fi
   ffmpeg -y -i "$video" \
@@ -406,7 +406,7 @@ screencap_gif() {
     ffmpeg -y -i "$video" -i "$palette" \
       -lavfi "fps=$fps,scale=$width:-1:flags=lanczos[x];[x][1:v]paletteuse" "$out" >/dev/null 2>&1 || rc=1
   fi
-  rm -f "$palette"
+  rm -f -- "$palette"
   [[ "$rc" -eq 0 ]] || { log_error "screencap_gif: conversion failed"; return 1; }
   log_info "screencap: wrote $out"
   printf '%s\n' "$out"

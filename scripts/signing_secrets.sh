@@ -237,7 +237,7 @@ cleanup() {
   if [[ -d "$work/gnupg" ]]; then
     gpgconf --homedir "$work/gnupg" --kill gpg-agent >/dev/null 2>&1 || true
   fi
-  rm -rf "$work"
+  rm -rf -- "$work"
 }
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then cleanup; fi' EXIT
 trap 'exit 130' INT
@@ -290,7 +290,7 @@ pkcs12_open() {
       exit 2
     fi
     if ! grep -qi 'unsupported' "$err"; then
-      log_error "openssl cannot read $opt: $(head -n 1 "$err")"
+      log_error "openssl cannot read $opt: $(head -n 1 -- "$err")"
       exit 2
     fi
     p12_legacy="-legacy"
@@ -298,7 +298,7 @@ pkcs12_open() {
       if grep -qi 'mac verify' "$err"; then
         log_error "$opt does not open: wrong $pwname"
       else
-        log_error "$opt uses a legacy algorithm (RC2/3DES) and the OpenSSL legacy provider is not available: $(grep -i -m 1 -E 'unsupported|provider|legacy' "$err" || head -n 1 "$err")"
+        log_error "$opt uses a legacy algorithm (RC2/3DES) and the OpenSSL legacy provider is not available: $(grep -i -m 1 -E 'unsupported|provider|legacy' "$err" || head -n 1 -- "$err")"
       fi
       exit 2
     fi
@@ -309,7 +309,7 @@ pkcs12_open() {
     if grep -qi -E 'mac verify|bad decrypt|wrong password' "$err"; then
       log_error "$opt does not open: wrong $pwname"
     else
-      log_error "openssl cannot read $opt: $(head -n 1 "$err")"
+      log_error "openssl cannot read $opt: $(head -n 1 -- "$err")"
     fi
     exit 2
   }

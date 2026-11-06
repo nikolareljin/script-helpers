@@ -91,6 +91,6 @@ rsync "${rsync_args[@]+"${rsync_args[@]}"}" "$repo_dir/" "$pkg_dir/"
 
 tarball="$dist_dir/$name-$version.tar.gz"
 tar -czf "$tarball" -C "$tmp_dir" "$name-$version"
-rm -rf "$tmp_dir"
+rm -rf -- "$tmp_dir"
 
 log_info "Built Homebrew tarball: $tarball"

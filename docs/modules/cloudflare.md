@@ -63,7 +63,7 @@ Functions
 - cloudflare_smoke_test base-url expected-version [status-path] [field]
   - Purpose: Prove that the deploy took effect, not merely that something answers.
   - Behavior: Two separate assertions. First `curl` the health path (`CLOUDFLARE_HEALTH_PATH`, default `/health`) with retries, since a deploy that has just landed may take a moment to be reachable everywhere. Then, when `status-path` is given, fetch it and compare its `field` (default `version`) against `expected-version`. Without the second assertion a smoke test passes against the previous release, which is the failure it exists to catch - so reachability-only runs log a warning saying so. JSON is read with `jq`, else `python3`, else a `grep`/`sed` fallback.
-  - Returns: `0` pass; `1` unreachable, no such field, or the wrong version is live; `2` bad arguments, or a base URL that is not `http://` or `https://`; `3` no `curl`.
+  - Returns: `0` pass; `1` unreachable, no such field, or the wrong version is live; `2` bad arguments, or a base URL with a scheme other than `http` or `https` (a base URL without a scheme is read as `http`); `3` no `curl`.
 
 - cloudflare_deploy [options] [-- extra wrangler args...]
   - Purpose: The single deploy sequence, shared by `./dev deploy cloudflare` and by CI.

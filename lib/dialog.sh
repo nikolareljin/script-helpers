@@ -443,7 +443,7 @@ dialog_download_file() {
     fi
     wait "$pid" 2>/dev/null || true
     rm -f -- "$tmpfile"
-    rm -f "$errfile"
+    rm -f -- "$errfile"
     return 1
   fi
 
@@ -452,7 +452,7 @@ dialog_download_file() {
   local rc=$?
   if (( rc == 0 )); then
     mv -f -- "$tmpfile" "$output" 2>/dev/null || { print_error "Failed to finalize download to $output"; return 1; }
-    rm -f "$errfile"
+    rm -f -- "$errfile"
     return 0
   else
     rm -f -- "$tmpfile"
@@ -470,7 +470,7 @@ dialog_download_file() {
         --msgbox "Download failed (exit $rc) for:\n$url\n\nDetails:\n$err_preview" \
         "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 2>/dev/null || true
     fi
-    rm -f "$errfile"
+    rm -f -- "$errfile"
     return $rc
   fi
 }

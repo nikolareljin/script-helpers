@@ -317,7 +317,7 @@ PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
 
 # An owner is a file name under the cache directory; a path in it is refused
 # before anything is fetched or written.
-for bad in "../escape" "a/b" "testns,../x" ".hidden"; do
+for bad in "../escape" "a/b" "testns,../x" ".hidden" "-dash" $'\xc3\xa9'; do
   PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
     PRIVATE_NAMES_CACHE_DIR="$tmp/ownercache/c" \
     bash "$SCRIPT" --owner "$bad" --stdout >/dev/null 2>&1
@@ -328,12 +328,22 @@ for bad in "../escape" "a/b" "testns,../x" ".hidden"; do
     error "--owner '${bad}' was accepted (exit ${rc})"
   fi
 done
+printf '#!/bin/sh\n: > "%s/owner-was-run"\n' "$tmp" > "$tmp/bin/test-ns"
+chmod +x "$tmp/bin/test-ns"
 PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
   PRIVATE_NAMES_CACHE_DIR="$tmp/ownercache2" \
   PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
   PRIVATE_NAMES_CODES_FILE="$tmp/does-not-exist" \
-  bash "$SCRIPT" --owner "test-ns, Other1" --stdout >/dev/null 2>&1
-[[ $? -eq 0 ]] && ok "valid owner names are still accepted" || error "valid owner names were refused"
+  bash "$SCRIPT" --owner "test-ns, Other1, mona_acme" --stdout >/dev/null 2>"$tmp/owner-stderr"
+[[ $? -eq 0 ]] && ok "valid owner names are still accepted, one with '_' included" || error "valid owner names were refused: $(cat "$tmp/owner-stderr")"
+# The owner list is data. A program on PATH named like the first owner is not
+# run, and a clean run reports no missing command.
+if [[ -e "$tmp/owner-was-run" ]]; then error "the first owner was run as a command"; else ok "an owner is never run as a command"; fi
+if grep -q "command not found" "$tmp/owner-stderr"; then
+  error "a run printed: $(grep -m 1 "command not found" "$tmp/owner-stderr")"
+else
+  ok "a run reports no missing command"
+fi
 
 if [[ $failures -gt 0 ]]; then
   echo "[refresh_private_names_test] FAILED ($failures)" >&2

@@ -61,7 +61,7 @@ say()  { echo "$TAG $*" >&2; }
 SCRATCH=()
 # Not through $(...): a subshell would record the directory and forget it.
 scratch() { SCRATCH_DIR="$(mktemp -d)"; SCRATCH+=("$SCRATCH_DIR"); }
-cleanup() { [[ ${#SCRATCH[@]} -eq 0 ]] || rm -rf "${SCRATCH[@]}"; }
+cleanup() { [[ ${#SCRATCH[@]} -eq 0 ]] || rm -rf -- "${SCRATCH[@]}"; }
 # Guarded: a subshell inherits the trap and must not delete the owner's scratch.
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then cleanup; fi' EXIT
 trap 'exit 130' INT
@@ -179,7 +179,7 @@ audit_repo() {
       if (m ~ /^\++$/) { print commit " " f ":" ln "\t" substr($0, np + 1); ln++ }
       else if (m !~ /-/) ln++
     }' "$t/log" >> "$t/units" 2> "$t/parse-errors" \
-    || { say "could not parse the history of $g:"; head -3 "$t/parse-errors" | sed 's/^/    /' >&2; return 2; }
+    || { say "could not parse the history of $g:"; head -3 -- "$t/parse-errors" | sed 's/^/    /' >&2; return 2; }
   # File names, which a line-based scan of contents never sees.
   git -C "$g" -c core.quotePath=false log --all --format='%x01%H' --name-only --no-renames \
     | awk -v sep="$(printf '\001')" 'index($0, sep) == 1 { c = substr($0, 2); next } NF { print c " path\t" $0 }' >> "$t/units" \
@@ -206,7 +206,7 @@ audit_repo() {
     | sed -E 's/^.*<(.{1,3})[^@]*@([^>]*)>$/sensitive\t- identity\tan email at a machine-local domain (\1***@\2)/' >> "$t/hits.tsv" || true
   # A NUL byte, or an encoding error outside the C locale, makes grep call the
   # whole input binary and match nothing in it: the check would pass blind.
-  { tr -d '\000' < "$t/units" > "$t/units.c" && mv "$t/units.c" "$t/units"; } || { say "could not prepare the text"; return 2; }
+  { tr -d '\000' < "$t/units" > "$t/units.c" && mv -- "$t/units.c" "$t/units"; } || { say "could not prepare the text"; return 2; }
   # A binary file version (a PDF, an image, an archive) can carry a name in its
   # text: its printable strings go to the name check. One larger than the limit
   # is not read, and the result is then incomplete.

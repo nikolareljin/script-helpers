@@ -2,11 +2,12 @@
 
 ### Fixed
 
-- **`ci_wp_phpunit.sh` refuses a scratch directory that reaches `/` or `$HOME`.** `--wp-tests-dir` and `--wp-core-dir` are removed with `rm -rf`; `/tmp/..`, `/.` or `//` passed the old check, which compared the text with `/`. A `.` or `..` component, a path of only slashes, and `$HOME` or the working directory with any trailing slashes now exit 2. Tests: new cases in `tests/ci_wp_phpunit_test.sh`.
-- **`http_probe_json` and `http_check_key` contact only `http://` and `https://` URLs.** curl was given the URL as-is, so `http_probe_json file:///etc hostname` printed a local file. Tests: a new case in `tests/service_client_test.sh`.
-- **`cloudflare_smoke_test` refuses a base URL that is not `http://` or `https://`** (exit 2). Tests: new cases in `tests/cloudflare_test.sh`.
-- **Caller-supplied paths are passed after `--`** to `cp`, `mv`, `rm`, `cat` and `head` across `lib/` and `scripts/`, so a path that starts with `-` is not read as an option.
-- **`refresh_private_names.sh` refuses an owner that is not a GitHub login.** Each owner names a file under the cache directory, so `--owner ../x` wrote and removed files outside it. Anything but letters, digits and hyphens now exits 2. Tests: new cases in `tests/refresh_private_names_test.sh`.
+- **`ci_wp_phpunit.sh` refuses a scratch directory that is, or contains, the working directory, the plugin (`--workdir`) or `$HOME`.** `--wp-tests-dir` and `--wp-core-dir` are removed with `rm -rf`. The old check compared the text with `/` and `$PWD`, so `/tmp/..`, `/.`, `//`, the parent of the plugin, a symlink to it, `plugin//` and the plugin itself from another working directory all passed. Paths are now compared as physical paths, and a `.` or `..` component exits 2. Tests: new cases in `tests/ci_wp_phpunit_test.sh`.
+- **`http_probe_json` and `http_check_key` contact only `http://` and `https://` URLs.** curl was given the URL as-is, so `http_probe_json file:///etc hostname` printed a local file. Tests: new cases in `tests/service_client_test.sh`.
+- **`cloudflare_smoke_test` contacts only `http://` and `https://` URLs.** A base URL with another scheme exits 2, and curl runs with `--proto =http,https`. A base URL without a scheme is still read as `http`. Tests: new cases in `tests/cloudflare_test.sh`.
+- **`cp`, `mv`, `rm`, `cat` and `head` get their paths after `--`** in every call in `lib/` and `scripts/` that runs on this machine (not inside `docker`, `adb shell` or a compose service), so a path that starts with `-` is not read as an option. `manifest_read_version` also reads a relative path that starts with `-`. Tests: a new case in `tests/manifest_test.sh`.
+- **`refresh_private_names.sh` refuses an owner that is not a GitHub login.** Each owner names a file under the cache directory, so `--owner ../x` wrote and removed files outside it. Anything but ASCII letters, digits, hyphens and `_` now exits 2. Tests: new cases in `tests/refresh_private_names_test.sh`.
+- **`refresh_private_names.sh` no longer runs the owner list as a command.** Two stray lines after the assembly loop expanded the list as a command line: the first owner was looked up on `PATH` and run with the others as arguments, and every run printed `EOF: command not found`. Tests: new cases in `tests/refresh_private_names_test.sh`.
 
 ## 2026-10-29 — v0.61.0
 
