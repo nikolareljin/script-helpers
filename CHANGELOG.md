@@ -1,3 +1,9 @@
+## Unreleased
+
+### Fixed
+
+- **`ci_wp_plugin_check.sh` no longer fails a findings-free scan.** With no FILE sections `wp plugin check` prints a bare `Success:` line instead of JSON, which the report block read as "not valid JSON" and exited 5 — a perfectly clean plugin could never pass with `--fail-on-findings true`. A lone success line now counts as zero findings; empty, missing, and malformed reports still exit 5. Tests: new case 9 in `tests/ci_wp_plugin_check_report_test.sh` (fails against 0.61.0).
+
 ## 2026-10-29 — v0.61.0
 
 ### Changed
