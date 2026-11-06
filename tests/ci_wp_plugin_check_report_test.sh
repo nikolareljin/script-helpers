@@ -142,6 +142,18 @@ else
   error "expected exit 5 with one message, got exit $rc and $lines: $out"
 fi
 
+# 9) A findings-free scan passes. With no FILE sections `wp plugin check`
+#    prints a bare success line instead of JSON; that is zero findings,
+#    not a parse failure. (A bare empty file stays exit 5 per case 6.)
+case_dir="$tmp/clean"; mkdir -p "$case_dir"
+printf 'Success: Checks complete. No errors found.\n' > "$case_dir/plugin-check.json"
+out="$(run_report "$case_dir" true)"; rc=$?
+if [[ $rc -eq 0 && "$out" == *"0 error(s), 0 warning(s)"* ]]; then
+  note "a clean scan passes: $out"
+else
+  error "a clean scan exited $rc, expected 0: $out"
+fi
+
 if [[ $failures -gt 0 ]]; then
   echo "[ci_wp_plugin_check_report_test] FAILED ($failures)" >&2
   exit 1
