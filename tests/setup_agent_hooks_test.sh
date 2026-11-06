@@ -65,7 +65,7 @@ done
 dup=0; for a in codex gemini copilot cursor; do [[ "$(count_ours "$r/$(rel_of "$a")")" == 1 ]] || dup=1; done
 [[ $dup -eq 0 ]] && ok "reinstall adds no second entry" || error "reinstall duplicated an entry"
 (cd "$r" && bash "$setup" --agent-repo all --uninstall >/dev/null 2>&1) || error "all: uninstall failed"
-left="$(cd "$r" && ls -A | grep -v '^\.git$' | tr '\n' ' ')"
+left="$(find "$r" -mindepth 1 -maxdepth 1 ! -name .git -print)"
 [[ -z "$left" ]] && ok "uninstall removes the files and directories it created" || error "all: left behind: $left"
 [[ -z "$(git -C "$r" config --local --get-regexp '^script-helpers\.' 2>/dev/null)" ]] && ok "uninstall removes its .git/config keys" || error "all: keys left"
 grep -q 'agent-repo' "$r/.git/info/exclude" && error "all: exclude lines left" || ok "uninstall removes its exclude lines"
@@ -83,7 +83,7 @@ grep -q their-guard "$r/.cursor/hooks.json" && grep -q fmt.sh "$r/.cursor/hooks.
   && ! grep -q agent_hook.sh "$r/.cursor/hooks.json" "$r/.gemini/settings.json" \
   && ok "uninstall removes only ours; the user's files stay" || error "foreign: uninstall damaged or deleted a user file"
 ls "$r/.git/script-helpers/cursor-backups"/hooks.json.bak-* >/dev/null 2>&1 && ok "backups kept under .git/script-helpers" || error "foreign: no backup under .git/script-helpers"
-[[ -z "$(ls "$r/.cursor" | grep bak)" ]] && ok "no backup left in the work tree" || error "foreign: backup in the work tree"
+[[ -z "$(find "$r/.cursor" -maxdepth 1 -name '*bak*' -print)" ]] && ok "no backup left in the work tree" || error "foreign: backup in the work tree"
 
 # 4. Refusals: a tracked file, a symlinked directory, an unknown agent, claude, bad combinations.
 r="$(new_repo refuse)"

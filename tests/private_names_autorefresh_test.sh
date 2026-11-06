@@ -15,7 +15,6 @@ unset CI GITHUB_ACTIONS
 export SCRIPT_HELPERS_NO_AUTO_INSTALL=1
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-HOOK="$ROOT_DIR/scripts/git-hooks/pre-push"
 # Run from inside the global hooks, their script directory would be used.
 unset SCRIPT_HELPERS_SECURITY_DIR
 failures=0
@@ -45,8 +44,6 @@ printf '#!/usr/bin/env bash\nexit 0\n' > "$repo/scripts/check_private_names.sh"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$repo/scripts/check_sensitive.sh"
 
 list="$tmp/list.tsv"
-zeroes="$(printf '0%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 \
-                          21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40)"
 
 hook_run() {
   (cd "$repo" && PRIVATE_NAMES_FILE="$list" "$@" bash -c '

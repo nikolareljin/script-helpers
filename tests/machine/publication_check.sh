@@ -15,7 +15,8 @@ for tool in git python3 gitleaks ssh-keygen; do
 done
 scratch="$(mktemp -d)" || exit 2
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$scratch"; fi' EXIT
-export GITLEAKS_BIN="$(command -v gitleaks)"
+GITLEAKS_BIN="$(command -v gitleaks)" || exit 2
+export GITLEAKS_BIN
 export XDG_STATE_HOME="$scratch/state"
 unset CI GITHUB_ACTIONS
 failures=0
