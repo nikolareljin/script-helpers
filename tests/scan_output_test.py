@@ -43,7 +43,7 @@ class PublicationTests(unittest.TestCase):
     def check(self, *args, expected=0, env=None, text=None):
         proc = subprocess.run(
             ["bash", str(CHECK), "--repo", str(self.repo), *args],
-            input=text, capture_output=True, text=True, env=env or self.env,
+            input=text, capture_output=True, text=True, env=env or self.env, cwd=self.repo,
         )
         self.assertEqual(proc.returncode, expected, proc.stderr)
         return proc
@@ -71,12 +71,17 @@ class PublicationTests(unittest.TestCase):
                 self.check("--staged", expected=1)
                 self.git("reset", "-q")
 
+    def test_reserved_publication_directory_normalized(self):
+        self.stage("scans/ordinary.txt", b"[]")
+        for path in ("./scans/ordinary.txt", str(self.repo / "scans/ordinary.txt")):
+            self.check("--file", path, expected=1)
+
     def test_sarif_and_wrapped_gitleaks(self):
         self.check("--stdin", text=json.dumps({"version": "2.1.0", "runs": []}), expected=1)
         self.check("--stdin", text=json.dumps({"data": [{"RuleID": "fixture", "Secret": "REDACTED"}]}), expected=1)
 
     def test_generic_empty_json_and_configuration(self):
-        self.stage("data.json", b"[]")
+        self.stage("data.json", b'{"version":"1.2.3","runs":[{"name":"build"}]}')
         self.stage(".gitleaksignore", b"# reviewed synthetic fixture\n")
         self.stage(".foxguard.yml", b"severity: high\n")
         self.stage("backend/scans/apps.py", b"name = 'business-scans'\n")
@@ -84,7 +89,7 @@ class PublicationTests(unittest.TestCase):
 
     def test_embedded_result_text(self):
         tool = "fox" + "guard"
-        for text in (tool + ": 19 findings", "The scan: " + tool + " 19 findings to inspect."):
+        for text in (tool + ": 19 findings", "The scan: " + tool + " 19 findings to inspect.", "19 " + tool + " findings"):
             self.check("--stdin", text=text, expected=1)
 
     def test_ansi_and_utf16(self):
@@ -135,6 +140,11 @@ class PublicationTests(unittest.TestCase):
         refs = self.base / "refs"
         refs.write_text("refs/tags/fixture " + oid + " refs/tags/fixture " + "0" * 40 + "\n")
         self.check("--push-refs", str(refs), expected=1)
+
+    def test_native_console_results_refused(self):
+        tool = "git" + "leaks"
+        for status in ("11:00AM WRN leaks found: " + "19", "11:00AM INF no " + "leaks found"):
+            self.check("--stdin", text=tool + "\n" + status, expected=1)
 
     def test_missing_or_malformed_range_refused(self):
         self.check("--range", "does-not-exist", expected=2)
@@ -189,13 +199,20 @@ class PublicationTests(unittest.TestCase):
                 if ci:
                     self.assertNotIn("Local report:", proc.stderr)
 
-    def test_local_report_rejects_checkout_and_symlink(self):
+    def test_local_report_rejects_checkout(self):
         helper = ROOT / "scripts/local_security_report.py"
-        for path in (self.repo / "report.json", self.base / "link.json"):
-            if path.name == "link.json":
-                path.symlink_to(self.repo / "target.json")
-            proc = subprocess.run(["python3", "-I", str(helper), "--output", str(path)], cwd=self.repo, env=self.env, capture_output=True)
-            self.assertEqual(proc.returncode, 2)
+        proc = subprocess.run(["python3", "-I", str(helper), "--output", str(self.repo / "report.json")], cwd=self.repo, env=self.env, capture_output=True)
+        self.assertEqual(proc.returncode, 2)
+
+    def test_local_report_rejects_symlink(self):
+        helper = ROOT / "scripts/local_security_report.py"
+        path = self.base / "link.json"
+        try:
+            path.symlink_to(self.repo / "target.json")
+        except OSError:
+            self.skipTest("native symlinks unavailable")
+        proc = subprocess.run(["python3", "-I", str(helper), "--output", str(path)], cwd=self.repo, env=self.env, capture_output=True)
+        self.assertEqual(proc.returncode, 2)
 
     def test_ci_installer_guards_a_second_clone_before_transport(self):
         runner = self.base / "runner"
@@ -261,6 +278,9 @@ class PublicationTests(unittest.TestCase):
         env = {**self.env, "CI": "true", "GITLEAKS_BIN": str(scanner), "SENT": str(marker)}
         attempts = [
             ["pr", "create", "--title", "fixture", "--body", self.report().decode()],
+            ["--repo", "fixture/project", "pr", "create", "--body", self.report().decode()],
+            ["pr", "create", "--fill=true", "--body", "Ready."],
+            ["release", "create", "fixture", "--notes-from-tag", "--notes", "Ready."],
             ["pr", "create", "--title", "fixture", "-b" + self.report().decode()],
             ["pr", "create", "--title", "fixture", "--body-file", str(report)],
             ["pr", "create", "--title", "fixture", "--body-file", str(alias)],
@@ -283,6 +303,11 @@ class PublicationTests(unittest.TestCase):
         proc = subprocess.run(["python3", "-I", str(ROOT / "scripts/guard_gh.py"), str(gh), "pr", "create", "--title", "fixture", "--body", "Ready for review."], env=env, capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertTrue(marker.exists())
+        safe_asset = self.base / "notes.txt"
+        safe_asset.write_text("Ready for review.")
+        for args in (["gist", "create", str(safe_asset)], ["pr", "review", "1", "--approve"]):
+            proc = subprocess.run(["python3", "-I", str(ROOT / "scripts/guard_gh.py"), str(gh), *args], env=env, capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
 
 
 if __name__ == "__main__":

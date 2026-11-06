@@ -65,6 +65,7 @@ jobs:
           umask 077
           check_rc=0
           bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          unset CI GITHUB_ACTIONS
           set -uo pipefail
           failed=0
           for f in tests/*_test.sh; do
@@ -85,6 +86,7 @@ jobs:
           umask 077
           check_rc=0
           bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          unset CI GITHUB_ACTIONS
           /bin/bash tests/portability_test.sh
           PRIVATE_CHECK
           rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
@@ -106,6 +108,7 @@ jobs:
           umask 077
           check_rc=0
           bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          unset CI GITHUB_ACTIONS
           bash tests/machine/foxguard_release_check.sh
           PRIVATE_CHECK
           rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
@@ -120,6 +123,7 @@ jobs:
           umask 077
           check_rc=0
           bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          unset CI GITHUB_ACTIONS
           make test
           PRIVATE_CHECK
           rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"

@@ -20,8 +20,21 @@ def main():
     text_flags = {"--body", "-b", "--title", "-t", "--notes", "-n", "--name"}
     file_flags = {"--body-file", "--notes-file", "--input", "--template"}
     field_flags = {"--field", "-F", "--raw-field", "-f"}
-    family = args[0]
-    verb = args[1] if len(args) > 1 else ""
+    command_start = 0
+    while command_start < len(args) and args[command_start].startswith("-"):
+        token = args[command_start]
+        if token in {"-R", "--repo", "--hostname"}:
+            command_start += 2
+        elif token.startswith(("--repo=", "--hostname=")) or token.startswith("-R") and len(token) > 2:
+            command_start += 1
+        elif token in {"--help", "-h", "--version"}:
+            return subprocess.call([executable, *args])
+        else:
+            return 1
+    if command_start >= len(args):
+        return 1
+    family = args[command_start]
+    verb = args[command_start + 1] if len(args) > command_start + 1 else ""
     publishing = family == "api" or family in {"pr", "issue", "release", "gist"} and verb in {
         "create", "edit", "comment", "review", "upload",
     }
@@ -30,7 +43,9 @@ def main():
     if family != "api":
         field_flags.discard("-F")
         file_flags.add("-F")
-    if any(flag in args for flag in ("--web", "--fill", "--fill-first", "--fill-verbose", "--generate-notes", "--template")) or family == "pr" and verb == "create" and "-f" in args:
+    if any(flag.split("=", 1)[0] in {"--web", "--fill", "--fill-first", "--fill-verbose", "--generate-notes", "--notes-from-tag", "--template", "--recover"} for flag in args) or family == "pr" and verb == "create" and "-f" in args:
+        return 1
+    if family == "gist" and verb == "edit":
         return 1
     checker = str(Path(__file__).with_name("check_publication.sh"))
     texts = args[:]
@@ -76,7 +91,7 @@ def main():
         if family == "release" and verb in {"create", "upload"} or family == "gist" and verb == "create":
             # Tag and asset operands, excluding option values.
             operands = []
-            i = 2
+            i = command_start + 2
             while i < len(args):
                 token = args[i]
                 if token in text_flags | file_flags | field_flags | {"--repo", "-R", "--target", "--discussion-category", "--description", "-d"}:
@@ -86,6 +101,8 @@ def main():
                     operands.append(token)
                 i += 1
             files.extend(name.split("#", 1)[0] for name in (operands if family == "gist" else operands[1:]))
+        has_body = has_body or family == "gist" and verb == "create" and bool(files)
+        has_body = has_body or family == "pr" and verb == "review" and any(a in args for a in ("--approve", "-a"))
         if family in {"pr", "issue", "release", "gist"} and verb in {"create", "comment", "review"} and not has_body:
             return 1
         payload = Path(temp) / "text"

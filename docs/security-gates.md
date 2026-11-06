@@ -1,7 +1,7 @@
 # Security gates in the git hooks
 
-The shared hooks refuse three kinds of text before it leaves the machine, and
-report a fourth. Scanner diagnostics stay local:
+The shared hooks refuse prohibited content before it leaves the machine.
+Foxguard findings remain advisory, and scanner diagnostics stay local:
 
 | step | hook | on a hit |
 |---|---|---|

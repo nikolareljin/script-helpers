@@ -108,7 +108,9 @@ Both print the command that installs the tool.
 
 Foxguard findings remain advisory. Diagnostics are written to a private file
 outside the checkout. The local hook shows that path for local inspection; CI
-shows only a generic verdict. To create a structured local report:
+names the failing tool and branch and links
+https://nikolareljin.github.io/leak-lock/ for local remediation. To create a
+structured local report:
 
 ```bash
 bash scripts/script-helpers/scripts/foxguard_report.sh --base origin/main

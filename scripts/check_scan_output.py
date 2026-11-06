@@ -36,7 +36,12 @@ RESULT = re.compile(
     r"\b\d+\s+(?:findings?|leaks?|hits?)\b|"
     r"\b(?:gitleaks|foxguard)\s*[:=]\s*(?:clean|no leaks|no findings)\b|"
     r"\bno gitleaks findings\b|\bgitleaks findings detected\s*:|"
-    r"\b(?:gitleaks|foxguard)\s*[:=]?\s*\d+\s*(?:[,;]|$)"
+    r"\b(?:gitleaks|foxguard)\s*[:=]?\s*\d+\s*(?:[,;]|$)|"
+    r"\b\d+\s+(?:gitleaks|foxguard)\s+(?:findings?|leaks?|hits?)\b"
+)
+NATIVE_RESULT = re.compile(
+    r"(?i)^(?:\d{1,2}:\d{2}(?::\d{2})?(?:AM|PM)?\s+)?"
+    r"(?:(?:INF|WRN|ERR)\s+)?(?:no leaks found\.?|leaks found\s*:\s*\d+|\d+\s+leaks? found)\s*$"
 )
 LIMIT = 64 * 1024 * 1024
 
@@ -67,7 +72,10 @@ def git(repo, *args):
 def structured(value):
     if isinstance(value, dict):
         keys = {str(k).lower() for k in value}
-        if "runs" in keys and ("$schema" in keys or "version" in keys):
+        if isinstance(value.get("runs"), list) and (
+            "sarif" in str(value.get("$schema", "")).lower()
+            or str(value.get("version")) in {"1.0.0", "2.0.0", "2.1.0"}
+        ):
             return True
         if {"ruleid", "fingerprint"} <= keys or {"ruleid", "secret"} <= keys:
             return True
@@ -103,7 +111,8 @@ def inspect(name, raw, depth=0):
 
 
 def _inspect(name, raw, depth=0):
-    if REPORT_NAME.search(name.replace("\\", "/")):
+    normalized = "/".join(part for part in name.replace("\\", "/").split("/") if part not in ("", "."))
+    if REPORT_NAME.search(normalized):
         raise Refused()
     if len(raw) > LIMIT or depth > 3:
         raise Unchecked()
@@ -168,7 +177,7 @@ def _inspect(name, raw, depth=0):
     if re.search(r"(?m)^\s*Local(?: security)? report:\s+(?:/|[A-Za-z]:[\\/])", text):
         raise Refused()
     for line in text.splitlines():
-        if not RESULT.search(line):
+        if not RESULT.search(line) and not (TOOL.search(text) and NATIVE_RESULT.search(line.strip())):
             continue
         # Executable statements describe the scanner; their output is checked
         # separately. This is not a directory exemption for source or tests.
@@ -279,7 +288,19 @@ def main():
                     resolved = str(Path(name).resolve())
                     if REPORT_NAME.search(name.replace("\\", "/")):
                         raise Refused(name)
-                    inspect(resolved, stream.read(LIMIT + 1))
+                    raw = stream.read(LIMIT + 1)
+                    inspect(name, raw)
+                    if name != resolved:
+                        inspect(resolved, raw)
+                    probe = subprocess.run(["git", "-C", str(Path(resolved).parent), "rev-parse", "--show-toplevel"], capture_output=True, env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
+                    if probe.returncode == 0:
+                        root = Path(os.fsdecode(probe.stdout).strip())
+                        try:
+                            relative = Path(resolved).relative_to(root).as_posix()
+                        except ValueError:
+                            raise Unchecked() from None
+                        if REPORT_NAME.search(relative):
+                            raise Refused(name)
         elif args.stdin:
             inspect("stdin", sys.stdin.buffer.read(LIMIT + 1))
         elif args.staged:
