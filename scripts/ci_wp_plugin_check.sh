@@ -340,7 +340,6 @@ if docker_compose -f "$compose_file" run --rm \
   "$wpcli_service" \
   sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; wp help plugin check >/dev/null 2>&1'; then
   plugin_check_available="true"
-  plugin_check_exit=""
   plugin_check_tmp="${out_dir}/plugin-check.json.tmp"
   rm -f -- "$plugin_check_tmp"
   plugin_check_exit=0
