@@ -81,9 +81,10 @@ scripts/ci_wp_phpunit.sh --workdir . --db-host 127.0.0.1 --db-port 3306
 
 - `--wp-version` takes `X.Y.Z`, `X.Y` (the newest release of that minor) or
   `latest`.
-- `--wp-tests-dir` and `--wp-core-dir` are removed and rewritten, so they must
-  be absolute paths outside the plugin. Defaults: `/tmp/wordpress-tests-lib`,
-  `/tmp/wordpress`.
+- `--wp-tests-dir` and `--wp-core-dir` are removed and rewritten, so each must
+  be an absolute path with no `.` or `..` component that is not, and does not
+  contain, the plugin, the working directory or `$HOME` (symlinks are
+  resolved first). Defaults: `/tmp/wordpress-tests-lib`, `/tmp/wordpress`.
 - `--skip-provision true` reuses a library already there.
 - `--php-image` runs the tests in that image. The database must then be one a
   container can reach.

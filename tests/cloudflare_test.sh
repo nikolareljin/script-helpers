@@ -61,6 +61,7 @@ SH
 cat >"$tmp/bin/curl" <<'SH'
 #!/usr/bin/env bash
 out=""
+printf '%s\n' "$@" >> "${CURL_ARGV_LOG:-/dev/null}"
 for a in "$@"; do
   case "$a" in
     /dev/null) out="/dev/null" ;;
@@ -244,6 +245,24 @@ if [[ $? -eq 1 ]]; then ok "unreachable returns 1"; else error "unreachable shou
 
 cloudflare_smoke_test "" 1.4.2 >/dev/null 2>&1
 if [[ $? -eq 2 ]]; then ok "missing base URL returns 2"; else error "missing base URL should return 2"; fi
+
+for bad in "file:///etc/hostname" "FILE:///etc/hostname" "ftp://example.com" "https://"; do
+  CURL_BODY='{"version":"1.4.2"}' cloudflare_smoke_test "$bad" 1.4.2 /api/status >/dev/null 2>&1
+  if [[ $? -eq 2 ]]; then ok "base URL '${bad}' is refused"; else error "base URL '${bad}' should return 2"; fi
+done
+# A base URL without a scheme worked before the scheme check and still does:
+# curl reads it as http.
+for good in "http://127.0.0.1:8787" "HTTPS://example.com" "example.com" "127.0.0.1:8787"; do
+  CURL_BODY='{"version":"1.4.2"}' cloudflare_smoke_test "$good" 1.4.2 /api/status >/dev/null 2>&1
+  if [[ $? -eq 0 ]]; then ok "base URL '${good}' is accepted"; else error "base URL '${good}' should pass"; fi
+done
+: > "$tmp/curl-argv"
+CURL_ARGV_LOG="$tmp/curl-argv" CURL_BODY='{"version":"1.4.2"}' cloudflare_smoke_test example.com 1.4.2 /api/status >/dev/null 2>&1
+if [[ "$(grep -c -x -- '=http,https' "$tmp/curl-argv")" -eq 4 ]]; then
+  ok "both requests limit curl to http and https, redirects included"
+else
+  error "curl was not limited to http and https: $(tr '\n' ' ' < "$tmp/curl-argv")"
+fi
 
 # --- cloudflare_deploy: the argv ------------------------------------------------
 note "deploy argv"

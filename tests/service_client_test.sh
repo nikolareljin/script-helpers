@@ -120,6 +120,8 @@ if http_probe_json "$url" /missing 3 >/dev/null 2>&1; then error "a 404 counted 
 if http_probe_json "$url" /empty 3 >/dev/null 2>&1; then error "an empty body counted as an answer"; else ok "an empty body is not an answer"; fi
 if http_probe_json "http://127.0.0.1:$dead_port" /info 2 >/dev/null 2>&1; then error "a dead port answered"; else ok "nothing listening returns 1"; fi
 if http_probe_json "$url" /info 0 >/dev/null 2>&1; then error "timeout 0 accepted"; else ok "a bad timeout is refused"; fi
+printf '{"version": "9"}' > "$tmp/local.json"
+if http_probe_json "file://$tmp" /local.json 2 >/dev/null 2>&1; then error "a file:// URL was read"; else ok "a file:// URL is not fetched"; fi
 if http_probe_json "$url" >/dev/null 2>&1; then error "a missing PATH accepted"; else ok "PATH is required"; fi
 
 # --- json_get_field ----------------------------------------------------------------
@@ -162,6 +164,7 @@ printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" >> "%s/argv"\nexec "%s" "$@"\n
 chmod +x "$tmp/shim/curl"
 if PATH="$tmp/shim:$PATH" http_check_key "$url" /private X-Token right; then ok "the key check passes through the shim"; else error "shim run failed"; fi
 if grep -q right "$tmp/argv" 2>/dev/null; then error "the key appeared in curl's argv"; else ok "the key is not in curl's argv"; fi
+if grep -q -x -- '=http,https' "$tmp/argv" 2>/dev/null; then ok "the key check limits curl to http and https"; else error "the key check does not pass --proto =http,https"; fi
 
 # --- version_offer_update ----------------------------------------------------------
 note "version_offer_update"
