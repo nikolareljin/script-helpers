@@ -9,6 +9,12 @@
 - **`refresh_private_names.sh` refuses an owner that is not a GitHub login.** Each owner names a file under the cache directory, so `--owner ../x` wrote and removed files outside it. Anything but ASCII letters, digits, hyphens and `_` now exits 2. Tests: new cases in `tests/refresh_private_names_test.sh`.
 - **`refresh_private_names.sh` no longer runs the owner list as a command.** Two stray lines after the assembly loop expanded the list as a command line: the first owner was looked up on `PATH` and run with the others as arguments, and every run printed `EOF: command not found`. Tests: new cases in `tests/refresh_private_names_test.sh`.
 
+## 2026-11-05 — v0.61.1
+
+### Fixed
+
+- **`ci_wp_plugin_check.sh` no longer fails a findings-free scan.** With no FILE sections `wp plugin check` prints a bare `Success:` line instead of JSON, which the report block read as "not valid JSON" and exited 5 — a perfectly clean plugin could never pass with `--fail-on-findings true`. A lone success line now counts as zero findings; empty, missing, and malformed reports still exit 5. Tests: new case 9 in `tests/ci_wp_plugin_check_report_test.sh` (fails against 0.61.0).
+
 ## 2026-10-29 — v0.61.0
 
 ### Changed
