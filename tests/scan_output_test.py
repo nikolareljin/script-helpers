@@ -157,6 +157,10 @@ class PublicationTests(unittest.TestCase):
         refs.write_text("refs/heads/x " + "0" * 40 + " refs/heads/x " + self.initial + "\n")
         self.check("--push-refs", str(refs))
 
+    def test_empty_named_compressed_report_refused(self):
+        self.stage("gitleaks.json.gz", gzip.compress(b"[]"))
+        self.check("--staged", expected=1)
+
     def test_renamed_compressed_reports_refused(self):
         for compress in (gzip.compress, bz2.compress, lzma.compress):
             with self.subTest(compress=compress.__module__):

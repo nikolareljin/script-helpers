@@ -27,8 +27,8 @@ class Unchecked(Exception):
 
 
 REPORT_NAME = re.compile(
-    r"(?i)^(?:scans|scan-results|security-reports)/|\.sarif$|"
-    r"(?:^|/)[^/]*(?:gitleaks|foxguard)[^/]*\.(?:json|sarif|log|html|csv)$"
+    r"(?i)^(?:scans|scan-results|security-reports)/|\.sarif(?:\.(?:gz|bz2|xz|zip))?$|"
+    r"(?:^|/)[^/]*(?:gitleaks|foxguard)[^/]*\.(?:json|sarif|log|html|csv)(?:\.(?:gz|bz2|xz|zip))?$"
 )
 TOOL = re.compile(r"gitleaks|foxguard", re.I)
 RESULT = re.compile(
