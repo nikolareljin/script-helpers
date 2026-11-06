@@ -116,7 +116,10 @@ while [[ $# -gt 0 ]]; do
     --node-image) require_value "$@" || exit 2; NODE_IMAGE_OVERRIDE="$2"; shift 2;;
     --gitleaks-image) require_value "$@" || exit 2; GITLEAKS_IMAGE_OVERRIDE="$2"; shift 2;;
     -h|--help) show_help "${BASH_SOURCE[0]}"; exit 0;;
-    *) echo "Unknown arg: $1" >&2; exit 1;;
+    *)
+      if [[ -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" ]]; then security_notice Security;
+      else echo "Unknown arg: $1" >&2; fi
+      exit 1;;
   esac
 done
 

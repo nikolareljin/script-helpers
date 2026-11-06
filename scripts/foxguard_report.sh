@@ -22,6 +22,10 @@ set -euo pipefail
 # shellcheck source=/dev/null
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/security_notice.sh"
 
+if [[ -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" ]]; then
+  case "${1:-}" in -h|--help) ;; *) security_notice Foxguard; exit 2 ;; esac
+fi
+
 src_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 base="" output=""
 paths=()
@@ -37,10 +41,6 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-if [[ -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" ]]; then
-  security_notice Foxguard
-  exit 2
-fi
 # shellcheck source=/dev/null
 source "$src_root/helpers.sh"
 shlib_import logging foxguard

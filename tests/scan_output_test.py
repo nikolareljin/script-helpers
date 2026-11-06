@@ -183,6 +183,14 @@ class PublicationTests(unittest.TestCase):
                 self.stage("ordinary.bin", compress(self.report()))
                 self.check("--staged", expected=1)
 
+    def test_local_commands_refuse_ci_without_echoing_input(self):
+        canary = "PRIVATE" + "-SCAN-PATH"
+        for name in ("ci_security.sh", "foxguard_report.sh", "ci_gitleaks_report.sh"):
+            proc = subprocess.run(["bash", str(ROOT / "scripts" / name), "--unexpected=" + canary], env={**self.env, "CI": "true", "GITHUB_ACTIONS": "true"}, capture_output=True, text=True)
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertNotIn(canary, proc.stdout + proc.stderr)
+            self.assertIn("https://nikolareljin.github.io/leak-lock/", proc.stderr)
+
     def test_ci_output_is_generic(self):
         env = {**self.env, "CI": "true"}
         proc = self.check("--stdin", env=env, text=self.report().decode(), expected=1)
