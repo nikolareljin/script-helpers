@@ -53,7 +53,8 @@ sec_scan_output() {
 sec_guard() (
   local report py rc=0 report_owner="${BASHPID-$$}" report_level="${BASH_SUBSHELL:-0}"
   trap - EXIT HUP INT TERM
-  py="$(command -v python3 || command -v python || true)"
+  py="$(security_python || true)"
+  [[ -n "$py" ]] || { security_notice Security; return 1; }
   if [[ -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" ]]; then
     report="$("$py" -I "$_SEC_LIB_DIR/local_security_report.py" --temporary)" || {
       security_notice Security

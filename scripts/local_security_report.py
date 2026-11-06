@@ -10,6 +10,7 @@ import tempfile
 
 
 def main():
+    sys.stdout.reconfigure(newline="\n")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output")
     parser.add_argument("--name", default="security.log")

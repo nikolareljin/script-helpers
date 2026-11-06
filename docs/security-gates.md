@@ -595,3 +595,8 @@ on `GITHUB_PATH`; interactive and server-generated publication bodies are refuse
 checker name and optional local report path, uses `SH_SECURITY_BRANCH` or GitHub
 branch context (then Git), and prints the Leak-Lock link and local remediation.
 Unknown checker names become Security; report paths are suppressed in CI.
+
+`security_python` in `scripts/security_notice.sh` resolves a working Python 3.8
+or newer from `PATH`. It tries `python3`, then `python`, and skips launchers
+that cannot execute. It prints the executable path and returns 0 on success,
+or returns 1 when neither interpreter is available. It installs nothing.

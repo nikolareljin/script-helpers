@@ -80,12 +80,13 @@ if [[ -z "$requested_output" ]]; then
   exit 2
 fi
 
-python3 -I "$SCRIPT_DIR/local_security_report.py" --existing --output "$output" >/dev/null || {
+report_python="$(security_python)" || exit 2
+"$report_python" -I "$SCRIPT_DIR/local_security_report.py" --existing --output "$output" >/dev/null || {
   echo 'Choose an existing local report outside every Git checkout.' >&2
   exit 2
 }
 if [[ "$requested_output" != "$output" ]]; then
-  python3 -I "$SCRIPT_DIR/local_security_report.py" --output "$requested_output" >/dev/null || exit 2
+  "$report_python" -I "$SCRIPT_DIR/local_security_report.py" --output "$requested_output" >/dev/null || exit 2
 fi
 
 if [[ "$scan_path" != "." ]]; then
@@ -113,13 +114,13 @@ if [[ ! -s "$requested_output" ]]; then
   exit 1
 fi
 
-if ! command -v python3 >/dev/null 2>&1; then
+if [[ -z "$report_python" ]]; then
   log_error "python3 is required to parse Gitleaks SARIF reports."
   exit 2
 fi
 
 report_rc=0
-REPORT_FORMAT="$report_format" OUTPUT="$requested_output" FAIL_ON_FINDINGS="$fail_on_findings" python3 - <<'PY' || report_rc=$?
+REPORT_FORMAT="$report_format" OUTPUT="$requested_output" FAIL_ON_FINDINGS="$fail_on_findings" "$report_python" - <<'PY' || report_rc=$?
 import json
 import os
 import sys

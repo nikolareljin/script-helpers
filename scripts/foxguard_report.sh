@@ -73,7 +73,7 @@ if [[ ${#paths[@]} -eq 0 ]]; then
   exit 0
 fi
 
-py="$(command -v python3 || command -v python || true)"
+py="$(security_python || true)"
 [[ -n "$py" ]] || { echo "[foxguard_report] python3 is needed to write the JSON." >&2; exit 2; }
 report_args=(--name foxguard.json)
 [[ -z "$output" ]] || report_args+=(--output "$output")

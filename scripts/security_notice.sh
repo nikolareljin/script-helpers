@@ -11,6 +11,17 @@
 # EXAMPLE: bash scripts/security_notice.sh Gitleaks
 # ----------------------------------------------------
 
+security_python() {
+  local candidate
+  for candidate in python3 python; do
+    if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -I -c 'import sys; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1; then
+      command -v "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
 security_notice() {
   local tool="${1:-Security}" branch="${SH_SECURITY_BRANCH:-${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}}"
   case "$tool" in Gitleaks|Foxguard|Security) ;; *) tool=Security ;; esac

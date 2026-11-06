@@ -136,7 +136,7 @@ fi
 
 # Detailed scans are local files; parent commands receive only their location.
 if [[ "${SCRIPT_HELPERS_REPORT_ACTIVE:-}" != 1 ]]; then
-  report_python="$(command -v python3 || command -v python || true)"
+  report_python="$(security_python || true)"
   local_report="$("$report_python" -I "$SCRIPT_DIR/local_security_report.py")" || {
     echo 'Could not create a private local report; security check refused.' >&2
     exit 2

@@ -8,6 +8,8 @@ import lzma
 import os
 from pathlib import Path
 import subprocess
+import sys
+import shlex
 import tempfile
 import unittest
 import zipfile
@@ -59,6 +61,20 @@ class PublicationTests(unittest.TestCase):
 
     def report(self):
         return json.dumps({"tool": "foxguard", "findings": [], "finding_counts": {"total": 0}}).encode()
+
+    def test_python_resolver_skips_unusable_launcher(self):
+        folder = self.base / "interpreters"
+        folder.mkdir()
+        bad = folder / "python3"
+        bad.write_text("#!/bin/sh\nexit 1\n")
+        bad.chmod(0o700)
+        good = folder / "python"
+        good.write_text("#!/usr/bin/env bash\nexec " + shlex.quote(sys.executable) + ' "$@"\n')
+        good.chmod(0o700)
+        env = {**self.env, "PATH": str(folder) + os.pathsep + self.env["PATH"]}
+        proc = subprocess.run(["bash", "-c", 'source "$1"; security_python', "_", str(ROOT / "scripts/security_notice.sh")], env=env, capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(Path(proc.stdout.strip().replace("\\", "/")).name, "python")
 
     def test_force_added_empty_named_report(self):
         self.stage("gitleaks.json", b"[]")
@@ -203,9 +219,16 @@ class PublicationTests(unittest.TestCase):
                 if ci:
                     self.assertNotIn("Local report:", proc.stderr)
 
+    def test_local_report_path_uses_lf(self):
+        helper = ROOT / "scripts/local_security_report.py"
+        proc = subprocess.run([sys.executable, "-I", str(helper)], cwd=self.repo, env=self.env, capture_output=True)
+        self.assertEqual(proc.returncode, 0)
+        self.assertNotIn(b"\r", proc.stdout)
+        self.assertTrue(Path(os.fsdecode(proc.stdout).strip()).is_file())
+
     def test_local_report_rejects_checkout(self):
         helper = ROOT / "scripts/local_security_report.py"
-        proc = subprocess.run(["python3", "-I", str(helper), "--output", str(self.repo / "report.json")], cwd=self.repo, env=self.env, capture_output=True)
+        proc = subprocess.run([sys.executable, "-I", str(helper), "--output", str(self.repo / "report.json")], cwd=self.repo, env=self.env, capture_output=True)
         self.assertEqual(proc.returncode, 2)
 
     def test_local_report_rejects_symlink(self):
@@ -215,7 +238,7 @@ class PublicationTests(unittest.TestCase):
             path.symlink_to(self.repo / "target.json")
         except OSError:
             self.skipTest("native symlinks unavailable")
-        proc = subprocess.run(["python3", "-I", str(helper), "--output", str(path)], cwd=self.repo, env=self.env, capture_output=True)
+        proc = subprocess.run([sys.executable, "-I", str(helper), "--output", str(path)], cwd=self.repo, env=self.env, capture_output=True)
         self.assertEqual(proc.returncode, 2)
 
     def test_ci_installer_guards_a_second_clone_before_transport(self):
@@ -270,6 +293,11 @@ class PublicationTests(unittest.TestCase):
         marker = self.base / "sent"
         gh.write_text("#!/usr/bin/env python3\nimport pathlib,os\npathlib.Path(os.environ['SENT']).touch()\nprint('published')\n")
         gh.chmod(0o700)
+        if os.name == "nt":
+            script = gh.with_suffix(".py")
+            gh.rename(script)
+            gh = gh.with_suffix(".cmd")
+            gh.write_text('@echo off\n"' + sys.executable + '" "' + str(script) + '" %*\n')
         report = self.base / "gitleaks.json"
         report.write_text("[]")
         payload = self.base / "payload.json"
@@ -298,19 +326,19 @@ class PublicationTests(unittest.TestCase):
         ]
         for args in attempts:
             with self.subTest(args=args[:2]):
-                proc = subprocess.run(["python3", "-I", str(ROOT / "scripts/guard_gh.py"), str(gh), *args], env=env, input=self.report().decode(), capture_output=True, text=True)
+                proc = subprocess.run([sys.executable, "-I", str(ROOT / "scripts/guard_gh.py"), str(gh), *args], env=env, input=self.report().decode(), capture_output=True, text=True)
                 self.assertEqual(proc.returncode, 1)
                 self.assertFalse(marker.exists())
                 self.assertIn("check failed.", proc.stderr)
                 self.assertIn("https://nikolareljin.github.io/leak-lock/", proc.stderr)
                 self.assertNotIn(str(self.base), proc.stderr)
-        proc = subprocess.run(["python3", "-I", str(ROOT / "scripts/guard_gh.py"), str(gh), "pr", "create", "--title", "fixture", "--body", "Ready for review."], env=env, capture_output=True, text=True)
+        proc = subprocess.run([sys.executable, "-I", str(ROOT / "scripts/guard_gh.py"), str(gh), "pr", "create", "--title", "fixture", "--body", "Ready for review."], env=env, capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertTrue(marker.exists())
         safe_asset = self.base / "notes.txt"
         safe_asset.write_text("Ready for review.")
         for args in (["gist", "create", str(safe_asset)], ["pr", "review", "1", "--approve"]):
-            proc = subprocess.run(["python3", "-I", str(ROOT / "scripts/guard_gh.py"), str(gh), *args], env=env, capture_output=True, text=True)
+            proc = subprocess.run([sys.executable, "-I", str(ROOT / "scripts/guard_gh.py"), str(gh), *args], env=env, capture_output=True, text=True)
             self.assertEqual(proc.returncode, 0, proc.stderr)
 
 

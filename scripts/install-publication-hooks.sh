@@ -16,10 +16,11 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/security_notice.sh"
 fail() { security_notice Security; exit 1; }
 [[ -n "${CI:-}" && -n "${RUNNER_TEMP:-}" && -n "${GITHUB_ENV:-}" && -n "${GITHUB_PATH:-}" ]] || fail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+py="$(security_python)" || fail
 umask 077
 log="$(mktemp "${RUNNER_TEMP}/security-install.XXXXXX")" || fail
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -f "$log"; fi' EXIT
-stage="$(python3 -I -c '
+stage="$("$py" -I -c '
 import os, pathlib, shutil, subprocess, sys, tempfile
 root, runner = (str(pathlib.Path(p).resolve()) for p in sys.argv[1:])
 if "\n" in runner or "\r" in runner: sys.exit(1)
@@ -39,7 +40,7 @@ for hook in ("pre-push", "pre-commit", "commit-msg"):
     scratch = str(stage).replace("\x27", "\x27\\\x27\x27")
     path.write_text("#!/usr/bin/env bash\nexport TMPDIR=\x27" + scratch + "\x27\nexec bash \x27" + script + "\x27 " + hook + " \"$@\"\n")
     path.chmod(0o700)
-print(stage)
+sys.stdout.buffer.write((str(stage) + "\n").encode("utf-8"))
 ' "$root" "$RUNNER_TEMP" 2>"$log")" || fail
 bin="${GITLEAKS_BIN:-}"
 if [[ -z "$bin" ]]; then
@@ -55,15 +56,15 @@ if [[ -z "$bin" ]]; then
 fi
 [[ -x "$bin" ]] || fail
 real_gh="$(command -v gh)" || fail
-if ! python3 -I -c '
+if ! "$py" -I -c '
 import pathlib, shlex, sys
-stage, real, credential = sys.argv[1:]
+stage, real, credential, interpreter = sys.argv[1:]
 folder = pathlib.Path(stage) / "bin"
 folder.mkdir()
 path = folder / "gh"
-path.write_text("#!/usr/bin/env bash\nexport TMPDIR=" + shlex.quote(stage) + "\nexport GITLEAKS_BIN=" + shlex.quote(credential) + "\nexec python3 -I " + shlex.quote(stage + "/scripts/guard_gh.py") + " " + shlex.quote(real) + " \"$@\"\n")
+path.write_text("#!/usr/bin/env bash\nexport TMPDIR=" + shlex.quote(stage) + "\nexport GITLEAKS_BIN=" + shlex.quote(credential) + "\nexec " + shlex.quote(interpreter) + " -I " + shlex.quote(stage + "/scripts/guard_gh.py") + " " + shlex.quote(real) + " \"$@\"\n")
 path.chmod(0o700)
-' "$stage" "$real_gh" "$bin" >"$log" 2>&1; then fail; fi
+' "$stage" "$real_gh" "$bin" "$py" >"$log" 2>&1; then fail; fi
 printf '%s/bin\n' "$stage" >> "$GITHUB_PATH" || fail
 count="${GIT_CONFIG_COUNT:-0}"
 [[ "$count" =~ ^[0-9]+$ ]] || fail
