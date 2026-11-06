@@ -107,10 +107,13 @@ fi
 # Physical path of an absolute path: symlinks resolved, repeated and trailing
 # slashes dropped. The part that does not exist yet is appended as written.
 scratch_physical() {
-  local p="$1" rest=""
-  while [[ "$p" == *//* ]]; do p="${p//\/\//\/}"; done
+  local p="$1" rest="" slash="/"
+  # The slash comes from a variable: bash 3.2 keeps the backslash of an
+  # escaped "/" in the replacement.
+  while [[ "$p" == *//* ]]; do p="${p//$slash$slash/$slash}"; done
   [[ "$p" == "/" ]] || p="${p%/}"
   while [[ ! -d "$p" ]]; do
+    [[ "$p" == /* ]] || return 1
     rest="/${p##*/}${rest}"
     p="${p%/*}"
     [[ -n "$p" ]] || p="/"
