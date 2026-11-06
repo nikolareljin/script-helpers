@@ -1591,7 +1591,8 @@ plugin source not found, a bad --plugin-src-env name, or python3 missing
 with --fail-on-findings true.
 4  Plugin-check reported errors, or wp plugin check is unavailable, with
 --fail-on-findings true.
-5  The plugin-check or meta-check JSON could not be parsed.
+5  The plugin-check or meta-check JSON could not be parsed, or wp plugin
+check exited non-zero and reported no errors, with --fail-on-findings true.
 N  A failing --php-lint-command or --phpunit-command, or a failing
 docker compose or wp setup step, exits with its own code.
 ```
