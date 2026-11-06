@@ -43,8 +43,8 @@ if [[ ! -s "$report_py" ]]; then
   exit 1
 fi
 
-run_report() {   # <out_dir> <plugin_check_available> -> prints output, sets rc
-  OUT_DIR="$1" PLUGIN_CHECK_AVAILABLE="$2" python3 "$report_py" 2>&1
+run_report() {   # <out_dir> <plugin_check_available> [wp exit code] -> prints output, sets rc
+  OUT_DIR="$1" PLUGIN_CHECK_AVAILABLE="$2" PLUGIN_CHECK_EXIT="${3-0}" python3 "$report_py" 2>&1
 }
 
 # 1) The real format: parsed, and counted by severity rather than by entry.
@@ -152,6 +152,64 @@ if [[ $rc -eq 0 && "$out" == *"0 error(s), 0 warning(s)"* ]]; then
   note "a clean scan passes: $out"
 else
   error "a clean scan exited $rc, expected 0: $out"
+fi
+
+# 10) The message after the prefix is translated; a translated clean scan passes.
+case_dir="$tmp/translated"; mkdir -p "$case_dir"
+printf 'Success: Comprobaciones completas.\n' > "$case_dir/plugin-check.json"
+out="$(run_report "$case_dir" true)"; rc=$?
+if [[ $rc -eq 0 ]]; then
+  note "a translated clean scan passes"
+else
+  error "a translated clean scan exited $rc, expected 0: $out"
+fi
+
+# 11) A success line from a run that failed is not a clean scan.
+out="$(run_report "$case_dir" true 1)"; rc=$?
+if [[ $rc -eq 5 && "$out" == *"exited with status 1"* ]]; then
+  note "a success line with a failed run exits 5"
+else
+  error "a success line with exit 1 gave exit $rc, expected 5: $out"
+fi
+
+# 12) A run that died part-way after printing only warnings is not a pass.
+case_dir="$tmp/died"; mkdir -p "$case_dir"
+cat > "$case_dir/plugin-check.json" <<'JSON'
+FILE: includes/a.php
+[{"line":1,"column":1,"type":"WARNING","code":"X","message":"m","docs":""}]
+JSON
+out="$(run_report "$case_dir" true 255)"; rc=$?
+if [[ $rc -eq 5 ]]; then
+  note "warnings from a failed run exit 5"
+else
+  error "warnings with exit 255 gave exit $rc, expected 5: $out"
+fi
+
+# 13) Errors are still reported as errors when the run also failed.
+cp "$FIXTURE" "$case_dir/plugin-check.json"
+out="$(run_report "$case_dir" true 1)"; rc=$?
+if [[ $rc -eq 4 ]]; then
+  note "errors from a failed run still exit 4"
+else
+  error "errors with exit 1 gave exit $rc, expected 4: $out"
+fi
+
+# 14) No exit code recorded is not a success.
+printf 'Success: Checks complete. No errors found.\n' > "$case_dir/plugin-check.json"
+out="$(run_report "$case_dir" true "")"; rc=$?
+if [[ $rc -eq 5 ]]; then
+  note "a missing exit code exits 5"
+else
+  error "a missing exit code gave exit $rc, expected 5: $out"
+fi
+
+# 15) More than the success line is not a clean scan, even with exit 0.
+printf 'Success: Checks complete.\nsomething else\n' > "$case_dir/plugin-check.json"
+out="$(run_report "$case_dir" true)"; rc=$?
+if [[ $rc -eq 5 ]]; then
+  note "a success line followed by other output exits 5"
+else
+  error "a success line with other output gave exit $rc, expected 5: $out"
 fi
 
 if [[ $failures -gt 0 ]]; then

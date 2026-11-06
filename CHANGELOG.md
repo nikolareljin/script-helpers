@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- **`ci_wp_plugin_check.sh` checks the exit code of `wp plugin check`.** It was logged and ignored, so a run that failed after printing a `Success:` line or only warnings passed `--fail-on-findings true`. Plugin Check exits 0 with or without findings, so another exit code with no reported errors now exits 5. Reported errors still exit 4. Tests: new cases in `tests/ci_wp_plugin_check_report_test.sh`.
 - **`ci_wp_phpunit.sh` refuses a scratch directory that is, or contains, the working directory, the plugin (`--workdir`) or `$HOME`.** `--wp-tests-dir` and `--wp-core-dir` are removed with `rm -rf`. The old check compared the text with `/` and `$PWD`, so `/tmp/..`, `/.`, `//`, the parent of the plugin, a symlink to it, `plugin//` and the plugin itself from another working directory all passed. Paths are now compared as physical paths, and a `.` or `..` component exits 2. Tests: new cases in `tests/ci_wp_phpunit_test.sh`.
 - **`http_probe_json` and `http_check_key` contact only `http://` and `https://` URLs.** curl was given the URL as-is, so `http_probe_json file:///etc hostname` printed a local file. Tests: new cases in `tests/service_client_test.sh`.
 - **`cloudflare_smoke_test` contacts only `http://` and `https://` URLs.** A base URL with another scheme exits 2, and curl runs with `--proto =http,https`. A base URL without a scheme is still read as `http`. Tests: new cases in `tests/cloudflare_test.sh`.
