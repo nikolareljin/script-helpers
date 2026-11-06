@@ -254,9 +254,9 @@ r="$(new_repo none)"
 # that covers .claude/ means no exclude marker), and reports the --global hooks.
 r="$(new_repo porcelain-claude)"
 printf '.claude/\n' > "$r/.gitignore"
-(cd "$r" && bash "$setup" --claude-repo >/dev/null 2>&1) || error "porcelain-claude: --claude-repo failed"
+(cd "$r" && SCRIPT_HELPERS_OWNERS=example-owner bash "$setup" --claude-repo >/dev/null 2>&1) || error "porcelain-claude: --claude-repo failed"
 [[ "$(field "$r" claude_repo)" == yes ]] && ok "--porcelain: claude_repo=yes when .gitignore covers the file" || error "porcelain-claude: '$(state "$r")'"
-(cd "$tmp" && bash "$setup" --global >/dev/null 2>&1) || error "porcelain-global: --global failed"
+(cd "$tmp" && SCRIPT_HELPERS_OWNERS=example-owner bash "$setup" --global >/dev/null 2>&1) || error "porcelain-global: --global failed"
 r="$(new_repo porcelain-global)"
 [[ "$(field "$r" mode)" == none && "$(field "$r" global)" == yes ]] && ok "--porcelain: global=yes where the --global hooks run" || error "porcelain-global: '$(state "$r")'"
 (cd "$tmp" && bash "$setup" --global --uninstall >/dev/null 2>&1)

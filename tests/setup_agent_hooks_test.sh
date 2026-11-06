@@ -34,6 +34,7 @@ printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/gl-clean"; chmod +x "$tmp/gl-clea
 export PRIVATE_NAMES_FILE="$tmp/names.tsv" PRIVATE_NAMES_AUTO_REFRESH=false GITLEAKS_BIN="$tmp/gl-clean"
 cd "$tmp" || exit 1
 setup="$root_dir/scripts/setup-hooks.sh"
+git config --global script-helpers.owners example-owner
 adapter="$XDG_DATA_HOME/script-helpers/agent-repo-hooks/scripts/agent-hooks/agent_hook.sh"
 native() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s\n' "$1"; fi; }
 

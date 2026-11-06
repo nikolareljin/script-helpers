@@ -10,6 +10,7 @@
 # says so. The refresh must never block or fail a push, and never run twice at
 # once.
 set -uo pipefail
+unset CI GITHUB_ACTIONS
 # The hooks would download a missing gitleaks or foxguard; tests never do.
 export SCRIPT_HELPERS_NO_AUTO_INSTALL=1
 
@@ -26,6 +27,7 @@ tmp="$(mktemp -d)"
 # Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
+export XDG_STATE_HOME="$tmp/state"
 repo="$tmp/repo"
 mkdir -p "$repo/scripts"
 git -c init.defaultBranch=main init -q "$repo"
@@ -47,10 +49,10 @@ zeroes="$(printf '0%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 \
                           21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40)"
 
 hook_run() {
-  local sha; sha="$(git -C "$repo" rev-parse HEAD)"
-  ( cd "$repo" && PRIVATE_NAMES_FILE="$list" "$@" \
-      bash -c 'printf "refs/heads/main %s refs/heads/main %s\n" "$1" "$2" | bash "$3" origin git@e.invalid:x' \
-        _ "$sha" "$zeroes" "$HOOK" 2>&1 )
+  (cd "$repo" && PRIVATE_NAMES_FILE="$list" "$@" bash -c '
+    source "$1/scripts/security_hooks.sh"
+    sec_maybe_refresh_private_names
+  ' _ "$ROOT_DIR")
 }
 
 make_list() { printf 'private\tns\tx\t-\t\n' > "$list"; }

@@ -106,14 +106,12 @@ happen (no binary for the machine, no network, in CI, or with
 
 Both print the command that installs the tool.
 
-foxguard never blocks a push. Every line it reports is shown, then a framed
-summary, the command that writes the same findings as formatted JSON (to keep
-as evidence, or to compare later), and a pointer to
-[leak-lock](https://github.com/nikolareljin/leak-lock), a VS Code extension for
-reviewing findings and secrets across the whole history:
+Foxguard findings remain advisory. Diagnostics are written to a private file
+outside the checkout. The local hook shows that path for local inspection; CI
+shows only a generic verdict. To create a structured local report:
 
 ```bash
-bash scripts/script-helpers/scripts/foxguard_report.sh --base origin/main --output foxguard-report.json
+bash scripts/script-helpers/scripts/foxguard_report.sh --base origin/main
 ```
 
 Hooks other tools installed keep working: ours run first, then theirs. Removing

@@ -29,6 +29,16 @@ export GIT_CONFIG_GLOBAL="$tmp/home/.gitconfig" GIT_CONFIG_NOSYSTEM=1
 unset SCRIPT_HELPERS_OWNERS SCRIPT_HELPERS_HOOKS_HOME SCRIPT_HELPERS_REPO_HOOKS_HOME
 mkdir -p "$HOME"
 : > "$GIT_CONFIG_GLOBAL"
+printf 'private\tacme\tzqxprivaterepo\tR-999\t\n' > "$tmp/names.tsv"
+export PRIVATE_NAMES_FILE="$tmp/names.tsv" PRIVATE_NAMES_AUTO_REFRESH=false
+printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/clean-gitleaks"
+chmod +x "$tmp/clean-gitleaks"
+export GITLEAKS_BIN="$tmp/clean-gitleaks"
+append_report() {
+  local report
+  report=$(sed -n 's/^Security .* Local report: //p' "$tmp/out" | tail -1)
+  [[ ! -f "$report" ]] || cat "$report" >> "$tmp/out"
+}
 # Run from the scratch directory: git commands never depend on the caller's checkout.
 cd "$tmp" || exit 1
 setup="$root_dir/scripts/setup-hooks.sh"
@@ -127,7 +137,8 @@ mkdir -p "$r/.hooks"
 printf '#!/usr/bin/env bash\ncat > "%s/pushed"\n' "$tmp" > "$r/.hooks/pre-push"; chmod +x "$r/.hooks/pre-push"
 git -C "$r" config core.hooksPath .hooks
 (cd "$r" && bash "$setup" >/dev/null 2>&1) || error "stdin: setup failed"
-line="refs/heads/main $(printf '1%.0s' {1..40}) refs/heads/main $(printf '0%.0s' {1..40})"
+git -C "$r" -c core.hooksPath=/dev/null commit -q -m initial
+line="refs/heads/main $(git -C "$r" rev-parse HEAD) refs/heads/main $(printf '0%.0s' {1..40})"
 (cd "$r" && printf '%s\n' "$line" | bash "$repo_hooks/pre-push" origin https://example.invalid/r.git >"$tmp/out" 2>&1) || true
 [[ "$(cat "$tmp/pushed" 2>/dev/null)" == "$line" ]] && ok "the earlier pre-push gets git's ref list on stdin" \
   || { error "stdin: got '$(cat "$tmp/pushed" 2>/dev/null)'"; sed 's/^/    /' "$tmp/out" >&2; }
@@ -141,9 +152,9 @@ git -C "$r" config script-helpers.push-tests quick
 (cd "$r" && SCRIPT_HELPERS_OWNERS=acme bash "$setup" >/dev/null 2>&1) || error "pushtests: setup failed"
 line="refs/heads/main $(git -C "$r" rev-parse HEAD) refs/heads/main $(printf '0%.0s' {1..40})"
 rc=0
-(cd "$r" && printf '%s\n' "$line" | SCRIPT_HELPERS_OWNERS=acme SECURITY_GATE_ALLOW_UNCHECKED=1 PRIVATE_NAMES_AUTO_REFRESH=false \
-  PRIVATE_NAMES_FILE=/nonexistent/private-names.tsv \
+(cd "$r" && printf '%s\n' "$line" | SCRIPT_HELPERS_OWNERS=acme \
   bash "$repo_hooks/pre-push" origin git@github.com:acme/r.git >"$tmp/out" 2>&1) || rc=$?
+append_report
 if [[ $rc -ne 0 ]] && grep -q 'tests failed' "$tmp/out" && [[ "$(grep -c SUITE-RAN "$tmp/out")" -eq 1 ]]; then
   ok "the dispatcher runs push-tests quick once and refuses a failing suite"
 else
@@ -153,6 +164,7 @@ fi
 rc=0
 (cd "$r" && printf '%s\n' "$line" | SCRIPT_HELPERS_OWNERS=acme \
   bash "$repo_hooks/pre-push" origin git@github.com:other/r.git >"$tmp/out" 2>&1) || rc=$?
+append_report
 if grep -q 'is not yours (script-helpers.github-user, script-helpers.owners); tests not run' "$tmp/out" && ! grep -q SUITE-RAN "$tmp/out"; then
   ok "outside the owners' repositories, push-tests is reported as not run"
 else

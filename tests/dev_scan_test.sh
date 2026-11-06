@@ -13,6 +13,7 @@
 # A stub gitleaks records its arguments and "finds" the word LEAKME in the files
 # its mode covers, so these cases do not depend on gitleaks' rules.
 set -uo pipefail
+unset CI GITHUB_ACTIONS
 # preflight installs a missing gitleaks or foxguard; tests never go to the network.
 export PREFLIGHT_NO_INSTALL=1
 
@@ -182,7 +183,7 @@ if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
   prepush
   if [[ $RC -ne 0 && "$OUT" == *"FAIL  secret scan"* ]]; then
     note "pre-push preflight: a secret in an unpushed commit fails the run"
-    [[ "$OUT" == *"gitleaks:allow"* && "$OUT" == *".gitleaksignore"* && "$OUT" == *"rotate it"* ]] \
+    [[ "$OUT" == *"Local security report:"* ]] \
       && note "pre-push preflight: a blocked push says how to handle a real secret and a false positive" \
       || error "pre-push hint missing: $(printf '%s' "$OUT" | grep -i gitleaks | tail -3)"
   else

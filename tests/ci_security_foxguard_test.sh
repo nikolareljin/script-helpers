@@ -14,6 +14,7 @@
 # default would fail correct code. A stub curl serves a known binary, so the
 # checksum check is tested without the network.
 set -uo pipefail
+unset CI GITHUB_ACTIONS
 # preflight installs a missing gitleaks or foxguard; tests never go to the network.
 export PREFLIGHT_NO_INSTALL=1
 
@@ -69,12 +70,20 @@ new_repo() {
   git_c "$r" commit -q --allow-empty -m init
   echo "$r"
 }
+read_local_report() {
+  local report
+  report=$(printf '%s\n' "$OUT" | sed -n 's/^Local security report: //p' | tail -1)
+  [[ ! -f "$report" ]] || OUT="$OUT
+$(cat "$report")"
+}
+
 # sec <repo> [args]; ci_security.sh with only foxguard, findings failing the run.
 sec() {
   local r="$1"; shift
   : > "$FOX_LOG"; RC=0
   OUT="$(cd "$r" && CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker \
     --skip-python --skip-node --skip-gitleaks "$@" 2>&1)" || RC=$?
+read_local_report
 }
 
 # 1. No .foxguard.yml: a finding is reported with its count, not counted.
@@ -167,6 +176,7 @@ fi
 r="$(new_repo failing)"
 : > "$FOX_LOG"; RC=0
 OUT="$(cd "$r" && FOX_FAIL=1 CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker --skip-python --skip-node --skip-gitleaks --fail-on-findings 2>&1)" || RC=$?
+read_local_report
 [[ $RC -eq 0 && "$OUT" == *"stub scan failure"* && "$OUT" == *"could not scan (exit 2)"* ]] \
   && note "scan error, not opted in: message shown, exit 0" || error "failing: rc=$RC out='$OUT'"
 
@@ -174,6 +184,7 @@ OUT="$(cd "$r" && FOX_FAIL=1 CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts
 r="$(new_repo version)"
 : > "$FOX_LOG"; RC=0
 OUT="$(cd "$r" && FOX_VERSION=0.13.1 CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker --skip-python --skip-node --skip-gitleaks 2>&1)" || RC=$?
+read_local_report
 [[ $RC -eq 0 && "$OUT" == *"is not the pinned 0.14.1"* && -s "$FOX_LOG" ]] && note "other version: warned, still runs" \
   || error "version: rc=$RC out='$OUT'"
 
@@ -186,19 +197,23 @@ grep -q "^version: cache " "$FOX_LOG" && note "cached pinned binary preferred ov
 rm -f "$cache_bin"
 
 # 10. Not installed: skipped with the install command; preflight lists it as SKIP.
-for c in bash git env dirname basename mktemp head rm cat grep sed awk tr uname find sort date mkdir id tail; do
+for c in bash git python3 env dirname basename mktemp head rm cat grep sed awk tr uname find sort date mkdir id tail; do
   p="$(command -v "$c")" && ln -sf "$p" "$tmp/nobin/$c"
 done
 : > "$FOX_LOG"; RC=0
 OUT="$(cd "$r" && CI="" PATH="$tmp/nobin" "$(command -v bash)" "$ROOT_DIR/scripts/ci_security.sh" --no-docker --skip-python --skip-node --skip-gitleaks --fail-on-findings 2>&1)" || RC=$?
+read_local_report
 [[ $RC -eq 0 && "$OUT" == *"foxguard not found; skipping"*"--install-foxguard"* ]] && note "not installed: skipped, says how to install" \
   || error "not installed: rc=$RC out='$OUT'"
 RC=0; (cd "$r" && CI="" PATH="$tmp/nobin" "$(command -v bash)" "$ROOT_DIR/scripts/ci_security.sh" --check-foxguard) || RC=$?
+read_local_report
 [[ $RC -eq 3 ]] && note "--check-foxguard without foxguard: exit 3" || error "check missing: rc=$RC"
 RC=0; (cd "$r" && CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/ci_security.sh" --check-foxguard) || RC=$?
+read_local_report
 [[ $RC -eq 0 ]] && note "--check-foxguard with foxguard: exit 0" || error "check present: rc=$RC"
 RC=0
 OUT="$(cd "$r" && CI="" PATH="$tmp/nobin" "$(command -v bash)" "$ROOT_DIR/scripts/preflight.sh" --security-only 2>&1)" || RC=$?
+read_local_report
 [[ "$OUT" == *"SKIP  foxguard code scan"* ]] && note "preflight: missing foxguard listed as SKIP" \
   || error "preflight skip: rc=$RC out='$(printf '%s' "$OUT" | tail -5)'"
 
@@ -224,6 +239,7 @@ EOF
   chmod +x "$tmp/bin/curl"
   RC=0
   OUT="$(CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/ci_security.sh" --install-foxguard 2>&1)" || RC=$?
+read_local_report
   left="$(find "$XDG_CACHE_HOME/script-helpers/foxguard" -type f 2>/dev/null)"
   if [[ $RC -eq 1 && "$OUT" == *"does not match the pinned SHA-256"* && -z "$left" ]]; then
     note "--install-foxguard: checksum mismatch refused, nothing left behind"
@@ -234,6 +250,7 @@ EOF
   # Another version with the old checksums: refused, and says what to change.
   OUT="$(CI="" PATH="$tmp/bin:$PATH" CI_DEFAULT_FOXGUARD_VERSION=9.9.9 \
     bash "$ROOT_DIR/scripts/ci_security.sh" --install-foxguard 2>&1)" || RC=$?
+read_local_report
   [[ $RC -eq 1 && "$OUT" == *"needs its CI_DEFAULT_FOXGUARD_SHA256_* values too"* && -z "$(find "$XDG_CACHE_HOME/script-helpers/foxguard" -type f 2>/dev/null)" ]] \
     && note "--install-foxguard: a version bumped without its checksums is refused, with the fix named" || error "bumped: rc=$RC out='$OUT'"
   sum="$(bash -c 'source "$1/helpers.sh" && shlib_import foxguard && foxguard_sha256 "$2"' _ "$ROOT_DIR" "$tmp/served")"
@@ -248,6 +265,7 @@ EOF
   OUT="$(CI="" PATH="$tmp/bin:$PATH" CI_DEFAULT_FOXGUARD_SHA256_LINUX_X86_64="$sum" CI_DEFAULT_FOXGUARD_SHA256_LINUX_AARCH64="$sum" \
     CI_DEFAULT_FOXGUARD_SHA256_MACOS_X86_64="$sum" CI_DEFAULT_FOXGUARD_SHA256_MACOS_AARCH64="$sum" \
     bash "$ROOT_DIR/scripts/ci_security.sh" --install-foxguard 2>&1)" || RC=$?
+read_local_report
   if [[ $RC -eq 0 && -x "$cache_bin" ]] && cmp -s "$cache_bin" "$tmp/served"; then
     note "--install-foxguard: matching binary installed at the cache path"
   else

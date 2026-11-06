@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# SCRIPT: publication_check.sh
+# DESCRIPTION: Probe publication checks with the installed Gitleaks binary and local Git remotes.
+# USAGE: bash tests/machine/publication_check.sh
+# PARAMETERS: No required parameters.
+# EXIT_CODES:
+#   0 Passed; 1 failed; 2 required tools unavailable.
+# EXAMPLE: bash tests/machine/publication_check.sh
+# ----------------------------------------------------
+set -uo pipefail
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+case "${1:-}" in -h|--help) sed -n '2,/^# ---/p' "$0"; exit 0 ;; esac
+for tool in git python3 gitleaks ssh-keygen; do
+  command -v "$tool" >/dev/null 2>&1 || { echo "summary: cannot run, missing $tool"; exit 2; }
+done
+scratch="$(mktemp -d)" || exit 2
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$scratch"; fi' EXIT
+export GITLEAKS_BIN="$(command -v gitleaks)"
+export XDG_STATE_HOME="$scratch/state"
+unset CI GITHUB_ACTIONS
+failures=0
+check() {
+  if [[ "$1" -eq "$2" ]]; then printf 'PASS %s\n' "$3";
+  else printf 'FAIL %s\n' "$3"; failures=$((failures + 1)); fi
+}
+printf 'Ready for review.\n' > "$scratch/clean.txt"
+bash "$root/scripts/check_publication.sh" --file "$scratch/clean.txt" > "$scratch/output" 2>&1
+check "$?" 0 'clean publication with installed scanner'
+ssh-keygen -q -t ed25519 -N '' -f "$scratch/private-key" || exit 2
+bash "$root/scripts/check_publication.sh" --file "$scratch/private-key" > "$scratch/output" 2>&1
+check "$?" 1 'generated private key refused'
+git init -q "$scratch/repo" && git init --bare -q "$scratch/remote.git" || exit 2
+cd "$scratch/repo" || exit 2
+git config user.name Fixture
+git config user.email fixture@example.com
+printf '[]\n' > gitleaks.json
+git add gitleaks.json
+git -c core.hooksPath=/dev/null commit -qm fixture || exit 2
+oid="$(git rev-parse HEAD)"
+git remote add origin "$scratch/remote.git"
+git config core.hooksPath "$root/scripts/git-hooks"
+git push origin HEAD:refs/heads/fixture > "$scratch/output" 2>&1
+check "$?" 1 'report push refused'
+if git --git-dir="$scratch/remote.git" cat-file -e "$oid" 2>/dev/null; then
+  check 1 0 'remote receives no prohibited commit'
+else
+  check 0 0 'remote receives no prohibited commit'
+fi
+printf 'summary: %s failed\n' "$failures"
+[[ "$failures" -eq 0 ]]

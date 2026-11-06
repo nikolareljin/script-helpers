@@ -23,6 +23,10 @@ command -v git >/dev/null 2>&1 || { note "SKIP: git not available"; exit 0; }
 command -v python3 >/dev/null 2>&1 || { note "SKIP: python3 not available"; exit 0; }
 
 tmp="$(mktemp -d)"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/clean-gitleaks"
+chmod +x "$tmp/clean-gitleaks"
+export GITLEAKS_BIN="$tmp/clean-gitleaks"
+
 # Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
@@ -500,13 +504,12 @@ printf 'feat: wire R-111 into the thing\n' > "$msg"
 [[ $? == 0 ]] && ok "the commit-msg hook passes a message citing the code" \
               || error "the commit-msg hook refused a clean message"
 
-# Cannot-check must not become a refusal of every commit, or the first machine
-# without a list is a machine where nobody can commit.
+# A missing private-name list refuses the mandatory commit check.
 printf 'feat: wire bluewidget into the thing\n' > "$msg"
 ( cd "$hook_repo" && PRIVATE_NAMES_FILE="$tmp/absent.tsv" \
     bash "$ROOT_DIR/scripts/git-hooks/commit-msg" "$msg" >/dev/null 2>&1 )
-[[ $? == 0 ]] && ok "the commit-msg hook allows the commit when it cannot check" \
-              || error "a missing list blocked a commit"
+[[ $? == 1 ]] && ok "the commit-msg hook refuses when it cannot check" \
+              || error "a missing list allowed an unchecked commit"
 
 # pre-push: a refusal says which object holds the name, a commit message or a tag.
 git_t -C "$hook_repo" commit -q --allow-empty -m "feat: wire bluewidget in"

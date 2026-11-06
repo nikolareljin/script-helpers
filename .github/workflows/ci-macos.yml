@@ -62,6 +62,9 @@ jobs:
       # so the legacy shell has to be named explicitly or the job proves nothing.
       - name: Test suite under /bin/bash (bash 3.2)
         run: |
+          umask 077
+          check_rc=0
+          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
           set -uo pipefail
           failed=0
           for f in tests/*_test.sh; do
@@ -70,9 +73,26 @@ jobs:
             /bin/bash "$f" || { echo "::error file=$f::failed under macOS /bin/bash"; failed=1; }
           done
           exit $failed
-
+          PRIVATE_CHECK
+          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source scripts/security_notice.sh
+            security_notice Security
+            exit "$check_rc"
+          fi
       - name: Portability gate under /bin/bash
-        run: /bin/bash tests/portability_test.sh
+        run: |
+          umask 077
+          check_rc=0
+          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          /bin/bash tests/portability_test.sh
+          PRIVATE_CHECK
+          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source scripts/security_notice.sh
+            security_notice Security
+            exit "$check_rc"
+          fi
 
       # Catches the BSD-userland breakage: the docs linter used GNU \b, which
       # BSD grep never matches, so this reported every function as undocumented.
@@ -82,11 +102,32 @@ jobs:
       # The unit test stubs curl; this checks the pinned SHA-256 against the real release.
       - name: Pinned foxguard downloads, matches its SHA-256 and runs
         shell: bash
-        run: bash tests/machine/foxguard_release_check.sh
+        run: |
+          umask 077
+          check_rc=0
+          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          bash tests/machine/foxguard_release_check.sh
+          PRIVATE_CHECK
+          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source scripts/security_notice.sh
+            security_notice Security
+            exit "$check_rc"
+          fi
 
       - name: make test
-        run: make test
-
+        run: |
+          umask 077
+          check_rc=0
+          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          make test
+          PRIVATE_CHECK
+          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source scripts/security_notice.sh
+            security_notice Security
+            exit "$check_rc"
+          fi
       # The runner's real figures: an Apple silicon runner's GPU is two thirds
       # of its memory (lib/ollama_endpoint.sh), not 0.
       - name: This machine's figures and class (real, not stubbed)
