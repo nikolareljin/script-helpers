@@ -68,10 +68,10 @@ class PublicationTests(unittest.TestCase):
         folder = self.base / "interpreters"
         folder.mkdir()
         bad = folder / "python3"
-        bad.write_text("#!/bin/sh\nexit 1\n")
+        bad.write_bytes(b"#!/bin/sh\nexit 1\n")
         bad.chmod(0o700)
         good = folder / "python"
-        good.write_text("#!/usr/bin/env bash\nexec " + shlex.quote(Path(sys.executable).as_posix()) + ' "$@"\n')
+        good.write_bytes(("#!/usr/bin/env bash\nexec " + shlex.quote(Path(sys.executable).as_posix()) + ' "$@"\n').encode("utf-8"))
         good.chmod(0o700)
         env = {**self.env, "PATH": str(folder) + os.pathsep + self.env["PATH"]}
         proc = subprocess.run([BASH, "-c", 'source "$1"; security_python', "_", (ROOT / "scripts/security_notice.sh").as_posix()], env=env, capture_output=True, text=True)
@@ -273,12 +273,12 @@ class PublicationTests(unittest.TestCase):
         paths = runner / "paths"
         paths.touch()
         scanner = runner / "credential-checker"
-        scanner.write_text("#!/bin/sh\nexit 0\n")
+        scanner.write_bytes(b"#!/bin/sh\nexit 0\n")
         scanner.chmod(0o700)
         cli = runner / "bin"
         cli.mkdir()
         gh = cli / "gh"
-        gh.write_text("#!/bin/sh\nexit 0\n")
+        gh.write_bytes(b"#!/bin/sh\nexit 0\n")
         gh.chmod(0o700)
         env = {**self.env, "PATH": str(cli) + os.pathsep + self.env["PATH"], "CI": "true", "RUNNER_TEMP": str(runner),
                "GITHUB_ENV": str(exports), "GITHUB_PATH": str(paths), "GITLEAKS_BIN": str(scanner)}
@@ -306,10 +306,11 @@ class PublicationTests(unittest.TestCase):
         for folder in ("lib", "scripts"):
             shutil.copytree(ROOT / folder, source / folder)
         canary = "PRIVATE" + "-INSTALL-DIAGNOSTIC"
-        (source / "lib/gitleaks.sh").write_text(
+        marker = self.base / "install-ran"
+        (source / "lib/gitleaks.sh").write_bytes((
             "gitleaks_bin() { return 1; }\n"
-            "gitleaks_install() { printf '%s\\n' '" + canary + "' >&2; return 1; }\n"
-        )
+            "gitleaks_install() { touch " + shlex.quote(marker.as_posix()) + "; printf '%s\\n' '" + canary + "' >&2; return 1; }\n"
+        ).encode("utf-8"))
         runner = self.base / "runner"
         runner.mkdir()
         env = {**self.env, "CI": "true", "RUNNER_TEMP": runner.as_posix(),
@@ -317,6 +318,7 @@ class PublicationTests(unittest.TestCase):
         env.pop("GITLEAKS_BIN", None)
         proc = subprocess.run([BASH, (source / "scripts/install-publication-hooks.sh").as_posix(), "--ci"], cwd=self.repo, env=env, capture_output=True, text=True)
         self.assertEqual(proc.returncode, 1)
+        self.assertTrue(marker.exists())
         self.assertNotIn(canary, proc.stdout + proc.stderr)
         self.assertIn("https://nikolareljin.github.io/leak-lock/", proc.stderr)
 
@@ -332,7 +334,7 @@ class PublicationTests(unittest.TestCase):
 
     def test_github_cli_refuses_payloads_before_calling_real_cli(self):
         scanner = self.base / "credential-checker"
-        scanner.write_text("#!/bin/sh\nexit 0\n")
+        scanner.write_bytes(b"#!/bin/sh\nexit 0\n")
         scanner.chmod(0o700)
         gh = self.base / "real-gh"
         marker = self.base / "sent"
