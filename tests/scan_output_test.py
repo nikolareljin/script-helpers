@@ -299,6 +299,27 @@ class PublicationTests(unittest.TestCase):
         absent = subprocess.run(["git", "--git-dir", str(remote), "cat-file", "-e", forbidden], capture_output=True)
         self.assertNotEqual(absent.returncode, 0)
 
+    def test_ci_installer_hides_failed_scanner_installation(self):
+        source = self.base / "source"
+        source.mkdir()
+        shutil.copy2(ROOT / "helpers.sh", source / "helpers.sh")
+        for folder in ("lib", "scripts"):
+            shutil.copytree(ROOT / folder, source / folder)
+        canary = "PRIVATE" + "-INSTALL-DIAGNOSTIC"
+        (source / "lib/gitleaks.sh").write_text(
+            "gitleaks_bin() { return 1; }\n"
+            "gitleaks_install() { printf '%s\\n' '" + canary + "' >&2; return 1; }\n"
+        )
+        runner = self.base / "runner"
+        runner.mkdir()
+        env = {**self.env, "CI": "true", "RUNNER_TEMP": runner.as_posix(),
+               "GITHUB_ENV": (runner / "environment").as_posix(), "GITHUB_PATH": (runner / "paths").as_posix()}
+        env.pop("GITLEAKS_BIN", None)
+        proc = subprocess.run([BASH, (source / "scripts/install-publication-hooks.sh").as_posix(), "--ci"], cwd=self.repo, env=env, capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 1)
+        self.assertNotIn(canary, proc.stdout + proc.stderr)
+        self.assertIn("https://nikolareljin.github.io/leak-lock/", proc.stderr)
+
     def test_report_in_markdown_fence_is_refused(self):
         self.check("--stdin", text="Example:\n```json\n" + self.report().decode() + "\n```", expected=1)
 
