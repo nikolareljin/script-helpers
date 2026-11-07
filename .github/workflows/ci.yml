@@ -136,6 +136,23 @@ jobs:
           unset CI GITHUB_ACTIONS
           bash tests/scan_output_test.sh
           PRIVATE_CHECK
+          if [[ "$check_rc" -ne 0 ]]; then
+            source scripts/security_notice.sh
+            status_py="$(security_python || true)"
+            if [[ -n "$status_py" ]]; then
+              "$status_py" -I - "$RUNNER_TEMP/local-checks.log" 2>/dev/null <<'TEST_STATUS' || true
+          import ast, pathlib, re, sys
+          try:
+              tree = ast.parse(pathlib.Path("tests/scan_output_test.py").read_text())
+              known = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name.startswith("test_")}
+              text = pathlib.Path(sys.argv[1]).read_text(errors="replace")
+              for name in sorted(set(re.findall(r"(?m)^(?:FAIL|ERROR): (test_[A-Za-z0-9_]+)", text)) & known):
+                  print("Security guard test failed: " + name)
+          except (OSError, SyntaxError):
+              pass
+          TEST_STATUS
+            fi
+          fi
           rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
           if [[ "$check_rc" -ne 0 ]]; then
             source scripts/security_notice.sh
