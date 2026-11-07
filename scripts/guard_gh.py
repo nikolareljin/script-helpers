@@ -2,11 +2,13 @@
 
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
 
 TOOL_NAME = "Security"
+BASH = shutil.which("bash") or "bash"
 
 
 def main():
@@ -47,7 +49,7 @@ def main():
         return 1
     if family == "gist" and verb == "edit":
         return 1
-    checker = str(Path(__file__).with_name("check_publication.sh"))
+    checker = Path(__file__).with_name("check_publication.sh").as_posix()
     texts = args[:]
     files = []
     rewritten = args[:]
@@ -111,7 +113,7 @@ def main():
         for path in [str(payload), *files]:
             if path == "-" or not Path(path).is_file():
                 return 1
-            result = subprocess.run(["bash", checker, "--file", path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            result = subprocess.run([BASH, checker, "--file", path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if result.returncode:
                 for tool in ("Gitleaks", "Foxguard"):
                     if result.stderr.startswith((tool + " check failed.").encode()):
@@ -122,7 +124,7 @@ def main():
             path = Path(temp) / name
             path.write_bytes(data)
             path.chmod(0o600)
-            result = subprocess.run(["bash", checker, "--file", str(path)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            result = subprocess.run([BASH, checker, "--file", str(path)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if result.returncode:
                 return 1
         sys.stdout.buffer.write(response.stdout)
@@ -136,5 +138,5 @@ if __name__ == "__main__":
     except (OSError, ValueError):
         status = 1
     if status:
-        subprocess.run(["bash", str(Path(__file__).with_name("security_notice.sh")), TOOL_NAME], check=False)
+        subprocess.run([BASH, Path(__file__).with_name("security_notice.sh").as_posix(), TOOL_NAME], check=False)
     sys.exit(status)

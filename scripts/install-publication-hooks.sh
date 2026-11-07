@@ -36,11 +36,11 @@ for name in ("publication-hook.sh", "check_scan_output.sh", "check_scan_output.p
 (stage / "hooks").mkdir()
 for hook in ("pre-push", "pre-commit", "commit-msg"):
     path = stage / "hooks" / hook
-    script = str(stage / "scripts/publication-hook.sh").replace("\x27", "\x27\\\x27\x27")
-    scratch = str(stage).replace("\x27", "\x27\\\x27\x27")
-    path.write_text("#!/usr/bin/env bash\nexport TMPDIR=\x27" + scratch + "\x27\nexec bash \x27" + script + "\x27 " + hook + " \"$@\"\n")
+    script = (stage / "scripts/publication-hook.sh").as_posix().replace("\x27", "\x27\\\x27\x27")
+    scratch = stage.as_posix().replace("\x27", "\x27\\\x27\x27")
+    path.write_bytes(("#!/usr/bin/env bash\nexport TMPDIR=\x27" + scratch + "\x27\nexec bash \x27" + script + "\x27 " + hook + " \"$@\"\n").encode("utf-8"))
     path.chmod(0o700)
-sys.stdout.buffer.write((str(stage) + "\n").encode("utf-8"))
+sys.stdout.buffer.write((stage.as_posix() + "\n").encode("utf-8"))
 ' "$root" "$RUNNER_TEMP" 2>"$log")" || fail
 bin="${GITLEAKS_BIN:-}"
 if [[ -z "$bin" ]]; then
@@ -59,10 +59,11 @@ real_gh="$(command -v gh)" || fail
 if ! "$py" -I -c '
 import pathlib, shlex, sys
 stage, real, credential, interpreter = sys.argv[1:]
+stage, real, credential, interpreter = (pathlib.Path(p).as_posix() for p in (stage, real, credential, interpreter))
 folder = pathlib.Path(stage) / "bin"
 folder.mkdir()
 path = folder / "gh"
-path.write_text("#!/usr/bin/env bash\nexport TMPDIR=" + shlex.quote(stage) + "\nexport GITLEAKS_BIN=" + shlex.quote(credential) + "\nexec " + shlex.quote(interpreter) + " -I " + shlex.quote(stage + "/scripts/guard_gh.py") + " " + shlex.quote(real) + " \"$@\"\n")
+path.write_bytes(("#!/usr/bin/env bash\nexport TMPDIR=" + shlex.quote(stage) + "\nexport GITLEAKS_BIN=" + shlex.quote(credential) + "\nexec " + shlex.quote(interpreter) + " -I " + shlex.quote(stage + "/scripts/guard_gh.py") + " " + shlex.quote(real) + " \"$@\"\n").encode("utf-8"))
 path.chmod(0o700)
 ' "$stage" "$real_gh" "$bin" "$py" >"$log" 2>&1; then fail; fi
 printf '%s/bin\n' "$stage" >> "$GITHUB_PATH" || fail

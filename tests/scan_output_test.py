@@ -10,6 +10,7 @@ from pathlib import Path
 import subprocess
 import sys
 import shlex
+import shutil
 import tempfile
 import unittest
 import zipfile
@@ -17,6 +18,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 CHECK = ROOT / "scripts/check_scan_output.sh"
+BASH = shutil.which("bash") or "bash"
 
 
 class PublicationTests(unittest.TestCase):
@@ -44,7 +46,7 @@ class PublicationTests(unittest.TestCase):
 
     def check(self, *args, expected=0, env=None, text=None):
         proc = subprocess.run(
-            ["bash", str(CHECK), "--repo", str(self.repo), *args],
+            [BASH, CHECK.as_posix(), "--repo", str(self.repo), *args],
             input=text, capture_output=True, text=True, env=env or self.env, cwd=self.repo,
         )
         self.assertEqual(proc.returncode, expected, proc.stderr)
@@ -69,10 +71,10 @@ class PublicationTests(unittest.TestCase):
         bad.write_text("#!/bin/sh\nexit 1\n")
         bad.chmod(0o700)
         good = folder / "python"
-        good.write_text("#!/usr/bin/env bash\nexec " + shlex.quote(sys.executable) + ' "$@"\n')
+        good.write_text("#!/usr/bin/env bash\nexec " + shlex.quote(Path(sys.executable).as_posix()) + ' "$@"\n')
         good.chmod(0o700)
         env = {**self.env, "PATH": str(folder) + os.pathsep + self.env["PATH"]}
-        proc = subprocess.run(["bash", "-c", 'source "$1"; security_python', "_", str(ROOT / "scripts/security_notice.sh")], env=env, capture_output=True, text=True)
+        proc = subprocess.run([BASH, "-c", 'source "$1"; security_python', "_", (ROOT / "scripts/security_notice.sh").as_posix()], env=env, capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(Path(proc.stdout.strip().replace("\\", "/")).name, "python")
 
@@ -186,7 +188,7 @@ class PublicationTests(unittest.TestCase):
     def test_local_commands_refuse_ci_without_echoing_input(self):
         canary = "PRIVATE" + "-SCAN-PATH"
         for name in ("ci_security.sh", "foxguard_report.sh", "ci_gitleaks_report.sh"):
-            proc = subprocess.run(["bash", str(ROOT / "scripts" / name), "--unexpected=" + canary], env={**self.env, "CI": "true", "GITHUB_ACTIONS": "true"}, capture_output=True, text=True)
+            proc = subprocess.run([BASH, (ROOT / "scripts" / name).as_posix(), "--unexpected=" + canary], env={**self.env, "CI": "true", "GITHUB_ACTIONS": "true"}, capture_output=True, text=True)
             self.assertNotEqual(proc.returncode, 0)
             self.assertNotIn(canary, proc.stdout + proc.stderr)
             self.assertIn("https://nikolareljin.github.io/leak-lock/", proc.stderr)
@@ -266,7 +268,7 @@ class PublicationTests(unittest.TestCase):
         gh.chmod(0o700)
         env = {**self.env, "PATH": str(cli) + os.pathsep + self.env["PATH"], "CI": "true", "RUNNER_TEMP": str(runner),
                "GITHUB_ENV": str(exports), "GITHUB_PATH": str(paths), "GITLEAKS_BIN": str(scanner)}
-        proc = subprocess.run(["bash", str(ROOT / "scripts/install-publication-hooks.sh"), "--ci"], cwd=self.repo, env=env, capture_output=True, text=True)
+        proc = subprocess.run([BASH, (ROOT / "scripts/install-publication-hooks.sh").as_posix(), "--ci"], cwd=self.repo, env=env, capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(proc.stdout + proc.stderr, "")
         env.update(line.split("=", 1) for line in exports.read_text().splitlines())

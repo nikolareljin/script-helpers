@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -44,13 +45,14 @@ NATIVE_RESULT = re.compile(
     r"(?:(?:INF|WRN|ERR)\s+)?(?:no leaks found\.?|leaks found\s*:\s*\d+|\d+\s+leaks? found)\s*$"
 )
 LIMIT = 64 * 1024 * 1024
+BASH = shutil.which("bash") or "bash"
 
 
 def inspect_archive_member(name, raw, depth):
     inspect(name, raw, depth)
     # Binary diffs do not expose archive members to the ordinary PII check.
     proc = subprocess.run(
-        ["bash", str(Path(__file__).with_name("check_sensitive.sh")),
+        [BASH, Path(__file__).with_name("check_sensitive.sh").as_posix(),
          "--stdin", "--no-gitleaks", "--no-inline-allow"],
         input=raw.replace(b"\0", b" "), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
@@ -324,14 +326,14 @@ def main():
                 raise Unchecked()
             check_commits(args.repo, [args.range], seen)
     except Refused as exc:
-        subprocess.run(["bash", str(Path(__file__).with_name("security_notice.sh")), exc.tool], check=False)
+        subprocess.run([BASH, Path(__file__).with_name("security_notice.sh").as_posix(), exc.tool], check=False)
         if not (os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS")):
             print("Publication refused: scanner results must stay local. Remove them from the index and outgoing commits; inspect reports outside this checkout.", file=sys.stderr)
             if exc.args:
                 print("Local file to inspect: " + str(exc.args[0]), file=sys.stderr)
         return 1
     except (Unchecked, OSError, ValueError, RecursionError, IndexError, zlib.error):
-        subprocess.run(["bash", str(Path(__file__).with_name("security_notice.sh")), "Security"], check=False)
+        subprocess.run([BASH, Path(__file__).with_name("security_notice.sh").as_posix(), "Security"], check=False)
         return 2
     return 0
 
