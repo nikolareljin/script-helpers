@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Refuse PII filenames and archive members even when an email address has a document suffix.
+
 - Keep security diagnostics local and refuse scanner output before commit, push, or publication.
 - Check filenames, branch names and annotated tag names for sensitive data. Empty files are checked, and CI hides branch text that cannot pass the publication checks.
 

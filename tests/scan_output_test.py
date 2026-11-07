@@ -376,6 +376,23 @@ class PublicationTests(unittest.TestCase):
         self.stage("bundle.zip", raw.getvalue())
         self.check("--staged", expected=1)
 
+    def test_document_suffix_does_not_hide_pii(self):
+        for suffix in (".txt", ".tar.gz", ".json"):
+            proc = subprocess.run(
+                [BASH, str(ROOT / "scripts/check_sensitive.sh"), "--stdin", "--no-gitleaks", "--no-machine"],
+                input="jane.roe" + "@mailbox.org" + suffix,
+                capture_output=True, text=True, env=self.env, cwd=self.repo,
+            )
+            self.assertEqual(proc.returncode, 1, proc.stderr)
+
+    def test_asset_and_example_domain_suffixes_are_allowed(self):
+        for name in ("logo@2x.png", "module@package.js", "fixture" + "@example.org.txt"):
+            proc = subprocess.run(
+                [BASH, str(ROOT / "scripts/check_sensitive.sh"), "--stdin", "--no-gitleaks", "--no-machine"],
+                input=name, capture_output=True, text=True, env=self.env, cwd=self.repo,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+
     def test_github_cli_refuses_payloads_before_calling_real_cli(self):
         scanner = self.base / "credential-checker"
         scanner.write_bytes(b"#!/bin/sh\nexit 0\n")
