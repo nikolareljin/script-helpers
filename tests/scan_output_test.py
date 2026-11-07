@@ -149,6 +149,20 @@ class PublicationTests(unittest.TestCase):
         self.commit()
         self.check("--range", before + "..HEAD")
 
+    def test_existing_destination_history_is_not_republished(self):
+        self.git("remote", "add", "destination", str(self.base / "remote.git"))
+        self.stage("old.json", self.report())
+        self.commit()
+        published = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("update-ref", "refs/remotes/destination/main", published)
+        self.git("rm", "-q", "old.json")
+        self.commit()
+        refs = self.base / "refs"
+        refs.write_text("refs/heads/topic " + self.git("rev-parse", "HEAD").stdout.strip() + " refs/heads/topic " + self.initial + "\n")
+        self.check("--push-refs", str(refs), "--remote", "destination")
+        # Another destination must still inspect the same intermediate commit.
+        self.check("--push-refs", str(refs), "--remote", "other", expected=1)
+
     def test_commit_and_tag_messages(self):
         message = "fox" + "guard: 19 findings"
         self.git("-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-qm", message)
