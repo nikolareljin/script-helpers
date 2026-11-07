@@ -54,7 +54,7 @@ def inspect_archive_member(name, raw, depth):
     proc = subprocess.run(
         [BASH, Path(__file__).with_name("check_sensitive.sh").as_posix(),
          "--stdin", "--no-gitleaks", "--no-inline-allow"],
-        input=raw.replace(b"\0", b" "), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        input=os.fsencode(name) + b"\n" + raw.replace(b"\0", b" "), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
     if proc.returncode == 1:
         raise Refused()

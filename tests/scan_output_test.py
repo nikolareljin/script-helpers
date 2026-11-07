@@ -369,6 +369,13 @@ class PublicationTests(unittest.TestCase):
         self.stage("bundle.zip", raw.getvalue())
         self.check("--staged", expected=1)
 
+    def test_archive_member_name_pii_is_refused(self):
+        raw = io.BytesIO()
+        with zipfile.ZipFile(raw, "w") as archive:
+            archive.writestr("jane.roe" + "@mailbox.org", "")
+        self.stage("bundle.zip", raw.getvalue())
+        self.check("--staged", expected=1)
+
     def test_github_cli_refuses_payloads_before_calling_real_cli(self):
         scanner = self.base / "credential-checker"
         scanner.write_bytes(b"#!/bin/sh\nexit 0\n")
