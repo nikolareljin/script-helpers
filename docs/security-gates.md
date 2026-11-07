@@ -34,11 +34,12 @@ gh pr view 12 --json body -q .body | scripts/check_sensitive.sh --stdin
 scripts/check_sensitive.sh --list-identifiers            # what is checked, counts only
 ```
 
-Only added text is checked. A commit that deletes a value passes; a push that
+Content checks read added text. Filename and outgoing ref checks also cover
+empty files, branches and annotated tag names. A commit that deletes a value passes; a push that
 adds a value in one commit and removes it in the next is still refused, because
 the push publishes both commits. Rewrite the commit that added it.
 
-A pure rename adds nothing. A merge commit is read as a combined diff: only
+A pure rename checks the new filename. A merge commit is read as a combined diff: only
 lines it adds against every parent (a conflict resolution) count; the rest
 came from a parent, which is checked as its own commit. A pushed annotated tag
 adds its message (without the signature). A binary file has no lines to read:
@@ -572,7 +573,8 @@ outside the checkout and sets job-wide Git hook configuration through
 `GITHUB_ENV`. Subsequent clones and local repository hook settings do not bypass
 the outbound check. The caller supplies external `RUNNER_TEMP` storage.
 
-CI names the failing tool and branch. A refusal says:
+CI names the failing tool and a verified branch. Unsafe or unverifiable branch
+text becomes "your working branch". A refusal says:
 "Gitleaks check failed" or "Foxguard check failed", the branch, and
 https://nikolareljin.github.io/leak-lock/. Check out the branch locally, run
 Scan Repository in Leak-Lock, fix the issues, then rerun repository tests before pushing.

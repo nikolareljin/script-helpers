@@ -244,11 +244,12 @@ def push(repo, refs, remote, seen):
         fields = line.split()
         if len(fields) != 4:
             raise Unchecked()
-        local_ref, local, _, old = fields
+        local_ref, local, remote_ref, old = fields
         if not all(re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", s) for s in (local, old)):
             raise Unchecked()
         if set(local) == {"0"} or local == old:
             continue
+        inspect("ref metadata", re.sub(r"[/_.-]", " ", local_ref + " " + remote_ref).encode())
         if local_ref.startswith("refs/heads/"):
             os.environ["SH_SECURITY_BRANCH"] = local_ref[len("refs/heads/"):]
         target = local
@@ -256,6 +257,9 @@ def push(repo, refs, remote, seen):
             tag = git(repo, "cat-file", "tag", target)
             headers, body = tag.split(b"\n\n", 1)
             inspect("tag-message", body)
+            for header in headers.splitlines():
+                if header.startswith(b"tag "):
+                    inspect("tag name", re.sub(rb"[/_.-]", b" ", header[4:]))
             target = headers.splitlines()[0].split()[1].decode("ascii")
         if git(repo, "cat-file", "-t", target).strip() != b"commit":
             raise Unchecked()

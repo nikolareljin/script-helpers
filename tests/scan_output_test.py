@@ -178,6 +178,13 @@ class PublicationTests(unittest.TestCase):
         for status in ("11:00AM WRN leaks found: " + "19", "11:00AM INF no " + "leaks found"):
             self.check("--stdin", text=tool + "\n" + status, expected=1)
 
+    def test_annotated_tag_name_cannot_hide_behind_a_safe_ref(self):
+        self.git("tag", "-a", "fox" + "guard/19-findings", self.initial, "-m", "fixture")
+        oid = self.git("rev-parse", "fox" + "guard/19-findings").stdout.strip()
+        refs = self.base / "refs"
+        refs.write_text("refs/tags/safe " + oid + " refs/tags/safe " + "0" * 40 + "\n")
+        self.check("--push-refs", str(refs), expected=1)
+
     def test_missing_or_malformed_range_refused(self):
         self.check("--range", "does-not-exist", expected=2)
         refs = self.base / "refs"
@@ -242,6 +249,36 @@ class PublicationTests(unittest.TestCase):
                 self.assertNotEqual(absent.returncode, 0)
                 if ci:
                     self.assertNotIn("Local report:", proc.stderr)
+
+    def test_filename_pii_is_refused_before_commit(self):
+        scanner = self.base / "clean-scanner"
+        scanner.write_bytes(b"#!/bin/sh\nexit 0\n")
+        scanner.chmod(0o700)
+        names = self.base / "names.tsv"
+        names.write_text("private\tfixture\tzzqprivatefixture\tR-999\t\n")
+        self.env.update(GITLEAKS_BIN=str(scanner), PRIVATE_NAMES_FILE=str(names), PRIVATE_NAMES_AUTO_REFRESH="false")
+        self.git("config", "core.hooksPath", str(ROOT / "scripts/git-hooks"))
+        self.stage("jane.roe" + "@mailbox.org", b"")
+        result = self.git("commit", "-qm", "fixture", check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout.strip(), self.initial)
+
+    def test_ref_pii_is_refused_without_echoing_it_in_ci(self):
+        scanner = self.base / "clean-scanner"
+        scanner.write_bytes(b"#!/bin/sh\nexit 0\n")
+        scanner.chmod(0o700)
+        names = self.base / "names.tsv"
+        names.write_text("private\tfixture\tzzqprivatefixture\tR-999\t\n")
+        name = "jane.roe" + "@mailbox.org"
+        self.env.update(GITLEAKS_BIN=str(scanner), PRIVATE_NAMES_FILE=str(names), PRIVATE_NAMES_AUTO_REFRESH="false", CI="true", GITHUB_HEAD_REF=name)
+        remote = self.base / "remote.git"
+        subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
+        self.git("config", "core.hooksPath", str(ROOT / "scripts/git-hooks"))
+        result = self.git("push", str(remote), "HEAD:refs/heads/" + name, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn(name, result.stdout + result.stderr)
+        absent = subprocess.run(["git", "--git-dir", str(remote), "show-ref"], capture_output=True)
+        self.assertNotEqual(absent.returncode, 0)
 
     def test_local_report_path_uses_lf(self):
         helper = ROOT / "scripts/local_security_report.py"
