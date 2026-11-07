@@ -22,6 +22,7 @@ Rules for a check here:
 
 | Check | Linux / macOS | Windows | What it runs | Last run by a person |
 |---|---|---|---|---|
+| Publication containment | `bash tests/machine/publication_check.sh` | same command under Git Bash | installed Gitleaks, generated private key and before-transport report refusal against a temporary bare remote; no network writes | Not yet run by a person |
 | Ollama install | `bash tests/machine/ollama_install_check.sh` | `pwsh -NoProfile -File ps/tests/machine/ollama_install_check.ps1` | the pinned release, downloaded and checked; install, nothing-to-do, mismatch, damaged archive, upgrade of a running older install, launcher prefix | Linux x86_64, 2026-10-07 |
 | Rust resolver | `bash tests/machine/rust_resolver_check.sh` | `pwsh -NoProfile -File ps/tests/machine/rust_resolver_check.ps1` | the installed rustup and cargo, no toolchain changes: `rust_toolchain_ci_uses` for stable and `RUST_TOOLCHAIN`, a different cargo earlier on PATH, `ErrorActionPreference = 'Stop'` (PowerShell), preflight `--quick --skip-security` on a throwaway cargo project | Linux x86_64, 2026-10-18; Windows, macOS: not yet |
 | Model select | `bash tests/machine/model_select_check.sh` | none (no PowerShell `ollama_models`) | `ollama_models.sh class` tier, `select general` against the Ollama on 127.0.0.1:11434 with `OLLAMA_PULL_MISSING=0`, the no-terminal order, nothing pulled or removed | Linux x86_64, 2026-10-19; macOS: not yet |

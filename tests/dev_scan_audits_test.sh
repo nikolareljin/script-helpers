@@ -12,6 +12,7 @@
 # gitleaks alone, and "PASS  security scan". Stub tools record the directory
 # they ran in and their arguments; *_FAIL variables make one report a finding.
 set -uo pipefail
+unset CI GITHUB_ACTIONS
 # preflight installs a missing gitleaks or foxguard; tests never go to the network.
 export PREFLIGHT_NO_INSTALL=1
 
@@ -124,7 +125,7 @@ fi
 
 # 6. pip-audit not installed: SKIP, not PASS, even though bandit ran.
 mkdir -p "$tmp/nopa"
-for c in bash git env dirname basename mktemp head rm cat grep sed awk tr uname find sort date mkdir id tail; do
+for c in bash git python3 env dirname basename mktemp head rm cat grep sed awk tr uname find sort date mkdir id tail; do
   p="$(command -v "$c")" && ln -sf "$p" "$tmp/nopa/$c"
 done
 for c in bandit npm gitleaks; do ln -sf "$tmp/bin/$c" "$tmp/nopa/$c"; done
@@ -162,6 +163,8 @@ scan "$r"
 #     with its warnings: the exit-3 skip is preflight's protocol only.
 r="$(new_repo direct)"
 RC=0; OUT="$(cd "$r" && CI="" PATH="$tmp/nopa" "$(command -v bash)" "$ROOT_DIR/scripts/ci_security.sh" --no-docker --skip-gitleaks --skip-foxguard --skip-node 2>&1)" || RC=$?
+report=$(printf '%s\n' "$OUT" | sed -n 's/^Local security report: //p' | tail -1)
+[[ ! -f "$report" ]] || OUT="$OUT$(cat "$report")"
 [[ $RC -eq 0 && "$OUT" == *"No requirements.txt or pyproject.toml"* ]] && note "direct call, nothing to check: warning, exit 0" \
   || error "direct: rc=$RC out='$OUT'"
 

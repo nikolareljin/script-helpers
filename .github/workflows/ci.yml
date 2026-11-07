@@ -22,6 +22,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-19
 
+      - name: Refuse tracked scanner output
+        run: bash scripts/check_scan_output.sh --tree HEAD
+
       - name: Install tools
         run: |
           sudo apt-get update
@@ -55,12 +58,34 @@ jobs:
       # The unit test stubs curl; this checks the pinned SHA-256 against the real release.
       - name: Pinned foxguard downloads, matches its SHA-256 and runs
         shell: bash
-        run: bash tests/machine/foxguard_release_check.sh
+        run: |
+          umask 077
+          check_rc=0
+          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          unset CI GITHUB_ACTIONS
+          bash tests/machine/foxguard_release_check.sh
+          PRIVATE_CHECK
+          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source scripts/security_notice.sh
+            security_notice Security
+            exit "$check_rc"
+          fi
 
       - name: Run test suite
         run: |
+          umask 077
+          check_rc=0
+          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          unset CI GITHUB_ACTIONS
           make test
-
+          PRIVATE_CHECK
+          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source scripts/security_notice.sh
+            security_notice Security
+            exit "$check_rc"
+          fi
   # The class of machine and the model picks run under Git Bash on Windows, as
   # ./dev runs them there: /proc/meminfo from Git Bash, GPU memory from the
   # registry through powershell.exe. Only this test file: the rest of the suite
@@ -73,11 +98,67 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-19
       - name: ollama_endpoint tests under Git Bash
         shell: bash
-        run: bash tests/ollama_endpoint_test.sh
+        run: |
+          umask 077
+          check_rc=0
+          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          unset CI GITHUB_ACTIONS
+          bash tests/ollama_endpoint_test.sh
+          PRIVATE_CHECK
+          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source scripts/security_notice.sh
+            security_notice Security
+            exit "$check_rc"
+          fi
       # Git for Windows defaults to core.autocrlf=true; scripts must still check out with LF.
       - name: An autocrlf=true clone checks out LF and its hooks run
         shell: bash
-        run: bash tests/line_endings_test.sh
+        run: |
+          umask 077
+          check_rc=0
+          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          unset CI GITHUB_ACTIONS
+          bash tests/line_endings_test.sh
+          PRIVATE_CHECK
+          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source scripts/security_notice.sh
+            security_notice Security
+            exit "$check_rc"
+          fi
+      - name: Refuse reports before commit and transport
+        shell: bash
+        run: |
+          umask 077
+          check_rc=0
+          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          unset CI GITHUB_ACTIONS
+          bash tests/scan_output_test.sh
+          PRIVATE_CHECK
+          if [[ "$check_rc" -ne 0 ]]; then
+            source scripts/security_notice.sh
+            status_py="$(security_python || true)"
+            if [[ -n "$status_py" ]]; then
+              "$status_py" -I - "$RUNNER_TEMP/local-checks.log" 2>/dev/null <<'TEST_STATUS' || true
+          import ast, pathlib, re, sys
+          try:
+              tree = ast.parse(pathlib.Path("tests/scan_output_test.py").read_text())
+              known = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name.startswith("test_")}
+              text = pathlib.Path(sys.argv[1]).read_text(errors="replace")
+              for name in sorted(set(re.findall(r"(?m)^(?:FAIL|ERROR): (test_[A-Za-z0-9_]+)", text)) & known):
+                  print("Security guard test failed: " + name)
+          except (OSError, SyntaxError):
+              pass
+          TEST_STATUS
+            fi
+          fi
+          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source scripts/security_notice.sh
+            security_notice Security
+            exit "$check_rc"
+          fi
       - name: This machine's figures and class (real, not stubbed)
         shell: bash
         run: bash scripts/ollama_models.sh class
@@ -92,39 +173,108 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-19
       - name: Setup tests under Git Bash
         shell: bash
-        run: bash tests/setup_claude_hook_test.sh
+        run: |
+          umask 077
+          check_rc=0
+          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          unset CI GITHUB_ACTIONS
+          bash tests/setup_claude_hook_test.sh
+          PRIVATE_CHECK
+          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source scripts/security_notice.sh
+            security_notice Security
+            exit "$check_rc"
+          fi
       - name: Per-repository setup keeps earlier hooks, under Git Bash
         shell: bash
         run: |
+          umask 077
+          check_rc=0
+          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          unset CI GITHUB_ACTIONS
           bash tests/setup_hooks_chain_test.sh
           bash tests/hooks_coexistence_test.sh
           bash tests/setup_agent_hooks_test.sh
+          PRIVATE_CHECK
+          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source scripts/security_notice.sh
+            security_notice Security
+            exit "$check_rc"
+          fi
       - name: Gate temp-dir and security gate tests under Git Bash
         shell: bash
         run: |
+          umask 077
+          check_rc=0
+          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          unset CI GITHUB_ACTIONS
           bash tests/gate_tempdir_test.sh
           bash tests/security_gate_test.sh
+          PRIVATE_CHECK
+          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source scripts/security_notice.sh
+            security_notice Security
+            exit "$check_rc"
+          fi
       # The unit test stubs curl; this checks the pinned SHA-256 against the real release.
       - name: Pinned foxguard downloads, matches its SHA-256 and runs
         shell: bash
-        run: bash tests/machine/foxguard_release_check.sh
+        run: |
+          umask 077
+          check_rc=0
+          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          unset CI GITHUB_ACTIONS
+          bash tests/machine/foxguard_release_check.sh
+          PRIVATE_CHECK
+          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source scripts/security_notice.sh
+            security_notice Security
+            exit "$check_rc"
+          fi
       - name: Hook destination and latency tests under Git Bash
         shell: bash
-        run: bash tests/claude_hook_destinations_test.sh
+        run: |
+          umask 077
+          check_rc=0
+          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          unset CI GITHUB_ACTIONS
+          bash tests/claude_hook_destinations_test.sh
+          PRIVATE_CHECK
+          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source scripts/security_notice.sh
+            security_notice Security
+            exit "$check_rc"
+          fi
       # With native symlinks, so the symlink-out cases run here too.
       - name: Hook destination tests under Git Bash with native symlinks
         shell: bash
         env:
           MSYS: winsymlinks:nativestrict
         run: |
+          umask 077
+          check_rc=0
+          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          unset CI GITHUB_ACTIONS
           rc=0
-          bash tests/claude_hook_destinations_test.sh 2>&1 | tee "$RUNNER_TEMP/hook-native.log" || rc=$?
+          bash tests/claude_hook_destinations_test.sh > "$RUNNER_TEMP/hook-native.log" 2>&1 || rc=$?
           # nativestrict makes ln -s fail rather than copy where symlinks are off.
           if grep -q 'SKIP: ln -s made a copy' "$RUNNER_TEMP/hook-native.log"; then
             echo "native symlinks were not made (runner cannot create them); the symlink cases did not run" >&2
             exit 1
           fi
           exit "$rc"
+          PRIVATE_CHECK
+          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source scripts/security_notice.sh
+            security_notice Security
+            exit "$check_rc"
+          fi
       - name: setup-hooks.ps1 finds Git Bash and installs (throwaway profile)
         shell: pwsh
         run: |
@@ -197,8 +347,11 @@ jobs:
       # Parsing and importing cannot see behaviour: the changelog mirror kept a
       # substring match for a release after the Bash module had dropped it.
       - name: Behaviour tests
-        shell: pwsh
+        shell: bash
         run: |
+          umask 077
+          check_rc=0
+          env -u CI -u GITHUB_ACTIONS pwsh -NoProfile -NonInteractive -Command - <<'POWERSHELL_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
           $failed = 0
           Get-ChildItem -Path ps/tests -Filter *_test.ps1 | ForEach-Object {
             Write-Host "== $($_.Name)"
@@ -206,3 +359,10 @@ jobs:
             if ($LASTEXITCODE -ne 0) { $failed = 1 }
           }
           exit $failed
+          POWERSHELL_CHECK
+          rm -f "$RUNNER_TEMP/local-checks.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source scripts/security_notice.sh
+            security_notice Security
+            exit "$check_rc"
+          fi

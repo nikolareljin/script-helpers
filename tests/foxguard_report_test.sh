@@ -4,6 +4,7 @@
 # USAGE: bash tests/foxguard_report_test.sh
 # ----------------------------------------------------
 set -uo pipefail
+unset CI GITHUB_ACTIONS
 export SCRIPT_HELPERS_NO_AUTO_INSTALL=1
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -74,7 +75,7 @@ rc=0; out="$(bash "$root_dir/scripts/foxguard_report.sh" --base "$orphan" --outp
 [[ $rc -eq 2 && "$out" == *"share no history"* ]] && ok "a base with no common history is exit 2, not a clean empty scan" \
   || error "unrelated base: rc=$rc out=$out"
 
-rc=0; bash "$root_dir/scripts/foxguard_report.sh" --output "$tmp/no/such/dir/r.json" -- good.sh >/dev/null 2>&1 || rc=$?
+rc=0; bash "$root_dir/scripts/foxguard_report.sh" --output "$tmp/r/bad.json" -- good.sh >/dev/null 2>&1 || rc=$?
 [[ $rc -eq 2 ]] && ok "a report that cannot be written is exit 2, not 1 (findings)" || error "unwritable output: rc=$rc"
 
 rm -f "$tmp/bin/foxguard"

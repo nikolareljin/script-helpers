@@ -22,6 +22,10 @@ if ! command -v git >/dev/null 2>&1; then
 fi
 
 tmp="$(mktemp -d)"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/clean-gitleaks"
+chmod +x "$tmp/clean-gitleaks"
+export GITLEAKS_BIN="$tmp/clean-gitleaks"
+
 # Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 HOOK="$ROOT_DIR/scripts/git-hooks/pre-commit"

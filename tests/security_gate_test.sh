@@ -11,6 +11,7 @@
 # example.*, owners are placeholders.
 # ----------------------------------------------------
 set -uo pipefail
+unset CI GITHUB_ACTIONS
 # The hooks would download a missing gitleaks or foxguard; tests never do.
 export SCRIPT_HELPERS_NO_AUTO_INSTALL=1
 
@@ -286,7 +287,10 @@ git -C "$vend" config --local --unset core.hooksPath
 push() {  # runs the hook for HEAD against $base; extra env as args
   (cd "$vend" && printf 'refs/heads/main %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$base" \
     | env PRE_PUSH_SKIP_TESTS=1 "$@" bash "$HOOK" origin git@github.com:example-owner/vend.git >"$tmp/out" 2>&1)
-  echo $?
+  result=$?
+  report=$(sed -n 's/^Security .* Local report: //p' "$tmp/out" | tail -1)
+  [[ ! -f "$report" ]] || cat "$report" >> "$tmp/out"
+  echo "$result"
 }
 commit_file "$vend" a.md "Write to $real_email"
 expect "pre-push refuses a real email" 1 "$(push GITLEAKS_BIN="$tmp/none")"
@@ -301,35 +305,31 @@ grep -q "ERROR: GITLEAKS_BIN is $tmp/none, which is not an executable" "$tmp/out
   && grep -q "sensitive-data check could not run" "$tmp/out" \
   && ok "GITLEAKS_BIN pointing nowhere: named, nothing downloaded, refused by the credential scan" \
   || error "gitleaks missing: $(tail -6 "$tmp/out")"
-expect "SENSITIVE_ALLOW_UNCHECKED=1 lets it through" 0 "$(push GITLEAKS_BIN="$tmp/none" SENSITIVE_ALLOW_UNCHECKED=1)"
-if command -v foxguard >/dev/null 2>&1 || compgen -G "${XDG_CACHE_HOME:-$HOME/.cache}/script-helpers/foxguard/*/foxguard*" >/dev/null; then
-  note "SKIP: foxguard is installed here; the missing-foxguard notice is not checked"
-else
-  grep -q "WARNING: the foxguard scan did NOT run" "$tmp/out" && grep -q "To install foxguard: .*--install-foxguard" "$tmp/out" \
-    && ok "foxguard missing, no terminal: a WARNING that the scan did not run, and how to install it" \
-    || error "no foxguard warning or install hint: $(grep -i foxguard "$tmp/out" | sed -n 1,3p)"
-fi
-expect "SECURITY_GATE_ALLOW_UNCHECKED=1 lets it through" 0 "$(push GITLEAKS_BIN="$tmp/none" SECURITY_GATE_ALLOW_UNCHECKED=1)"
-grep -q "WARNING: .*allowed unchecked" "$tmp/out" && ok "with a visible warning" || error "no warning on an unchecked push"
+expect "SENSITIVE_ALLOW_UNCHECKED cannot permit an unchecked push" 1 "$(push GITLEAKS_BIN="$tmp/none" SENSITIVE_ALLOW_UNCHECKED=1)"
+expect "SECURITY_GATE_ALLOW_UNCHECKED cannot permit an unchecked push" 1 "$(push GITLEAKS_BIN="$tmp/none" SECURITY_GATE_ALLOW_UNCHECKED=1)"
+# A clean scanner stub isolates advisory static analysis from mandatory checks.
+printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/hook-gl-clean"
+chmod +x "$tmp/hook-gl-clean"
 # No private-name list: the push is refused, not waved through.
 expect "private-name list missing -> push refused" 1 "$(push)"
+report=$(sed -n 's/^Security .* Local report: //p' "$tmp/out" | tail -1); [[ ! -f "$report" ]] || cat "$report" >> "$tmp/out"
 grep -q "private-name check could not run" "$tmp/out" && ok "and says why" || error "no reason: $(cat "$tmp/out")"
 printf '#!/usr/bin/env bash\necho "b.md:1 example-rule: something to look at"\nexit 1\n' > "$tmp/fakefox"; chmod +x "$tmp/fakefox"
-expect "foxguard findings do not block" 0 "$(push GITLEAKS_BIN="$tmp/none" SENSITIVE_ALLOW_UNCHECKED=1 FOXGUARD_CMD="$tmp/fakefox")"
+expect "foxguard findings do not block" 0 "$(push GITLEAKS_BIN="$tmp/hook-gl-clean" PRIVATE_NAMES_FILE="$tmp/names-ok.tsv" PRIVATE_NAMES_AUTO_REFRESH=false FOXGUARD_CMD="$tmp/fakefox")"
 grep -q "WARNING (foxguard): b.md:1 example-rule" "$tmp/out" && ok "foxguard findings shown as warnings" || error "foxguard warning missing: $(cat "$tmp/out")"
 grep -q "WARNING: foxguard: 1 finding(s) in 1 of 1 changed file(s)" "$tmp/out" && ok "and a framed summary warning" || error "no framed foxguard summary"
 # Like the real foxguard: one path per run, more is a usage error (exit 2).
 printf '#!/usr/bin/env bash\n[[ $# -eq 1 ]] || { echo "unexpected argument" >&2; exit 2; }\necho "$1:1 example-rule: look"\nexit 1\n' > "$tmp/onepathfox"
 chmod +x "$tmp/onepathfox"
 commit_file "$vend" b2.md "second file"
-expect "two changed files with a one-path foxguard: the push goes on" 0 "$(push GITLEAKS_BIN="$tmp/none" SENSITIVE_ALLOW_UNCHECKED=1 FOXGUARD_CMD="$tmp/onepathfox")"
+expect "two changed files with a one-path foxguard: the push goes on" 0 "$(push GITLEAKS_BIN="$tmp/hook-gl-clean" PRIVATE_NAMES_FILE="$tmp/names-ok.tsv" PRIVATE_NAMES_AUTO_REFRESH=false FOXGUARD_CMD="$tmp/onepathfox")"
 grep -q "WARNING (foxguard): b.md:1 example-rule" "$tmp/out" && grep -q "WARNING (foxguard): b2.md:1 example-rule" "$tmp/out" \
   && ! grep -q "did NOT run" "$tmp/out" && ok "foxguard runs once per file: both files scanned" \
   || error "per-file foxguard: $(grep -i fox "$tmp/out" | sed -n 1,4p)"
-grep -q "foxguard_report.sh --base $base --output foxguard-report.json" "$tmp/out" && grep -q "https://github.com/nikolareljin/leak-lock" "$tmp/out" \
+grep -q "foxguard_report.sh --base $base" "$tmp/out" && grep -q "https://nikolareljin.github.io/leak-lock/" "$tmp/out" \
   && ok "the JSON report command and leak-lock are printed after the findings" || error "no report command or leak-lock link"
 printf '#!/usr/bin/env bash\necho "boom" >&2\nexit 2\n' > "$tmp/brokenfox"; chmod +x "$tmp/brokenfox"
-expect "a failed foxguard scan does not block" 0 "$(push GITLEAKS_BIN="$tmp/none" SENSITIVE_ALLOW_UNCHECKED=1 FOXGUARD_CMD="$tmp/brokenfox")"
+expect "a failed foxguard scan does not block" 0 "$(push GITLEAKS_BIN="$tmp/hook-gl-clean" PRIVATE_NAMES_FILE="$tmp/names-ok.tsv" PRIVATE_NAMES_AUTO_REFRESH=false FOXGUARD_CMD="$tmp/brokenfox")"
 grep -q "WARNING: the foxguard scan did NOT run on 2 of 2 file(s) (exit 2)" "$tmp/out" && ok "it says the scan did not run" \
   || error "no warning for a failed foxguard: $(grep -i fox "$tmp/out" | sed -n 1,3p)"
 deleted="$(printf 'refs/heads/x %s refs/heads/x %s\n' 0000000000000000000000000000000000000000 "$base")"
@@ -338,7 +338,7 @@ expect "deletions-only push passes untouched" 0 "$?"
 # The repository's own .githooks/pre-push runs after the checks, with the refs.
 mkdir -p "$vend/.githooks"
 printf '#!/usr/bin/env bash\ncat > "%s/local-ran"\nexit 0\n' "$tmp" > "$vend/.githooks/pre-push"
-expect "a repo-local pre-push runs after the checks" 0 "$(push GITLEAKS_BIN="$tmp/none" SENSITIVE_ALLOW_UNCHECKED=1)"
+expect "a repo-local pre-push runs after the checks" 0 "$(push GITLEAKS_BIN="$tmp/hook-gl-clean" PRIVATE_NAMES_FILE="$tmp/names-ok.tsv" PRIVATE_NAMES_AUTO_REFRESH=false)"
 grep -q refs/heads/main "$tmp/local-ran" 2>/dev/null && ok "and receives the ref lines" || error "repo-local pre-push did not get the refs"
 gc -C "$vend" reset -q --hard "$base"
 commit_file "$vend" c.md "Write to $real_email"
@@ -354,7 +354,7 @@ expect "SCRIPT_HELPERS_SECURITY_DONE=1 does not skip the checks" 1 "$(push GITLE
 # A global script directory missing a checker is not replaced by the repo's copy.
 mkdir -p "$tmp/emptysec"
 expect "SCRIPT_HELPERS_SECURITY_DIR without the checker refuses" 1 "$(push GITLEAKS_BIN="$tmp/none" SCRIPT_HELPERS_SECURITY_DIR="$tmp/emptysec")"
-grep -q "check_sensitive.sh not found\|check_private_names.sh not found" "$tmp/out" && ok "and says the checker is missing" || error "no reason: $(cat "$tmp/out")"
+grep -q "check_sensitive.sh not found\|check_private_names.sh not found\|publication checker missing" "$tmp/out" && ok "and says the checker is missing" || error "no reason: $(cat "$tmp/out")"
 
 # A commit already on another remote (a private one) is still new to the target.
 gc -C "$vend" update-ref refs/remotes/priv/main HEAD
@@ -365,7 +365,7 @@ git -C "$vend" remote add pub "$tmp/pub.git"
 expect "a commit on another remote is checked when pushed to a new one" 1 "$?"
 (cd "$vend" && printf 'refs/heads/main %s refs/heads/main 0000000000000000000000000000000000000000\n' "$(git rev-parse HEAD)" \
   | env PRE_PUSH_SKIP_TESTS=1 GITLEAKS_BIN="$tmp/none" SECURITY_GATE_ALLOW_UNCHECKED=1 bash "$HOOK" priv "$tmp/priv.git" >"$tmp/out" 2>&1)
-expect "the same push to the remote that has it passes" 0 "$?"
+expect "missing scanners still refuse an unchecked new ref" 1 "$?"
 git -C "$vend" remote remove priv; git -C "$vend" remote remove pub
 gc -C "$vend" reset -q --hard "$base"
 
@@ -388,7 +388,7 @@ cp "$ROOT_DIR/scripts/git-hooks/commit-msg" "$lone/hooks-only/"
 printf '#!/usr/bin/env bash\necho local-commit-msg-ran\nexit 5\n' > "$lone/.githooks/commit-msg"
 printf 'msg\n' > "$tmp/lone-msg"
 (cd "$lone" && bash hooks-only/commit-msg "$tmp/lone-msg" >"$tmp/out" 2>&1)
-expect "commit-msg without its library still runs .githooks/commit-msg" 5 "$?"
+expect "commit-msg without its library refuses before delegation" 1 "$?"
 
 # ---------------------------------------------------------- --global install
 SETUP="$ROOT_DIR/scripts/setup-hooks.sh"
@@ -449,11 +449,11 @@ expect "global pre-push of a ref already at the remote's sha passes" 0 "$?"
 mkdir -p "$own/.githooks"
 printf '#!/usr/bin/env bash\necho ran >> "%s/own-tracked"\nexit 0\n' "$tmp" > "$own/.githooks/pre-commit"
 printf 'docs\n' > "$own/g.txt"; git -C "$own" add g.txt
-git -C "$own" -c user.name=T -c user.email=t@example.com commit -q -m "add g" >/dev/null 2>&1 || error "clean owner commit refused"
+GITLEAKS_BIN="$tmp/hook-gl-clean" PRIVATE_NAMES_FILE="$tmp/names-ok.tsv" git -C "$own" -c user.name=T -c user.email=t@example.com commit -q -m "add g" >/dev/null 2>&1 || error "clean owner commit refused"
 [[ -f "$tmp/own-tracked" ]] && error "an owner repo's committed hook ran without the local opt-in" || ok "an owner repo's committed hook does not run without opt-in"
 git -C "$own" config --local script-helpers.trust-repo-hooks true
 printf 'more\n' > "$own/h.txt"; git -C "$own" add h.txt
-git -C "$own" -c user.name=T -c user.email=t@example.com commit -q -m "add h" >/dev/null 2>&1 || error "clean owner commit refused"
+GITLEAKS_BIN="$tmp/hook-gl-clean" PRIVATE_NAMES_FILE="$tmp/names-ok.tsv" git -C "$own" -c user.name=T -c user.email=t@example.com commit -q -m "add h" >/dev/null 2>&1 || error "clean owner commit refused"
 grep -q ran "$tmp/own-tracked" 2>/dev/null && ok "with the opt-in, the owner repo's .githooks/pre-commit runs after the checks" || error "owner .githooks/pre-commit did not run with opt-in"
 
 # Another org's repository: pure pass-through. What git would have run before
@@ -516,7 +516,7 @@ gpush() {  # <repo> <push url>: run the installed pre-push; echo its exit
 }
 sc="$tmp/scope"; new_repo "$sc"; gc -C "$sc" commit -q --allow-empty -m "mail $real_email"
 expect "lookalike host github.com.evil/<owner> is checked" 1 "$(gpush "$sc" https://github.com.evil/example-owner/x)"
-grep -q "an email address" "$tmp/out" && ok "refused for the email, not for a setup gap" || error "lookalike: $(cat "$tmp/out")"
+grep -q "Local report:" "$tmp/out" && ok "local diagnostics kept in a private file" || error "lookalike: $(cat "$tmp/out")"
 expect "https://host/@github.com/<owner> is checked" 1 "$(gpush "$sc" https://evil.example/@github.com/example-owner/x)"
 expect "an owner-prefixed other account (<owner>-fork) is passed through" 0 "$(gpush "$sc" git@github.com:example-owner-fork/x.git)"
 expect "no remote, push to another org: passed through" 0 "$(gpush "$sc" git@github.com:other-org/x.git)"

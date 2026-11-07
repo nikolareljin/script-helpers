@@ -132,7 +132,7 @@ while IFS= read -r hit; do
     *) shipped_unguarded="${shipped_unguarded}
     ${hit%%:*}:$(cut -d: -f2 <<<"$hit")" ;;
   esac
-done < <(grep -rnE "^[[:space:]]*trap .* EXIT" scripts/ lib/ bin/ 2>/dev/null || true)
+done < <(grep -rnE "^[[:space:]]*trap .* EXIT" scripts/ lib/ bin/ 2>/dev/null | grep -vE ": *trap - " || true)
 if (( shipped_checked == 0 )); then
   error "no EXIT traps were found in scripts/, lib/ or bin/; this scan is reading nothing"
 elif [[ -z "$shipped_unguarded" ]]; then

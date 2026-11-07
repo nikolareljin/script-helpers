@@ -19,7 +19,7 @@ Usage: bash scripts/foxguard_report.sh [--base <ref>] [--output <file>] [--] [<p
   --base <ref>     Scan the files changed between <ref> and HEAD (the pre-push
                    hook prints this with the remote's commit). Default when no
                    paths are given: the upstream branch, else origin/HEAD.
-  --output <file>  Where to write the JSON (default: foxguard-report.json).
+  --output <file>  New local file outside any checkout; default private state.
   <path>...        Scan these files instead of a range.
 ```
 
@@ -36,7 +36,7 @@ be scanned (listed under "errors").
 Example:
 
 ```text
-  bash scripts/script-helpers/scripts/foxguard_report.sh --base origin/main --output foxguard-report.json
+  bash scripts/script-helpers/scripts/foxguard_report.sh --base origin/main
 ```
 
 ### `scripts/owner_scope.sh`
@@ -130,11 +130,7 @@ Usage: source scripts/security_hooks.sh; sec_pre_push <refs-file> <remote-name> 
   SCRIPT_HELPERS_SECURITY_DIR  Directory holding check_private_names.sh and
                                check_sensitive.sh. Set by the global hooks;
                                otherwise they are looked up in the repository.
-  SECURITY_GATE_ALLOW_UNCHECKED=1  Let a push through when a check could not
-                               run (exit 2, script missing, scope unknown), with
-                               a warning. Narrow on purpose: --no-verify skips
-                               every check, this skips none that can run.
-                               SENSITIVE_ALLOW_UNCHECKED=1 is the same.
+  Mandatory publication checks cannot be disabled with environment overrides.
   FOXGUARD_CMD                 foxguard command to run (default: the pinned
                                binary in the cache, else foxguard on PATH).
 ```
@@ -568,6 +564,25 @@ Example:
   git log -1 --format=%B | scripts/check_private_names.sh --stdin
 ```
 
+### `scripts/check_publication.sh`
+
+Refuse credentials, personal data and scanner output before publication.
+
+```text
+Usage: scripts/check_publication.sh --file <path> | --stdin
+  --file PATH  Check a complete publication file; repeatable.
+  --stdin      Check publication text on stdin.
+  -h, --help   Show help.
+```
+
+Exit codes: 0 Clear; 1 refused; 2 unable to check. Never publish on a nonzero exit.
+
+Example:
+
+```text
+scripts/check_publication.sh --file pr-body.md
+```
+
 ### `scripts/check_release_tag.sh`
 
 Guard against tagging an existing release from a release/[v]X.Y.Z[-rcN] or release/[v]X.Y.Z[-rc.N] branch.
@@ -624,6 +639,37 @@ Example:
 
 ```text
   scripts/check_release_version.sh --branch release/1.4.0 --fetch-tags
+```
+
+### `scripts/check_scan_output.py`
+
+Inspect Git objects and publication text without printing scanner results.
+
+Exit codes: not in the header; the script has no explicit `exit`.
+
+### `scripts/check_scan_output.sh`
+
+Refuse scanner results before a commit, push or text publication.
+
+```text
+Usage: scripts/check_scan_output.sh [--staged|--push-refs <file>|--range <ref>|--tree <ref>|--file <path>|--stdin] [--remote <name>] [--repo <path>]
+  --staged          Check staged blobs, not working files.
+  --push-refs FILE  Check every outgoing commit and annotated tag.
+  --range REF       Check a revision or revision range.
+  --tree REF        Check all files at a revision.
+  --file PATH       Check a publication file; repeatable.
+  --stdin           Check publication text on stdin.
+  --remote NAME     Target remote for new refs.
+  --repo PATH       Repository, default current directory.
+  -h, --help        Show help.
+```
+
+Exit codes: 0 Clear; 1 prohibited output; 2 unable to check. Both failures block publication.
+
+Example:
+
+```text
+scripts/check_scan_output.sh --staged
 ```
 
 ### `scripts/check_sensitive.sh`
@@ -2554,6 +2600,29 @@ Example:
 bash scripts/generate-android-keystore.sh ./release.jks
 ```
 
+### `scripts/guard_gh.py`
+
+Validate supported gh publication payloads before the real CLI sends them.
+
+Exit codes: not in the header; the script has no explicit `exit`.
+
+### `scripts/install-publication-hooks.sh`
+
+Install mandatory outbound hooks for every Git clone in a CI job.
+
+```text
+Usage: scripts/install-publication-hooks.sh --ci
+  --ci  Require a CI runner, external RUNNER_TEMP, GITHUB_ENV and GITHUB_PATH.
+```
+
+Exit codes: 0 Installed; 1 refused; 2 usage error. No diagnostics are published.
+
+Example:
+
+```text
+bash scripts/install-publication-hooks.sh --ci
+```
+
 ### `scripts/install_dev_cli.sh`
 
 Install the shared ./dev entry point into a consumer repository.
@@ -2670,6 +2739,12 @@ Example:
 ```text
   bash scripts/lint_docs.sh
 ```
+
+### `scripts/local_security_report.py`
+
+Allocate a private diagnostics file outside any Git worktree.
+
+Exit codes: not in the header; the script has no explicit `exit`.
 
 ### `scripts/ollama_models.sh`
 
@@ -2806,6 +2881,42 @@ Example:
 
 ```text
   scripts/prepare_public.sh audit --source ../my-repo --work /tmp/pub-audit
+```
+
+### `scripts/publication-hook.sh`
+
+CI outbound hook: refuse sensitive content before Git transfers it.
+
+```text
+Usage: publication-hook.sh <pre-push|pre-commit|commit-msg> [hook arguments]
+  <hook>  Hook installed by install-publication-hooks.sh.
+```
+
+Exit codes: 0 Clear; 1 refused, including incomplete checks.
+
+Example:
+
+```text
+Installed automatically by scripts/install-publication-hooks.sh --ci
+```
+
+### `scripts/security_notice.sh`
+
+Show the tool, branch and local remediation without scanner results.
+
+```text
+Usage: source scripts/security_notice.sh; security_notice <Gitleaks|Foxguard|Security> [local-report]
+  <tool>          Known checker name; other values become Security.
+  <local-report>  Shown only outside CI.
+  SH_SECURITY_BRANCH  Branch being checked; defaults to GitHub's head or Git.
+```
+
+Exit codes: 0 Message written to stderr. The caller preserves its failure status.
+
+Example:
+
+```text
+bash scripts/security_notice.sh Gitleaks
 ```
 
 ### `scripts/signing_secrets.sh`

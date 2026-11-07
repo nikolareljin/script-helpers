@@ -15,8 +15,7 @@ export SCRIPT_HELPERS_NO_AUTO_INSTALL=1
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOOK="$ROOT_DIR/scripts/git-hooks/pre-push"
-export SECURITY_GATE_ALLOW_UNCHECKED=1 PRIVATE_NAMES_AUTO_REFRESH=false
-export PRIVATE_NAMES_FILE=/nonexistent/private-names.tsv
+export PRIVATE_NAMES_AUTO_REFRESH=false
 # A keepalive in the caller's environment (a push run with one) or global git
 # config would hide the note: the test sets up its own.
 unset GIT_SSH_COMMAND GIT_SSH SCRIPT_HELPERS_SSH_NOTE_SHOWN
@@ -30,6 +29,11 @@ tmp="$(mktemp -d)"
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 mkdir -p "$tmp/bin"
+export XDG_STATE_HOME="$tmp/state" PRIVATE_NAMES_FILE="$tmp/names.tsv"
+printf 'private\tns\tzzq-fixture\tR-999\t\n' > "$PRIVATE_NAMES_FILE"
+printf '#!/bin/sh\nexit 0\n' > "$tmp/bin/credential-checker"
+chmod +x "$tmp/bin/credential-checker"
+export GITLEAKS_BIN="$tmp/bin/credential-checker"
 cat > "$tmp/bin/ssh" <<'EOF'
 #!/usr/bin/env sh
 [ "$1" = "-G" ] && { echo "hostname $2"; echo "serveraliveinterval ${FAKE_ALIVE:-0}"; exit 0; }
