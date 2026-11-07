@@ -1,3 +1,8 @@
+## Unreleased
+
+- Keep security diagnostics local and refuse scanner output before commit, push, or publication.
+- Check filenames, branch names and annotated tag names for sensitive data. Empty files are checked, and CI hides branch text that cannot pass the publication checks.
+
 ## 2026-11-06 — v0.61.2
 
 ### Fixed
@@ -9,7 +14,6 @@
 - **`cp`, `mv`, `rm`, `cat` and `head` get their paths after `--`** in every call in `lib/` and `scripts/` that runs on this machine (not inside `docker`, `adb shell` or a compose service), so a path that starts with `-` is not read as an option. `manifest_read_version` also reads a relative path that starts with `-`. Tests: a new case in `tests/manifest_test.sh`.
 - **`refresh_private_names.sh` refuses an owner that is not a GitHub login.** Each owner names a file under the cache directory, so `--owner ../x` wrote and removed files outside it. Anything but ASCII letters, digits, hyphens and `_` now exits 2. Tests: new cases in `tests/refresh_private_names_test.sh`.
 - **`refresh_private_names.sh` no longer runs the owner list as a command.** Two stray lines after the assembly loop expanded the list as a command line: the first owner was looked up on `PATH` and run with the others as arguments, and every run printed `EOF: command not found`. Tests: new cases in `tests/refresh_private_names_test.sh`.
-- Keep security diagnostics local and refuse scanner output before commit, push, or publication.
 
 ## 2026-11-05 — v0.61.1
 
@@ -577,7 +581,7 @@
   `[network]` does not exist yet (before the first start). Without one it
   keeps the bridge probe and says the project's network was not checked.
 - **A secret blocks the push.** The pre-push run (`preflight --quick`) and a
-  full `./dev preflight` ran gitleaks report only: `leaks found: 1` printed a
+  full `./dev preflight` ran gitleaks report only: a detected secret printed a
   WARN, the summary said `PASS  security scan (report only)` and the push went
   out. Gitleaks is now its own `secret scan` step in git mode with
   `--fail-on-findings`, so a committed secret fails the run. Git mode also stops
