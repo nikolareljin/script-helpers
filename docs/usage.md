@@ -652,11 +652,15 @@ alias-of=midwidget`, `midwidget alias-of=newwidget`), and the chain is followed.
 The code may be left out of an alias line (`oldwidget<TAB>alias-of=newwidget`);
 the alias then takes its repository's code. GitHub lists a renamed repository
 under its new name only, so without the alias the old name - still in other
-repositories' history - would drop out of the list, and the loss guard would
-refuse the refresh. (An alias row outside your account may move with the
-repository it follows there; the guard counts it as lost unless the old
-name is still a private row in another organization or one of your own former
-names.) A name with an alias line of its own is followed as a former
+repositories' history - would drop out of the list. The loss guard compares
+counts (names, coded names, names per namespace), so it catches that only when
+the old name carried a code or was already listed as an alias: an unrecorded
+rename swaps one name for another and passes. Record a rename in the codes file
+before the next refresh. Every alias row counts for the guard, so one that goes
+away for any reason - the repository it follows renamed again, an
+organization's repository along its chain renamed, a public repository taking
+the freed name in the same namespace - refuses the refresh until a person
+checks and reruns once with `--force`. A name with an alias line of its own is followed as a former
 name even if another account's repository has the name now. An alias that names
 a listed repository in the same namespace, whose repository is not listed, or
 whose `alias-of=` is empty is skipped with a warning rather than invented; the
