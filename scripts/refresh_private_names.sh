@@ -499,79 +499,70 @@ def current_name(target):
     return name
 
 
-def pick(candidates):
-    """The repository an alias belongs to, among those with its current name.
+def owners_for(candidates):
+    """Every repository an alias may belong to, among those with its current name.
 
-    A private one first: filing an old private name under a public namesake
-    would write it as a public row and stop refusing it. Among several, the
-    one in your own namespace (the codes file is yours); anything else would
-    be a guess that could file it under someone else's repository.
+    An alias line names no namespace, so it cannot say whose old name it is.
+    Rather than guess, it is listed under every private repository of that name
+    -- refused in each, never-name outside your account, citable by code only in
+    it -- and under a public one only when no private one has the name: filing
+    an old private name under a public namesake would stop refusing it.
     """
-    for pool in ([r for r in candidates if r[0] == "private"], candidates):
-        if len(pool) == 1:
-            return pool[0]
-        if len(pool) > 1:
-            mine = [r for r in pool if self_login and r[1].lower() == self_login]
-            return mine[0] if len(mine) == 1 else None
-    return None
+    private = [r for r in candidates if r[0] == "private"]
+    return private if private else candidates
 
 
-alias_rows = {}
+alias_rows = {}  # (alias, namespace), lowercased -> row
 for alias, code, target in aliases:
     low = alias.lower()
-    current = current_name(target)
-    candidates = listed.get(current.lower(), [])
+    end = current_name(target)
+    candidates = listed.get(end.lower(), [])
     if not candidates:
-        print(f"skipped alias {alias}: {current}, the repository it points at, is not "
+        print(f"skipped alias {alias}: {end}, the repository it points at, is not "
               f"listed", file=sys.stderr)
         continue
-    owner = pick(candidates)
-    if owner is None:
-        print(f"skipped alias {alias}: {current} is in several namespaces, none of "
-              f"them yours", file=sys.stderr)
-        continue
-    # A name along the chain that is a repository in that same namespace now
-    # is where the chain ends: the repository renamed away from it, and a new
-    # one took the name. Following past it would borrow the wrong code. The
-    # codes file cannot say which of the two the old name belonged to, so a
-    # public repository there never takes it from a private one.
-    step, walked = target, set()
-    while step.lower() != current.lower() and step.lower() not in walked:
-        walked.add(step.lower())
-        here = [r for r in listed.get(step.lower(), []) if r[1].lower() == owner[1].lower()]
-        if here and (here[0][0] == "private" or owner[0] != "private"):
-            current, owner = step, here[0]
-            break
-        step = points_at.get(step.lower(), current)
-    # Only a repository of that name in the same namespace contradicts the
-    # alias. The same name elsewhere is another account's repository, and the
-    # old one is still refused as namespace/name (qualified-only when the other
-    # is public, as for any name that is public somewhere).
-    if any(r[1].lower() == owner[1].lower() for r in listed.get(low, [])):
-        print(f"skipped alias {alias}: it is the name of a listed repository in "
-              f"{owner[1]}", file=sys.stderr)
-        continue
-    # A public repository's old name is recorded as a public row with no code.
-    # It does not make a private namesake qualified-only, as a public current
-    # name does: an old name is not what a bare mention most likely means.
-    out_code = "-" if owner[0] == "public" else (code if code != "-" else owner[3])
-    row = [owner[0], owner[1], alias, out_code, "alias"]
-    claim = (owner[1].lower(), current.lower())
-    held = alias_rows.get(low)
-    if held is None:
-        alias_rows[low] = (row, claim)
-    elif held[1] == claim and held[0][3] != row[3]:
-        print(f"alias {alias} has two codes, {held[0][3]} and {row[3]}; kept "
-              f"{held[0][3]}", file=sys.stderr)
-    elif held[1] != claim:
-        # One old name claimed by two repositories: keep the private claim, so
-        # the name stays refused, and say so.
-        if row[0] == "private" and held[0][0] != "private":
-            alias_rows[low] = (row, claim)
-        kept = alias_rows[low]
-        print(f"alias {alias} is claimed by two repositories; kept {kept[0][1]}/"
-              f"{kept[1][1]} ({kept[0][0]})", file=sys.stderr)
-rows.extend(row for row, _claim in alias_rows.values())
+    for owner in owners_for(candidates):
+        current = end
+        # A name along the chain that is a repository in that same namespace
+        # now is where the chain ends there: the repository renamed away from
+        # it, and a new one took the name. Following past it would borrow the
+        # wrong code. A public repository there never takes the old name from a
+        # private one: the codes file cannot say which of the two it belonged to.
+        step, walked = target, set()
+        while step.lower() != current.lower() and step.lower() not in walked:
+            walked.add(step.lower())
+            here = [r for r in listed.get(step.lower(), []) if r[1].lower() == owner[1].lower()]
+            if here and (here[0][0] == "private" or owner[0] != "private"):
+                current, owner = step, here[0]
+                break
+            step = points_at.get(step.lower(), current)
+        # Only a repository of that name in the same namespace contradicts the
+        # alias. The same name elsewhere is another account's repository, and
+        # the old one is still refused as namespace/name (qualified-only when
+        # the other is public, as for any name that is public somewhere).
+        if any(r[1].lower() == owner[1].lower() for r in listed.get(low, [])):
+            print(f"skipped alias {alias}: it is the name of a listed repository in "
+                  f"{owner[1]}", file=sys.stderr)
+            continue
+        # A public repository's old name is recorded as a public row with no
+        # code. It does not make a private namesake qualified-only, as a public
+        # current name does: an old name is not what a bare mention most likely
+        # means.
+        out_code = "-" if owner[0] == "public" else (code if code != "-" else owner[3])
+        row = [owner[0], owner[1], alias, out_code, "alias"]
+        key = (low, owner[1].lower())
+        held = alias_rows.get(key)
+        if held is None:
+            alias_rows[key] = row
+        elif held != row:
+            # One old name claimed twice in one namespace: keep the private
+            # claim (or the first), so the name stays refused, and say so.
+            if row[0] == "private" and held[0] != "private":
+                alias_rows[key] = row
+            kept = alias_rows[key]
+            print(f"alias {alias} is claimed by two repositories in {owner[1]}; kept "
+                  f"the {kept[0]} one, code {kept[3]}", file=sys.stderr)
+rows.extend(alias_rows.values())
 
 public_names = {r[2].lower() for r in rows if r[0] == "public" and r[4] != "alias"}
 out = []

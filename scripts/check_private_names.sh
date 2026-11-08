@@ -422,6 +422,10 @@ if [[ "$ONLY_PUBLIC" == true && -z "$NAMES" ]]; then
         {
           vi = (hdr && ("visibility" in col)) ? col["visibility"] : 1
           mi = (hdr && ("name" in col))       ? col["name"]       : 3
+          fi = (hdr && ("flags" in col))      ? col["flags"]      : 5
+          # A former name says nothing about the repository that has the name
+          # now; reading one here would switch the whole check off.
+          if (" " $fi " " ~ / alias /) next
           if (tolower($mi) == want) { print $vi; exit }
         }' "$LIST")"
       if [[ "$visibility" == "private" ]]; then

@@ -658,15 +658,18 @@ name even if another account's repository has the name now. An alias that names
 a listed repository in the same namespace, whose repository is not listed, or
 whose `alias-of=` is empty is skipped with a warning rather than invented; the
 same name in another namespace does not stop it (it is then matched as
-`namespace/name` when the other repository is public). When the repository's
-name exists in several namespaces, the alias goes to a listed private one;
-among several private ones, to the one in your own account, and with none of
-them yours it is skipped. If only a public repository of that name is listed,
+`namespace/name` when the other repository is public). An alias line names no
+namespace, so when the repository's name is private in several namespaces the
+alias is listed under each of them: citable by its code in your own account,
+`never-name` in an organization's, so the gate's strictest advice applies and
+nothing is guessed or dropped. A public repository of that name takes it only
+when no private one has the name. If only a public repository of that name is listed,
 the alias follows it as a public row: the refresh cannot tell that from a
 private repository in an account this token cannot see, so an organization
 that hides its repositories from the token (SSO) has to be authorized for its
-old names to be refused. One old name pointed at two repositories keeps the
-private claim (or the first), with a warning.
+old names to be refused. One old name pointed at two repositories in one
+namespace keeps the private claim (or the first), with a warning. Alias rows are
+never read as the visibility of the repository you are in (`--only-public`).
 
 The pull request hook passes `--strict-ambiguous`; the others do not. A name
 that is also an everyday word is reported as a warning by default, because a

@@ -212,9 +212,10 @@ row_for() { awk -F'\t' -v n="$1" '!/^#/ && $3 == n' <<<"$rows_out"; }
   && ok "an alias of a repository that is not listed is skipped, never invented" \
   || error "an alias of an unknown repository produced '$(row_for ghostname)'"
 
-# The same repository name in two namespaces. Codes match by name, so they
-# cannot tell the two apart; the alias belongs to the one in your own namespace
-# (the stub's login is testns), and with neither yours it is not guessed.
+# The same repository name in two namespaces. An alias line names no
+# namespace, so the old name is listed under every private repository of that
+# name: citable by code in your own (the stub's login is testns), never-name in
+# an organization's. Nothing is guessed and nothing is dropped.
 mkdir -p "$tmp/cache-two" "$tmp/cache-three"
 printf 'quarry\tPRIVATE\tfalse\n' > "$tmp/cache-two/otherorg.tsv"
 printf 'quarry\tPRIVATE\tfalse\n' > "$tmp/cache-three/thirdorg.tsv"
@@ -225,9 +226,10 @@ rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
   PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
   PRIVATE_NAMES_CODES_FILE="$tmp/codes-two" \
   bash "$SCRIPT" --owner testns --stdout 2>"$two_err")"
-[[ "$(row_for oldquarry | cut -f2,4)" == $'testns\tR-002' ]] \
-  && ok "with the name in two namespaces, the alias goes to your own" \
-  || error "the alias went to the wrong namespace: '$(row_for oldquarry)'"
+[[ "$(row_for oldquarry | grep testns)" == $'private\ttestns\toldquarry\tR-002\talias' \
+   && "$(row_for oldquarry | grep otherorg)" == $'private\totherorg\toldquarry\t-\talias never-name' ]] \
+  && ok "with the name in two namespaces, the alias is listed in both: coded in yours, never-name in the other" \
+  || error "the alias was not listed in both namespaces: '$(row_for oldquarry | tr '\n' '|')'"
 # An organization's private repository is never-name, and never borrows the
 # code of one of yours with the same name.
 [[ "$(row_for quarry | grep otherorg)" == $'private\totherorg\tquarry\t-\tnever-name ambiguous' ]] \
@@ -238,9 +240,9 @@ rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
   PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
   PRIVATE_NAMES_CODES_FILE="$tmp/codes-two" \
   bash "$SCRIPT" --owner otherorg --stdout 2>"$two_err")"
-[[ -z "$(row_for oldquarry)" ]] && grep -q 'skipped alias oldquarry: quarry is in several namespaces, none of them yours' "$two_err" \
-  && ok "with neither namespace yours, the alias is skipped, not guessed" \
-  || error "an ambiguous alias was guessed: '$(row_for oldquarry)'"
+[[ "$(row_for oldquarry | grep -c never-name)" == 2 && "$(row_for oldquarry | cut -f4 | sort -u)" == "-" ]] \
+  && ok "with the name private in two organizations, the alias is never-name in both, not dropped" \
+  || error "an alias in two organizations was dropped or coded: '$(row_for oldquarry | tr '\n' '|')'"
 
 # A private copy wins over a public namesake: the renamed repository is an
 # organization's private one, and your own account has a public repository of
@@ -604,6 +606,23 @@ rows_out="$(cached_rows "$tmp/cache-pubold" "$tmp/codes-pubold" /dev/null)"
 [[ "$(row_for orgsecret | grep otherorg | cut -f5)" == "never-name" ]] \
   && ok "a public repository's old name leaves a private namesake matched bare" \
   || error "a public old name relaxed a private namesake: '$(row_for orgsecret | grep otherorg)'"
+
+# A former name never switches the check off in a public repository that has
+# that name now: --only-public reads the visibility of the current repository.
+rm -rf "$tmp/op"; mkdir -p "$tmp/op"
+{
+  printf '# visibility\tnamespace\tname\tcode\tflags\n'
+  printf 'private\tmeuser\tfoothing\tR-1\talias qualified-only\n'
+  printf 'private\tmeuser\tquietgadget\tR-2\t\n'
+  printf 'public\tzeta-org\tfoothing\t-\n'
+} > "$tmp/op/list.tsv"
+git -C "$tmp/op" init -q 2>/dev/null
+git -C "$tmp/op" remote add origin https://github.com/zeta-org/foothing.git
+printf 'see quietgadget\n' > "$tmp/op/README.md"
+git -C "$tmp/op" add README.md
+( cd "$tmp/op" && bash "$ROOT_DIR/scripts/check_private_names.sh" --tree --only-public --list "$tmp/op/list.tsv" >/dev/null 2>&1 ); rc=$?
+[[ $rc -ne 0 ]] && ok "an alias row does not make a public repository of that name read as private" \
+  || error "--only-public skipped a public repository because an old private name matched it"
 
 # A non-numeric TTL is not a smaller number, it is no check: find -mtime +abc
 # errors, prints nothing, and the cache reads as fresh. --ttl abc silently
