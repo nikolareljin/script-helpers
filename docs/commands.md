@@ -935,7 +935,8 @@ Exit codes:
 names or codes (rerun with --force)
 2  bad arguments, the account has no private repositories, or no temporary
 file could be created beside --out
-3  gh is missing, not authenticated, or a listing failed part-way
+3  gh is missing, not authenticated, a listing failed part-way, or your
+login could not be read (gh api user)
 ```
 
 Example:

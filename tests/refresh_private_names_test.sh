@@ -496,11 +496,42 @@ PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
   PRIVATE_NAMES_CACHE_DIR="$tmp/casecache" \
   PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
   PRIVATE_NAMES_CODES_FILE="$tmp/does-not-exist" \
-  bash "$SCRIPT" --owner TestNS --out "$out_c" >/dev/null 2>&1
-if awk -F'\t' '$3=="*" || $5 ~ /never-name/ {f=1} END{exit !f}' "$out_c"; then
+  bash "$SCRIPT" --owner TestNS --out "$out_c" >/dev/null 2>&1; rc=$?
+if [[ $rc -ne 0 || ! -s "$out_c" ]]; then
+  error "a refresh with your login in other case failed (exit $rc)"
+elif awk -F'\t' '$3=="*" || $5 ~ /never-name/ {f=1} END{exit !f}' "$out_c"; then
   error "your own account in other case was treated as an organization"
 else
   ok "your own account in other case is still yours"
+fi
+
+# Two caches of your own account in different case: only the newest is read,
+# so its repositories are not listed twice and an alias into it still resolves.
+rm -rf "$tmp/dupcache"; mkdir -p "$tmp/dupcache"
+printf 'quarry\tPRIVATE\tfalse\n' > "$tmp/dupcache/TestNS.tsv"
+touch -d '2 days ago' "$tmp/dupcache/TestNS.tsv" 2>/dev/null || touch -t 202001010000 "$tmp/dupcache/TestNS.tsv"
+printf 'quarry\tR-002\noldquarry\tR-002\talias-of=quarry\n' > "$tmp/codes-dup"
+rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/dupcache" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/codes-dup" \
+  bash "$SCRIPT" --owner testns --stdout 2>/dev/null)"
+[[ "$(row_for quarry | wc -l | tr -d ' ')" == 1 && "$(row_for oldquarry)" == $'private\ttestns\toldquarry\tR-002\talias' ]] \
+  && ok "two caches of one account in other case are read once, and its aliases resolve" \
+  || error "a second-case cache doubled the account: quarry '$(row_for quarry | tr '\n' '|')', alias '$(row_for oldquarry)'"
+
+# A `*` row for your own account, left by an older version, is not carried.
+rm -rf "$tmp/staleself"; out_ss="$tmp/staleself.tsv"
+printf '# visibility\tnamespace\tname\tcode\tflags\nprivate\tTestNS\t*\t-\tnever-name\n' > "$out_ss"
+PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/staleself" \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/does-not-exist" \
+  bash "$SCRIPT" --owner testns --out "$out_ss" --force >/dev/null 2>&1; rc=$?
+if [[ $rc -eq 0 ]] && ! awk -F'\t' 'tolower($2)=="testns" && $3=="*" {f=1} END{exit !f}' "$out_ss"; then
+  ok "a stale never-name row for your own account is dropped"
+else
+  error "your own account kept a never-name row (exit $rc)"
 fi
 
 # A non-numeric TTL is not a smaller number, it is no check: find -mtime +abc

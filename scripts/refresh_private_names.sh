@@ -35,7 +35,8 @@
 #      names or codes (rerun with --force)
 #   2  bad arguments, the account has no private repositories, or no temporary
 #      file could be created beside --out
-#   3  gh is missing, not authenticated, or a listing failed part-way
+#   3  gh is missing, not authenticated, a listing failed part-way, or your
+#      login could not be read (gh api user)
 # EXAMPLE: scripts/refresh_private_names.sh --owner my-org --check
 # ----------------------------------------------------
 #
@@ -356,15 +357,25 @@ log_info "${fetched} owner(s) fetched, ${reused} from cache"
 # Assembly reads EVERY cache, not just the owners fetched this run. That is what
 # makes `--owner X` a per-owner re-index rather than a replacement: one cache is
 # refreshed, the file is rebuilt from all of them.
+# Logins ignore case, cache file names do not: `--owner NikX` and a discovered
+# `nikx` are one account with two caches. Reading both would list every
+# repository twice, in two namespaces, so only the newest is read.
 assembled=0
-for cache in "$CACHE_DIR"/*.tsv; do
+seen_owners=","
+while IFS= read -r cache; do
   [[ -e "$cache" ]] || continue
   one="$(basename "$cache" .tsv)"
+  low="$(printf '%s' "$one" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$seen_owners" == *",$low,"* ]]; then
+    log_warn "ignored $(basename "$cache"): an older cache of an account already read in other case"
+    continue
+  fi
+  seen_owners="${seen_owners}${low},"
   while IFS= read -r row; do
     [[ -n "$row" ]] && printf '%s\t%s\n' "$one" "$row" >> "$tmp.raw"
   done < "$cache"
   assembled=$((assembled + 1))
-done
+done < <(find "$CACHE_DIR" -maxdepth 1 -name '*.tsv' -type f -exec ls -t {} + 2>/dev/null)
 if [[ "$assembled" -eq 0 ]]; then
   log_error "no owner caches in $CACHE_DIR, so there is nothing to assemble."
   exit 3
@@ -592,8 +603,11 @@ done
 # Anything else in the old file that gh cannot produce, and this run did not
 # derive -- an organization no longer discovered, a row added by hand.
 if [[ -f "$OUT" ]]; then
-  awk -F'\t' -v owners=",$OWNERS," '
-    !/^#/ && $3=="*" && index(owners, "," $2 ",") == 0
+  # Compared ignoring case, like logins; a `*` row for your own account (an
+  # older version wrote one for `--owner` in other case) is never carried.
+  awk -F'\t' -v owners=",$(printf '%s' "$OWNERS" | tr '[:upper:]' '[:lower:]')," \
+      -v self="$(printf '%s' "$SELF_LOGIN" | tr '[:upper:]' '[:lower:]')" '
+    !/^#/ && $3=="*" && index(owners, "," tolower($2) ",") == 0 && tolower($2) != self
   ' "$OUT" >> "$tmp.body"
 fi
 
