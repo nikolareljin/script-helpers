@@ -534,6 +534,57 @@ else
   error "your own account kept a never-name row (exit $rc)"
 fi
 
+# Your own account typed in another case: written as your login, so a run with
+# discovered owners afterwards is not refused as a namespace that lost names.
+rm -rf "$tmp/flipcache"; out_f="$tmp/flip.tsv"; rm -f "$out_f"
+flip_run() {
+  PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+    PRIVATE_NAMES_CACHE_DIR="$tmp/flipcache" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
+    PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+    PRIVATE_NAMES_CODES_FILE="$tmp/does-not-exist" \
+    bash "$SCRIPT" "$@" --out "$out_f" >/dev/null 2>&1
+}
+flip_run --owner TestNS; rc1=$?
+sleep 1
+flip_run --owner testns; rc2=$?
+if [[ $rc1 -eq 0 && $rc2 -eq 0 ]] && ! awk -F'\t' '$2=="TestNS"{f=1} END{exit !f}' "$out_f"; then
+  ok "your own account is written as your login, whatever case was typed"
+else
+  error "a run after --owner in other case was refused or kept the typed case (exit $rc1, $rc2)"
+fi
+
+# A list from an older version: your account twice in two cases, plus a `*` row
+# for it. Merging those is not a loss, so no --force is needed.
+rm -rf "$tmp/upcache"; out_u="$tmp/up.tsv"
+{
+  printf '# visibility\tnamespace\tname\tcode\tflags\n'
+  printf 'private\ttestns\tquarry\t-\tambiguous\n'
+  printf 'private\tTestNS\tquarry\t-\tambiguous\n'
+  printf 'private\tTestNS\t*\t-\tnever-name\n'
+} > "$out_u"
+PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/upcache" \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/does-not-exist" \
+  bash "$SCRIPT" --owner testns --out "$out_u" >/dev/null 2>&1; rc=$?
+if [[ $rc -eq 0 ]] && ! awk -F'\t' '$3=="*" && tolower($2)=="testns" {f=1} END{exit !f}' "$out_u"; then
+  ok "an older list's case duplicates and own-account * row are merged without --force"
+else
+  error "an older list's case duplicates were refused as a loss (exit $rc)"
+fi
+
+# A chain through a name that is a repository in the same namespace now ends
+# there: the renamed repository left it, and a new one took it.
+printf 'quarry\tR-002\nharbour\tR-003\nquarry\talias-of=harbour\noldthing\talias-of=quarry\n' > "$tmp/codes-reuse"
+rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/cache" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/codes-reuse" \
+  bash "$SCRIPT" --owner testns --stdout 2>/dev/null)"
+[[ "$(row_for oldthing | cut -f4)" == "R-002" ]] \
+  && ok "a chain stops at a name a repository in the same namespace has now" \
+  || error "a chain went past a live name in its own namespace: '$(row_for oldthing)'"
+
 # A non-numeric TTL is not a smaller number, it is no check: find -mtime +abc
 # errors, prints nothing, and the cache reads as fresh. --ttl abc silently
 # meant "never refetch", and the log said "under abcd".

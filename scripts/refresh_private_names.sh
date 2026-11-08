@@ -228,7 +228,7 @@ tmp="$(mktemp)"
 # than $BASHPID alone: bash 3.2, which macOS ships, does not define BASHPID,
 # and $$ is the top-level shell's pid in every subshell, so the comparison
 # degrades to always-true there rather than to always-false.
-trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -f -- "$tmp" "$tmp.body" "$tmp.raw" "${staged:-}"; fi' EXIT
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -f -- "$tmp" "$tmp.body" "$tmp.raw" "$tmp.oldrows" "$tmp.newrows" "${staged:-}"; fi' EXIT
 
 # One namespace per line, so several can be given. Each is fetched separately because
 # `gh repo list` takes one owner; the rows carry their namespace, which is what lets one
@@ -371,6 +371,9 @@ while IFS= read -r cache; do
     continue
   fi
   seen_owners="${seen_owners}${low},"
+  # Your own account is always written as GitHub spells your login, so its
+  # namespace does not change with whichever case was typed last.
+  is_self "$one" && one="$SELF_LOGIN"
   while IFS= read -r row; do
     [[ -n "$row" ]] && printf '%s\t%s\n' "$one" "$row" >> "$tmp.raw"
   done < "$cache"
@@ -527,6 +530,17 @@ for alias, code, target in aliases:
         print(f"skipped alias {alias}: {current} is in several namespaces, none of "
               f"them yours", file=sys.stderr)
         continue
+    # A name along the chain that is a repository in that same namespace now
+    # is where the chain ends: the repository renamed away from it, and a new
+    # one took the name. Following past it would borrow the wrong code.
+    step, walked = target, set()
+    while step.lower() != current.lower() and step.lower() not in walked:
+        walked.add(step.lower())
+        here = [r for r in listed.get(step.lower(), []) if r[1].lower() == owner[1].lower()]
+        if here:
+            current, owner = step, here[0]
+            break
+        step = points_at.get(step.lower(), current)
     # Only a repository of that name in the same namespace contradicts the
     # alias. The same name elsewhere is another account's repository, and the
     # old one is still refused as namespace/name (qualified-only when the other
@@ -668,18 +682,35 @@ fi
 # --owner takes one account; the file holds every account. A subset overwrite
 # replaced 1499 names with 66 and turned every R- code into "-".
 if [[ -f "$OUT" && "$FORCE" != true ]]; then
-  old_n="$(awk -F'\t' '!/^#/ && $1=="private"{n++} END{print n+0}' "$OUT")"
-  new_n="$(awk -F'\t' '!/^#/ && $1=="private"{n++} END{print n+0}' "$tmp")"
-  old_c="$(awk -F'\t' '!/^#/ && $1=="private" && $4!="-" && $4!=""{n++} END{print n+0}' "$OUT")"
-  new_c="$(awk -F'\t' '!/^#/ && $1=="private" && $4!="-" && $4!=""{n++} END{print n+0}' "$tmp")"
+  # Rows are counted once per namespace/name ignoring case, as GitHub names
+  # them: an older version could list one account twice in two cases, and
+  # merging those is not a loss. Nor is dropping a `*` row an older version
+  # wrote for your own account.
+  self_low="$(printf '%s' "$SELF_LOGIN" | tr '[:upper:]' '[:lower:]')"
+  rows_of() {   # <file>: visibility, namespace and name (lowercased), code, once each
+    awk -F'\t' -v self="$self_low" '
+      !/^#/ && NF >= 3 {
+        ns = tolower($2); name = tolower($3)
+        if (name == "*" && ns == self) next
+        if (seen[ns SUBSEP name]++) next
+        print $1 "\t" ns "\t" name "\t" $4
+      }' "$1"
+  }
+  rows_of "$OUT" > "$tmp.oldrows"
+  rows_of "$tmp" > "$tmp.newrows"
+  old_n="$(awk -F'\t' '$1=="private"{n++} END{print n+0}' "$tmp.oldrows")"
+  new_n="$(awk -F'\t' '$1=="private"{n++} END{print n+0}' "$tmp.newrows")"
+  old_c="$(awk -F'\t' '$1=="private" && $4!="-" && $4!=""{n++} END{print n+0}' "$tmp.oldrows")"
+  new_c="$(awk -F'\t' '$1=="private" && $4!="-" && $4!=""{n++} END{print n+0}' "$tmp.newrows")"
   # Per namespace too. Totals hid a real loss: 59 names went and 64 arrived, so
   # the count grew while the gate got weaker.
   shrunk_ns="$(awk -F'\t' '
-    !/^#/ && $1=="private" { if (FILENAME==old) a[$2]++; else b[$2]++ }
+    $1=="private" { if (FILENAME==old) a[$2]++; else b[$2]++ }
     END { for (ns in a) if (b[ns]+0 < a[ns]) printf "  %s: %d -> %d\n", ns, a[ns], b[ns]+0 }
-  ' old="$OUT" "$OUT" "$tmp")"
-  old_w="$(awk -F'\t' '!/^#/ && $3=="*"{n++} END{print n+0}' "$OUT")"
-  new_w="$(awk -F'\t' '!/^#/ && $3=="*"{n++} END{print n+0}' "$tmp")"
+  ' old="$tmp.oldrows" "$tmp.oldrows" "$tmp.newrows")"
+  old_w="$(awk -F'\t' '$3=="*"{n++} END{print n+0}' "$tmp.oldrows")"
+  new_w="$(awk -F'\t' '$3=="*"{n++} END{print n+0}' "$tmp.newrows")"
+  rm -f "$tmp.oldrows" "$tmp.newrows"
   if [[ "$new_n" -lt "$old_n" || "$new_c" -lt "$old_c" || -n "$shrunk_ns" || "$new_w" -lt "$old_w" ]]; then
     log_error "This write would lose data, so nothing was written:"
     [[ "$new_n" -lt "$old_n" ]] && log_error "  names: ${old_n} -> ${new_n}"
