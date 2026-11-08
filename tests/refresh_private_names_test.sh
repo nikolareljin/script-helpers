@@ -475,6 +475,34 @@ else
   ok "your own account gets no never-name row"
 fi
 
+# Without your login an organization's repositories cannot be told from yours:
+# refuse rather than write a list in which none of them is never-name.
+mkdir -p "$tmp/nologinbin"
+sed 's/"api user")      echo "testns" ;;/"api user")      exit 1 ;;/' "$tmp/bin/gh" > "$tmp/nologinbin/gh"
+chmod +x "$tmp/nologinbin/gh"
+out_n="$tmp/nologin.tsv"; printf 'keep\n' > "$out_n"
+PATH="$tmp/nologinbin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/nologincache" \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/does-not-exist" \
+  bash "$SCRIPT" --owner someorg --out "$out_n" >/dev/null 2>&1; rc=$?
+[[ $rc -eq 3 && "$(cat "$out_n")" == "keep" ]] \
+  && ok "a token whose login cannot be read writes nothing (exit 3)" \
+  || error "a refresh without your login wrote a list (exit $rc)"
+
+# Logins ignore case: --owner TestNS is your own account, not an organization.
+rm -rf "$tmp/casecache"; out_c="$tmp/case.tsv"; rm -f "$out_c"
+PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/casecache" \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/does-not-exist" \
+  bash "$SCRIPT" --owner TestNS --out "$out_c" >/dev/null 2>&1
+if awk -F'\t' '$3=="*" || $5 ~ /never-name/ {f=1} END{exit !f}' "$out_c"; then
+  error "your own account in other case was treated as an organization"
+else
+  ok "your own account in other case is still yours"
+fi
+
 # A non-numeric TTL is not a smaller number, it is no check: find -mtime +abc
 # errors, prints nothing, and the cache reads as fresh. --ttl abc silently
 # meant "never refetch", and the log said "under abcd".

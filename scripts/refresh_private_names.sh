@@ -206,6 +206,19 @@ while IFS= read -r _owner; do
 done < <(printf '%s\n' "$OWNERS" | tr ',' '\n')
 unset _owner
 [[ -n "$SELF_LOGIN" ]] || SELF_LOGIN="$(gh api user -q .login 2>/dev/null || true)"
+# Your own login is what tells your repositories (citable by code) from an
+# organization's (never-name). Without it every row would look like yours, and
+# the loss guard, which counts names and codes but not flags, would then hold
+# that weaker list in place. Refuse instead.
+if [[ -z "$SELF_LOGIN" ]]; then
+  log_error "Could not read your login from this token (gh api user)."
+  log_error "Without it an organization's repositories cannot be told from yours; nothing written."
+  exit 3
+fi
+# GitHub logins ignore case; so does every comparison with this one.
+is_self() {
+  [[ "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" == "$(printf '%s' "$SELF_LOGIN" | tr '[:upper:]' '[:lower:]')" ]]
+}
 
 tmp="$(mktemp)"
 # Guarded: a subshell inherits an EXIT trap, and bash runs it there when the
@@ -280,7 +293,7 @@ while IFS= read -r one; do
   cache="$CACHE_DIR/${one}.tsv"
 
   ttl="$TTL_ORG"
-  [[ -n "$SELF_LOGIN" && "$one" == "$SELF_LOGIN" ]] && ttl="$TTL_SELF"
+  is_self "$one" && ttl="$TTL_SELF"
   [[ -n "$TTL_OVERRIDE" ]] && ttl="$TTL_OVERRIDE"
   # --check exists to answer "is this file still what GitHub says", so it can
   # never answer from a cache. It said "matches GitHub" after asking GitHub
@@ -511,9 +524,6 @@ for alias, code, target in aliases:
         print(f"skipped alias {alias}: it is the name of a listed repository in "
               f"{owner[1]}", file=sys.stderr)
         continue
-    if owner[0] == "public" and code != "-":
-        print(f"alias {alias} is filed under {owner[1]}/{current}, which is public; "
-              f"if the renamed repository is private, it is not listed", file=sys.stderr)
     # A public repository's old name is recorded, like its current one, so a
     # private name that collides with it is matched qualified only; it carries
     # no code, as public rows do not need one.
@@ -575,7 +585,7 @@ fi
 # nothing. Derived from the owners instead, for every one that is not you.
 for one in $(printf '%s' "$OWNERS" | tr ',' ' '); do
   [[ -z "$one" ]] && continue
-  [[ -n "$SELF_LOGIN" && "$one" == "$SELF_LOGIN" ]] && continue
+  is_self "$one" && continue
   printf 'private\t%s\t*\t-\tnever-name\n' "$one" >> "$tmp.body"
 done
 

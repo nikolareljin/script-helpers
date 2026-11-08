@@ -661,10 +661,12 @@ same name in another namespace does not stop it (it is then matched as
 `namespace/name` when the other repository is public). When the repository's
 name exists in several namespaces, the alias goes to a listed private one;
 among several private ones, to the one in your own account, and with none of
-them yours it is skipped. If only a public repository of that name is listed
-(the private one is in an account this token cannot see), the alias follows it
-as a public row and a warning says so. One old name pointed at two repositories
-keeps the private claim (or the first), with a warning.
+them yours it is skipped. If only a public repository of that name is listed,
+the alias follows it as a public row: the refresh cannot tell that from a
+private repository in an account this token cannot see, so an organization
+that hides its repositories from the token (SSO) has to be authorized for its
+old names to be refused. One old name pointed at two repositories keeps the
+private claim (or the first), with a warning.
 
 The pull request hook passes `--strict-ambiguous`; the others do not. A name
 that is also an everyday word is reported as a warning by default, because a
