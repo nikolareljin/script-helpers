@@ -14,6 +14,7 @@ import shutil
 import tempfile
 import unittest
 import zipfile
+import tarfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -384,6 +385,26 @@ class PublicationTests(unittest.TestCase):
                 capture_output=True, text=True, env=self.env, cwd=self.repo,
             )
             self.assertEqual(proc.returncode, 1, proc.stderr)
+
+    def test_deep_json_fails_closed(self):
+        self.check("--stdin", text="[" * 1200 + "0" + "]" * 1200, expected=2)
+
+    def test_archive_links_and_directory_names_are_checked(self):
+        for archive_type in ("zip", "tar"):
+            raw = io.BytesIO()
+            name = "jane.roe" + "@mailbox.org"
+            if archive_type == "zip":
+                with zipfile.ZipFile(raw, "w") as archive:
+                    archive.writestr(name + "/", "")
+            else:
+                with tarfile.open(fileobj=raw, mode="w") as archive:
+                    member = tarfile.TarInfo("ordinary-link")
+                    member.type = tarfile.SYMTYPE
+                    member.linkname = name
+                    archive.addfile(member)
+            target = self.base / ("bundle." + archive_type)
+            target.write_bytes(raw.getvalue())
+            self.check("--file", str(target), expected=1)
 
     def test_asset_and_example_domain_suffixes_are_allowed(self):
         for name in ("logo@2x.png", "module@package.js", "fixture" + "@example.org.txt"):

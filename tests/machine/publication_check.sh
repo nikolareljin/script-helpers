@@ -30,6 +30,13 @@ check "$?" 0 'clean publication with installed scanner'
 ssh-keygen -q -t ed25519 -N '' -f "$scratch/private-key" || exit 2
 bash "$root/scripts/check_publication.sh" --file "$scratch/private-key" > "$scratch/output" 2>&1
 check "$?" 1 'generated private key refused'
+python3 - "$scratch/archive.zip" <<'PYTHON'
+import secrets, sys, zipfile
+with zipfile.ZipFile(sys.argv[1], "w") as archive:
+    archive.writestr("gh" + "p_" + secrets.token_hex(18), "")
+PYTHON
+bash "$root/scripts/check_publication.sh" --file "$scratch/archive.zip" > "$scratch/output" 2>&1
+check "$?" 1 'credential pattern in archive filename refused'
 git init -q "$scratch/repo" && git init --bare -q "$scratch/remote.git" || exit 2
 cd "$scratch/repo" || exit 2
 git config user.name Fixture

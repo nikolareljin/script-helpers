@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Check archive member names, directories and link targets for credentials and PII. Refuse oversized member lists and JSON beyond the parser nesting limit.
+
 - Refuse PII filenames and archive members even when an email address has a document suffix.
 
 - Keep security diagnostics local and refuse scanner output before commit, push, or publication.
