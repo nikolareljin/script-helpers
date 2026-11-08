@@ -913,7 +913,10 @@ Usage: scripts/refresh_private_names.sh [--owner <user-or-org>] [--out <path>] [
   --cache-dir <d> Where the per-owner caches live.
   --no-graphql    Use `gh repo list` instead of the GraphQL query.
   --codes <path>  Two columns, `name<TAB>code`, used to fill the code column that
-                  `gh repo list` cannot supply. Default:
+                  `gh repo list` cannot supply. A third column
+                  `alias-of=<current-name>` adds a name the repository used to
+                  have, under the same code and flagged `alias`, so a renamed
+                  repository's old names stay refused. Default:
                   ~/.config/script-helpers/private-names-codes.tsv
   -h, --help      Show this help message.
 ENVIRONMENT:

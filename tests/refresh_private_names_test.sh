@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # SCRIPT: refresh_private_names_test.sh
-# DESCRIPTION: Tests how scripts/refresh_private_names.sh flags a name as ambiguous.
+# DESCRIPTION: Tests how scripts/refresh_private_names.sh flags names, fills codes,
+#              lists a renamed repository's old names (aliases), and guards against loss.
 # USAGE: bash tests/refresh_private_names_test.sh
 # PARAMETERS: No required parameters.
 # EXAMPLE: bash tests/refresh_private_names_test.sh
@@ -178,6 +179,82 @@ rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
   bash "$SCRIPT" --owner testns --stdout 2>/dev/null)"
 [[ "$(code_for quarry)" == "-" ]] && ok "no --codes file means no codes, not an error" \
   || error "a missing --codes file produced code '$(code_for quarry)'"
+
+# A renamed repository is listed by gh under its new name only. Its old names
+# come from the codes file's third column, and must be refused like the new one.
+printf '# name\tcode\nquarry\tR-002\nharbour\tR-003\n' > "$tmp/codes-alias"
+printf 'oldquarry\tR-002\talias-of=quarry\n' >> "$tmp/codes-alias"
+printf 'olderquarry\tR-002\talias-of=quarry\n' >> "$tmp/codes-alias"
+printf 'harbour\tR-009\talias-of=quarry\n' >> "$tmp/codes-alias"
+printf 'ghostname\tR-007\talias-of=no-such-repo\n' >> "$tmp/codes-alias"
+alias_err="$tmp/alias.err"
+rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/cache" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/codes-alias" \
+  bash "$SCRIPT" --owner testns --stdout 2>"$alias_err")"
+row_for() { awk -F'\t' -v n="$1" '!/^#/ && $3 == n' <<<"$rows_out"; }
+
+[[ "$(row_for oldquarry)" == $'private\ttestns\toldquarry\tR-002\talias' ]] \
+  && ok "an alias is a private row in its repository's namespace, with the code and 'alias'" \
+  || error "alias row was '$(row_for oldquarry)'"
+[[ -n "$(row_for olderquarry)" ]] && ok "a second alias for the same repository is listed too" \
+  || error "the second alias is missing"
+[[ "$(code_for quarry)" == "R-002" && "$(row_for quarry | cut -f5)" != *alias* ]] \
+  && ok "the current name keeps its code and is not marked alias" \
+  || error "the current name changed: '$(row_for quarry)'"
+[[ "$(row_for harbour | cut -f4)" == "R-003" && "$(row_for harbour | cut -f5)" != *alias* ]] \
+  && grep -q 'skipped alias harbour: it is the name of a listed repository' "$alias_err" \
+  && ok "an alias that is a listed name is skipped with a warning" \
+  || error "an alias equal to a listed name was not skipped: '$(row_for harbour)'"
+[[ -z "$(row_for ghostname)" ]] \
+  && grep -q 'skipped alias ghostname: its repository no-such-repo is not listed' "$alias_err" \
+  && ok "an alias of a repository that is not listed is skipped, never invented" \
+  || error "an alias of an unknown repository produced '$(row_for ghostname)'"
+
+# Ambiguity is decided for the alias itself, not inherited.
+printf 'quarry\tR-002\nharbour\tR-003\n' > "$tmp/codes-amb"
+printf 'harbours\tR-003\talias-of=harbour\n' >> "$tmp/codes-amb"
+printf 'harbours\n' >> "$tmp/words"
+rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/cache" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/codes-amb" \
+  bash "$SCRIPT" --owner testns --stdout 2>/dev/null)"
+case "$(row_for harbours | cut -f5)" in
+  *alias*ambiguous*) ok "an alias that is a dictionary word is flagged ambiguous" ;;
+  *) error "alias ambiguity was not computed: '$(row_for harbours)'" ;;
+esac
+
+# The loss guard: a list that had an old name keeps it when the codes file
+# carries the alias, so no --force is needed; without the alias it refuses.
+printf '# private-names v1\n# generated: 2026-09-26 source: test\n' > "$out_file"
+printf 'private\ttestns\tharbour\tR-003\t\n' >> "$out_file"
+printf 'private\ttestns\toldquarry\tR-002\t\n' >> "$out_file"
+printf 'private\ttestns\tquarry\tR-002\t\n' >> "$out_file"
+printf 'private\ttestns\tzzqqxx\t-\t\n' >> "$out_file"
+cp "$out_file" "$tmp/with-alias.tsv"
+printf 'quarry\tR-002\nharbour\tR-003\noldquarry\tR-002\talias-of=quarry\n' > "$tmp/codes-guard"
+PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/cache" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/codes-guard" \
+  bash "$SCRIPT" --owner testns --out "$out_file" >/dev/null 2>&1
+rc=$?
+if [[ $rc -eq 0 ]] && awk -F'\t' '$3=="oldquarry" && $4=="R-002" && $5 ~ /alias/ {f=1} END{exit !f}' "$out_file"; then
+  ok "a refresh keeps an old name the codes file carries, without --force"
+else
+  error "the refresh with the alias was refused or dropped it (exit $rc)"
+fi
+cp "$tmp/with-alias.tsv" "$out_file"
+PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/cache" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/codes" \
+  bash "$SCRIPT" --owner testns --out "$out_file" >/dev/null 2>&1
+[[ $? -ne 0 ]] && cmp -s "$out_file" "$tmp/with-alias.tsv" \
+  && ok "without the alias line the old name would be lost, so the write is refused" \
+  || error "a refresh without the alias dropped the old name instead of refusing"
 
 # --limit belongs to the `gh repo list` fallback only: GraphQL paginates, so
 # there is no page size to overflow. A page that comes back exactly full is

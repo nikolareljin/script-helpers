@@ -17,7 +17,10 @@
 #   --cache-dir <d> Where the per-owner caches live.
 #   --no-graphql    Use `gh repo list` instead of the GraphQL query.
 #   --codes <path>  Two columns, `name<TAB>code`, used to fill the code column that
-#                   `gh repo list` cannot supply. Default:
+#                   `gh repo list` cannot supply. A third column
+#                   `alias-of=<current-name>` adds a name the repository used to
+#                   have, under the same code and flagged `alias`, so a renamed
+#                   repository's old names stay refused. Default:
 #                   ~/.config/script-helpers/private-names-codes.tsv
 #   -h, --help      Show this help message.
 # ENVIRONMENT:
@@ -399,7 +402,14 @@ GENERIC = {
 # plain two-column file rather than an inventory format: this repository is
 # public and must build standalone, so it cannot know where the codes come
 # from. Whoever has the inventory produces the file.
+#
+# A third column, `alias-of=<current-name>`, says the name is one the repository
+# used to have. GitHub lists a renamed repository under its new name only, so
+# without this the old name -- still in other repositories' history -- would
+# drop out of the list and stop being refused. A repository renamed twice has
+# two alias lines.
 codes = {}
+aliases = []  # (alias, code, current name)
 codes_path = pathlib.Path(os.environ.get("CODES_FILE", ""))
 if codes_path.is_file():
     for raw in codes_path.read_text(encoding="utf-8").splitlines():
@@ -407,7 +417,12 @@ if codes_path.is_file():
         if not raw or raw.startswith("#"):
             continue
         parts = raw.replace("\t", " ").split()
-        if len(parts) >= 2:
+        if len(parts) < 2:
+            continue
+        target = next((p[len("alias-of="):] for p in parts[2:] if p.startswith("alias-of=")), "")
+        if target:
+            aliases.append((parts[0], parts[1], target))
+        else:
             codes[parts[0].lower()] = parts[1]
 
 # owner<TAB>name<TAB>PRIVATE|PUBLIC<TAB>true|false, one row per repository,
@@ -423,10 +438,42 @@ for line in open(sys.argv[1], encoding="utf-8"):
     visibility = "public" if vis.upper() == "PUBLIC" else "private"
     rows.append([visibility, ns, name, codes.get(name.lower(), "-"), ""])
 
+# An alias becomes a row of its own, in its repository's namespace and with its
+# visibility, so it is refused exactly as the current name is. Never invented:
+# an alias whose repository is not listed, or that is itself a listed name,
+# is reported and skipped.
+listed = {}
+for r in rows:
+    listed.setdefault(r[2].lower(), []).append(r)
+alias_rows = []
+seen_alias = set()
+for alias, code, target in aliases:
+    low = alias.lower()
+    if low in listed:
+        print(f"skipped alias {alias}: it is the name of a listed repository", file=sys.stderr)
+        continue
+    # The same name can exist in several namespaces; the one carrying this
+    # code is the repository the alias belongs to.
+    candidates = listed.get(target.lower(), [])
+    owner = next((r for r in candidates if code != "-" and r[3] == code), None) \
+        or (candidates[0] if candidates else None)
+    if owner is None:
+        print(f"skipped alias {alias}: its repository {target} is not listed", file=sys.stderr)
+        continue
+    if low in seen_alias:
+        continue
+    seen_alias.add(low)
+    # A public repository's old name is recorded, like its current one, so a
+    # private name that collides with it is matched qualified only; it carries
+    # no code, as public rows do not need one.
+    out_code = "-" if owner[0] == "public" else (code if code != "-" else owner[3])
+    alias_rows.append([owner[0], owner[1], alias, out_code, "alias"])
+rows.extend(alias_rows)
+
 public_names = {r[2].lower() for r in rows if r[0] == "public"}
 out = []
-for visibility, ns, name, code, _ in rows:
-    flags = []
+for visibility, ns, name, code, extra in rows:
+    flags = [extra] if extra else []
     if visibility == "private":
         low = name.lower()
         if low in words and low not in never_ambiguous:

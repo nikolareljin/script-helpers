@@ -627,6 +627,30 @@ so two pushes do not start two refreshes, and `PRIVATE_NAMES_AUTO_REFRESH=false`
 turns it off. A scheduler was deliberately not used: git runs hooks under bash
 on Linux, macOS and Windows alike, so there is nothing to install.
 
+#### Codes and renamed repositories
+
+GitHub cannot supply two things the list needs: the code a public text may cite
+instead of a private name, and the names a repository used to have. Both come
+from `~/.config/script-helpers/private-names-codes.tsv` (`--codes` or
+`PRIVATE_NAMES_CODES_FILE`), written by whoever keeps the inventory of codes:
+
+```text
+# name<TAB>code[<TAB>alias-of=<current-name>]
+newwidget	R-444
+oldwidget	R-444	alias-of=newwidget
+olderwidget	R-444	alias-of=newwidget
+```
+
+A two-column line fills the code of a listed repository. A line with
+`alias-of=` adds the old name as a row of its own, in the repository's namespace
+and with its visibility, flagged `alias`, so it is refused and cited exactly as
+the current name is. A repository renamed twice has two alias lines. GitHub
+lists a renamed repository under its new name only, so without the alias the
+old name - still in other repositories' history - would drop out of the list,
+and the loss guard would refuse the refresh. An alias that is itself a listed
+name, or whose repository is not listed, is skipped with a warning rather than
+invented.
+
 The pull request hook passes `--strict-ambiguous`; the others do not. A name
 that is also an everyday word is reported as a warning by default, because a
 person is at a terminal and can read it. Nobody reads a warning printed by a

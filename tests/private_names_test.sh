@@ -99,6 +99,24 @@ case "$out" in
   *) error "the refusal does not name the match and its code: $out" ;;
 esac
 
+# A renamed repository's old name is written by refresh_private_names.sh as a
+# row flagged `alias`, carrying the repository's code. The gate must refuse it
+# like any private name and offer the same code.
+aliaslist="$tmp/alias.tsv"
+{
+  printf '# private-names v1\n'
+  printf '# generated: %s source: test\n' "$today"
+  printf '# visibility\tnamespace\tname\tcode\tflags\n'
+  printf 'private\ttestns\tnewwidget\tR-444\t\n'
+  printf 'private\ttestns\toldwidget\tR-444\talias\n'
+} > "$aliaslist"
+out="$(printf 'notes from oldwidget' | bash "$GATE" --stdin --list "$aliaslist" 2>&1)"; rc=$?
+if [[ $rc == 1 ]] && [[ "$out" == *oldwidget*R-444* ]]; then
+  ok "an alias row is refused and cited by its repository's code"
+else
+  error "an alias row was not refused with its code (exit $rc): $out"
+fi
+
 # --- a name that begins with a dash ----------------------------------------
 # A repository may be named with a leading dash, and grep reads an unguarded
 # argument that starts with one as options. Before the `--` in drop_allowed,
