@@ -644,13 +644,20 @@ olderwidget	R-444	alias-of=newwidget
 A two-column line fills the code of a listed repository. A line with
 `alias-of=` adds the old name as a row of its own, in the repository's namespace
 and with its visibility, flagged `alias`, so it is refused and cited exactly as
-the current name is. A repository renamed twice has two alias lines. GitHub
-lists a renamed repository under its new name only, so without the alias the
-old name - still in other repositories' history - would drop out of the list,
-and the loss guard would refuse the refresh. An alias that is itself a listed
-name, or whose repository is not listed, is skipped with a warning rather than
-invented. When the repository's name exists in several namespaces, the alias goes
-to the one in your own account; with none of them yours it is skipped.
+the current name is. A repository renamed twice has two alias lines; each may
+name the current name or the name that came after it (`oldwidget
+alias-of=midwidget`, `midwidget alias-of=newwidget`), and the chain is followed.
+The code may be left out of an alias line (`oldwidget<TAB>alias-of=newwidget`);
+the alias then takes its repository's code. GitHub lists a renamed repository
+under its new name only, so without the alias the old name - still in other
+repositories' history - would drop out of the list, and the loss guard would
+refuse the refresh. An alias that is itself a listed name, whose repository is
+not listed, or whose `alias-of=` is empty is skipped with a warning rather than
+invented. When the repository's name exists in several namespaces, the alias
+goes to the private one; among several private ones, to the one in your own
+account, and with none of them yours it is skipped. Filing an old private name
+under a public namesake would stop refusing it. One old name pointed at two
+repositories keeps the private claim (or the first), with a warning.
 
 The pull request hook passes `--strict-ambiguous`; the others do not. A name
 that is also an everyday word is reported as a warning by default, because a

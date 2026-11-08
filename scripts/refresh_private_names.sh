@@ -20,7 +20,8 @@
 #                   `gh repo list` cannot supply. A third column
 #                   `alias-of=<current-name>` adds a name the repository used to
 #                   have, under the same code and flagged `alias`, so a renamed
-#                   repository's old names stay refused. Default:
+#                   repository's old names stay refused (chains of alias lines
+#                   are followed; the code may be left out). Default:
 #                   ~/.config/script-helpers/private-names-codes.tsv
 #   -h, --help      Show this help message.
 # ENVIRONMENT:
@@ -407,9 +408,11 @@ GENERIC = {
 # used to have. GitHub lists a renamed repository under its new name only, so
 # without this the old name -- still in other repositories' history -- would
 # drop out of the list and stop being refused. A repository renamed twice has
-# two alias lines.
+# two alias lines; each may name the current name or the name that came next
+# (a chain), and chains are followed. The code may be left out of an alias line,
+# `old<TAB>alias-of=<name>`: the alias then takes its repository's code.
 codes = {}
-aliases = []  # (alias, code, current name)
+aliases = []  # (alias, code, the name it points at)
 codes_path = pathlib.Path(os.environ.get("CODES_FILE", ""))
 if codes_path.is_file():
     for raw in codes_path.read_text(encoding="utf-8").splitlines():
@@ -419,9 +422,14 @@ if codes_path.is_file():
         parts = raw.replace("\t", " ").split()
         if len(parts) < 2:
             continue
-        target = next((p[len("alias-of="):] for p in parts[2:] if p.startswith("alias-of=")), "")
-        if target:
-            aliases.append((parts[0], parts[1], target))
+        marks = [p for p in parts[1:] if p.lower().startswith("alias-of=")]
+        if marks:
+            target = marks[0][len("alias-of="):]
+            if not target:
+                print(f"skipped alias {parts[0]}: alias-of= names no repository", file=sys.stderr)
+                continue
+            code = parts[1] if not parts[1].lower().startswith("alias-of=") else "-"
+            aliases.append((parts[0], code, target))
         else:
             codes[parts[0].lower()] = parts[1]
 
@@ -446,38 +454,72 @@ self_login = os.environ.get("SELF_LOGIN", "").lower()
 listed = {}
 for r in rows:
     listed.setdefault(r[2].lower(), []).append(r)
-alias_rows = []
-seen_alias = set()
+points_at = {}
+for alias, _code, target in aliases:
+    points_at.setdefault(alias.lower(), target)
+
+
+def current_name(target):
+    """Follow alias lines (old -> next name) until a listed name, or give up."""
+    name, seen = target, set()
+    while name.lower() not in listed and name.lower() in points_at and name.lower() not in seen:
+        seen.add(name.lower())
+        name = points_at[name.lower()]
+    return name
+
+
+def pick(candidates):
+    """The repository an alias belongs to, among those with its current name.
+
+    A private one first: filing an old private name under a public namesake
+    would write it as a public row and stop refusing it. Among several, the
+    one in your own namespace (the codes file is yours); anything else would
+    be a guess that could file it under someone else's repository.
+    """
+    for pool in ([r for r in candidates if r[0] == "private"], candidates):
+        if len(pool) == 1:
+            return pool[0]
+        if len(pool) > 1:
+            mine = [r for r in pool if self_login and r[1].lower() == self_login]
+            return mine[0] if len(mine) == 1 else None
+    return None
+
+
+alias_rows = {}
 for alias, code, target in aliases:
     low = alias.lower()
     if low in listed:
         print(f"skipped alias {alias}: it is the name of a listed repository", file=sys.stderr)
         continue
-    # The same name can exist in several namespaces. Codes are matched by name,
-    # so they cannot tell those apart; the codes file is yours, so the alias
-    # belongs to the repository in your own namespace. Anything else would be a
-    # guess that could file it under someone else's repository.
-    candidates = listed.get(target.lower(), [])
-    owner = candidates[0] if len(candidates) == 1 else None
-    if owner is None and len(candidates) > 1:
-        mine = [r for r in candidates if self_login and r[1].lower() == self_login]
-        owner = mine[0] if len(mine) == 1 else None
-        if owner is None:
-            print(f"skipped alias {alias}: {target} is in several namespaces, none of "
-                  f"them yours", file=sys.stderr)
-            continue
+    current = current_name(target)
+    candidates = listed.get(current.lower(), [])
+    if not candidates:
+        print(f"skipped alias {alias}: {current}, the repository it points at, is not "
+              f"listed", file=sys.stderr)
+        continue
+    owner = pick(candidates)
     if owner is None:
-        print(f"skipped alias {alias}: its repository {target} is not listed", file=sys.stderr)
+        print(f"skipped alias {alias}: {current} is in several namespaces, none of "
+              f"them yours", file=sys.stderr)
         continue
-    if low in seen_alias:
-        continue
-    seen_alias.add(low)
     # A public repository's old name is recorded, like its current one, so a
     # private name that collides with it is matched qualified only; it carries
     # no code, as public rows do not need one.
     out_code = "-" if owner[0] == "public" else (code if code != "-" else owner[3])
-    alias_rows.append([owner[0], owner[1], alias, out_code, "alias"])
-rows.extend(alias_rows)
+    row = [owner[0], owner[1], alias, out_code, "alias"]
+    claim = (owner[1].lower(), current.lower())
+    held = alias_rows.get(low)
+    if held is None:
+        alias_rows[low] = (row, claim)
+    elif held[1] != claim:
+        # One old name claimed by two repositories: keep the private claim, so
+        # the name stays refused, and say so.
+        if row[0] == "private" and held[0][0] != "private":
+            alias_rows[low] = (row, claim)
+        kept = alias_rows[low]
+        print(f"alias {alias} is claimed by two repositories; kept {kept[0][1]}/"
+              f"{kept[1][1]} ({kept[0][0]})", file=sys.stderr)
+rows.extend(row for row, _claim in alias_rows.values())
 
 public_names = {r[2].lower() for r in rows if r[0] == "public"}
 out = []

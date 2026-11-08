@@ -208,7 +208,7 @@ row_for() { awk -F'\t' -v n="$1" '!/^#/ && $3 == n' <<<"$rows_out"; }
   && ok "an alias that is a listed name is skipped with a warning" \
   || error "an alias equal to a listed name was not skipped: '$(row_for harbour)'"
 [[ -z "$(row_for ghostname)" ]] \
-  && grep -q 'skipped alias ghostname: its repository no-such-repo is not listed' "$alias_err" \
+  && grep -q 'skipped alias ghostname: no-such-repo, the repository it points at, is not listed' "$alias_err" \
   && ok "an alias of a repository that is not listed is skipped, never invented" \
   || error "an alias of an unknown repository produced '$(row_for ghostname)'"
 
@@ -236,6 +236,50 @@ rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
 [[ -z "$(row_for oldquarry)" ]] && grep -q 'skipped alias oldquarry: quarry is in several namespaces, none of them yours' "$two_err" \
   && ok "with neither namespace yours, the alias is skipped, not guessed" \
   || error "an ambiguous alias was guessed: '$(row_for oldquarry)'"
+
+# A private copy wins over a public namesake: the renamed repository is an
+# organization's private one, and your own account has a public repository of
+# the same name. Filing the old name under the public one would make it a
+# public row with no code, and it would stop being refused.
+mkdir -p "$tmp/cache-pub"
+printf 'quarry\tPUBLIC\tfalse\n' > "$tmp/cache-pub/testself.tsv"
+rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/cache-pub" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/codes-two" \
+  bash "$SCRIPT" --owner otherorg --stdout 2>/dev/null)"
+[[ "$(row_for oldquarry)" == $'private\totherorg\toldquarry\tR-002\talias' ]] \
+  && ok "an alias goes to the private copy, never to a public namesake in your own account" \
+  || error "an old private name was filed under a public namesake: '$(row_for oldquarry)'"
+
+# Chains, a missing code, an empty target and a name claimed twice.
+{
+  printf 'quarry\tR-002\nharbour\tR-003\n'
+  printf 'midquarry\tR-002\talias-of=quarry\n'
+  printf 'oldquarry\tR-002\talias-of=midquarry\n'
+  printf 'nocodequarry\talias-of=quarry\n'
+  printf 'emptytarget\tR-002\talias-of=\n'
+  printf 'twiceclaimed\tR-003\talias-of=harbour\n'
+  printf 'twiceclaimed\tR-002\talias-of=quarry\n'
+} > "$tmp/codes-edge"
+edge_err="$tmp/edge.err"
+rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/cache" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/codes-edge" \
+  bash "$SCRIPT" --owner testns --stdout 2>"$edge_err")"
+[[ "$(row_for oldquarry)" == $'private\ttestns\toldquarry\tR-002\talias' && -n "$(row_for midquarry)" ]] \
+  && ok "an alias that points at an older alias is followed to the repository" \
+  || error "a chained alias was dropped: '$(row_for oldquarry)'"
+[[ "$(row_for nocodequarry)" == $'private\ttestns\tnocodequarry\tR-002\talias' ]] \
+  && ok "an alias line without a code takes its repository's code" \
+  || error "an alias line without a code produced '$(row_for nocodequarry)'"
+[[ -z "$(row_for emptytarget)" ]] && grep -q 'skipped alias emptytarget: alias-of= names no repository' "$edge_err" \
+  && ok "an empty alias-of= is skipped with a warning, not read as a code" \
+  || error "an empty alias-of= was not reported: '$(row_for emptytarget)'"
+[[ "$(row_for twiceclaimed | cut -f4)" == "R-003" ]] && grep -q 'alias twiceclaimed is claimed by two repositories' "$edge_err" \
+  && ok "one old name pointed at two repositories keeps the first and warns" \
+  || error "a doubly claimed alias was not reported: '$(row_for twiceclaimed)'"
 
 # Ambiguity is decided for the alias itself, not inherited.
 printf 'quarry\tR-002\nharbour\tR-003\n' > "$tmp/codes-amb"
