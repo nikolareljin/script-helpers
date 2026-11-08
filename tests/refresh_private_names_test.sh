@@ -618,6 +618,28 @@ rows_out="$(cached_rows "$tmp/cache-mid" "$tmp/codes-mid" /dev/null)"
   && ok "a namespace with a middle name of the chain lists the alias under that repository" \
   || error "a namespace holding a middle name of the chain did not get the alias: '$(row_for ab1 | tr '\n' '|')'"
 
+# An organization renaming its own repository that happened to hold a name
+# along an alias's chain is not a loss: the refresh is not refused for it.
+rm -rf "$tmp/orgren"; mkdir -p "$tmp/orgren"; out_r="$tmp/orgren.tsv"; rm -f "$out_r"
+printf 'widgetpro\tPRIVATE\tfalse\n' > "$tmp/orgren/testns.tsv"
+printf 'reports\tPRIVATE\tfalse\nbilling\tPRIVATE\tfalse\n' > "$tmp/orgren/otherorg.tsv"
+printf 'widgetpro\tR-001\nwidgetold\talias-of=reports\nreports\talias-of=widgetpro\n' > "$tmp/codes-orgren"
+orgren_run() {
+  PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+    PRIVATE_NAMES_CACHE_DIR="$tmp/orgren" PRIVATE_NAMES_TTL_SELF=99 PRIVATE_NAMES_TTL_ORG=99 \
+    PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+    PRIVATE_NAMES_CODES_FILE="$tmp/codes-orgren" \
+    bash "$SCRIPT" --owner testns --out "$out_r" >/dev/null 2>&1
+}
+orgren_run; rc1=$?
+printf 'reports2\tPRIVATE\tfalse\nbilling\tPRIVATE\tfalse\n' > "$tmp/orgren/otherorg.tsv"
+orgren_run; rc2=$?
+if [[ $rc1 -eq 0 && $rc2 -eq 0 ]] && awk -F'\t' '$2=="testns" && $3=="widgetold" && $4=="R-001" {f=1} END{exit !f}' "$out_r"; then
+  ok "an organization renaming an unrelated repository does not stop the refresh"
+else
+  error "an organization's own rename refused the refresh (exit $rc1, $rc2)"
+fi
+
 # A former name never switches the check off in a public repository that has
 # that name now: --only-public reads the visibility of the current repository.
 rm -rf "$tmp/op"; mkdir -p "$tmp/op"

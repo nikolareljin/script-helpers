@@ -675,13 +675,16 @@ if [[ -f "$OUT" && "$FORCE" != true ]]; then
   # Rows are counted once per namespace/name ignoring case, as GitHub names
   # them: an older version could list one account twice in two cases, and
   # merging those is not a loss. Nor is dropping a `*` row an older version
-  # wrote for your own account.
+  # wrote for your own account. An alias row outside your account is not
+  # counted either: it follows whichever repository there has a name along the
+  # chain, and that repository being renamed is not a loss of anything yours.
   self_low="$(printf '%s' "$SELF_LOGIN" | tr '[:upper:]' '[:lower:]')"
   rows_of() {   # <file>: visibility, namespace and name (lowercased), code, once each
     awk -F'\t' -v self="$self_low" '
       !/^#/ && NF >= 3 {
         ns = tolower($2); name = tolower($3)
         if (name == "*" && ns == self) next
+        if (ns != self && (" " $5 " ") ~ / alias /) next
         if (seen[ns SUBSEP name]++) next
         print $1 "\t" ns "\t" name "\t" $4
       }' "$1"
