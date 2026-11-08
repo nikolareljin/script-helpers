@@ -649,7 +649,8 @@ lists a renamed repository under its new name only, so without the alias the
 old name - still in other repositories' history - would drop out of the list,
 and the loss guard would refuse the refresh. An alias that is itself a listed
 name, or whose repository is not listed, is skipped with a warning rather than
-invented.
+invented. When the repository's name exists in several namespaces, the alias goes
+to the one in your own account; with none of them yours it is skipped.
 
 The pull request hook passes `--strict-ambiguous`; the others do not. A name
 that is also an everyday word is reported as a warning by default, because a

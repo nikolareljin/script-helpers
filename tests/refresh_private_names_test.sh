@@ -212,6 +212,31 @@ row_for() { awk -F'\t' -v n="$1" '!/^#/ && $3 == n' <<<"$rows_out"; }
   && ok "an alias of a repository that is not listed is skipped, never invented" \
   || error "an alias of an unknown repository produced '$(row_for ghostname)'"
 
+# The same repository name in two namespaces. Codes match by name, so they
+# cannot tell the two apart; the alias belongs to the one in your own namespace
+# (the stub's login is testself), and with neither yours it is not guessed.
+mkdir -p "$tmp/cache-two" "$tmp/cache-three"
+printf 'quarry\tPRIVATE\tfalse\n' > "$tmp/cache-two/testself.tsv"
+printf 'quarry\tPRIVATE\tfalse\n' > "$tmp/cache-three/otherorg.tsv"
+printf 'quarry\tR-002\noldquarry\tR-002\talias-of=quarry\n' > "$tmp/codes-two"
+two_err="$tmp/two.err"
+rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/cache-two" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/codes-two" \
+  bash "$SCRIPT" --owner testns --stdout 2>"$two_err")"
+[[ "$(row_for oldquarry | cut -f2,4)" == $'testself\tR-002' ]] \
+  && ok "with the name in two namespaces, the alias goes to your own" \
+  || error "the alias went to the wrong namespace: '$(row_for oldquarry)'"
+rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+  PRIVATE_NAMES_CACHE_DIR="$tmp/cache-three" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_CODES_FILE="$tmp/codes-two" \
+  bash "$SCRIPT" --owner testns --stdout 2>"$two_err")"
+[[ -z "$(row_for oldquarry)" ]] && grep -q 'skipped alias oldquarry: quarry is in several namespaces, none of them yours' "$two_err" \
+  && ok "with neither namespace yours, the alias is skipped, not guessed" \
+  || error "an ambiguous alias was guessed: '$(row_for oldquarry)'"
+
 # Ambiguity is decided for the alias itself, not inherited.
 printf 'quarry\tR-002\nharbour\tR-003\n' > "$tmp/codes-amb"
 printf 'harbours\tR-003\talias-of=harbour\n' >> "$tmp/codes-amb"

@@ -365,7 +365,7 @@ fi
 # One python pass: the JSON, the word list and the flagging. python3 is already
 # required by the gate for the same reason -- parsing JSON in bash is how a
 # quoted name with a bracket in it silently drops out of a security list.
-WORDLIST="$WORDLIST" NEVER_AMBIGUOUS="$NEVER_AMBIGUOUS" CODES_FILE="$CODES_FILE" python3 -I - "$tmp.raw" <<'PY' > "$tmp.body"
+WORDLIST="$WORDLIST" NEVER_AMBIGUOUS="$NEVER_AMBIGUOUS" CODES_FILE="$CODES_FILE" SELF_LOGIN="$SELF_LOGIN" python3 -I - "$tmp.raw" <<'PY' > "$tmp.body"
 import os, pathlib, sys
 
 wordlist = pathlib.Path(os.environ.get("WORDLIST", ""))
@@ -442,6 +442,7 @@ for line in open(sys.argv[1], encoding="utf-8"):
 # visibility, so it is refused exactly as the current name is. Never invented:
 # an alias whose repository is not listed, or that is itself a listed name,
 # is reported and skipped.
+self_login = os.environ.get("SELF_LOGIN", "").lower()
 listed = {}
 for r in rows:
     listed.setdefault(r[2].lower(), []).append(r)
@@ -452,11 +453,19 @@ for alias, code, target in aliases:
     if low in listed:
         print(f"skipped alias {alias}: it is the name of a listed repository", file=sys.stderr)
         continue
-    # The same name can exist in several namespaces; the one carrying this
-    # code is the repository the alias belongs to.
+    # The same name can exist in several namespaces. Codes are matched by name,
+    # so they cannot tell those apart; the codes file is yours, so the alias
+    # belongs to the repository in your own namespace. Anything else would be a
+    # guess that could file it under someone else's repository.
     candidates = listed.get(target.lower(), [])
-    owner = next((r for r in candidates if code != "-" and r[3] == code), None) \
-        or (candidates[0] if candidates else None)
+    owner = candidates[0] if len(candidates) == 1 else None
+    if owner is None and len(candidates) > 1:
+        mine = [r for r in candidates if self_login and r[1].lower() == self_login]
+        owner = mine[0] if len(mine) == 1 else None
+        if owner is None:
+            print(f"skipped alias {alias}: {target} is in several namespaces, none of "
+                  f"them yours", file=sys.stderr)
+            continue
     if owner is None:
         print(f"skipped alias {alias}: its repository {target} is not listed", file=sys.stderr)
         continue
