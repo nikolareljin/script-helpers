@@ -700,6 +700,27 @@ for keep in public mine; do
   fi
 done
 
+# A lost alias row is caught by name: a new repository arriving in the same
+# refresh does not hide it behind an unchanged count.
+rm -rf "$tmp/masked"; mkdir -p "$tmp/masked"; out_m="$tmp/masked.tsv"; rm -f "$out_m"
+printf 'newwidget\tPRIVATE\tfalse\nalphaproj\tPRIVATE\tfalse\n' > "$tmp/masked/testns.tsv"
+printf 'oldwidget\talias-of=newwidget\n' > "$tmp/codes-masked"
+masked_run() {
+  PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+    PRIVATE_NAMES_CACHE_DIR="$tmp/masked" PRIVATE_NAMES_TTL_SELF=99 PRIVATE_NAMES_TTL_ORG=99 \
+    PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+    PRIVATE_NAMES_CODES_FILE="$tmp/codes-masked" \
+    bash "$SCRIPT" --owner testns --out "$out_m" 2>"$tmp/masked.err"
+}
+masked_run >/dev/null; rc1=$?
+printf 'newerwidget\tPRIVATE\tfalse\nalphaproj\tPRIVATE\tfalse\nbetaproj\tPRIVATE\tfalse\n' > "$tmp/masked/testns.tsv"
+masked_run >/dev/null; rc2=$?
+if [[ $rc1 -eq 0 && $rc2 -ne 0 ]] && grep -q 'testns/oldwidget' "$tmp/masked.err"; then
+  ok "a lost alias row is refused by name even when a new repository keeps the count"
+else
+  error "a lost alias row was hidden by a new repository (exit $rc1, $rc2)"
+fi
+
 # A former name never switches the check off in a public repository that has
 # that name now: --only-public reads the visibility of the current repository.
 rm -rf "$tmp/op"; mkdir -p "$tmp/op"

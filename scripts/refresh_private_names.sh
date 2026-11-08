@@ -677,17 +677,19 @@ if [[ -f "$OUT" && "$FORCE" != true ]]; then
   # merging those is not a loss. Nor is dropping a `*` row an older version
   # wrote for your own account. Every other row counts, alias rows included:
   # an alias row that goes away is a name no longer refused, whatever the
-  # reason, and a person decides with --force. The guard compares counts, so a
-  # rename nobody recorded swaps one name for another and passes; only a name
-  # that carried a code is caught that way.
+  # reason, and a person decides with --force. Alias rows are compared by name,
+  # not only counted, so a new repository arriving in the same refresh cannot
+  # hide one. Other rows are compared by count, so a rename nobody recorded
+  # swaps one name for another and passes; only a name that carried a code is
+  # caught that way.
   self_low="$(printf '%s' "$SELF_LOGIN" | tr '[:upper:]' '[:lower:]')"
-  rows_of() {   # <file>: visibility, namespace and name (lowercased), code, once each
+  rows_of() {   # <file>: visibility, namespace and name (lowercased), code, alias?, once each
     awk -F'\t' -v self="$self_low" '
       !/^#/ && NF >= 3 {
         ns = tolower($2); name = tolower($3)
         if (name == "*" && ns == self) next
         if (seen[ns SUBSEP name]++) next
-        print $1 "\t" ns "\t" name "\t" $4
+        print $1 "\t" ns "\t" name "\t" $4 "\t" (((" " $5 " ") ~ / alias /) ? "alias" : "")
       }' "$1"
   }
   rows_of "$OUT" > "$tmp.oldrows"
@@ -702,15 +704,20 @@ if [[ -f "$OUT" && "$FORCE" != true ]]; then
     $1=="private" { if (FILENAME==old) a[$2]++; else b[$2]++ }
     END { for (ns in a) if (b[ns]+0 < a[ns]) printf "  %s: %d -> %d\n", ns, a[ns], b[ns]+0 }
   ' old="$tmp.oldrows" "$tmp.oldrows" "$tmp.newrows")"
+  lost_alias="$(awk -F'\t' '
+    FILENAME == new { have[$2 SUBSEP $3] = 1; next }
+    $1 == "private" && $5 == "alias" && !(($2 SUBSEP $3) in have) { printf "  %s/%s\n", $2, $3 }
+  ' new="$tmp.newrows" "$tmp.newrows" "$tmp.oldrows")"
   old_w="$(awk -F'\t' '$3=="*"{n++} END{print n+0}' "$tmp.oldrows")"
   new_w="$(awk -F'\t' '$3=="*"{n++} END{print n+0}' "$tmp.newrows")"
   rm -f "$tmp.oldrows" "$tmp.newrows"
-  if [[ "$new_n" -lt "$old_n" || "$new_c" -lt "$old_c" || -n "$shrunk_ns" || "$new_w" -lt "$old_w" ]]; then
+  if [[ "$new_n" -lt "$old_n" || "$new_c" -lt "$old_c" || -n "$shrunk_ns" || "$new_w" -lt "$old_w" || -n "$lost_alias" ]]; then
     log_error "This write would lose data, so nothing was written:"
     [[ "$new_n" -lt "$old_n" ]] && log_error "  names: ${old_n} -> ${new_n}"
     [[ "$new_c" -lt "$old_c" ]] && log_error "  names carrying a code: ${old_c} -> ${new_c}"
     [[ "$new_w" -lt "$old_w" ]] && log_error "  org-wide rows: ${old_w} -> ${new_w}"
     [[ -n "$shrunk_ns" ]] && { log_error "  namespaces that lost names:"; printf '%s\n' "$shrunk_ns" >&2; }
+    [[ -n "$lost_alias" ]] && { log_error "  former names no longer listed:"; printf '%s\n' "$lost_alias" >&2; }
     log_error "Name every owner the file covers, or pass --force to overwrite."
     log_error "Owners in the current file:"
     awk -F'\t' '!/^#/ && $1=="private"{print "  " $2}' "$OUT" | sort -u >&2
