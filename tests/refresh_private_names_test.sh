@@ -585,6 +585,26 @@ rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
   && ok "a chain stops at a name a repository in the same namespace has now" \
   || error "a chain went past a live name in its own namespace: '$(row_for oldthing)'"
 
+# ...but a public repository that took a name along the chain never takes the
+# old name from the private repository at the end of it.
+mkdir -p "$tmp/cache-pubmid"
+printf 'quarry\tPRIVATE\tfalse\nmidpub\tPUBLIC\tfalse\n' > "$tmp/cache-pubmid/testns.tsv"
+printf 'quarry\tR-002\nmidpub\talias-of=quarry\noldpriv\talias-of=midpub\n' > "$tmp/codes-pubmid"
+rows_out="$(cached_rows "$tmp/cache-pubmid" "$tmp/codes-pubmid" /dev/null)"
+[[ "$(row_for oldpriv)" == $'private\ttestns\toldpriv\tR-002\talias' ]] \
+  && ok "a public repository along a chain does not take a private repository's old name" \
+  || error "an old private name went to a public repository: '$(row_for oldpriv)'"
+
+# A public repository's old name does not relax a private namesake elsewhere.
+mkdir -p "$tmp/cache-pubold"
+printf 'pubnew\tPUBLIC\tfalse\n' > "$tmp/cache-pubold/testns.tsv"
+printf 'orgsecret\tPRIVATE\tfalse\n' > "$tmp/cache-pubold/otherorg.tsv"
+printf 'orgsecret\talias-of=pubnew\n' > "$tmp/codes-pubold"
+rows_out="$(cached_rows "$tmp/cache-pubold" "$tmp/codes-pubold" /dev/null)"
+[[ "$(row_for orgsecret | grep otherorg | cut -f5)" == "never-name" ]] \
+  && ok "a public repository's old name leaves a private namesake matched bare" \
+  || error "a public old name relaxed a private namesake: '$(row_for orgsecret | grep otherorg)'"
+
 # A non-numeric TTL is not a smaller number, it is no check: find -mtime +abc
 # errors, prints nothing, and the cache reads as fresh. --ttl abc silently
 # meant "never refetch", and the log said "under abcd".

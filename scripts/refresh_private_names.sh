@@ -532,12 +532,14 @@ for alias, code, target in aliases:
         continue
     # A name along the chain that is a repository in that same namespace now
     # is where the chain ends: the repository renamed away from it, and a new
-    # one took the name. Following past it would borrow the wrong code.
+    # one took the name. Following past it would borrow the wrong code. The
+    # codes file cannot say which of the two the old name belonged to, so a
+    # public repository there never takes it from a private one.
     step, walked = target, set()
     while step.lower() != current.lower() and step.lower() not in walked:
         walked.add(step.lower())
         here = [r for r in listed.get(step.lower(), []) if r[1].lower() == owner[1].lower()]
-        if here:
+        if here and (here[0][0] == "private" or owner[0] != "private"):
             current, owner = step, here[0]
             break
         step = points_at.get(step.lower(), current)
@@ -549,9 +551,9 @@ for alias, code, target in aliases:
         print(f"skipped alias {alias}: it is the name of a listed repository in "
               f"{owner[1]}", file=sys.stderr)
         continue
-    # A public repository's old name is recorded, like its current one, so a
-    # private name that collides with it is matched qualified only; it carries
-    # no code, as public rows do not need one.
+    # A public repository's old name is recorded as a public row with no code.
+    # It does not make a private namesake qualified-only, as a public current
+    # name does: an old name is not what a bare mention most likely means.
     out_code = "-" if owner[0] == "public" else (code if code != "-" else owner[3])
     row = [owner[0], owner[1], alias, out_code, "alias"]
     claim = (owner[1].lower(), current.lower())
@@ -571,7 +573,7 @@ for alias, code, target in aliases:
               f"{kept[1][1]} ({kept[0][0]})", file=sys.stderr)
 rows.extend(row for row, _claim in alias_rows.values())
 
-public_names = {r[2].lower() for r in rows if r[0] == "public"}
+public_names = {r[2].lower() for r in rows if r[0] == "public" and r[4] != "alias"}
 out = []
 for visibility, ns, name, code, extra in rows:
     flags = [extra] if extra else []
