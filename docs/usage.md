@@ -189,8 +189,10 @@ Bundled CLIs
   particular mistake unrepresentable. A file with no header is read as the v1 order.
 
   `flags` is space-separated. `never-name` - no acceptable public reference exists at
-  all, so the refusal says to remove it rather than offering a code. `ambiguous` - also
-  an everyday word. `qualified-only` - a bare mention is not a reference.
+  all, so the refusal says to remove it rather than offering a code. `refresh_private_names.sh`
+  gives it to every private repository outside your own account (an organization's),
+  with code `-`, however the codes file names it. `ambiguous` - also an everyday word.
+  `qualified-only` - a bare mention is not a reference.
 
   **`ambiguous` and `qualified-only` mean the same thing to the matcher: only
   `namespace/name` counts.** A bare "search" or "core" in English cannot be told from a
@@ -626,6 +628,58 @@ The `pre-push` hook refreshes in the background when the list is older than
 so two pushes do not start two refreshes, and `PRIVATE_NAMES_AUTO_REFRESH=false`
 turns it off. A scheduler was deliberately not used: git runs hooks under bash
 on Linux, macOS and Windows alike, so there is nothing to install.
+
+#### Codes and renamed repositories
+
+GitHub cannot supply two things the list needs: the code a public text may cite
+instead of a private name, and the names a repository used to have. Both come
+from `~/.config/script-helpers/private-names-codes.tsv` (`--codes` or
+`PRIVATE_NAMES_CODES_FILE`), written by whoever keeps the inventory of codes:
+
+```text
+# name<TAB>code[<TAB>alias-of=<current-name>]
+newwidget	R-444
+oldwidget	R-444	alias-of=newwidget
+olderwidget	R-444	alias-of=newwidget
+```
+
+A two-column line fills the code of a listed repository. A line with
+`alias-of=` adds the old name as a row of its own, in the repository's namespace
+and with its visibility, flagged `alias`, so it is refused and cited exactly as
+the current name is. A repository renamed twice has two alias lines; each may
+name the current name or the name that came after it (`oldwidget
+alias-of=midwidget`, `midwidget alias-of=newwidget`), and the chain is followed.
+The code may be left out of an alias line (`oldwidget<TAB>alias-of=newwidget`);
+the alias then takes its repository's code. GitHub lists a renamed repository
+under its new name only, so without the alias the old name - still in other
+repositories' history - would drop out of the list. The loss guard compares
+counts (names, coded names, names per namespace), so it catches that only when
+the old name carried a code or was already listed as an alias: an unrecorded
+rename swaps one name for another and passes. Record a rename in the codes file
+before the next refresh. Alias rows are compared by name, not only counted:
+one that goes away refuses the refresh until a person checks and reruns once
+with `--force`, even when a new repository keeps the count level. Reasons
+include the repository it follows being renamed again, an organization's
+repository along its chain being renamed, and a public repository taking the
+freed name in the same namespace. A name with an alias line of its own is followed as a former
+name even if another account's repository has the name now. An alias that names
+a listed repository in the same namespace, whose repository is not listed, or
+whose `alias-of=` is empty is skipped with a warning rather than invented; the
+same name in another namespace does not stop it (it is then matched as
+`namespace/name` when the other repository is public). An alias line names no
+namespace, so it is listed in every namespace that has a repository along its
+chain, under the first private one there (where the chain ends: a repository
+that has the name now), and so when the repository's name is private in
+several namespaces the alias is listed under each of them: citable by its code in your own account,
+`never-name` in an organization's, so the gate's strictest advice applies and
+nothing is guessed or dropped. A public repository of that name takes it only
+when no private one has the name. If only a public repository of that name is listed,
+the alias follows it as a public row: the refresh cannot tell that from a
+private repository in an account this token cannot see, so an organization
+that hides its repositories from the token (SSO) has to be authorized for its
+old names to be refused. One old name pointed at two repositories in one
+namespace keeps the private claim (or the first), with a warning. Alias rows are
+never read as the visibility of the repository you are in (`--only-public`).
 
 The pull request hook passes `--strict-ambiguous`; the others do not. A name
 that is also an everyday word is reported as a warning by default, because a
