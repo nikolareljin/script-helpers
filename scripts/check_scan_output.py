@@ -192,7 +192,7 @@ def _inspect(name, raw, depth=0):
     if re.search(r"(?m)^\s*Local(?: security)? report:\s+(?:/|[A-Za-z]:[\\/])", text):
         raise Refused()
     for line in text.splitlines():
-        if not RESULT.search(line) and not (TOOL.search(text) and NATIVE_RESULT.search(line.strip())):
+        if not RESULT.search(line) and not NATIVE_RESULT.search(line.strip()):
             continue
         # Executable statements describe the scanner; their output is checked
         # separately. This is not a directory exemption for source or tests.

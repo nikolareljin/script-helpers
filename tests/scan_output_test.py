@@ -177,7 +177,8 @@ class PublicationTests(unittest.TestCase):
     def test_native_console_results_refused(self):
         tool = "git" + "leaks"
         for status in ("11:00AM WRN leaks found: " + "19", "11:00AM INF no " + "leaks found"):
-            self.check("--stdin", text=tool + "\n" + status, expected=1)
+            for prefix in ("", tool + "\n"):
+                self.check("--stdin", text=prefix + status, expected=1)
 
     def test_annotated_tag_name_cannot_hide_behind_a_safe_ref(self):
         self.git("tag", "-a", "fox" + "guard/19-findings", self.initial, "-m", "fixture")
