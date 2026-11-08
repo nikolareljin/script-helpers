@@ -189,8 +189,10 @@ Bundled CLIs
   particular mistake unrepresentable. A file with no header is read as the v1 order.
 
   `flags` is space-separated. `never-name` - no acceptable public reference exists at
-  all, so the refusal says to remove it rather than offering a code. `ambiguous` - also
-  an everyday word. `qualified-only` - a bare mention is not a reference.
+  all, so the refusal says to remove it rather than offering a code. `refresh_private_names.sh`
+  gives it to every private repository outside your own account (an organization's),
+  with code `-`, however the codes file names it. `ambiguous` - also an everyday word.
+  `qualified-only` - a bare mention is not a reference.
 
   **`ambiguous` and `qualified-only` mean the same thing to the matcher: only
   `namespace/name` counts.** A bare "search" or "core" in English cannot be told from a
@@ -651,13 +653,18 @@ The code may be left out of an alias line (`oldwidget<TAB>alias-of=newwidget`);
 the alias then takes its repository's code. GitHub lists a renamed repository
 under its new name only, so without the alias the old name - still in other
 repositories' history - would drop out of the list, and the loss guard would
-refuse the refresh. An alias that is itself a listed name, whose repository is
-not listed, or whose `alias-of=` is empty is skipped with a warning rather than
-invented. When the repository's name exists in several namespaces, the alias
-goes to the private one; among several private ones, to the one in your own
-account, and with none of them yours it is skipped. Filing an old private name
-under a public namesake would stop refusing it. One old name pointed at two
-repositories keeps the private claim (or the first), with a warning.
+refuse the refresh. A name with an alias line of its own is followed as a former
+name even if another account's repository has the name now. An alias that names
+a listed repository in the same namespace, whose repository is not listed, or
+whose `alias-of=` is empty is skipped with a warning rather than invented; the
+same name in another namespace does not stop it (it is then matched as
+`namespace/name` when the other repository is public). When the repository's
+name exists in several namespaces, the alias goes to a listed private one;
+among several private ones, to the one in your own account, and with none of
+them yours it is skipped. If only a public repository of that name is listed
+(the private one is in an account this token cannot see), the alias follows it
+as a public row and a warning says so. One old name pointed at two repositories
+keeps the private claim (or the first), with a warning.
 
 The pull request hook passes `--strict-ambiguous`; the others do not. A name
 that is also an everyday word is reported as a warning by default, because a

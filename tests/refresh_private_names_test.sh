@@ -38,7 +38,7 @@ rows() {
 }
 case "$1 ${2:-}" in
   "auth status")   exit 0 ;;
-  "api user")      echo "testself" ;;
+  "api user")      echo "testns" ;;
   "api user/orgs") : ;;
   "api graphql")   rows ;;
   "repo list")
@@ -214,10 +214,10 @@ row_for() { awk -F'\t' -v n="$1" '!/^#/ && $3 == n' <<<"$rows_out"; }
 
 # The same repository name in two namespaces. Codes match by name, so they
 # cannot tell the two apart; the alias belongs to the one in your own namespace
-# (the stub's login is testself), and with neither yours it is not guessed.
+# (the stub's login is testns), and with neither yours it is not guessed.
 mkdir -p "$tmp/cache-two" "$tmp/cache-three"
-printf 'quarry\tPRIVATE\tfalse\n' > "$tmp/cache-two/testself.tsv"
-printf 'quarry\tPRIVATE\tfalse\n' > "$tmp/cache-three/otherorg.tsv"
+printf 'quarry\tPRIVATE\tfalse\n' > "$tmp/cache-two/otherorg.tsv"
+printf 'quarry\tPRIVATE\tfalse\n' > "$tmp/cache-three/thirdorg.tsv"
 printf 'quarry\tR-002\noldquarry\tR-002\talias-of=quarry\n' > "$tmp/codes-two"
 two_err="$tmp/two.err"
 rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
@@ -225,14 +225,19 @@ rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
   PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
   PRIVATE_NAMES_CODES_FILE="$tmp/codes-two" \
   bash "$SCRIPT" --owner testns --stdout 2>"$two_err")"
-[[ "$(row_for oldquarry | cut -f2,4)" == $'testself\tR-002' ]] \
+[[ "$(row_for oldquarry | cut -f2,4)" == $'testns\tR-002' ]] \
   && ok "with the name in two namespaces, the alias goes to your own" \
   || error "the alias went to the wrong namespace: '$(row_for oldquarry)'"
+# An organization's private repository is never-name, and never borrows the
+# code of one of yours with the same name.
+[[ "$(row_for quarry | grep otherorg)" == $'private\totherorg\tquarry\t-\tnever-name ambiguous' ]] \
+  && ok "an organization's private repository is never-name and takes no code by name" \
+  || error "an organization's repository row was '$(row_for quarry | grep otherorg)'"
 rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
   PRIVATE_NAMES_CACHE_DIR="$tmp/cache-three" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
   PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
   PRIVATE_NAMES_CODES_FILE="$tmp/codes-two" \
-  bash "$SCRIPT" --owner testns --stdout 2>"$two_err")"
+  bash "$SCRIPT" --owner otherorg --stdout 2>"$two_err")"
 [[ -z "$(row_for oldquarry)" ]] && grep -q 'skipped alias oldquarry: quarry is in several namespaces, none of them yours' "$two_err" \
   && ok "with neither namespace yours, the alias is skipped, not guessed" \
   || error "an ambiguous alias was guessed: '$(row_for oldquarry)'"
@@ -242,15 +247,38 @@ rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
 # the same name. Filing the old name under the public one would make it a
 # public row with no code, and it would stop being refused.
 mkdir -p "$tmp/cache-pub"
-printf 'quarry\tPUBLIC\tfalse\n' > "$tmp/cache-pub/testself.tsv"
+printf 'quarry\tPUBLIC\tfalse\n' > "$tmp/cache-pub/testns.tsv"
 rows_out="$(PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
   PRIVATE_NAMES_CACHE_DIR="$tmp/cache-pub" PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
   PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
   PRIVATE_NAMES_CODES_FILE="$tmp/codes-two" \
   bash "$SCRIPT" --owner otherorg --stdout 2>/dev/null)"
-[[ "$(row_for oldquarry)" == $'private\totherorg\toldquarry\tR-002\talias' ]] \
+[[ "$(row_for oldquarry)" == $'private\totherorg\toldquarry\t-\talias never-name' ]] \
   && ok "an alias goes to the private copy, never to a public namesake in your own account" \
   || error "an old private name was filed under a public namesake: '$(row_for oldquarry)'"
+
+# A former name another account has taken since. The caches are fresh, so
+# nothing is refetched and the listing is exactly what is written here.
+cached_rows() {   # <cache dir> <codes file> <stderr file>
+  PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+    PRIVATE_NAMES_CACHE_DIR="$1" PRIVATE_NAMES_TTL_SELF=99 PRIVATE_NAMES_TTL_ORG=99 \
+    PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+    PRIVATE_NAMES_CODES_FILE="$2" \
+    bash "$SCRIPT" --owner testns --stdout 2>"$3"
+}
+mkdir -p "$tmp/cache-taken"
+printf 'quarry\tPRIVATE\tfalse\n' > "$tmp/cache-taken/testns.tsv"
+printf 'midname\tPUBLIC\tfalse\nwidget\tPUBLIC\tfalse\n' > "$tmp/cache-taken/otherorg.tsv"
+printf 'quarry\tR-002\nmidname\tR-002\talias-of=quarry\noldname\tR-002\talias-of=midname\n' > "$tmp/codes-taken"
+printf 'widget\tR-002\talias-of=quarry\n' >> "$tmp/codes-taken"
+rows_out="$(cached_rows "$tmp/cache-taken" "$tmp/codes-taken" "$tmp/taken.err")"
+[[ "$(row_for oldname)" == $'private\ttestns\toldname\tR-002\talias' ]] \
+  && ok "a chain through a name another account has taken still ends at the renamed repository" \
+  || error "a chain through a taken name went astray: '$(row_for oldname)'"
+[[ "$(row_for midname | grep testns)" == $'private\ttestns\tmidname\tR-002\talias qualified-only' ]] \
+  && [[ "$(row_for widget | grep testns)" == $'private\ttestns\twidget\tR-002\talias qualified-only' ]] \
+  && ok "an old name that is public in another namespace stays, matched qualified" \
+  || error "an old name public elsewhere was dropped: '$(row_for widget)' / '$(row_for midname)'"
 
 # Chains, a missing code, an empty target and a name claimed twice.
 {
@@ -428,6 +456,11 @@ if awk -F'\t' '$1=="private" && $2=="someorg" && $3=="*" && $5 ~ /never-name/ {f
 else
   error "no org-wide row was derived, so the namespace itself matches nothing"
 fi
+if awk -F'\t' '$2=="someorg" && $3!="*" && !($4=="-" && $5 ~ /never-name/) {bad=1} $2=="someorg" && $3!="*" {n++} END{exit !(n && !bad)}' "$out_w"; then
+  ok "every private repository of an organization is never-name, with no code"
+else
+  error "an organization's repository is citable: $(awk -F'\t' '$2=="someorg"' "$out_w" | head -3)"
+fi
 
 # ...but not for your own account, which has a public form: its code.
 rm -rf "$tmp/selfcache"; out_s="$tmp/self.tsv"; rm -f "$out_s"
@@ -435,8 +468,8 @@ PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
   PRIVATE_NAMES_CACHE_DIR="$tmp/selfcache" \
   PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
   PRIVATE_NAMES_CODES_FILE="$tmp/does-not-exist" \
-  bash "$SCRIPT" --owner testself --out "$out_s" >/dev/null 2>&1
-if awk -F'\t' '$2=="testself" && $3=="*" {f=1} END{exit !f}' "$out_s"; then
+  bash "$SCRIPT" --owner testns --out "$out_s" >/dev/null 2>&1
+if awk -F'\t' '$2=="testns" && $3=="*" {f=1} END{exit !f}' "$out_s"; then
   error "your own account was marked never-name; its repositories have codes"
 else
   ok "your own account gets no never-name row"

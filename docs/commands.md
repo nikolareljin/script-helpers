@@ -915,7 +915,7 @@ Usage: scripts/refresh_private_names.sh [--owner <user-or-org>] [--out <path>] [
   --codes <path>  Two columns, `name<TAB>code`, used to fill the code column that
                   `gh repo list` cannot supply. A third column
                   `alias-of=<current-name>` adds a name the repository used to
-                  have, under the same code and flagged `alias`, so a renamed
+                  have, under its code and flagged `alias`, so a renamed
                   repository's old names stay refused (chains of alias lines
                   are followed; the code may be left out). Default:
                   ~/.config/script-helpers/private-names-codes.tsv

@@ -19,7 +19,7 @@
 #   --codes <path>  Two columns, `name<TAB>code`, used to fill the code column that
 #                   `gh repo list` cannot supply. A third column
 #                   `alias-of=<current-name>` adds a name the repository used to
-#                   have, under the same code and flagged `alias`, so a renamed
+#                   have, under its code and flagged `alias`, so a renamed
 #                   repository's old names stay refused (chains of alias lines
 #                   are followed; the code may be left out). Default:
 #                   ~/.config/script-helpers/private-names-codes.tsv
@@ -460,9 +460,13 @@ for alias, _code, target in aliases:
 
 
 def current_name(target):
-    """Follow alias lines (old -> next name) until a listed name, or give up."""
+    """Follow alias lines (old -> next name) to the end of the chain.
+
+    A name with an alias line of its own is a former name, whatever else is
+    listed under it: another account's repository can have taken it since.
+    """
     name, seen = target, set()
-    while name.lower() not in listed and name.lower() in points_at and name.lower() not in seen:
+    while name.lower() in points_at and name.lower() not in seen:
         seen.add(name.lower())
         name = points_at[name.lower()]
     return name
@@ -488,9 +492,6 @@ def pick(candidates):
 alias_rows = {}
 for alias, code, target in aliases:
     low = alias.lower()
-    if low in listed:
-        print(f"skipped alias {alias}: it is the name of a listed repository", file=sys.stderr)
-        continue
     current = current_name(target)
     candidates = listed.get(current.lower(), [])
     if not candidates:
@@ -502,6 +503,17 @@ for alias, code, target in aliases:
         print(f"skipped alias {alias}: {current} is in several namespaces, none of "
               f"them yours", file=sys.stderr)
         continue
+    # Only a repository of that name in the same namespace contradicts the
+    # alias. The same name elsewhere is another account's repository, and the
+    # old one is still refused as namespace/name (qualified-only when the other
+    # is public, as for any name that is public somewhere).
+    if any(r[1].lower() == owner[1].lower() for r in listed.get(low, [])):
+        print(f"skipped alias {alias}: it is the name of a listed repository in "
+              f"{owner[1]}", file=sys.stderr)
+        continue
+    if owner[0] == "public" and code != "-":
+        print(f"alias {alias} is filed under {owner[1]}/{current}, which is public; "
+              f"if the renamed repository is private, it is not listed", file=sys.stderr)
     # A public repository's old name is recorded, like its current one, so a
     # private name that collides with it is matched qualified only; it carries
     # no code, as public rows do not need one.
@@ -511,6 +523,9 @@ for alias, code, target in aliases:
     held = alias_rows.get(low)
     if held is None:
         alias_rows[low] = (row, claim)
+    elif held[1] == claim and held[0][3] != row[3]:
+        print(f"alias {alias} has two codes, {held[0][3]} and {row[3]}; kept "
+              f"{held[0][3]}", file=sys.stderr)
     elif held[1] != claim:
         # One old name claimed by two repositories: keep the private claim, so
         # the name stays refused, and say so.
@@ -525,6 +540,13 @@ public_names = {r[2].lower() for r in rows if r[0] == "public"}
 out = []
 for visibility, ns, name, code, extra in rows:
     flags = [extra] if extra else []
+    # An organization's private repository has no acceptable public reference,
+    # not even a code: offering one would advise a quieter form of the same
+    # disclosure. Codes are matched by name, so without this one of yours that
+    # shares a name with it would lend it your code.
+    if visibility == "private" and self_login and ns.lower() != self_login:
+        code = "-"
+        flags.append("never-name")
     if visibility == "private":
         low = name.lower()
         if low in words and low not in never_ambiguous:
