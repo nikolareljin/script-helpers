@@ -677,10 +677,16 @@ if [[ -f "$OUT" && "$FORCE" != true ]]; then
   # merging those is not a loss. Nor is dropping a `*` row an older version
   # wrote for your own account. An alias row outside your account follows
   # whichever repository there has a name along the chain, so it may move or go
-  # with that repository; it counts only when the old name is in no namespace
-  # of the new file at all -- that is a name no longer refused.
+  # with that repository; it counts unless the old name is still a private row
+  # in another organization, or still one of your own former names.
   self_low="$(printf '%s' "$SELF_LOGIN" | tr '[:upper:]' '[:lower:]')"
-  awk -F'\t' '!/^#/ && NF >= 3 {print tolower($3)}' "$tmp" | sort -u > "$tmp.newnames"
+  # Kept means still a private row in another organization (never-name), or
+  # still one of your own former names (the alias line still leads to a
+  # repository of yours). Surviving as a public row, or only as the name of a
+  # current repository of yours, would weaken it.
+  awk -F'\t' -v self="$self_low" '
+    !/^#/ && NF >= 3 && $1 == "private" && (tolower($2) != self || (" " $5 " ") ~ / alias /) {print tolower($3)}
+  ' "$tmp" | sort -u > "$tmp.newnames"
   rows_of() {   # <file> [names still listed]: visibility, namespace, name (lowercased), code, once each
     awk -F'\t' -v self="$self_low" -v keep="${2:-}" '
       BEGIN { if (keep != "") while ((getline k < keep) > 0) still[k] = 1 }

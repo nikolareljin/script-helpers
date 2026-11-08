@@ -668,6 +668,35 @@ for how in renamed emptied; do
   fi
 done
 
+# ...and surviving only as a public row, or as one of your own, does not count
+# as kept: either would weaken a never-name old name.
+for keep in public mine; do
+  rm -rf "$tmp/orgkeep"; mkdir -p "$tmp/orgkeep"; out_k="$tmp/orgkeep.tsv"; rm -f "$out_k"
+  printf 'stormbreak\tPRIVATE\tfalse\n' > "$tmp/orgkeep/otherorg.tsv"
+  if [[ $keep == public ]]; then
+    printf 'stormbreak\tPUBLIC\tfalse\n' > "$tmp/orgkeep/thirdorg.tsv"
+    printf 'quarry\tPRIVATE\tfalse\n' > "$tmp/orgkeep/testns.tsv"
+  else
+    printf 'zephyrlight\tPRIVATE\tfalse\n' > "$tmp/orgkeep/testns.tsv"
+  fi
+  printf 'zephyrlight\tR-007\nzephyrlight\talias-of=stormbreak\n' > "$tmp/codes-orgkeep"
+  orgkeep_run() {
+    PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+      PRIVATE_NAMES_CACHE_DIR="$tmp/orgkeep" PRIVATE_NAMES_TTL_SELF=99 PRIVATE_NAMES_TTL_ORG=99 \
+      PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+      PRIVATE_NAMES_CODES_FILE="$tmp/codes-orgkeep" \
+      bash "$SCRIPT" --owner testns --out "$out_k" >/dev/null 2>&1
+  }
+  orgkeep_run; rc1=$?
+  printf 'stormbreak2\tPRIVATE\tfalse\n' > "$tmp/orgkeep/otherorg.tsv"
+  orgkeep_run; rc2=$?
+  if [[ $rc1 -eq 0 && $rc2 -ne 0 ]] && awk -F'\t' '$2=="otherorg" && $3=="zephyrlight" {f=1} END{exit !f}' "$out_k"; then
+    ok "an organization's old name surviving only as a $keep row is still a loss"
+  else
+    error "an organization's old name was weakened to a $keep row silently (exit $rc1, $rc2)"
+  fi
+done
+
 # A former name never switches the check off in a public repository that has
 # that name now: --only-public reads the visibility of the current repository.
 rm -rf "$tmp/op"; mkdir -p "$tmp/op"

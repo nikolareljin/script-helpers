@@ -654,8 +654,9 @@ the alias then takes its repository's code. GitHub lists a renamed repository
 under its new name only, so without the alias the old name - still in other
 repositories' history - would drop out of the list, and the loss guard would
 refuse the refresh. (An alias row outside your account may move with the
-repository it follows there; the guard counts it as lost only when the old
-name is in no namespace of the new list.) A name with an alias line of its own is followed as a former
+repository it follows there; the guard counts it as lost unless the old
+name is still a private row in another organization or one of your own former
+names.) A name with an alias line of its own is followed as a former
 name even if another account's repository has the name now. An alias that names
 a listed repository in the same namespace, whose repository is not listed, or
 whose `alias-of=` is empty is skipped with a warning rather than invented; the
