@@ -640,6 +640,34 @@ else
   error "an organization's own rename refused the refresh (exit $rc1, $rc2)"
 fi
 
+# ...but an organization's recorded old name that leaves the list altogether
+# (renamed again, or the codes file emptied) is a loss, and is refused.
+for how in renamed emptied; do
+  rm -rf "$tmp/orgloss"; mkdir -p "$tmp/orgloss"; out_l="$tmp/orgloss.tsv"; rm -f "$out_l"
+  printf 'newthing\tPRIVATE\tfalse\nother\tPRIVATE\tfalse\n' > "$tmp/orgloss/otherorg.tsv"
+  printf 'quarry\tPRIVATE\tfalse\n' > "$tmp/orgloss/testns.tsv"
+  printf 'oldthing\talias-of=newthing\n' > "$tmp/codes-orgloss"
+  orgloss_run() {
+    PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+      PRIVATE_NAMES_CACHE_DIR="$tmp/orgloss" PRIVATE_NAMES_TTL_SELF=99 PRIVATE_NAMES_TTL_ORG=99 \
+      PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+      PRIVATE_NAMES_CODES_FILE="$tmp/codes-orgloss" \
+      bash "$SCRIPT" --owner testns --out "$out_l" >/dev/null 2>&1
+  }
+  orgloss_run; rc1=$?
+  if [[ $how == renamed ]]; then
+    printf 'newest\tPRIVATE\tfalse\nother\tPRIVATE\tfalse\n' > "$tmp/orgloss/otherorg.tsv"
+  else
+    : > "$tmp/codes-orgloss"
+  fi
+  orgloss_run; rc2=$?
+  if [[ $rc1 -eq 0 && $rc2 -ne 0 ]] && awk -F'\t' '$3=="oldthing" {f=1} END{exit !f}' "$out_l"; then
+    ok "an organization's old name leaving the list ($how) is refused as a loss"
+  else
+    error "an organization's old name was dropped silently ($how; exit $rc1, $rc2)"
+  fi
+done
+
 # A former name never switches the check off in a public repository that has
 # that name now: --only-public reads the visibility of the current repository.
 rm -rf "$tmp/op"; mkdir -p "$tmp/op"

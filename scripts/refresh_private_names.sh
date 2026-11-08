@@ -228,7 +228,7 @@ tmp="$(mktemp)"
 # than $BASHPID alone: bash 3.2, which macOS ships, does not define BASHPID,
 # and $$ is the top-level shell's pid in every subshell, so the comparison
 # degrades to always-true there rather than to always-false.
-trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -f -- "$tmp" "$tmp.body" "$tmp.raw" "$tmp.oldrows" "$tmp.newrows" "${staged:-}"; fi' EXIT
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -f -- "$tmp" "$tmp.body" "$tmp.raw" "$tmp.oldrows" "$tmp.newrows" "$tmp.newnames" "${staged:-}"; fi' EXIT
 
 # One namespace per line, so several can be given. Each is fetched separately because
 # `gh repo list` takes one owner; the rows carry their namespace, which is what lets one
@@ -675,21 +675,24 @@ if [[ -f "$OUT" && "$FORCE" != true ]]; then
   # Rows are counted once per namespace/name ignoring case, as GitHub names
   # them: an older version could list one account twice in two cases, and
   # merging those is not a loss. Nor is dropping a `*` row an older version
-  # wrote for your own account. An alias row outside your account is not
-  # counted either: it follows whichever repository there has a name along the
-  # chain, and that repository being renamed is not a loss of anything yours.
+  # wrote for your own account. An alias row outside your account follows
+  # whichever repository there has a name along the chain, so it may move or go
+  # with that repository; it counts only when the old name is in no namespace
+  # of the new file at all -- that is a name no longer refused.
   self_low="$(printf '%s' "$SELF_LOGIN" | tr '[:upper:]' '[:lower:]')"
-  rows_of() {   # <file>: visibility, namespace and name (lowercased), code, once each
-    awk -F'\t' -v self="$self_low" '
+  awk -F'\t' '!/^#/ && NF >= 3 {print tolower($3)}' "$tmp" | sort -u > "$tmp.newnames"
+  rows_of() {   # <file> [names still listed]: visibility, namespace, name (lowercased), code, once each
+    awk -F'\t' -v self="$self_low" -v keep="${2:-}" '
+      BEGIN { if (keep != "") while ((getline k < keep) > 0) still[k] = 1 }
       !/^#/ && NF >= 3 {
         ns = tolower($2); name = tolower($3)
         if (name == "*" && ns == self) next
-        if (ns != self && (" " $5 " ") ~ / alias /) next
+        if (ns != self && (" " $5 " ") ~ / alias / && (keep == "" || name in still)) next
         if (seen[ns SUBSEP name]++) next
         print $1 "\t" ns "\t" name "\t" $4
       }' "$1"
   }
-  rows_of "$OUT" > "$tmp.oldrows"
+  rows_of "$OUT" "$tmp.newnames" > "$tmp.oldrows"
   rows_of "$tmp" > "$tmp.newrows"
   old_n="$(awk -F'\t' '$1=="private"{n++} END{print n+0}' "$tmp.oldrows")"
   new_n="$(awk -F'\t' '$1=="private"{n++} END{print n+0}' "$tmp.newrows")"
@@ -703,7 +706,7 @@ if [[ -f "$OUT" && "$FORCE" != true ]]; then
   ' old="$tmp.oldrows" "$tmp.oldrows" "$tmp.newrows")"
   old_w="$(awk -F'\t' '$3=="*"{n++} END{print n+0}' "$tmp.oldrows")"
   new_w="$(awk -F'\t' '$3=="*"{n++} END{print n+0}' "$tmp.newrows")"
-  rm -f "$tmp.oldrows" "$tmp.newrows"
+  rm -f "$tmp.oldrows" "$tmp.newrows" "$tmp.newnames"
   if [[ "$new_n" -lt "$old_n" || "$new_c" -lt "$old_c" || -n "$shrunk_ns" || "$new_w" -lt "$old_w" ]]; then
     log_error "This write would lose data, so nothing was written:"
     [[ "$new_n" -lt "$old_n" ]] && log_error "  names: ${old_n} -> ${new_n}"
