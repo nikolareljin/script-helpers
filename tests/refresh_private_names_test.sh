@@ -721,6 +721,27 @@ else
   error "a lost alias row was hidden by a new repository (exit $rc1, $rc2)"
 fi
 
+# ...and a public repository taking the freed name does not count as the old
+# name still being listed, even with a new private repository beside it.
+rm -rf "$tmp/pubtake"; mkdir -p "$tmp/pubtake"; out_p="$tmp/pubtake.tsv"; rm -f "$out_p"
+printf 'newwidget\tPRIVATE\tfalse\notherthing\tPRIVATE\tfalse\n' > "$tmp/pubtake/testns.tsv"
+printf 'oldwidget\talias-of=newwidget\n' > "$tmp/codes-pubtake"
+pubtake_run() {
+  PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" \
+    PRIVATE_NAMES_CACHE_DIR="$tmp/pubtake" PRIVATE_NAMES_TTL_SELF=99 PRIVATE_NAMES_TTL_ORG=99 \
+    PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+    PRIVATE_NAMES_CODES_FILE="$tmp/codes-pubtake" \
+    bash "$SCRIPT" --owner testns --out "$out_p" 2>"$tmp/pubtake.err"
+}
+pubtake_run >/dev/null; rc1=$?
+printf 'newwidget\tPRIVATE\tfalse\notherthing\tPRIVATE\tfalse\noldwidget\tPUBLIC\tfalse\nbrandnew\tPRIVATE\tfalse\n' > "$tmp/pubtake/testns.tsv"
+pubtake_run >/dev/null; rc2=$?
+if [[ $rc1 -eq 0 && $rc2 -ne 0 ]] && grep -q 'testns/oldwidget' "$tmp/pubtake.err"; then
+  ok "a public repository taking a freed old name is refused by name, even with a new private repository"
+else
+  error "a public repository taking a freed old name passed the guard (exit $rc1, $rc2)"
+fi
+
 # A former name never switches the check off in a public repository that has
 # that name now: --only-public reads the visibility of the current repository.
 rm -rf "$tmp/op"; mkdir -p "$tmp/op"

@@ -705,7 +705,7 @@ if [[ -f "$OUT" && "$FORCE" != true ]]; then
     END { for (ns in a) if (b[ns]+0 < a[ns]) printf "  %s: %d -> %d\n", ns, a[ns], b[ns]+0 }
   ' old="$tmp.oldrows" "$tmp.oldrows" "$tmp.newrows")"
   lost_alias="$(awk -F'\t' '
-    FILENAME == new { have[$2 SUBSEP $3] = 1; next }
+    FILENAME == new { if ($1 == "private") have[$2 SUBSEP $3] = 1; next }
     $1 == "private" && $5 == "alias" && !(($2 SUBSEP $3) in have) { printf "  %s/%s\n", $2, $3 }
   ' new="$tmp.newrows" "$tmp.newrows" "$tmp.oldrows")"
   old_w="$(awk -F'\t' '$3=="*"{n++} END{print n+0}' "$tmp.oldrows")"
