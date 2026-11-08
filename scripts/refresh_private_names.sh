@@ -486,56 +486,53 @@ for alias, _code, target in aliases:
     points_at.setdefault(alias.lower(), target)
 
 
-def current_name(target):
-    """Follow alias lines (old -> next name) to the end of the chain.
+def owners_for(chain):
+    """Every repository an alias may belong to, one per namespace.
 
-    A name with an alias line of its own is a former name, whatever else is
-    listed under it: another account's repository can have taken it since.
+    `chain` is the names the old name led to, oldest first. An alias line names
+    no namespace, so it cannot say whose old name it is. Rather than guess, it
+    is listed in every namespace that has a repository along the chain: under
+    the first private one there (the chain ends where a repository has the name
+    now; a new one took a freed name), or the first public one if the namespace
+    has no private one. It is refused in each, never-name outside your account,
+    citable by code only in it. Public ones count only when no namespace has a
+    private one: filing an old private name under a public namesake would stop
+    refusing it.
     """
-    name, seen = target, set()
-    while name.lower() in points_at and name.lower() not in seen:
+    per_ns = {}
+    for name in chain:
+        for r in listed.get(name.lower(), []):
+            ns = r[1].lower()
+            held = per_ns.get(ns)
+            if held is None or (held[0] == "public" and r[0] == "private"):
+                per_ns[ns] = r
+    chosen = list(per_ns.values())
+    private = [r for r in chosen if r[0] == "private"]
+    return private if private else chosen
+
+
+def chain_of(target):
+    """The names an alias line leads to, in order, ending at the last one."""
+    names, seen, name = [], set(), target
+    while name.lower() not in seen:
         seen.add(name.lower())
+        names.append(name)
+        if name.lower() not in points_at:
+            break
         name = points_at[name.lower()]
-    return name
-
-
-def owners_for(candidates):
-    """Every repository an alias may belong to, among those with its current name.
-
-    An alias line names no namespace, so it cannot say whose old name it is.
-    Rather than guess, it is listed under every private repository of that name
-    -- refused in each, never-name outside your account, citable by code only in
-    it -- and under a public one only when no private one has the name: filing
-    an old private name under a public namesake would stop refusing it.
-    """
-    private = [r for r in candidates if r[0] == "private"]
-    return private if private else candidates
+    return names
 
 
 alias_rows = {}  # (alias, namespace), lowercased -> row
 for alias, code, target in aliases:
     low = alias.lower()
-    end = current_name(target)
-    candidates = listed.get(end.lower(), [])
-    if not candidates:
-        print(f"skipped alias {alias}: {end}, the repository it points at, is not "
+    chain = chain_of(target)
+    owners = owners_for(chain)
+    if not owners:
+        print(f"skipped alias {alias}: {chain[-1]}, the repository it points at, is not "
               f"listed", file=sys.stderr)
         continue
-    for owner in owners_for(candidates):
-        current = end
-        # A name along the chain that is a repository in that same namespace
-        # now is where the chain ends there: the repository renamed away from
-        # it, and a new one took the name. Following past it would borrow the
-        # wrong code. A public repository there never takes the old name from a
-        # private one: the codes file cannot say which of the two it belonged to.
-        step, walked = target, set()
-        while step.lower() != current.lower() and step.lower() not in walked:
-            walked.add(step.lower())
-            here = [r for r in listed.get(step.lower(), []) if r[1].lower() == owner[1].lower()]
-            if here and (here[0][0] == "private" or owner[0] != "private"):
-                current, owner = step, here[0]
-                break
-            step = points_at.get(step.lower(), current)
+    for owner in owners:
         # Only a repository of that name in the same namespace contradicts the
         # alias. The same name elsewhere is another account's repository, and
         # the old one is still refused as namespace/name (qualified-only when

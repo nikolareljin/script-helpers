@@ -607,6 +607,17 @@ rows_out="$(cached_rows "$tmp/cache-pubold" "$tmp/codes-pubold" /dev/null)"
   && ok "a public repository's old name leaves a private namesake matched bare" \
   || error "a public old name relaxed a private namesake: '$(row_for orgsecret | grep otherorg)'"
 
+# A namespace that has a name along the chain, though not its end, gets the
+# alias too: the chain ends there, at the repository that has the name now.
+mkdir -p "$tmp/cache-mid"
+printf 'bravo\tPRIVATE\tfalse\n' > "$tmp/cache-mid/testns.tsv"
+printf 'charlie\tPRIVATE\tfalse\n' > "$tmp/cache-mid/otherorg.tsv"
+printf 'bravo\tR-001\ncharlie\tR-009\nab1\talias-of=bravo\nbravo\talias-of=charlie\n' > "$tmp/codes-mid"
+rows_out="$(cached_rows "$tmp/cache-mid" "$tmp/codes-mid" /dev/null)"
+[[ "$(row_for ab1 | grep testns | cut -f2,4)" == $'testns\tR-001' && -n "$(row_for ab1 | grep otherorg)" ]] \
+  && ok "a namespace with a middle name of the chain lists the alias under that repository" \
+  || error "a namespace holding a middle name of the chain did not get the alias: '$(row_for ab1 | tr '\n' '|')'"
+
 # A former name never switches the check off in a public repository that has
 # that name now: --only-public reads the visibility of the current repository.
 rm -rf "$tmp/op"; mkdir -p "$tmp/op"

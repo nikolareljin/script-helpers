@@ -659,8 +659,10 @@ a listed repository in the same namespace, whose repository is not listed, or
 whose `alias-of=` is empty is skipped with a warning rather than invented; the
 same name in another namespace does not stop it (it is then matched as
 `namespace/name` when the other repository is public). An alias line names no
-namespace, so when the repository's name is private in several namespaces the
-alias is listed under each of them: citable by its code in your own account,
+namespace, so it is listed in every namespace that has a repository along its
+chain, under the first private one there (where the chain ends: a repository
+that has the name now), and so when the repository's name is private in
+several namespaces the alias is listed under each of them: citable by its code in your own account,
 `never-name` in an organization's, so the gate's strictest advice applies and
 nothing is guessed or dropped. A public repository of that name takes it only
 when no private one has the name. If only a public repository of that name is listed,
