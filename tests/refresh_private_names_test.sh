@@ -459,7 +459,7 @@ fi
 if awk -F'\t' '$2=="someorg" && $3!="*" && !($4=="-" && $5 ~ /never-name/) {bad=1} $2=="someorg" && $3!="*" {n++} END{exit !(n && !bad)}' "$out_w"; then
   ok "every private repository of an organization is never-name, with no code"
 else
-  error "an organization's repository is citable: $(awk -F'\t' '$2=="someorg"' "$out_w" | head -3)"
+  error "an organization's repository is citable: $(awk -F'\t' '$2=="someorg" && n++ < 3' "$out_w")"
 fi
 
 # ...but not for your own account, which has a public form: its code.
