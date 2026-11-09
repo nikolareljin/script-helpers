@@ -35,11 +35,11 @@ REPORT_NAME = re.compile(
 TOOL = re.compile(r"gitleaks|foxguard", re.I)
 RESULT = re.compile(
     r"(?i)\b(?:gitleaks|foxguard)(?![\w.-]).{0,80}"
-    r"\b\d+\s+(?:findings?|leaks?|hits?)\b|"
+    r"\b\d+\s+(?:findings?|leaks?|hits?|credentials?)\b|"
     r"\b(?:gitleaks|foxguard)\s*[:=]\s*(?:clean|no leaks|no findings)\b|"
     r"\bno gitleaks findings\b|\bgitleaks findings detected\s*:|"
     r"\b(?:gitleaks|foxguard)\s*[:=]?\s*\d+\s*(?:[,;]|$)|"
-    r"\b\d+\s+(?:gitleaks|foxguard)\s+(?:findings?|leaks?|hits?)\b"
+    r"\b\d+\s+(?:gitleaks|foxguard)\s+(?:findings?|leaks?|hits?|credentials?)\b"
 )
 NATIVE_RESULT = re.compile(
     r"(?i)^(?:\d{1,2}:\d{2}(?::\d{2})?(?:AM|PM)?\s+)?"
@@ -172,6 +172,8 @@ def _inspect(name, raw, depth=0):
     except UnicodeError:
         # Binary blobs are still searched for embedded scanner output.
         text = raw.decode("utf-8", errors="replace")
+    if re.search(r"(?m)^[ \t>]*SCRIPT_HELPERS_PRIVATE_SECURITY_REPORT_V1[ \t]*\r?$", text):
+        raise Refused()
     try:
         columns = {field.strip().lower() for field in next(csv.reader(io.StringIO(text)), [])}
         if {"ruleid", "secret"} <= columns or {"ruleid", "fingerprint"} <= columns:
@@ -216,7 +218,7 @@ def _inspect(name, raw, depth=0):
             continue
         raise Refused()
     if TOOL.search(text) and re.search(
-        r"(?m)^\s*(?:RuleID|Fingerprint|StartLine|finding_counts)\s*:", text
+        r"(?im)^\s*(?:\[sensitive\]\s+gitleaks:\s*)?(?:RuleID|Fingerprint|StartLine|finding_counts)\s*:", text
     ):
         raise Refused()
 

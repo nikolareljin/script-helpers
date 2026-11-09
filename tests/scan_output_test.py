@@ -188,6 +188,14 @@ class PublicationTests(unittest.TestCase):
         self.check("--stdin", text="RuleID,Description\nfixture,ordinary\n")
         self.check("--stdin", text='<testsuites><testsuite name="ordinary-unit-tests"/></testsuites>')
 
+    def test_private_report_marker_and_wrapped_native_fields(self):
+        marker = "SCRIPT_HELPERS_PRIVATE_" + "SECURITY_REPORT_V1"
+        self.check("--stdin", text=marker + "\nordinary diagnostics\n", expected=1)
+        self.check("--stdin", text="```text\n" + marker + "\nordinary diagnostics\n```", expected=1)
+        tool = "git" + "leaks"
+        self.check("--stdin", text="[sensitive] BLOCK " + tool + " found 19 credential(s)", expected=1)
+        self.check("--stdin", text="[sensitive] " + tool + ": Fingerprint: REDACTED", expected=1)
+
     def test_annotated_tag_name_cannot_hide_behind_a_safe_ref(self):
         self.git("tag", "-a", "fox" + "guard/19-findings", self.initial, "-m", "fixture")
         oid = self.git("rev-parse", "fox" + "guard/19-findings").stdout.strip()
