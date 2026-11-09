@@ -55,8 +55,13 @@ commit_file() {  # <repo> <file> <content>
 }
 run() { bash "$CHECK" "$@" >"$tmp/out" 2>&1; echo $?; }
 
-aws_key="AKIA""QYLPMN5HHHFPZAM2"
-aws_secret="wJalrXUtnFEMI/K7MDENG/bPxRfiCY""1234567890ab"
+# The sample credentials are assembled at run time from short pieces, so no
+# line of this file is itself the shape of a credential. The values are
+# AWS's documented examples with their tails changed.
+akid_a="QYLPMN5H"; akid_b="HHFPZAM2"
+sak_a="wJalrXUtnFEMI/K7MDENG/bPxRfiCY"; sak_b="1234567890ab"
+aws_key="AKIA${akid_a}${akid_b}"
+aws_sak="${sak_a}${sak_b}"
 real_email="jane.roe""@""mailbox.org"
 ssn="219-09-""9999"
 card="4539 1488 ""0343 6467"
@@ -67,7 +72,7 @@ repo="$tmp/r1"; new_repo "$repo"
 
 if [[ "$have_gitleaks" == true ]]; then
   commit_file "$repo" creds.txt "aws_access_key_id = $aws_key
-aws_secret_access_key = $aws_secret"
+aws_secret_access_key = $aws_sak"
   expect "a fake AWS key in a commit blocks" 1 "$(run --repo "$repo" --range HEAD~1..HEAD)"
   grep -q "$aws_key" "$tmp/out" && error "the key itself was printed"
   gc -C "$repo" rm -q creds.txt; gc -C "$repo" commit -q -m "remove it"
@@ -75,12 +80,12 @@ aws_secret_access_key = $aws_secret"
   # A committed .gitleaks.toml that allows everything is not honored.
   printf '[allowlist]\npaths = [".*"]\n' > "$repo/.gitleaks.toml"
   commit_file "$repo" creds2.txt "aws_access_key_id = $aws_key
-aws_secret_access_key = $aws_secret"
+aws_secret_access_key = $aws_sak"
   expect "a committed .gitleaks.toml cannot allow a key" 1 "$(run --repo "$repo" --range HEAD~1..HEAD)"
   gc -C "$repo" rm -q creds2.txt; gc -C "$repo" commit -q -m "remove it"; rm -f "$repo/.gitleaks.toml"
   # Nor a committed .gitleaksignore listing the leak's own fingerprint.
   commit_file "$repo" creds3.txt "aws_access_key_id = $aws_key
-aws_secret_access_key = $aws_secret"
+aws_secret_access_key = $aws_sak"
   run --repo "$repo" --range HEAD~1..HEAD --no-machine >/dev/null
   sed -n 's/.*Fingerprint: *//p' "$tmp/out" > "$repo/.gitleaksignore"
   gc -C "$repo" add .gitleaksignore; gc -C "$repo" commit -q -m "ignore it"

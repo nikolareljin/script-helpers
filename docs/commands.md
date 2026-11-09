@@ -538,7 +538,9 @@ Usage: scripts/check_private_names.sh [--tree|--commits <range>|--file <path>|--
   --names <a,b>       Comma-separated names, instead of a list file. For tests.
   --repo <path>       Repository to scan (default: cwd).
   --only-public       Do nothing unless this repository is public, per the list.
-  --for-repo <name>   Judge visibility by this repository name, not the git remote.
+                      The list is read as namespace/name; an unlisted one is checked.
+  --for-repo <name>   Judge visibility by this repository (owner/name, a URL, or a
+                      bare name), not the git remote.
   --strict-ambiguous  Fail on a bare everyday-word name, or an allowed word written in
                       the shape of a repository reference, rather than warning, and
                       check the tree for a bare one as well. For text about to be
@@ -1554,6 +1556,14 @@ Run a WordPress plugin's PHPUnit tests against the WordPress test suite, in CI o
 ```text
 Usage: scripts/ci_wp_phpunit.sh [options]
   --wp-version <version>        Full X.Y.Z, a minor like 7.1, or "latest" (default: latest).
+                                A minor or "latest" picks the newest matching tag in the
+                                pins file, so a release not yet pinned is not picked up.
+  --wp-commit <sha>             The commit the wordpress-develop tag must point at. Overrides
+                                the pins file for this run (default: from --wp-pins).
+  --wp-pins <path>              Tag-to-commit file, `tag<TAB>commit` per line (default:
+                                config/wordpress_develop_pins.tsv in script-helpers).
+  --allow-unpinned-wp <true|false> Clone a tag the pins file does not list, unchecked
+                                (default: false, which exits 2 for such a tag).
   --wp-tests-dir <path>         Absolute path for the test library (default: /tmp/wordpress-tests-lib).
   --wp-core-dir <path>          Absolute path for WordPress core (default: /tmp/wordpress).
   --multisite <0|1>             Run the suite as multisite (default: 0).
@@ -1580,10 +1590,14 @@ Exit codes:
 ```text
 0  The tests passed (also -h/--help).
 1  The database did not start, the WordPress test library could not be
-provisioned, or a step failed.
+provisioned, the cloned tag does not point at the pinned commit, or a
+step failed.
 2  Bad arguments: unknown option, an option without its value, a relative
-or unsafe --wp-tests-dir or --wp-core-dir, missing --workdir, or a
-database host a container cannot reach.
+or unsafe --wp-tests-dir or --wp-core-dir, missing --workdir, a
+database host a container cannot reach, a --wp-commit that is not 40
+hex digits, an unreadable --wp-pins, a --wp-version that is not X.Y.Z,
+X.Y or latest, or a WordPress tag or minor the pins file does not list
+(without --allow-unpinned-wp true).
 N  The PHPUnit command exits with its own code.
 ```
 

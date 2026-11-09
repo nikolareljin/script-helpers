@@ -16,7 +16,7 @@ dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$dir/security_notice.sh"
 hook="${1:-}"; shift
 tmp="$(mktemp -d)"
-trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf -- "$tmp"; fi' EXIT
 fail() { security_notice "$(security_notice_tool "$tmp/check")"; exit 1; }
 case "$hook" in
   pre-push)
