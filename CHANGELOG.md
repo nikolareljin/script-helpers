@@ -1,5 +1,7 @@
 ## Unreleased
 
+- **`check_private_names.sh --only-public` looks the repository up as `namespace/name`.** The list holds several accounts, and it matched the name alone, first row wins: with `alpha/foo` private and `testns/foo` public, a push to `testns/foo` read as private and the check was switched off there. The namespace comes from the remote or `--for-repo` (`owner/name`, a URL); a bare `--for-repo name` skips the check only when every repository of that name is private, and a namespace/name the list does not hold is checked. Tests: new cases in `tests/private_names_test.sh` (4 fail against 0.62.0).
+
 - Check archive member names, directories and link targets for credentials and PII. Refuse oversized member lists and JSON beyond the parser nesting limit.
 
 - Refuse PII filenames and archive members even when an email address has a document suffix.

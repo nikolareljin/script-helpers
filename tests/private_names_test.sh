@@ -473,7 +473,7 @@ pub="$tmp/pub.tsv"; priv="$tmp/priv.tsv"
   printf '# visibility\tnamespace\tname\tcode\tflags\n'
   printf 'private\ttestns\tbluewidget\tR-111\t\n'
   printf 'private\ttestns\t%s\tR-002\t\n' "$(basename "$repo")"; } > "$priv"
-git_t -C "$repo" remote add origin "git@github.com:example/$(basename "$repo").git"
+git_t -C "$repo" remote add origin "git@github.com:testns/$(basename "$repo").git"
 
 ( cd "$repo" && printf 'about bluewidget' | bash "$GATE" --stdin --only-public --list "$pub" >/dev/null 2>&1 )
 [[ $? == 1 ]] && ok "--only-public checks a public repository" \
@@ -486,6 +486,43 @@ git_t -C "$repo" remote add origin "git@github.com:example/$(basename "$repo").g
 ( cd "$repo" && printf 'about bluewidget' | bash "$GATE" --stdin --only-public --list "$list" >/dev/null 2>&1 )
 [[ $? == 1 ]] && ok "--only-public checks an unlisted repository rather than assuming it is private" \
               || error "--only-public assumed an unlisted repository was private"
+
+# The list holds several accounts, and one name can be private in one and
+# public in another. The row is matched as namespace/name: the private row,
+# sorted first, must not read as this public repository's visibility and
+# switch the check off. The bug: `alpha/<repo>` private, `testns/<repo>`
+# public, remote testns -> "private", exit 0, and a name went public.
+both="$tmp/both.tsv"
+{ printf '# generated: %s source: test\n' "$today"
+  printf '# visibility\tnamespace\tname\tcode\tflags\n'
+  printf 'private\talpha\t%s\tR-003\tqualified-only\n' "$(basename "$repo")"
+  printf 'private\ttestns\tbluewidget\tR-111\t\n'
+  printf 'public\ttestns\t%s\t-\t\n' "$(basename "$repo")"; } > "$both"
+( cd "$repo" && printf 'about bluewidget' | bash "$GATE" --stdin --only-public --list "$both" >/dev/null 2>&1 )
+[[ $? == 1 ]] && ok "--only-public checks a public repository whose name is private in another namespace" \
+              || error "--only-public skipped a public repository because another namespace has a private one of that name"
+( cd "$repo" && printf 'about bluewidget' | bash "$GATE" --stdin --only-public --for-repo "https://github.com/testns/$(basename "$repo").git" --list "$both" >/dev/null 2>&1 )
+[[ $? == 1 ]] && ok "--for-repo with a namespace is matched as namespace/name" \
+              || error "--for-repo with a namespace read another namespace's private row"
+( cd "$repo" && printf 'about bluewidget' | bash "$GATE" --stdin --only-public --for-repo "git@github.com:alpha/$(basename "$repo").git" --list "$both" >/dev/null 2>&1 )
+[[ $? == 0 ]] && ok "--for-repo naming the private namespace skips the check" \
+              || error "--for-repo naming the private namespace did not skip the check"
+( cd "$repo" && printf 'about bluewidget' | bash "$GATE" --stdin --only-public --for-repo "https://github.com/alpha/$(basename "$repo").git/" --list "$both" >/dev/null 2>&1 )
+[[ $? == 0 ]] && ok "--for-repo with a trailing slash after .git still names the repository" \
+              || error "--for-repo with a trailing slash after .git was not read as the repository"
+# A bare name gives no namespace. Then the check is skipped only when every row
+# of that name is private; one public row anywhere means it runs.
+( cd "$repo" && printf 'about bluewidget' | bash "$GATE" --stdin --only-public --for-repo "$(basename "$repo")" --list "$both" >/dev/null 2>&1 )
+[[ $? == 1 ]] && ok "--for-repo with a bare name checks when the name is public anywhere" \
+              || error "--for-repo with a bare name skipped a name that is public in one namespace"
+( cd "$repo" && printf 'about bluewidget' | bash "$GATE" --stdin --only-public --for-repo "$(basename "$repo")" --list "$priv" >/dev/null 2>&1 )
+[[ $? == 0 ]] && ok "--for-repo with a bare name skips when every row of that name is private" \
+              || error "--for-repo with a bare name checked a name that is private everywhere"
+# The same name in another namespace only, private: this repository is unlisted
+# there and is checked, not assumed private.
+( cd "$repo" && printf 'about bluewidget' | bash "$GATE" --stdin --only-public --for-repo "git@github.com:other/$(basename "$repo").git" --list "$priv" >/dev/null 2>&1 )
+[[ $? == 1 ]] && ok "--only-public checks a repository listed only under another namespace" \
+              || error "--only-public read another namespace's private row for an unlisted repository"
 
 # --names, the list-free path used by callers that already know the names.
 printf 'about bluewidget' | bash "$GATE" --stdin --names "bluewidget,other" >/dev/null 2>&1

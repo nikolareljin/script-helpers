@@ -538,7 +538,9 @@ Usage: scripts/check_private_names.sh [--tree|--commits <range>|--file <path>|--
   --names <a,b>       Comma-separated names, instead of a list file. For tests.
   --repo <path>       Repository to scan (default: cwd).
   --only-public       Do nothing unless this repository is public, per the list.
-  --for-repo <name>   Judge visibility by this repository name, not the git remote.
+                      The list is read as namespace/name; an unlisted one is checked.
+  --for-repo <name>   Judge visibility by this repository (owner/name, a URL, or a
+                      bare name), not the git remote.
   --strict-ambiguous  Fail on a bare everyday-word name, or an allowed word written in
                       the shape of a repository reference, rather than warning, and
                       check the tree for a bare one as well. For text about to be

@@ -112,7 +112,11 @@ Bundled CLIs
   assumed private: an unknown repository is most likely one created since the
   list was made, and those are exactly where a wrong guess would hide a leak.
   That is what lets one hook be installed everywhere instead of only where
-  someone remembered to configure it.
+  someone remembered to configure it. The repository is looked up as
+  `namespace/name`, taken from the remote (or `--for-repo`), so a private
+  repository of the same name in another account does not make a public one
+  read as private. A bare `--for-repo name` gives no namespace; the check is
+  then skipped only when every repository of that name is private.
 
   Matching is `grep -iF`, deliberately not `-w`: a hyphen is a word boundary, so
   `-w` misses a name inside a longer path or a possessive. A name your list
