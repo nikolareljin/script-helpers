@@ -1265,24 +1265,29 @@ Two behaviours worth knowing before you automate anything:
 Secret scanning
 ---------------
 
-`.gitleaksignore` carries one line per finding a person has looked at and
-accepted, as `path:rule:line`. Two entries today, both false positives on a
-variable *name* rather than a value: an empty `db_password=""` default, and a
-dummy tap token in a test whose whole point is asserting the token never
-reaches `argv` or `.git/config`.
+This repository commits no `.gitleaksignore` and no `.gitleaks.toml`: the tree
+scans clean as it is, and a line that would be read as a credential is written
+so that it is not (a test assembles its sample keys from short pieces at run
+time). A finding a person has looked at and accepted goes in
+`.git/gitleaksignore`, one line per finding as `path:rule:line` (or
+`commit:path:rule:line` for one in history). That file is local to the clone,
+and it is the only one `check_sensitive.sh` reads: a committed
+`.gitleaksignore` is not, so a commit cannot carry the acceptance of its own
+key.
 
 **Fingerprints, not allowlists, and that distinction is measured rather than
 assumed.** A `.gitleaks.toml` allowlist keyed on a path excludes that entire
 file from every rule - even with `condition = "AND"`, which reads as though it
-should narrow it. Two randomly generated secrets planted in the allowlisted
-files took this repository from 4 findings to **0**. The same two planted with
-the fingerprint file in place are still reported. A fingerprint names one rule
-at one line and cannot do anything else.
+should narrow it. Two randomly generated secrets planted in allowlisted files
+took this repository from 4 findings to **0**. The same two planted with a
+fingerprint file in place are still reported. A fingerprint names one rule at
+one line and cannot do anything else.
 
-So after editing that file, check it the only way that means anything:
+After accepting a finding, check the fingerprint the only way that means
+anything:
 
 ```bash
-# plant a random secret in one of the ignored files, confirm it is still caught
+# plant a random secret in the file the fingerprint names, confirm it is still caught
 printf '\napi_key="%s"\n' "$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 40)" \
   >> scripts/ci_pimcore_bundle_check.sh
 # the pinned image and version live in lib/ci_defaults.sh, so this does not go stale

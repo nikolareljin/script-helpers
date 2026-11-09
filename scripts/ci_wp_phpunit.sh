@@ -4,6 +4,12 @@
 # USAGE: scripts/ci_wp_phpunit.sh [options]
 # PARAMETERS:
 #   --wp-version <version>        Full X.Y.Z, a minor like 7.1, or "latest" (default: latest).
+#   --wp-commit <sha>             The commit the wordpress-develop tag must point at. Overrides
+#                                 the pins file for this run (default: from --wp-pins).
+#   --wp-pins <path>              Tag-to-commit file, `tag<TAB>commit` per line (default:
+#                                 config/wordpress_develop_pins.tsv in script-helpers).
+#   --allow-unpinned-wp <true|false> Clone a tag the pins file does not list, unchecked
+#                                 (default: false, which exits 2 for such a tag).
 #   --wp-tests-dir <path>         Absolute path for the test library (default: /tmp/wordpress-tests-lib).
 #   --wp-core-dir <path>          Absolute path for WordPress core (default: /tmp/wordpress).
 #   --multisite <0|1>             Run the suite as multisite (default: 0).
@@ -26,10 +32,13 @@
 # EXIT_CODES:
 #   0  The tests passed (also -h/--help).
 #   1  The database did not start, the WordPress test library could not be
-#      provisioned, or a step failed.
+#      provisioned, the cloned tag does not point at the pinned commit, or a
+#      step failed.
 #   2  Bad arguments: unknown option, an option without its value, a relative
-#      or unsafe --wp-tests-dir or --wp-core-dir, missing --workdir, or a
-#      database host a container cannot reach.
+#      or unsafe --wp-tests-dir or --wp-core-dir, missing --workdir, a
+#      database host a container cannot reach, a --wp-commit that is not 40
+#      hex digits, an unreadable --wp-pins, or a WordPress tag the pins file
+#      does not list (without --allow-unpinned-wp true).
 #   N  The PHPUnit command exits with its own code.
 # EXAMPLE:
 #   scripts/ci_wp_phpunit.sh --db-image mysql:8.0 --wp-version 6.5
@@ -41,9 +50,15 @@
 # bin/install-wp-tests.sh to provide that; this replaces it, so the same
 # provisioning runs in CI and on a laptop.
 #
-# The library and core come from one wordpress-develop tarball, so they cannot
+# The library and core come from one wordpress-develop checkout, so they cannot
 # disagree about the version under test. Fetching core from wordpress.org
 # separately is how those two drift apart.
+#
+# The checkout is a shallow clone of the release tag, and its commit must be
+# the one config/wordpress_develop_pins.tsv records for that tag. A tag can be
+# moved and an archive re-generated; a commit id cannot be forged. A tag the
+# file does not list is refused unless --allow-unpinned-wp true says the caller
+# accepts whatever the tag points at today.
 #
 # With --db-image the database runs in Docker and is removed on exit, which is
 # what makes this usable locally. In CI the database usually already exists, so
@@ -60,6 +75,9 @@ shlib_import logging help docker ci_stack
 usage() { show_help "${BASH_SOURCE[0]}"; }
 
 wp_version="latest"
+wp_commit=""
+wp_pins="${SCRIPT_HELPERS_DIR}/config/wordpress_develop_pins.tsv"
+allow_unpinned_wp="false"
 wp_tests_dir="/tmp/wordpress-tests-lib"
 wp_core_dir="/tmp/wordpress"
 multisite="0"
@@ -79,6 +97,9 @@ skip_provision="false"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --wp-version) require_value "$@" || exit 2; wp_version="$2"; shift 2 ;;
+    --wp-commit) require_value "$@" || exit 2; wp_commit="$2"; shift 2 ;;
+    --wp-pins) require_value "$@" || exit 2; wp_pins="$2"; shift 2 ;;
+    --allow-unpinned-wp) require_value "$@" || exit 2; allow_unpinned_wp="$2"; shift 2 ;;
     --wp-tests-dir) require_value "$@" || exit 2; wp_tests_dir="$2"; shift 2 ;;
     --wp-core-dir) require_value "$@" || exit 2; wp_core_dir="$2"; shift 2 ;;
     --multisite) require_value "$@" || exit 2; multisite="$2"; shift 2 ;;
@@ -262,7 +283,38 @@ if [[ "$skip_provision" == "true" ]]; then
   log_info "Reusing the test library already in ${wp_tests_dir}"
 else
   wp_tag="$(resolve_wp_tag "$wp_version")"
+  # wordpress-develop release tags are X.Y.Z. Anything else, from the version
+  # API or the tags API, is not handed to git as a ref name.
+  if [[ ! "$wp_tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    log_error "'${wp_tag}' is not a release tag (X.Y.Z); refusing to clone it."
+    exit 1
+  fi
   log_info "WordPress under test: ${wp_tag} (requested '${wp_version}')"
+
+  # Decided before anything is removed or fetched: a refusal leaves the
+  # existing library in place and contacts nothing.
+  if [[ -n "$wp_commit" ]]; then
+    if [[ ! "$wp_commit" =~ ^[0-9a-f]{40}$ ]]; then
+      log_error "--wp-commit must be 40 lowercase hex digits, got '${wp_commit}'."
+      exit 2
+    fi
+    want_commit="$wp_commit"
+  else
+    if [[ ! -r "$wp_pins" ]]; then
+      log_error "Cannot read the pins file ${wp_pins} (--wp-pins)."
+      exit 2
+    fi
+    want_commit="$(awk -F'\t' -v tag="$wp_tag" '!/^#/ && $1 == tag && $2 ~ /^[0-9a-f]{40}$/ { print $2; exit }' "$wp_pins")"
+    if [[ -z "$want_commit" ]]; then
+      if [[ "$allow_unpinned_wp" == "true" ]]; then
+        log_warn "${wp_tag} is not in ${wp_pins}; cloning it unchecked (--allow-unpinned-wp true)."
+      else
+        log_error "${wp_tag} is not in ${wp_pins}, so its commit cannot be checked."
+        log_error "Add a line '${wp_tag}<TAB><commit>' there, pass --wp-commit <sha>, or --allow-unpinned-wp true."
+        exit 2
+      fi
+    fi
+  fi
 
   rm -rf -- "$wp_tests_dir" "$wp_core_dir"
   mkdir -p "$wp_tests_dir" "$wp_core_dir"
@@ -275,13 +327,26 @@ else
   # and $$ is the top-level shell's pid in every subshell, so the comparison
   # degrades to always-true there rather than to always-false.
   trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf -- "$tmp"; cleanup; fi' EXIT
-  curl -fsSL -o "${tmp}/wordpress-develop.tar.gz" \
-    "https://github.com/WordPress/wordpress-develop/archive/refs/tags/${wp_tag}.tar.gz"
-  tar -xzf "${tmp}/wordpress-develop.tar.gz" -C "$tmp"
+  root="${tmp}/wordpress-develop"
+  if ! git clone -q --depth 1 --branch "$wp_tag" -c advice.detachedHead=false \
+      https://github.com/WordPress/wordpress-develop.git "$root"; then
+    log_error "Could not clone wordpress-develop at tag ${wp_tag}."
+    exit 1
+  fi
+  got_commit="$(git -C "$root" rev-parse HEAD 2>/dev/null || true)"
+  if [[ ! "$got_commit" =~ ^[0-9a-f]{40}$ ]]; then
+    log_error "Could not read the commit of the ${wp_tag} checkout."
+    exit 1
+  fi
+  if [[ -n "$want_commit" && "$got_commit" != "$want_commit" ]]; then
+    log_error "wordpress-develop tag ${wp_tag} points at ${got_commit}, pinned ${want_commit}; nothing provisioned."
+    log_error "If the release was re-tagged on purpose, update the pins file (--wp-pins) or pass --wp-commit."
+    exit 1
+  fi
+  log_info "wordpress-develop ${wp_tag} at ${got_commit}${want_commit:+ (pinned)}"
 
-  root="${tmp}/wordpress-develop-${wp_tag}"
   if [[ ! -d "${root}/tests/phpunit/includes" ]]; then
-    log_error "${wp_tag} has no tests/phpunit/includes; the tarball layout changed."
+    log_error "${wp_tag} has no tests/phpunit/includes; the repository layout changed."
     exit 1
   fi
 

@@ -1556,6 +1556,12 @@ Run a WordPress plugin's PHPUnit tests against the WordPress test suite, in CI o
 ```text
 Usage: scripts/ci_wp_phpunit.sh [options]
   --wp-version <version>        Full X.Y.Z, a minor like 7.1, or "latest" (default: latest).
+  --wp-commit <sha>             The commit the wordpress-develop tag must point at. Overrides
+                                the pins file for this run (default: from --wp-pins).
+  --wp-pins <path>              Tag-to-commit file, `tag<TAB>commit` per line (default:
+                                config/wordpress_develop_pins.tsv in script-helpers).
+  --allow-unpinned-wp <true|false> Clone a tag the pins file does not list, unchecked
+                                (default: false, which exits 2 for such a tag).
   --wp-tests-dir <path>         Absolute path for the test library (default: /tmp/wordpress-tests-lib).
   --wp-core-dir <path>          Absolute path for WordPress core (default: /tmp/wordpress).
   --multisite <0|1>             Run the suite as multisite (default: 0).
@@ -1582,10 +1588,13 @@ Exit codes:
 ```text
 0  The tests passed (also -h/--help).
 1  The database did not start, the WordPress test library could not be
-provisioned, or a step failed.
+provisioned, the cloned tag does not point at the pinned commit, or a
+step failed.
 2  Bad arguments: unknown option, an option without its value, a relative
-or unsafe --wp-tests-dir or --wp-core-dir, missing --workdir, or a
-database host a container cannot reach.
+or unsafe --wp-tests-dir or --wp-core-dir, missing --workdir, a
+database host a container cannot reach, a --wp-commit that is not 40
+hex digits, an unreadable --wp-pins, or a WordPress tag the pins file
+does not list (without --allow-unpinned-wp true).
 N  The PHPUnit command exits with its own code.
 ```
 

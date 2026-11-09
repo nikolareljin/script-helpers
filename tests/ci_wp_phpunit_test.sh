@@ -6,10 +6,11 @@
 # EXAMPLE: bash tests/ci_wp_phpunit_test.sh
 # ----------------------------------------------------
 #
-# The provisioning downloads a 57 MB tarball, so what is asserted here is the
-# part that can be wrong without the network: the refusals, and the arguments
-# handed to docker. `--wp-tests-dir` reaches `rm -rf`, so a caller passing "."
-# would delete the plugin under test.
+# The provisioning clones wordpress-develop, so what is asserted here is the
+# part that can be wrong without the network: the refusals, the arguments
+# handed to docker, and the pin check, driven through a stubbed git.
+# `--wp-tests-dir` reaches `rm -rf`, so a caller passing "." would delete the
+# plugin under test.
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -257,6 +258,116 @@ elif grep -qx -- '-v' <<< "$(grep -A2 -x -- 'rm' "$tmp/argv")"; then
 else
   error "docker rm ran without -v; the container's volume would be orphaned"
 fi
+
+# 11. The pin check. git is stubbed: `clone` lays out the files the script
+#     reads, `rev-parse HEAD` answers with the content of $tmp/fake_sha. A full
+#     X.Y.Z version resolves without the network.
+pins="$ROOT_DIR/config/wordpress_develop_pins.tsv"
+bad_pins="$(grep -v '^#' "$pins" | awk -F'\t' 'NF != 2 || $1 !~ /^[0-9]+\.[0-9]+\.[0-9]+$/ || $2 !~ /^[0-9a-f]{40}$/ { print }')"
+dup_pins="$(grep -v '^#' "$pins" | cut -f1 | sort | uniq -d)"
+if [[ -z "$bad_pins" && -z "$dup_pins" ]]; then
+  note "the pins file is tag<TAB>commit per line, each tag once"
+else
+  error "pins file: bad lines '${bad_pins}' duplicate tags '${dup_pins}'"
+fi
+pinned_tag="7.1.4"
+pinned_sha="$(awk -F'\t' -v t="$pinned_tag" '!/^#/ && $1 == t { print $2 }' "$pins")"
+[[ -n "$pinned_sha" ]] || error "the pins file has no ${pinned_tag}, so the pin cases below prove nothing"
+
+cat > "$tmp/bin/git" <<EOF
+#!/usr/bin/env bash
+printf 'git %s\n' "\$*" >> "$tmp/gitargv"
+if [[ "\$1" == "clone" ]]; then
+  dest="\${@: -1}"
+  mkdir -p "\$dest/tests/phpunit/includes" "\$dest/src"
+  : > "\$dest/tests/phpunit/includes/functions.php"
+  : > "\$dest/src/index.php"
+  printf '%s\n' "dirname( __FILE__ ) . '/src/'" youremptytestdbnamehere yourusernamehere yourpasswordhere localhost \\
+    > "\$dest/wp-tests-config-sample.php"
+  exit 0
+fi
+if [[ "\$*" == *"rev-parse HEAD"* ]]; then cat "$tmp/fake_sha"; exit 0; fi
+exit 0
+EOF
+chmod +x "$tmp/bin/git"
+
+# The stub answers rev-parse with this file's content; the script's other
+# arguments are the same in every case.
+printf '%s\n' "$pinned_sha" > "$tmp/fake_sha"
+wp_args=(--wp-tests-dir "$tmp/wplib" --wp-core-dir "$tmp/wpcore" --workdir "$tmp/proj" --test-command 'true')
+
+# A tag the file does not list is refused before anything is removed or cloned.
+mkdir -p "$tmp/wplib/includes"; : > "$tmp/wplib/includes/functions.php"
+: > "$tmp/gitargv"
+PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version 9.9.9 >"$tmp/out" 2>&1; rc=$?
+if [[ "$rc" == 2 ]] && grep -q "is not in" "$tmp/out" && [[ ! -s "$tmp/gitargv" ]] && [[ -f "$tmp/wplib/includes/functions.php" ]]; then
+  note "an unpinned tag exits 2 with git never called and the old library kept"
+else
+  error "unpinned tag: rc=$rc git='$(cat "$tmp/gitargv")' lib kept=$([[ -f "$tmp/wplib/includes/functions.php" ]] && echo yes || echo no): $(tail -2 "$tmp/out")"
+fi
+
+# ... unless the caller accepts it unchecked.
+: > "$tmp/gitargv"
+PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version 9.9.9 --allow-unpinned-wp true >"$tmp/out" 2>&1; rc=$?
+if [[ "$rc" == 0 ]] && grep -q "unchecked" "$tmp/out" && grep -q -- '--depth 1 --branch 9.9.9' "$tmp/gitargv" && [[ -f "$tmp/wplib/wp-tests-config.php" ]]; then
+  note "--allow-unpinned-wp true clones the tag shallowly and provisions"
+else
+  error "allow-unpinned: rc=$rc git='$(cat "$tmp/gitargv")': $(tail -2 "$tmp/out")"
+fi
+
+# A pinned tag at its commit provisions.
+: > "$tmp/gitargv"
+PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version "$pinned_tag" >"$tmp/out" 2>&1; rc=$?
+if [[ "$rc" == 0 ]] && grep -q "(pinned)" "$tmp/out" && [[ -f "$tmp/wplib/wp-tests-config.php" ]]; then
+  note "a pinned tag at the pinned commit provisions"
+else
+  error "pinned ok: rc=$rc: $(tail -2 "$tmp/out")"
+fi
+
+# A pinned tag at another commit exits 1 with nothing provisioned.
+printf 'a%.0s' {1..40} > "$tmp/fake_sha"; echo >> "$tmp/fake_sha"
+PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version "$pinned_tag" >"$tmp/out" 2>&1; rc=$?
+if [[ "$rc" == 1 ]] && grep -q "pinned ${pinned_sha}" "$tmp/out" && [[ ! -f "$tmp/wplib/wp-tests-config.php" ]]; then
+  note "a pinned tag at another commit exits 1 with nothing provisioned"
+else
+  error "pin mismatch: rc=$rc config=$([[ -f "$tmp/wplib/wp-tests-config.php" ]] && echo written || echo absent): $(tail -2 "$tmp/out")"
+fi
+printf '%s\n' "$pinned_sha" > "$tmp/fake_sha"
+
+# --wp-commit pins a tag the file does not list, and is checked for shape first.
+PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version 9.9.9 --wp-commit "$pinned_sha" >"$tmp/out" 2>&1; rc=$?
+[[ "$rc" == 0 && -f "$tmp/wplib/wp-tests-config.php" ]] && note "--wp-commit pins an unlisted tag" \
+  || error "--wp-commit: rc=$rc: $(tail -2 "$tmp/out")"
+: > "$tmp/gitargv"
+PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version 9.9.9 --wp-commit "$pinned_tag" >"$tmp/out" 2>&1; rc=$?
+[[ "$rc" == 2 && ! -s "$tmp/gitargv" ]] && note "a --wp-commit that is not a commit id exits 2 before any clone" \
+  || error "--wp-commit shape: rc=$rc git='$(cat "$tmp/gitargv")'"
+
+# An unreadable pins file exits 2.
+: > "$tmp/gitargv"
+PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version "$pinned_tag" --wp-pins "$tmp/no-such-pins.tsv" >"$tmp/out" 2>&1; rc=$?
+[[ "$rc" == 2 && ! -s "$tmp/gitargv" ]] && note "an unreadable --wp-pins exits 2" \
+  || error "--wp-pins missing: rc=$rc git='$(cat "$tmp/gitargv")'"
+
+# Another pins file.
+PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version 7.1.4 --wp-pins <(printf '7.1.4\t%s\n' "$pinned_sha") >"$tmp/out" 2>&1; rc=$?
+[[ "$rc" == 0 ]] && note "--wp-pins reads another file" || error "--wp-pins other file: rc=$rc: $(tail -2 "$tmp/out")"
+
+# A version API answer that is not X.Y.Z is not handed to git as a ref. curl
+# is stubbed to answer "latest" with a pre-release name.
+cat > "$tmp/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+printf '{"offers":[{"current":"7.2-RC1"}]}\n'
+EOF
+chmod +x "$tmp/bin/curl"
+: > "$tmp/gitargv"
+PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version latest --allow-unpinned-wp true >"$tmp/out" 2>&1; rc=$?
+if [[ "$rc" == 1 ]] && grep -q "is not a release tag" "$tmp/out" && [[ ! -s "$tmp/gitargv" ]]; then
+  note "a resolved version that is not X.Y.Z exits 1 before any clone"
+else
+  error "non-release tag: rc=$rc git='$(cat "$tmp/gitargv")': $(tail -2 "$tmp/out")"
+fi
+rm -f -- "$tmp/bin/curl"
 
 if [[ $failures -gt 0 ]]; then
   echo "[ci_wp_phpunit_test] FAILED ($failures)" >&2

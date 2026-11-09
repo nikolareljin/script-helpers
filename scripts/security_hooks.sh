@@ -60,7 +60,7 @@ sec_guard() (
       security_notice Security
       return 1
     }
-    trap 'if [[ ${BASHPID-$$} == "$report_owner" && ${BASH_SUBSHELL:-0} == "$report_level" ]]; then rm -rf "${report%/*}"; fi' EXIT
+    trap 'if [[ ${BASHPID-$$} == "$report_owner" && ${BASH_SUBSHELL:-0} == "$report_level" ]]; then rm -rf -- "${report%/*}"; fi' EXIT
     trap 'exit 1' HUP INT TERM
     if ! { printf 'SCRIPT_HELPERS_PRIVATE_SECURITY_REPORT_V1\n' >"$report"; } 2>/dev/null; then
       security_notice Security

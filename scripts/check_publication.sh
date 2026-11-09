@@ -17,7 +17,7 @@ source "$dir/security_notice.sh"
 case "${1:-}" in -h|--help) sed -n '2,/^set -/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;; esac
 umask 077
 tmp="$(mktemp -d)"
-trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf -- "$tmp"; fi' EXIT
 if [[ "${1:-}" == --stdin && $# -eq 1 ]]; then
   cat > "$tmp/text"
   set -- --file "$tmp/text"
