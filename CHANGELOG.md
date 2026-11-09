@@ -1,3 +1,12 @@
+## Unreleased
+
+- Check archive member names, directories and link targets for credentials and PII. Refuse oversized member lists and JSON beyond the parser nesting limit.
+
+- Refuse PII filenames and archive members even when an email address has a document suffix.
+
+- Keep security diagnostics local and refuse scanner output before commit, push, or publication.
+- Check filenames, branch names and annotated tag names for sensitive data. Empty files are checked, and CI hides branch text that cannot pass the publication checks.
+
 ## 2026-11-07 — v0.62.0
 
 ### Fixed
@@ -586,7 +595,7 @@
   `[network]` does not exist yet (before the first start). Without one it
   keeps the bridge probe and says the project's network was not checked.
 - **A secret blocks the push.** The pre-push run (`preflight --quick`) and a
-  full `./dev preflight` ran gitleaks report only: `leaks found: 1` printed a
+  full `./dev preflight` ran gitleaks report only: a detected secret printed a
   WARN, the summary said `PASS  security scan (report only)` and the push went
   out. Gitleaks is now its own `secret scan` step in git mode with
   `--fail-on-findings`, so a committed secret fails the run. Git mode also stops

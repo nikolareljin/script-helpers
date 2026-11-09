@@ -419,11 +419,20 @@ chmod 755 "$tmp/emptytmp"
 git checkout -q -- base.sh; g branch -q -D nowrite
 
 # --- the hook: checks run, tests do not
-export SECURITY_GATE_ALLOW_UNCHECKED=1 PRIVATE_NAMES_AUTO_REFRESH=false
-export PRIVATE_NAMES_FILE=/nonexistent/private-names.tsv
+export PRIVATE_NAMES_AUTO_REFRESH=false
+printf 'private\tacme\tzqxprivaterepo\tR-999\t\n' > "$tmp/names.tsv"
+export PRIVATE_NAMES_FILE="$tmp/names.tsv"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/clean-gitleaks"
+chmod +x "$tmp/clean-gitleaks"
+export GITLEAKS_BIN="$tmp/clean-gitleaks"
 hook() {
   printf 'refs/heads/main %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$(git rev-parse origin/main)" \
-    | bash "$HOOK" origin "$tmp/origin.git" 2>&1
+    | bash "$HOOK" origin "$tmp/origin.git" > "$tmp/hook-out" 2>&1
+  local hook_rc=$? report
+  cat "$tmp/hook-out"
+  report=$(sed -n 's/^Security .* Local report: //p' "$tmp/hook-out" | tail -1)
+  [[ ! -f "$report" ]] || cat "$report"
+  return "$hook_rc"
 }
 commit "suite" Makefile $'test:\n\t@echo SUITE-RAN; exit 1\n'
 out="$(hook)"; rc=$?
@@ -473,12 +482,12 @@ for v in quick off; do
   out="$(printf 'refs/heads/main %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$(git rev-parse origin/main)" \
     | bash "$tmp/bare-hook/pre-push" origin "$tmp/origin.git" 2>&1)"; rc=$?
   if [[ $v == quick ]]; then
-    [[ $rc -eq 1 ]] && grep -q 'push_checks.sh is not next to this hook' <<<"$out" \
+    [[ $rc -eq 1 ]] && grep -q 'security_hooks.sh missing' <<<"$out" \
       && ok "push-tests quick with no runner beside the hook refuses" \
       || error "push-tests quick, no runner: exit $rc: $(tail -2 <<<"$out")"
   else
-    ! grep -q 'push_checks.sh is not next to this hook' <<<"$out" \
-      && ok "push-tests off with no runner beside the hook is not refused for it" \
+    [[ $rc -eq 1 ]] && grep -q 'security_hooks.sh missing' <<<"$out" \
+      && ok "push-tests off still refuses a missing security library" \
       || error "push-tests off, no runner: refused"
   fi
 done

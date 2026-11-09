@@ -82,6 +82,8 @@ for run in "preflight.sh --security-only" "ci_security.sh"; do
   s="${run%% *}"
   # shellcheck disable=SC2086  # $run is the script and its options
   rc=0; (cd "$repo" && CI='' PATH="$no_tmp_path" bash "$ROOT_DIR/scripts/"$run) >"$tmp/out" 2>&1 || rc=$?
+  report=$(sed -n 's/^Local security report: //p' "$tmp/out" | tail -1)
+  [[ ! -f "$report" ]] || cat "$report" >> "$tmp/out"
   if [[ "$rc" -ne 0 ]] && grep -q 'private temp directory' "$tmp/out"; then ok "$s refuses without a temp dir"
   else error "$s without a temp dir: rc=$rc, want non-zero"; sed 's/^/    /' "$tmp/out" >&2; fi
   rc=0; (cd "$repo" && CI='' PATH="$no_tmp_path" bash "$ROOT_DIR/scripts/$s" --help) >"$tmp/out" 2>&1 || rc=$?

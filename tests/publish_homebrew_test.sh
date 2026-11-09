@@ -26,6 +26,8 @@ trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 TOKEN="tok-SECRET-0123456789abcdef"  # gitleaks:allow (test fixture)
 TOKEN_B64="$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')"
 REAL_GIT="$(command -v git)"
+# Clone authentication must not depend on the caller's checkout or local config.
+cd "$tmp" || exit 1
 
 # The tap lives in a local bare repository. github.com URLs are redirected to it
 # through a throwaway HOME, so the script's real clone and push run unchanged.

@@ -1,13 +1,14 @@
 # Security gates in the git hooks
 
-The shared hooks refuse three kinds of text before it leaves the machine, and
-report a fourth:
+The shared hooks refuse prohibited content before it leaves the machine.
+Foxguard findings remain advisory, and scanner diagnostics stay local:
 
 | step | hook | on a hit |
 |---|---|---|
 | private repository names in a public repository (`check_private_names.sh`) | `commit-msg`, `pre-push` | block |
 | credentials, through gitleaks (`check_sensitive.sh`) | `pre-commit`, `commit-msg`, `pre-push` | block |
 | personal identifiers and PII (`check_sensitive.sh`) | `pre-commit`, `commit-msg`, `pre-push` | block |
+| scanner results in staged blobs, outgoing history, tags and metadata | `pre-commit`, `commit-msg`, `pre-push` | block |
 | foxguard static analysis of the changed files | `pre-push` | warning only |
 
 Order in `pre-push`: deletions-only and nothing-to-send shortcuts (a ref
@@ -33,11 +34,12 @@ gh pr view 12 --json body -q .body | scripts/check_sensitive.sh --stdin
 scripts/check_sensitive.sh --list-identifiers            # what is checked, counts only
 ```
 
-Only added text is checked. A commit that deletes a value passes; a push that
+Content checks read added text. Filename and outgoing ref checks also cover
+empty files, branches and annotated tag names. A commit that deletes a value passes; a push that
 adds a value in one commit and removes it in the next is still refused, because
 the push publishes both commits. Rewrite the commit that added it.
 
-A pure rename adds nothing. A merge commit is read as a combined diff: only
+A pure rename checks the new filename. A merge commit is read as a combined diff: only
 lines it adds against every parent (a conflict resolution) count; the rest
 came from a parent, which is checked as its own commit. A pushed annotated tag
 adds its message (without the signature). A binary file has no lines to read:
@@ -45,8 +47,7 @@ it is named as `binary file not checked`, never skipped silently.
 
 A missing private-name list, gitleaks or checker script refuses the push; it
 is never reported as "push allowed". Build the list and
-install gitleaks, or let one push through with
-`SECURITY_GATE_ALLOW_UNCHECKED=1 git push`.
+install gitleaks before retrying. Mandatory checks cannot be bypassed with environment overrides.
 
 A push checks what the target remote does not
 have: a new branch is compared with that remote's refs only, so a commit
@@ -54,17 +55,14 @@ already on another remote (a private one) is still checked; a push to a bare
 URL checks the branch's whole history. Private names are judged against the
 push target's visibility, not origin's.
 
-| exit | meaning | `pre-push` | `pre-commit`, `commit-msg` |
-|---|---|---|---|
-| 0 | nothing found | continue | continue |
-| 1 | found | refuse | refuse |
-| 2 | could not check (gitleaks missing or failed, commits unreadable, terms file or machine identifiers unreadable, `HOME` unset, a scan that crashed) | refuse; `SECURITY_GATE_ALLOW_UNCHECKED=1 git push` lets one push through, with a warning | warn; the push checks again |
+| exit | meaning | commit and push |
+|---|---|---|
+| 0 | check completed without a blocking issue | continue |
+| 1 | prohibited content | refuse |
+| 2 | check could not complete | refuse |
 
-A check that did not run is not a clean one. In `pre-push` every "could not
-check" refuses: exit 2 from either checker, a checker script missing, commit
-messages that could not be read. `SECURITY_GATE_ALLOW_UNCHECKED=1`
-(`SENSITIVE_ALLOW_UNCHECKED=1` is the same) is narrower than `--no-verify`:
-every check that can run still runs, and the output says what was skipped.
+`SECURITY_GATE_ALLOW_UNCHECKED` and `SENSITIVE_ALLOW_UNCHECKED` do not permit an
+unchecked commit or push. Repair the missing checker, scanner or input first.
 
 ### What it looks for
 
@@ -111,20 +109,17 @@ Each allow is printed, so it shows in the output:
 | `gitleaks:allow` on the line | credentials, that line |
 | `.git/gitleaksignore`, gitleaks fingerprints | credentials, that clone (a committed `.gitleaksignore` is ignored here, so a commit cannot list its own key; `preflight.sh`'s secret scan still reads it) |
 
-`--no-inline-allow` ignores `sensitive:allow`. The Claude Code hook uses it:
-the agent writes the text it is checked on, so a marker in it is not an
-allowance from the user.
+`--no-inline-allow` ignores both `sensitive:allow` and `gitleaks:allow`.
+Mandatory commit, push and publication checks use it: text cannot approve its
+own suppression. The standalone checker retains inline allowances by default.
 
 ## foxguard
 
 foxguard is a static-analysis scanner,
 [0sec-labs/foxguard](https://github.com/0sec-labs/foxguard). The hook runs it on
-the files a push adds or changes, one file per run, and prints every line of
-output as `[pre-push] WARNING (foxguard): ...`, then a framed summary and the
-`scripts/foxguard_report.sh` command that saves the findings as JSON. It never
-blocks: its shell taint rules flag correct code. Not installed: the push
-installs it and runs it; when that cannot happen, a framed WARNING says the
-scan did not run and how to install it, and the push goes on.
+the files a push adds or changes. Findings remain advisory, but every diagnostic
+line is captured in an owner-only report outside the checkout. The local hook
+shows that report path; inspect it locally. CI shows no path or scanner output.
 
 It is looked up as `FOXGUARD_CMD`, then the pinned binary in
 `~/.cache/script-helpers/foxguard/<version>/`, then `foxguard` on `PATH`.
@@ -197,7 +192,7 @@ unsigned. `clean` needs [git filter-repo](https://github.com/newren/git-filter-r
 After `verify` passes: create the new repository, protect it, then push
 `public.git` to it. Issues, pull requests and releases are not carried over;
 recreate any that matter from reviewed text. To review history findings in an
-editor, the [leak-lock](https://github.com/nikolareljin/leak-lock) VS Code
+editor, the [leak-lock](https://nikolareljin.github.io/leak-lock/) VS Code
 extension shows secrets across the whole history.
 
 ## Turning it on
@@ -547,3 +542,65 @@ restores the saved global `core.hooksPath`.
   `--claude` fixes both. For scripts, `--status --porcelain --claude` prints
   `claude_user=ok|absent|broken|stale|unknown` (unknown: no Python to read the
   settings), `hook=` and `installed=`.
+
+## Local-only results, before transport
+
+The problem was publication of diagnostic files and scanner output. Masking a
+secret or using a private remote still discloses result metadata. Gitleaks and
+Foxguard results must never be committed, pushed, uploaded, or quoted remotely.
+
+`scripts/check_scan_output.sh` checks staged blobs and every outgoing commit,
+including reports deleted in a later commit. It checks annotated tags, report
+content under changed names, supported archives, and publication text. Exit 2
+also refuses publication. Reports above the inspection limit or unreadable
+archives require local inspection rather than an unchecked push.
+
+`/scans/`, `/scan-results/`, `/security-reports/`, and scanner report patterns are
+ignored. Hooks also reject force-added files. Ordinary scanner configuration
+and reviewed synthetic false-positive ignores remain allowed.
+
+Local hook diagnostics use a private run directory beneath
+`${XDG_STATE_HOME:-$HOME/.local/state}/script-helpers/scans/`. Report commands
+reject destinations inside any Git worktree, including another checkout.
+`foxguard_report.sh` shows its local report path. Inspect the file locally;
+never paste its content into an issue, PR, commit, release, or CI job.
+
+Before metadata publication, run `scripts/check_publication.sh --file <text>`.
+The installed tool hooks also inspect parsed publication text.
+
+On runners, `scripts/install-publication-hooks.sh --ci` installs trusted copies
+outside the checkout and sets job-wide Git hook configuration through
+`GITHUB_ENV`. Subsequent clones and local repository hook settings do not bypass
+the outbound check. The caller supplies external `RUNNER_TEMP` storage.
+
+CI names the failing tool and a verified branch. Unsafe or unverifiable branch
+text becomes "your working branch". A refusal says:
+"Gitleaks check failed" or "Foxguard check failed", the branch, and
+https://nikolareljin.github.io/leak-lock/. Check out the branch locally, run
+Scan Repository in Leak-Lock, fix the issues, then rerun repository tests before pushing.
+It publishes no report path, counts, snippets, fingerprints, report artifacts,
+security uploads, or clean-scan statement. Temporary runner diagnostics are
+deleted, not uploaded. A post-push CI check is secondary merge protection,
+not prevention of the initial upload.
+
+Git can deliberately disable client hooks. A controlled writer with exclusive
+remote-write credentials is required to close that separate bypass.
+
+`scripts/check_scan_output.py` implements the object and report parser;
+`scripts/local_security_report.py` allocates private local files.
+`scripts/publication-hook.sh` is the runner hook installed by the CI installer.
+`scripts/guard_gh.py` checks supported GitHub CLI bodies, input files and release
+assets before the real CLI sends them. The CI installer puts this wrapper first
+on `GITHUB_PATH`; interactive and server-generated publication bodies are refused.
+
+`scripts/security_notice.sh` supplies the shared failure message. It accepts a
+checker name and optional local report path, uses `SH_SECURITY_BRANCH` or GitHub
+branch context (then Git), and prints the Leak-Lock link and local remediation.
+Unknown checker names become Security; report paths are suppressed in CI.
+
+`security_python` in `scripts/security_notice.sh` resolves a working Python 3.8
+or newer from `PATH`. It tries `python3`, then `python`, and skips launchers
+that cannot execute. It prints the executable path and returns 0 on success,
+or returns 1 when neither interpreter is available. It installs nothing.
+
+Archive checks inspect member names, directories and link targets with Gitleaks and PII checks. More than 2,000 members, excessive JSON nesting or an unavailable scanner refuses publication.
