@@ -1556,6 +1556,8 @@ Run a WordPress plugin's PHPUnit tests against the WordPress test suite, in CI o
 ```text
 Usage: scripts/ci_wp_phpunit.sh [options]
   --wp-version <version>        Full X.Y.Z, a minor like 7.1, or "latest" (default: latest).
+                                A minor or "latest" picks the newest matching tag in the
+                                pins file, so a release not yet pinned is not picked up.
   --wp-commit <sha>             The commit the wordpress-develop tag must point at. Overrides
                                 the pins file for this run (default: from --wp-pins).
   --wp-pins <path>              Tag-to-commit file, `tag<TAB>commit` per line (default:
@@ -1593,8 +1595,9 @@ step failed.
 2  Bad arguments: unknown option, an option without its value, a relative
 or unsafe --wp-tests-dir or --wp-core-dir, missing --workdir, a
 database host a container cannot reach, a --wp-commit that is not 40
-hex digits, an unreadable --wp-pins, or a WordPress tag the pins file
-does not list (without --allow-unpinned-wp true).
+hex digits, an unreadable --wp-pins, a --wp-version that is not X.Y.Z,
+X.Y or latest, or a WordPress tag or minor the pins file does not list
+(without --allow-unpinned-wp true).
 N  The PHPUnit command exits with its own code.
 ```
 

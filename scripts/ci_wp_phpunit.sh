@@ -4,6 +4,8 @@
 # USAGE: scripts/ci_wp_phpunit.sh [options]
 # PARAMETERS:
 #   --wp-version <version>        Full X.Y.Z, a minor like 7.1, or "latest" (default: latest).
+#                                 A minor or "latest" picks the newest matching tag in the
+#                                 pins file, so a release not yet pinned is not picked up.
 #   --wp-commit <sha>             The commit the wordpress-develop tag must point at. Overrides
 #                                 the pins file for this run (default: from --wp-pins).
 #   --wp-pins <path>              Tag-to-commit file, `tag<TAB>commit` per line (default:
@@ -37,8 +39,9 @@
 #   2  Bad arguments: unknown option, an option without its value, a relative
 #      or unsafe --wp-tests-dir or --wp-core-dir, missing --workdir, a
 #      database host a container cannot reach, a --wp-commit that is not 40
-#      hex digits, an unreadable --wp-pins, or a WordPress tag the pins file
-#      does not list (without --allow-unpinned-wp true).
+#      hex digits, an unreadable --wp-pins, a --wp-version that is not X.Y.Z,
+#      X.Y or latest, or a WordPress tag or minor the pins file does not list
+#      (without --allow-unpinned-wp true).
 #   N  The PHPUnit command exits with its own code.
 # EXAMPLE:
 #   scripts/ci_wp_phpunit.sh --db-image mysql:8.0 --wp-version 6.5
@@ -282,7 +285,38 @@ if [[ "$skip_provision" == "true" ]]; then
   fi
   log_info "Reusing the test library already in ${wp_tests_dir}"
 else
-  wp_tag="$(resolve_wp_tag "$wp_version")"
+  # "latest" and a minor are answered from the pins file, not upstream: the
+  # newest tag it lists that matches. Otherwise the default (latest) would
+  # point at a release the file does not know the moment WordPress ships one,
+  # and every caller of the default would stop. Upstream is asked only when
+  # nothing pinned matches and the caller accepts an unchecked checkout.
+  pins_readable=true
+  [[ -r "$wp_pins" ]] || pins_readable=false
+  if [[ "$wp_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    wp_tag="$wp_version"
+  elif [[ "$wp_version" == "latest" || "$wp_version" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    if [[ "$pins_readable" != true ]]; then
+      log_error "Cannot read the pins file ${wp_pins} (--wp-pins), which '${wp_version}' is resolved from."
+      exit 2
+    fi
+    wp_tag="$(awk -F'\t' -v want="$wp_version" '
+      !/^#/ && $1 ~ /^[0-9]+\.[0-9]+\.[0-9]+$/ && $2 ~ /^[0-9a-f]{40}$/ {
+        if (want == "latest" || index($1, want ".") == 1) print $1
+      }' "$wp_pins" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)"
+    if [[ -n "$wp_tag" ]]; then
+      log_info "'${wp_version}' is ${wp_tag}, the newest tag pinned in ${wp_pins}."
+    elif [[ "$allow_unpinned_wp" == "true" ]]; then
+      wp_tag="$(resolve_wp_tag "$wp_version")"
+      log_warn "'${wp_version}' matches no pinned tag; ${wp_tag} comes from upstream (--allow-unpinned-wp true)."
+    else
+      log_error "'${wp_version}' matches no tag in ${wp_pins}, so nothing can be checked out and checked."
+      log_error "Add the release there (tag<TAB>commit), name a full X.Y.Z with --wp-commit <sha>, or pass --allow-unpinned-wp true."
+      exit 2
+    fi
+  else
+    log_error "--wp-version must be X.Y.Z, X.Y or latest, got '${wp_version}'."
+    exit 2
+  fi
   # wordpress-develop release tags are X.Y.Z. Anything else, from the version
   # API or the tags API, is not handed to git as a ref name.
   if [[ ! "$wp_tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -300,7 +334,7 @@ else
     fi
     want_commit="$wp_commit"
   else
-    if [[ ! -r "$wp_pins" ]]; then
+    if [[ "$pins_readable" != true ]]; then
       log_error "Cannot read the pins file ${wp_pins} (--wp-pins)."
       exit 2
     fi

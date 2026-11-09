@@ -353,17 +353,65 @@ PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version "$pinned_tag" 
 PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version 7.1.4 --wp-pins <(printf '7.1.4\t%s\n' "$pinned_sha") >"$tmp/out" 2>&1; rc=$?
 [[ "$rc" == 0 ]] && note "--wp-pins reads another file" || error "--wp-pins other file: rc=$rc: $(tail -2 "$tmp/out")"
 
-# A version API answer that is not X.Y.Z is not handed to git as a ref. curl
-# is stubbed to answer "latest" with a pre-release name.
+# 12. "latest" and a minor come from the pins file, not upstream. curl is
+#     stubbed as upstream offering a release the file does not have, so a
+#     lookup there would pick 9.9.9 and then be refused as unpinned.
+cat > "$tmp/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *version-check*) printf '{"offers":[{"current":"9.9.9"}]}\n' ;;
+  *tags*)          printf '[{"name":"9.9.9"},{"name":"7.1.9"},{"name":"7.1.4"}]\n' ;;
+  *)               exit 22 ;;
+esac
+EOF
+chmod +x "$tmp/bin/curl"
+newest_pinned="$(grep -v '^#' "$pins" | cut -f1 | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)"
+printf '%s\n' "$(awk -F'\t' -v t="$newest_pinned" '!/^#/ && $1 == t { print $2 }' "$pins")" > "$tmp/fake_sha"
+: > "$tmp/gitargv"
+PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version latest >"$tmp/out" 2>&1; rc=$?
+if [[ "$rc" == 0 ]] && grep -q "newest tag pinned" "$tmp/out" && grep -q -- "--branch ${newest_pinned} " "$tmp/gitargv"; then
+  note "latest is the newest pinned tag (${newest_pinned}), not upstream's"
+else
+  error "latest: rc=$rc git='$(cat "$tmp/gitargv")': $(tail -2 "$tmp/out")"
+fi
+printf '%s\n' "$pinned_sha" > "$tmp/fake_sha"
+: > "$tmp/gitargv"
+PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version 7.1 >"$tmp/out" 2>&1; rc=$?
+if [[ "$rc" == 0 ]] && grep -q -- "--branch ${pinned_tag} " "$tmp/gitargv"; then
+  note "a minor is its newest pinned tag (7.1 -> ${pinned_tag}), not upstream's 7.1.9"
+else
+  error "minor: rc=$rc git='$(cat "$tmp/gitargv")': $(tail -2 "$tmp/out")"
+fi
+: > "$tmp/gitargv"
+PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version 9.9 >"$tmp/out" 2>&1; rc=$?
+if [[ "$rc" == 2 ]] && grep -q "matches no tag in" "$tmp/out" && [[ ! -s "$tmp/gitargv" ]]; then
+  note "a minor with no pinned tag exits 2 before any clone"
+else
+  error "unpinned minor: rc=$rc git='$(cat "$tmp/gitargv")': $(tail -2 "$tmp/out")"
+fi
+: > "$tmp/gitargv"
+PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version 9.9 --allow-unpinned-wp true >"$tmp/out" 2>&1; rc=$?
+if [[ "$rc" == 0 ]] && grep -q "comes from upstream" "$tmp/out" && grep -q -- '--branch 9.9.9 ' "$tmp/gitargv"; then
+  note "--allow-unpinned-wp true asks upstream for a minor with no pinned tag"
+else
+  error "unpinned minor allowed: rc=$rc git='$(cat "$tmp/gitargv")': $(tail -2 "$tmp/out")"
+fi
+: > "$tmp/gitargv"
+PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version 7.1-beta >"$tmp/out" 2>&1; rc=$?
+[[ "$rc" == 2 && ! -s "$tmp/gitargv" ]] && note "a --wp-version that is not X.Y.Z, X.Y or latest exits 2" \
+  || error "bad version: rc=$rc git='$(cat "$tmp/gitargv")': $(tail -2 "$tmp/out")"
+
+# An upstream answer that is not X.Y.Z is not handed to git as a ref: an empty
+# pins file sends "latest" upstream, and the stub answers with a pre-release.
 cat > "$tmp/bin/curl" <<'EOF'
 #!/usr/bin/env bash
 printf '{"offers":[{"current":"7.2-RC1"}]}\n'
 EOF
-chmod +x "$tmp/bin/curl"
+printf '# tag\tcommit\n' > "$tmp/empty_pins.tsv"
 : > "$tmp/gitargv"
-PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version latest --allow-unpinned-wp true >"$tmp/out" 2>&1; rc=$?
+PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version latest --wp-pins "$tmp/empty_pins.tsv" --allow-unpinned-wp true >"$tmp/out" 2>&1; rc=$?
 if [[ "$rc" == 1 ]] && grep -q "is not a release tag" "$tmp/out" && [[ ! -s "$tmp/gitargv" ]]; then
-  note "a resolved version that is not X.Y.Z exits 1 before any clone"
+  note "an upstream answer that is not X.Y.Z exits 1 before any clone"
 else
   error "non-release tag: rc=$rc git='$(cat "$tmp/gitargv")': $(tail -2 "$tmp/out")"
 fi

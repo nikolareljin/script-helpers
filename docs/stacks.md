@@ -70,8 +70,10 @@ composer or asset command's own code.
 Provisions the WordPress test library and core from one `wordpress-develop`
 release, writes `wp-tests-config.php`, and runs the plugin's tests. A plugin
 needs no `bin/install-wp-tests.sh` of its own. The release tag is cloned
-shallowly and its commit checked against `config/wordpress_develop_pins.tsv`;
-a tag that file does not list is refused (exit 2) unless `--wp-commit <sha>`
+shallowly and its commit checked against `config/wordpress_develop_pins.tsv`.
+`latest` (the default) and a minor like `7.1` mean the newest matching tag in
+that file, so a release that is not yet pinned is not picked up. A full X.Y.Z
+that the file does not list is refused (exit 2) unless `--wp-commit <sha>`
 names the commit or `--allow-unpinned-wp true` accepts it unchecked.
 
 ```bash
