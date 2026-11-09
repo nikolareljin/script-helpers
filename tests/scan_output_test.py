@@ -180,6 +180,14 @@ class PublicationTests(unittest.TestCase):
             for prefix in ("", tool + "\n"):
                 self.check("--stdin", text=prefix + status, expected=1)
 
+    def test_native_csv_and_junit_reports_are_refused(self):
+        header = "Rule" + "ID,Secret,Fingerprint,File\n"
+        self.check("--stdin", text=header, expected=1)
+        xml = '<testsuites><testsuite name="' + "git" + 'leaks"/></testsuites>'
+        self.check("--stdin", text=xml, expected=1)
+        self.check("--stdin", text="RuleID,Description\nfixture,ordinary\n")
+        self.check("--stdin", text='<testsuites><testsuite name="ordinary-unit-tests"/></testsuites>')
+
     def test_annotated_tag_name_cannot_hide_behind_a_safe_ref(self):
         self.git("tag", "-a", "fox" + "guard/19-findings", self.initial, "-m", "fixture")
         oid = self.git("rev-parse", "fox" + "guard/19-findings").stdout.strip()

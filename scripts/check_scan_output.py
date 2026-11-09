@@ -2,6 +2,7 @@
 
 import argparse
 import bz2
+import csv
 import gzip
 import lzma
 import io
@@ -171,6 +172,16 @@ def _inspect(name, raw, depth=0):
     except UnicodeError:
         # Binary blobs are still searched for embedded scanner output.
         text = raw.decode("utf-8", errors="replace")
+    try:
+        columns = {field.strip().lower() for field in next(csv.reader(io.StringIO(text)), [])}
+        if {"ruleid", "secret"} <= columns or {"ruleid", "fingerprint"} <= columns:
+            raise Refused(tool="Gitleaks")
+    except csv.Error:
+        pass
+    if text.lstrip().startswith("<"):
+        suite = re.search(r'''<testsuites?\b[^>]*\bname\s*=\s*["'](gitleaks|foxguard)["']''', text, re.I)
+        if suite:
+            raise Refused(tool="Gitleaks" if suite.group(1).lower() == "gitleaks" else "Foxguard")
     try:
         if structured(json.loads(text)):
             raise Refused()
