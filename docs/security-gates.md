@@ -455,7 +455,7 @@ installed copy.
 | Git for Windows (Windows only) | Claude Code runs hooks through Git Bash | `git --version` in PowerShell |
 | owners | only their github.com repositories are checked | your `gh` account (recorded by setup as `script-helpers.github-user`), plus `git config --global script-helpers.owners` |
 | gitleaks | secret scan; without it every command in your repositories is refused as "could not check" | `setup-hooks.sh --install-gitleaks` installs the pinned build |
-| private-name list | `~/.config/script-helpers/private-names.tsv`; without it every command in your repositories is refused as "could not check" | `refresh_private_names.sh` |
+| private-name list | `~/.config/script-helpers/private-names.tsv`; without it every command in your repositories is refused as "could not check" | `refresh_private_names.sh`; codes and the old names of renamed repositories come from `private-names-codes.tsv` (see [usage](usage.md#codes-and-renamed-repositories)) |
 
 ### Linux and macOS
 
