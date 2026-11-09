@@ -80,6 +80,16 @@ jobs:
           unset CI GITHUB_ACTIONS
           make test
           PRIVATE_CHECK
+          if [[ "$check_rc" -ne 0 ]]; then
+            python3 -I - "$RUNNER_TEMP/local-checks.log" <<'TEST_STATUS'
+          import pathlib, re, sys
+          known = {p.as_posix() for p in pathlib.Path("tests").glob("*_test.sh")}
+          text = pathlib.Path(sys.argv[1]).read_text(errors="replace")
+          names = re.findall(r"(?m)^--- Running: (tests/[A-Za-z0-9_]+_test[.]sh) ---$", text)
+          if names and names[-1] in known:
+              print("Test failed: " + names[-1])
+          TEST_STATUS
+          fi
           rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
           if [[ "$check_rc" -ne 0 ]]; then
             source scripts/security_notice.sh
