@@ -183,10 +183,24 @@ class PublicationTests(unittest.TestCase):
     def test_native_csv_and_junit_reports_are_refused(self):
         header = "Rule" + "ID,Secret,Fingerprint,File\n"
         self.check("--stdin", text=header, expected=1)
-        xml = '<testsuites><testsuite name="' + "git" + 'leaks"/></testsuites>'
+        xml = '<testsuites><testsuite name="' + "git" + 'leaks" tests="' + str(0) + '"/></testsuites>'
         self.check("--stdin", text=xml, expected=1)
         self.check("--stdin", text="RuleID,Description\nfixture,ordinary\n")
         self.check("--stdin", text='<testsuites><testsuite name="ordinary-unit-tests"/></testsuites>')
+
+    def test_reports_in_publication_text_are_refused(self):
+        header = "Rule" + "ID,Secret,Fingerprint,File\n"
+        self.check("--stdin", text="Export:\n```csv\n" + header + "```", expected=1)
+        tool = "git" + "leaks"
+        xml = '<testsuites><testsuite name="' + tool + '" tests="' + str(0) + '"/></testsuites>'
+        self.check("--stdin", text="Export:\n```xml\n" + xml + "\n```", expected=1)
+        self.check("--stdin", text="> 11:00AM INF no " + "leaks found", expected=1)
+        self.check("--stdin", text=tool + " findings: 19", expected=1)
+        self.check("--stdin", text=tool + " clean", expected=1)
+        self.check("--stdin", text=json.dumps({tool: 0}), expected=1)
+        self.check("--stdin", text=json.dumps({tool: "clean"}), expected=1)
+        self.check("--stdin", text=json.dumps({tool: {"findings": []}}), expected=1)
+        self.check("--stdin", text=json.dumps({tool: {"enabled": True, "version": "8.30.1"}}))
 
     def test_private_report_marker_and_wrapped_native_fields(self):
         marker = "SCRIPT_HELPERS_PRIVATE_" + "SECURITY_REPORT_V1"
