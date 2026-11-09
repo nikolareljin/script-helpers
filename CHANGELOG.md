@@ -2,7 +2,7 @@
 
 ### Upgrade notes
 
-- **`ci_wp_phpunit.sh` refuses a WordPress tag that `config/wordpress_develop_pins.tsv` does not list.** `latest` (the default) and a minor such as `7.1` resolve to the newest pinned tag, not upstream's newest, so they keep working. An explicit X.Y.Z that is not pinned exits 2: add the line (`git ls-remote --tags https://github.com/WordPress/wordpress-develop refs/tags/X.Y.Z`), pass `--wp-commit <sha>`, or pass `--allow-unpinned-wp true` to accept it unchecked.
+- **`ci_wp_phpunit.sh` refuses a WordPress tag that `config/wordpress_develop_pins.tsv` does not list.** `latest` (the default) and a minor such as `7.1` resolve to the newest pinned tag, not upstream's newest, so they keep working; a minor with no pinned tag exits 2. An explicit X.Y.Z that is not pinned exits 2: add the line (`git ls-remote --tags https://github.com/WordPress/wordpress-develop refs/tags/X.Y.Z`), pass `--wp-commit <sha>`, or pass `--allow-unpinned-wp true` to accept it unchecked.
 - **The commit and push gates read no committed `.gitleaksignore`.** `check_sensitive.sh` takes accepted gitleaks findings from `.git/gitleaksignore` of the clone only (`docs/usage.md`, "Secret scanning"); a fingerprint in a committed `.gitleaksignore` does not excuse a finding there. This repository's own `.gitleaksignore` is removed and ignored by `.gitignore`. `./dev preflight` and `ci_security.sh` still apply a committed one.
 
 ### Changed
