@@ -1,10 +1,13 @@
-## Unreleased
+## 2026-11-09 — v0.63.0
 
-- **`check_private_names.sh --only-public` looks the repository up as `namespace/name`.** The list holds several accounts, and it matched the name alone, first row wins: with `alpha/foo` private and `testns/foo` public, a push to `testns/foo` read as private and the check was switched off there. The namespace comes from the remote or `--for-repo` (`owner/name`, a URL); a bare `--for-repo name` skips the check only when every repository of that name is private, and a namespace/name the list does not hold is checked. Tests: new cases in `tests/private_names_test.sh` (4 fail against 0.62.0).
+### Upgrade notes
+
+- **`ci_wp_phpunit.sh` refuses a WordPress tag that `config/wordpress_develop_pins.tsv` does not list.** `latest` (the default) and a minor such as `7.1` resolve to the newest pinned tag, not upstream's newest, so they keep working; a minor with no pinned tag exits 2. An explicit X.Y.Z that is not pinned exits 2: add the line (`git ls-remote --tags https://github.com/WordPress/wordpress-develop refs/tags/X.Y.Z`), pass `--wp-commit <sha>`, or pass `--allow-unpinned-wp true` to accept it unchecked.
+- **The commit and push gates read no committed `.gitleaksignore`.** `check_sensitive.sh` takes accepted gitleaks findings from `.git/gitleaksignore` of the clone only (`docs/usage.md`, "Secret scanning"); a fingerprint in a committed `.gitleaksignore` does not excuse a finding there. This repository's own `.gitleaksignore` is removed and ignored by `.gitignore`. `./dev preflight` and `ci_security.sh` still apply a committed one.
+
+### Changed
 
 - **`ci_wp_phpunit.sh` checks the commit of the WordPress release it provisions.** The test library and core came from a tag archive fetched with nothing to compare it against. The tag is now a shallow `git clone`, and its commit must match `config/wordpress_develop_pins.tsv` (6.6.0 to 7.1.4). `latest` and a minor like `7.1` are the newest matching tag in that file, not upstream's, so a release that is not yet pinned does not stop the default; a minor with no pinned tag exits 2. An explicit X.Y.Z the file does not list exits 2 unless `--wp-commit <sha>` gives the commit or `--allow-unpinned-wp true` accepts it unchecked, and a commit that differs from the pin exits 1 with nothing provisioned. `--wp-pins <path>` names another file. Tests: new cases in `tests/ci_wp_phpunit_test.sh`, with a stubbed git.
-
-- **Every local `rm` in `scripts/` and `lib/` takes its paths after `--`.** Seven calls in EXIT and signal traps, and one in `refresh_private_names.sh`, were missed by 0.61.2. Test: `tests/rm_dashdash_test.sh` fails on any new one (an `adb shell rm` and `docker run --rm` are not counted).
 
 - **No committed `.gitleaksignore`.** The repository's own gate never read it, and a committed acceptance list is a way for a commit to excuse its own key; the file is now ignored by `.gitignore` and accepted findings live in `.git/gitleaksignore`. The two tree entries it carried are resolved in the files themselves: `tests/security_gate_test.sh` assembles its sample credentials from short pieces at run time, and a default in `ci_pimcore_bundle_check.sh` carries a comment so the line after it is not read as its value. `docs/usage.md` ("Secret scanning") says where acceptances go.
 
@@ -15,6 +18,12 @@
 - Keep security diagnostics local and refuse scanner output before commit, push, or publication.
 
 - Check filenames, branch names and annotated tag names for sensitive data. Empty files are checked, and CI hides branch text that cannot pass the publication checks.
+
+### Fixed
+
+- **`check_private_names.sh --only-public` looks the repository up as `namespace/name`.** The list holds several accounts, and it matched the name alone, first row wins: with `alpha/foo` private and `testns/foo` public, a push to `testns/foo` read as private and the check was switched off there. The namespace comes from the remote or `--for-repo` (`owner/name`, a URL); a bare `--for-repo name` skips the check only when every repository of that name is private, and a namespace/name the list does not hold is checked. Tests: new cases in `tests/private_names_test.sh` (4 fail against 0.62.0).
+
+- **Every local `rm` in `scripts/` and `lib/` takes its paths after `--`.** Seven calls in EXIT and signal traps, and one in `refresh_private_names.sh`, were missed by 0.61.2. Test: `tests/rm_dashdash_test.sh` fails on any new one (an `adb shell rm` and `docker run --rm` are not counted).
 
 ## 2026-11-07 — v0.62.0
 
