@@ -8,6 +8,8 @@
 
 - **The pre-push hook's background refresh writes the list it checked.** It read the age of `PRIVATE_NAMES_FILE`, then ran `refresh_private_names.sh` without `--out`, which wrote the default `~/.config/script-helpers/private-names.tsv`. A custom list was never refreshed, so it was found stale on every push, and the default list was overwritten instead. The hook now passes `--out`, and `refresh_private_names.sh` defaults `--out` to `PRIVATE_NAMES_FILE` when that is set. Tests: new cases in `tests/private_names_autorefresh_test.sh` and `tests/refresh_private_names_test.sh` (both fail against 0.63.0).
 
+- **A push from 0.63.0 is no longer refused by its own tree check.** A test method in `tests/scan_output_test.py` began with a private repository name; it is renamed.
+
 ## 2026-11-09 — v0.63.0
 
 ### Upgrade notes
