@@ -665,7 +665,7 @@ Usage: scripts/check_scan_output.sh [--staged|--push-refs <file>|--range <ref>|-
   --repo PATH       Repository, default current directory.
   --max-mib N       Largest file or blob checked, 1..2048 MiB (default 2048,
                     or CHECK_SCAN_OUTPUT_MAX_MIB). Above 64 MiB only
-                    uncompressed binaries are checked, in streamed chunks.
+                    executables without packed bytes are streamed.
   -h, --help        Show help.
 ```
 

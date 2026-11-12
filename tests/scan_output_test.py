@@ -574,6 +574,14 @@ class LargeFileTests(unittest.TestCase):
         self.assertEqual(self.run_check("--file", str(self.sparse("big.zip", 65 * MIB))), 2)
         self.assertEqual(self.run_check("--file", str(self.sparse("gitleaks-report.json", 65 * MIB))), 1)
 
+    def test_packed_bytes_or_other_formats_stay_unchecked(self):
+        packed = io.BytesIO()
+        with zipfile.ZipFile(packed, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("report.txt", "gitleaks: 3 findings\n")
+        path = self.sparse("service", 71 * MIB, at=70 * MIB, data=packed.getvalue())
+        self.assertEqual(self.run_check("--file", str(path)), 2)
+        self.assertEqual(self.run_check("--file", str(self.sparse("blob.bin", 65 * MIB, head=b"\0data"))), 2)
+
     def test_size_limit_is_configurable_and_validated(self):
         path = self.sparse("service", 65 * MIB)
         self.assertEqual(self.run_check("--file", str(path), extra={"CHECK_SCAN_OUTPUT_MAX_MIB": "64"}), 2)
@@ -595,7 +603,7 @@ class LargeFileTests(unittest.TestCase):
             return real(name, raw, depth, text_only)
 
         checker.inspect = spy
-        data = bytearray(b"\0" * (100 * 4096))
+        data = bytearray(b"\x7fELF" + b"\0" * (100 * 4096 - 4))
         checker.inspect_stream("service", io.BytesIO(bytes(data)))
         self.assertTrue(sizes)
         self.assertLessEqual(max(sizes), 4096 + 256)
@@ -610,6 +618,12 @@ class LargeFileTests(unittest.TestCase):
         report[5000:5000 + 40] = b'[\n {\n  "RuleID": "generic-api-key",\n'
         with self.assertRaises(checker.Unchecked):
             checker.inspect_stream("service", io.BytesIO(bytes(report)))
+        for signature in (b"PK\x03\x04", b"\x1f\x8b\x08", b"\x28\xb5\x2f\xfd"):
+            for offset in range(4096 - len(signature) + 1, 4096):
+                blob = bytearray(data)
+                blob[offset:offset + len(signature)] = signature
+                with self.assertRaises(checker.Unchecked, msg=(signature, offset)):
+                    checker.inspect_stream("service", io.BytesIO(bytes(blob)))
         tail = bytearray(data)
         tail[-len(RESULT_LINE):] = RESULT_LINE
         with self.assertRaises(checker.Refused):

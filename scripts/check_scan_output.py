@@ -58,6 +58,13 @@ CHUNK = 8 * MIB
 OVERLAP = 64 * 1024
 # A JSON report can be larger than one window, so its keys alone stop a stream.
 STREAM_JSON_REPORT = re.compile(rb'(?i)"(?:ruleid|fingerprint|finding_counts)"\s*:')
+# Only executables are streamed: ELF, Mach-O (thin and fat) and PE.
+STREAM_FORMATS = (b"\x7fELF", b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf", b"\xce\xfa\xed\xfe",
+                  b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"MZ")
+# Compressed or archived bytes anywhere in a streamed file cannot be checked.
+STREAM_PACKED = re.compile(b"|".join(re.escape(s) for s in (
+    b"\x1f\x8b\x08", b"BZh", b"\xfd7zXZ\x00", b"PK\x03\x04", b"PK\x05\x06",
+    b"7z\xbc\xaf\x27\x1c", b"\x28\xb5\x2f\xfd", b"ustar")))
 BASH = shutil.which("bash") or "bash"
 
 
@@ -135,15 +142,14 @@ def set_max_mib(value):
 def inspect_stream(name, stream):
     """Inspect a binary object above LIMIT without holding more than CHUNK + OVERLAP bytes.
 
-    Only uncompressed binary content qualifies. Large text, compressed data and
-    archives still need whole inspection, so they stay unchecked.
+    Only executables (STREAM_FORMATS) qualify, and only while no window holds
+    compressed or archive bytes. Everything else above LIMIT stays unchecked.
     """
     normalized = "/".join(part for part in name.replace("\\", "/").split("/") if part not in ("", "."))
     if REPORT_NAME.search(normalized):
         raise Refused()
     chunk = stream.read(CHUNK)
-    if (b"\0" not in chunk or chunk.startswith((b"\x1f\x8b", b"BZh", b"\xfd7zXZ\x00", b"PK\x03\x04"))
-            or chunk[257:262] == b"ustar"
+    if (not chunk.startswith(STREAM_FORMATS)
             or name.lower().endswith((".zip", ".tar", ".tgz", ".tar.gz", ".tar.xz", ".tar.bz2"))):
         raise Unchecked()
     total = 0
@@ -153,7 +159,8 @@ def inspect_stream(name, stream):
         if total > MAX_BYTES:
             raise Unchecked()
         window = carry + chunk
-        if STREAM_JSON_REPORT.search(window):
+        # The carry holds the start of any signature cut at the chunk boundary.
+        if STREAM_JSON_REPORT.search(window) or STREAM_PACKED.search(window):
             raise Unchecked()
         # Carry the unfinished last line, or the last OVERLAP bytes of a longer one.
         cut = window.rfind(b"\n", max(0, len(window) - OVERLAP)) + 1

@@ -13,7 +13,7 @@
 #   --repo PATH       Repository, default current directory.
 #   --max-mib N       Largest file or blob checked, 1..2048 MiB (default 2048,
 #                     or CHECK_SCAN_OUTPUT_MAX_MIB). Above 64 MiB only
-#                     uncompressed binaries are checked, in streamed chunks.
+#                     executables without packed bytes are streamed.
 #   -h, --help        Show help.
 # EXIT_CODES:
 #   0 Clear; 1 prohibited output; 2 unable to check. Both failures block publication.
