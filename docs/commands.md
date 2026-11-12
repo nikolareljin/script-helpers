@@ -670,8 +670,8 @@ Usage: scripts/check_scan_output.sh [--staged|--push-refs <file>|--range <ref>|-
   --remote NAME     Target remote for new refs.
   --repo PATH       Repository, default current directory.
   --max-mib N       Largest file or blob checked, 1..2048 MiB (default 2048,
-                    or CHECK_SCAN_OUTPUT_MAX_MIB). Above 64 MiB only
-                    executables are checked, streamed.
+                    or CHECK_SCAN_OUTPUT_MAX_MIB). Above 64 MiB files are
+                    streamed; executables also have embedded data decoded.
   --non-blocking    Exit 0 when a file above 64 MiB was not fully checked
                     (the default when GITHUB_ACTIONS=true).
   -h, --help        Show help.

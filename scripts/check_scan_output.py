@@ -210,7 +210,7 @@ class _Budget:
 
 
 def _decode(dec, f, offset, budget):
-    """Feed f from offset into a zlib, bz2 or lzma decompressor; return (data, complete)."""
+    """Feed f from offset into a zlib, bz2, lzma or zstd decompressor; return (data, complete)."""
     out = bytearray()
     f.seek(offset)
 
