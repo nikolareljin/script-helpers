@@ -577,7 +577,13 @@ Usage: scripts/check_publication.sh --file <path> | --stdin
   -h, --help   Show help.
 ```
 
-Exit codes: 0 Clear; 1 refused; 2 unable to check. Never publish on a nonzero exit.
+Exit codes:
+
+```text
+0 Clear; 1 refused; 2 unable to check; 3 a file above 64 MiB was not fully
+checked (local runs only; CI prints a warning and exits 0).
+Never publish on a nonzero exit.
+```
 
 Example:
 
@@ -654,7 +660,7 @@ Exit codes: not in the header; the script has no explicit `exit`.
 Refuse scanner results before a commit, push or text publication.
 
 ```text
-Usage: scripts/check_scan_output.sh [--staged|--push-refs <file>|--range <ref>|--tree <ref>|--file <path>|--stdin] [--remote <name>] [--repo <path>] [--max-mib <n>]
+Usage: scripts/check_scan_output.sh [--staged|--push-refs <file>|--range <ref>|--tree <ref>|--file <path>|--stdin] [--remote <name>] [--repo <path>] [--max-mib <n>] [--non-blocking]
   --staged          Check staged blobs, not working files.
   --push-refs FILE  Check every outgoing commit and annotated tag.
   --range REF       Check a revision or revision range.
@@ -665,11 +671,18 @@ Usage: scripts/check_scan_output.sh [--staged|--push-refs <file>|--range <ref>|-
   --repo PATH       Repository, default current directory.
   --max-mib N       Largest file or blob checked, 1..2048 MiB (default 2048,
                     or CHECK_SCAN_OUTPUT_MAX_MIB). Above 64 MiB only
-                    executables without packed bytes are streamed.
+                    executables are checked, streamed.
+  --non-blocking    Exit 0 when a file above 64 MiB was not fully checked
+                    (the default when GITHUB_ACTIONS=true).
   -h, --help        Show help.
 ```
 
-Exit codes: 0 Clear; 1 prohibited output; 2 unable to check. Both failures block publication.
+Exit codes:
+
+```text
+0 Clear; 1 prohibited output; 2 unable to check; 3 a file above 64 MiB was
+not fully checked (warning printed; 0 with --non-blocking or in CI).
+```
 
 Example:
 

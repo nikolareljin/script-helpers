@@ -573,16 +573,25 @@ also refuses publication. Reports above the inspection limit or unreadable
 archives require local inspection rather than an unchecked push.
 
 Objects up to 64 MiB are inspected whole. A larger executable (ELF, Mach-O or
-PE) is read in 8 MiB chunks; each chunk carries
-the last unfinished line (at most 64 KiB) into the next, so a result line that
-crosses a chunk boundary is still found. Memory depends on the chunk size, not the
-file size. Above 64 MiB, every other format still exits 2, and so does an
-executable whose bytes hold a compression or archive signature (gzip, bzip2,
-xz, zip, 7z, zstd, tar) or scanner JSON keys (`RuleID`, `Fingerprint`,
-`finding_counts`). Go binaries usually carry such signatures, so most still
-exit 2. The
-largest object checked is `CHECK_SCAN_OUTPUT_MAX_MIB` or `--max-mib` (1..2048,
-default 2048); anything larger, or an invalid value, exits 2.
+PE) is read in 8 MiB chunks; each chunk carries the last unfinished line (at
+most 64 KiB) into the next, so a result line that crosses a chunk boundary is
+still found. Memory depends on the chunk size, not the file size.
+
+Compressed or archived data embedded in the executable (gzip, bzip2, xz, zip,
+tar, zstd when the `zstd` command is installed) is decoded and scanned with the
+same rules, nested containers included. Signature bytes that do not decode are
+not a finding: Go binaries carry them as code.
+
+A file above 64 MiB that cannot be fully checked is incomplete, not refused:
+a non-executable, data above the decode limits (64 MiB per member, 512 MiB per
+file, 300 s), an encrypted or unsupported member, 7z, or scanner JSON keys
+(`RuleID`, `Fingerprint`, `finding_counts`). Locally the checker prints
+`WARNING: security check incomplete: <path>: could not fully check: <reason>`
+and exits 3. With `GITHUB_ACTIONS=true` or `--non-blocking` it prints a
+`::warning` annotation with the path and reason and exits 0. A scanner result
+found anywhere still exits 1, in CI too. The largest object checked is
+`CHECK_SCAN_OUTPUT_MAX_MIB` or `--max-mib` (1..2048, default 2048); a larger
+one is incomplete, and an invalid value exits 2.
 
 `/scans/`, `/scan-results/`, `/security-reports/`, and scanner report patterns are
 ignored. Hooks also reject force-added files. Ordinary scanner configuration

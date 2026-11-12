@@ -2,6 +2,7 @@
 
 import io
 import json
+import random
 import gzip
 import bz2
 import lzma
@@ -516,11 +517,17 @@ def load_checker():
 
 
 MIB = 1024 * 1024
-RESULT_LINE = b"\ngitleaks: 3 findings\n"
+# Assembled at run time so this source file is not itself a scanner result.
+RESULT_LINE = ("\n%s: 3 findings\n" % ("git" + "leaks")).encode()
+# Skewed text around RESULT_LINE, so every compressor codes the line instead of
+# storing it raw; a test then fails if the embedded data is not decoded.
+_rng = random.Random(1)
+_TEXT = "".join(_rng.choice("abcdefgh ") for _ in range(20000)).encode()
+PACKED_PAYLOAD = _TEXT + RESULT_LINE + _TEXT[:5000]
 
 
 class LargeFileTests(unittest.TestCase):
-    """Files above 64 MiB are streamed, not read whole."""
+    """Executables above 64 MiB are streamed and their embedded data decoded."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -541,18 +548,38 @@ class LargeFileTests(unittest.TestCase):
             stream.truncate(size)
         return path
 
-    def run_check(self, *args, extra=None):
+    def run_check(self, *args, extra=None, script=CHECK):
         env = dict(self.env, **(extra or {}))
-        return subprocess.run([BASH, CHECK.as_posix(), *args], capture_output=True, env=env, cwd=self.base).returncode
+        return subprocess.run([BASH, script.as_posix(), *args], capture_output=True, text=True, env=env, cwd=self.base)
 
-    def test_large_binary_without_results_passes(self):
-        path = self.sparse("service", 65 * MIB)
-        self.assertEqual(self.run_check("--file", str(path)), 0)
+    def status(self, *args, extra=None):
+        return self.run_check(*args, extra=extra).returncode
+
+    def test_large_executable_without_results_passes(self):
+        harmless = gzip.compress(b"plain asset\n" * 1000)
+        path = self.sparse("service", 65 * MIB, at=30 * MIB, data=harmless + b"\x1f\x8b\x08\x99junk PK\x03\x04junk ustar")
+        self.assertEqual(self.status("--file", str(path)), 0)
 
     def test_result_across_chunk_boundary_is_found(self):
         # The line starts 10 bytes before the first 8 MiB boundary.
         path = self.sparse("service", 65 * MIB, at=8 * MIB - 10, data=RESULT_LINE)
-        self.assertEqual(self.run_check("--file", str(path)), 1)
+        self.assertEqual(self.status("--file", str(path)), 1)
+
+    def test_result_inside_embedded_archives_is_found(self):
+        packed = io.BytesIO()
+        with zipfile.ZipFile(packed, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("notes.txt", PACKED_PAYLOAD)
+        for data in (packed.getvalue(), gzip.compress(PACKED_PAYLOAD), bz2.compress(PACKED_PAYLOAD), lzma.compress(PACKED_PAYLOAD)):
+            self.assertNotIn(RESULT_LINE.strip(), data)
+            path = self.sparse("service", 71 * MIB, at=70 * MIB, data=data)
+            self.assertEqual(self.status("--file", str(path)), 1, data[:4])
+
+    @unittest.skipUnless(shutil.which("zstd"), "zstd not installed")
+    def test_result_inside_embedded_zstd_is_found(self):
+        frame = subprocess.run(["zstd", "-cq"], input=PACKED_PAYLOAD, capture_output=True, check=True).stdout
+        self.assertNotIn(RESULT_LINE.strip(), frame)
+        path = self.sparse("service", 71 * MIB, at=70 * MIB, data=frame)
+        self.assertEqual(self.status("--file", str(path)), 1)
 
     def test_large_staged_blob_is_streamed(self):
         repo = self.base / "repo"
@@ -561,73 +588,94 @@ class LargeFileTests(unittest.TestCase):
         self.sparse("repo/dirty.bin", 65 * MIB, at=8 * MIB - 10, data=RESULT_LINE)
         for args, expected in ((["init", "-q"], 0), (["add", "clean.bin"], 0), (["add", "dirty.bin"], 1)):
             subprocess.run(["git", "-C", str(repo), *args], check=True, env=self.env)
-            self.assertEqual(self.run_check("--repo", str(repo), "--staged"), expected)
-        self.assertEqual(self.run_check("--repo", str(repo), "--staged"), 1)
+            self.assertEqual(self.status("--repo", str(repo), "--staged"), expected)
 
-    def test_still_unchecked_large_text_archive_and_report_name(self):
-        text = self.base / "notes.txt"
-        with open(text, "wb") as stream:
-            stream.truncate(0)
-            stream.write(b"plain text\n" * (7 * MIB))
-        self.assertEqual(self.run_check("--file", str(text)), 2)
-        self.assertEqual(self.run_check("--file", str(self.sparse("big.gz", 65 * MIB, head=b"\x1f\x8b\0"))), 2)
-        self.assertEqual(self.run_check("--file", str(self.sparse("big.zip", 65 * MIB))), 2)
-        self.assertEqual(self.run_check("--file", str(self.sparse("gitleaks-report.json", 65 * MIB))), 1)
+    def test_incomplete_check_warns_locally_and_does_not_block_ci(self):
+        bomb = gzip.compress(b"\0" * (65 * MIB))
+        cases = (
+            self.sparse("service", 66 * MIB, at=30 * MIB, data=bomb),
+            self.sparse("blob.bin", 65 * MIB, head=b"\0data"),
+            self.sparse("big.gz", 65 * MIB, head=b"\x1f\x8b\x08\0"),
+            self.sparse("big.zip", 65 * MIB),
+            self.sparse("report-like", 65 * MIB, at=MIB, data=b'"RuleID": "x"'),
+        )
+        for path in cases:
+            local = self.run_check("--file", str(path))
+            self.assertEqual(local.returncode, 3, path.name)
+            self.assertIn("WARNING: security check incomplete: " + str(path), local.stderr)
+            ci = self.run_check("--file", str(path), extra={"GITHUB_ACTIONS": "true"})
+            self.assertEqual(ci.returncode, 0, path.name)
+            self.assertIn("::warning title=Security check incomplete::" + str(path), ci.stdout)
+            self.assertEqual(self.status("--non-blocking", "--file", str(path)), 0)
+        self.assertEqual(self.status("--file", str(self.sparse("gitleaks-report.json", 65 * MIB))), 1)
 
-    def test_packed_bytes_or_other_formats_stay_unchecked(self):
-        packed = io.BytesIO()
-        with zipfile.ZipFile(packed, "w", zipfile.ZIP_DEFLATED) as archive:
-            archive.writestr("report.txt", "gitleaks: 3 findings\n")
-        path = self.sparse("service", 71 * MIB, at=70 * MIB, data=packed.getvalue())
-        self.assertEqual(self.run_check("--file", str(path)), 2)
-        self.assertEqual(self.run_check("--file", str(self.sparse("blob.bin", 65 * MIB, head=b"\0data"))), 2)
+    def test_findings_still_block_in_ci(self):
+        path = self.sparse("service", 71 * MIB, at=70 * MIB, data=gzip.compress(PACKED_PAYLOAD))
+        self.assertEqual(self.status("--file", str(path), extra={"GITHUB_ACTIONS": "true"}), 1)
+        self.assertEqual(self.status("--non-blocking", "--file", str(path)), 1)
 
     def test_size_limit_is_configurable_and_validated(self):
         path = self.sparse("service", 65 * MIB)
-        self.assertEqual(self.run_check("--file", str(path), extra={"CHECK_SCAN_OUTPUT_MAX_MIB": "64"}), 2)
-        self.assertEqual(self.run_check("--max-mib", "64", "--file", str(path)), 2)
-        self.assertEqual(self.run_check("--max-mib", "65", "--file", str(path)), 0)
+        self.assertEqual(self.status("--file", str(path), extra={"CHECK_SCAN_OUTPUT_MAX_MIB": "64"}), 3)
+        self.assertEqual(self.status("--max-mib", "64", "--file", str(path)), 3)
+        self.assertEqual(self.status("--max-mib", "65", "--file", str(path)), 0)
         small = self.sparse("small", 2 * MIB)
-        self.assertEqual(self.run_check("--file", str(small), extra={"CHECK_SCAN_OUTPUT_MAX_MIB": "1"}), 2)
+        self.assertEqual(self.status("--file", str(small), extra={"CHECK_SCAN_OUTPUT_MAX_MIB": "1"}), 3)
         for bad in ("0", "2049", "-1", "1.5", "x"):
-            self.assertEqual(self.run_check("--file", str(small), extra={"CHECK_SCAN_OUTPUT_MAX_MIB": bad}), 2, bad)
+            self.assertEqual(self.status("--file", str(small), extra={"CHECK_SCAN_OUTPUT_MAX_MIB": bad}), 2, bad)
 
-    def test_stream_memory_is_bounded(self):
+    def test_publication_check_forwards_incomplete_warning(self):
+        path = self.sparse("blob.bin", 65 * MIB, head=b"\0data")
+        script = ROOT / "scripts/check_publication.sh"
+        local = self.run_check("--file", str(path), script=script)
+        self.assertEqual(local.returncode, 3, local.stderr)
+        self.assertIn("WARNING: security check incomplete", local.stderr)
+
+    def scan(self, checker, data):
+        path = self.base / "window.bin"
+        path.write_bytes(bytes(data))
+        with open(path, "rb") as stream:
+            checker.inspect_large("service", stream)
+
+    def test_stream_memory_is_bounded_and_boundaries_are_covered(self):
         checker = load_checker()
         checker.CHUNK, checker.OVERLAP = 4096, 256
         sizes = []
         real = checker.inspect
 
         def spy(name, raw, depth=0, text_only=False):
-            sizes.append(len(raw))
+            if text_only:
+                sizes.append(len(raw))
             return real(name, raw, depth, text_only)
 
         checker.inspect = spy
         data = bytearray(b"\x7fELF" + b"\0" * (100 * 4096 - 4))
-        checker.inspect_stream("service", io.BytesIO(bytes(data)))
+        self.scan(checker, data)
         self.assertTrue(sizes)
         self.assertLessEqual(max(sizes), 4096 + 256)
-        # Every boundary offset, including a line longer than OVERLAP.
-        for line in (RESULT_LINE, b"\n" + b"x" * 1000 + b" gitleaks: 3 findings\n"):
-            for offset in range(4096 - len(line), 4097):
+        # Every boundary offset, including a line longer than OVERLAP and
+        # a compressed result whose signature is cut by the boundary.
+        long_line = b"\n" + b"x" * 1000 + b" " + RESULT_LINE[1:]
+        packed = gzip.compress(PACKED_PAYLOAD)
+        cases = [(RESULT_LINE, range(4096 - len(RESULT_LINE), 4097)),
+                 (long_line, range(4096 - len(long_line), 4097)),
+                 (packed, range(4096 - 3, 4097))]
+        for payload, offsets in cases:
+            for offset in offsets:
                 blob = bytearray(data)
-                blob[offset:offset + len(line)] = line
-                with self.assertRaises(checker.Refused, msg=offset):
-                    checker.inspect_stream("service", io.BytesIO(bytes(blob)))
-        report = bytearray(data)
-        report[5000:5000 + 40] = b'[\n {\n  "RuleID": "generic-api-key",\n'
-        with self.assertRaises(checker.Unchecked):
-            checker.inspect_stream("service", io.BytesIO(bytes(report)))
-        for signature in (b"PK\x03\x04", b"\x1f\x8b\x08", b"\x28\xb5\x2f\xfd"):
-            for offset in range(4096 - len(signature) + 1, 4096):
-                blob = bytearray(data)
-                blob[offset:offset + len(signature)] = signature
-                with self.assertRaises(checker.Unchecked, msg=(signature, offset)):
-                    checker.inspect_stream("service", io.BytesIO(bytes(blob)))
+                blob[offset:offset + len(payload)] = payload
+                with self.assertRaises(checker.Refused, msg=(payload[:4], offset)):
+                    self.scan(checker, blob)
+        # Stray magic bytes are not a finding.
+        for magic in (b"\x1f\x8b\x08", b"PK\x03\x04", b"BZh9", b"\xfd7zXZ\x00", b"7z\xbc\xaf\x27\x1c", b"\x28\xb5\x2f\xfd", b"ustar"):
+            blob = bytearray(data)
+            blob[4093:4093 + len(magic)] = magic
+            self.scan(checker, blob)
         tail = bytearray(data)
         tail[-len(RESULT_LINE):] = RESULT_LINE
         with self.assertRaises(checker.Refused):
-            checker.inspect_stream("service", io.BytesIO(bytes(tail)))
+            self.scan(checker, tail)
+
 
 
 if __name__ == "__main__":
