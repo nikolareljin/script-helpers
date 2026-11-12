@@ -47,7 +47,10 @@ sec_scan_output() {
     return 1
   }
   local out rc=0
-  out="$(bash "$gate" "$@" 2>&1)" || rc=$?
+  out="$(
+  exec 2>&1
+  bash "$gate" "$@"
+  )" || rc=$?
   [[ -z "$out" ]] || printf '%s\n' "$out"
   # sec_guard keeps output in a private report. Lines for a file above 64 MiB
   # that was not fully checked (path and reason only) go to the terminal or the

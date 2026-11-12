@@ -541,7 +541,7 @@ class LargeFileTests(unittest.TestCase):
 
     def sparse(self, name, size, head=b"\x7fELF\0", at=None, data=b""):
         path = self.base / name
-        with open(path, "wb") as stream:
+        with path.open("wb") as stream:
             stream.write(head)
             if at is not None:
                 stream.seek(at)
@@ -691,20 +691,19 @@ class LargeFileTests(unittest.TestCase):
 
     def test_hooks_show_incomplete_warning_outside_the_report(self):
         path = self.sparse("blob.bin", 65 * MIB, head=b"\0data")
-        lib = (ROOT / "scripts/security_hooks.sh").as_posix()
-        command = 'source "$1"; sec_guard sec_scan_output --file "$2"'
-        local = subprocess.run([BASH, "-c", command, "x", lib, str(path)], capture_output=True, text=True, env=self.env, cwd=self.base)
+        wrapper = self.base / "guard.sh"
+        wrapper.write_text('source "%s"\nsec_guard sec_scan_output "$@"\n' % (ROOT / "scripts/security_hooks.sh").as_posix())
+        local = self.run_check("--file", str(path), script=wrapper)
         self.assertNotEqual(local.returncode, 0)
         self.assertIn("WARNING: security check incomplete: " + str(path), local.stderr)
-        ci = subprocess.run([BASH, "-c", command, "x", lib, str(path)], capture_output=True, text=True,
-                            env=dict(self.env, GITHUB_ACTIONS="true", CI="true"), cwd=self.base)
+        ci = self.run_check("--file", str(path), script=wrapper, extra={"GITHUB_ACTIONS": "true", "CI": "true"})
         self.assertEqual(ci.returncode, 0, ci.stderr)
         self.assertIn("::warning title=Security check incomplete::" + str(path), ci.stdout)
 
     def scan(self, checker, data):
         path = self.base / "window.bin"
         path.write_bytes(bytes(data))
-        with open(path, "rb") as stream:
+        with path.open("rb") as stream:
             checker.inspect_large("service", stream)
 
     def test_stream_memory_is_bounded_and_boundaries_are_covered(self):
