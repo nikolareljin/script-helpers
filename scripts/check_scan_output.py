@@ -165,7 +165,9 @@ def set_max_mib(value):
 class _Budget:
     """Bounds the decoding work spent on one large object."""
 
-    def __init__(self):
+    def __init__(self, outer=""):
+        # The checked file's own path: a local path, not content it carries.
+        self.outer = outer + ":"
         self.decoded = 0
         self.hits = 0
         # (start, end) of every embedded tar already read, so a header inside
@@ -182,6 +184,8 @@ class _Budget:
 
     def sensitive(self, name, data):
         """Queue decoded data for check_sensitive.sh: one process per batch, not per member."""
+        if name.startswith(self.outer):
+            name = name[len(self.outer):]
         self.pending.append(os.fsencode(name) + b"\n" + data.replace(b"\0", b" ") + b"\n")
         self.pending_bytes += len(self.pending[-1])
         if self.pending_bytes > MEMBER_MAX:
@@ -416,7 +420,7 @@ def inspect_large(name, f):
                 and not name.lower().endswith((".zip", ".tar", ".tgz", ".tar.gz", ".tar.xz", ".tar.bz2")))
     if not decoding:
         reasons.append("not an executable")
-    budget = _Budget()
+    budget = _Budget(name)
     done = set()
     pos = 0
     carry = b""

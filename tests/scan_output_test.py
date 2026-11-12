@@ -713,6 +713,16 @@ class LargeFileTests(unittest.TestCase):
             path = self.sparse("service", 70 * MIB, at=MIB, data=packed.getvalue())
             self.assertEqual(self.status("--file", str(path), extra={"GITHUB_ACTIONS": "true"}), 1, kind)
 
+    def test_file_under_home_with_embedded_data_passes(self):
+        # The file's own path is not part of the decoded data it carries.
+        home = self.base / "home"
+        (home / "bin").mkdir(parents=True)
+        path = self.sparse("home/bin/service", 65 * MIB, at=MIB, data=gzip.compress(b"plain asset\n" * 100))
+        ids = self.base / "machine-ids.tsv"
+        ids.write_text("this machine's home directory\t%s\n" % home)
+        proc = self.run_check("--file", str(path), extra={"SENSITIVE_MACHINE_IDS_FILE": str(ids)})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
     def test_zstd_without_a_decoder_is_incomplete(self):
         # 'hello' as a zstd frame; no external zstd command is ever run.
         path = self.sparse("service", 65 * MIB, at=MIB, data=bytes.fromhex("28b52ffd045831000068656c6c6f0a5388bd91"))
