@@ -23,8 +23,8 @@ SHA=3d3c42e5aac5ba805825da76410c181273ba90b1
 # expect <exit code> <name> <text the output must contain, or empty>; workflow on stdin.
 expect() {
   local want="$1" name="$2" text="$3" out rc
-  cat > "$tmp/$name.yml"
-  out="$(bash "$GATE" "$tmp/$name.yml" 2>&1)"; rc=$?
+  cat > "$tmp/case.yml"
+  out="$(bash "$GATE" "$tmp/case.yml" 2>&1)"; rc=$?
   if [[ "$rc" != "$want" ]]; then
     error "$name: exit $rc, want $want: $out"
   elif [[ -n "$text" && "$out" != *"$text"* ]]; then
