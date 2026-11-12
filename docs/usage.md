@@ -633,8 +633,11 @@ The `pre-push` hook refreshes in the background when the list is older than
 so two pushes do not start two refreshes, and `PRIVATE_NAMES_AUTO_REFRESH=false`
 turns it off. It refreshes the list the checks read: `PRIVATE_NAMES_FILE` when
 that is set, which is also `refresh_private_names.sh`'s default `--out`. A
-relative `PRIVATE_NAMES_FILE` is not refreshed by the hook: hooks run at the top
-of the working tree, so the list would be written into the repository. A
+list or cache path that is not absolute (`PRIVATE_NAMES_FILE`,
+`PRIVATE_NAMES_CACHE_DIR`, or a relative `XDG_CONFIG_HOME` or `HOME` behind
+their defaults) is not refreshed by the hook: hooks run at the top of the
+working tree, so the list or the per-owner caches would be written into the
+repository. A
 scheduler was deliberately not used: git runs hooks under bash
 on Linux, macOS and Windows alike, so there is nothing to install.
 

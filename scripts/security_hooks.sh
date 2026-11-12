@@ -135,16 +135,21 @@ sec_maybe_refresh_private_names() {
     return 0
   fi
 
-  # Hooks run at the top of the working tree, so a relative PRIVATE_NAMES_FILE
-  # would have the list, its temporary file, log and lock written into the
-  # repository being pushed. The list is what the gate keeps out of public
-  # trees; refresh only an absolute path.
-  case "$list" in
-    /*|[A-Za-z]:[\\/]*) ;;
-    *)
-      echo "[pre-push] private-name list is stale, but its path is not absolute (PRIVATE_NAMES_FILE or XDG_CONFIG_HOME); not refreshing it here."
-      return 0 ;;
-  esac
+  # Hooks run at the top of the working tree, so a relative path would have the
+  # list (with its temporary file, log and lock) or the per-owner caches, which
+  # hold the same names, written into the repository being pushed. Those are
+  # what the gate keeps out of public trees: refresh only when both are
+  # absolute. The cache directory is derived as refresh_private_names.sh does.
+  local cache_dir="${PRIVATE_NAMES_CACHE_DIR:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/owners}"
+  local p
+  for p in "$list" "$cache_dir"; do
+    case "$p" in
+      /*|[A-Za-z]:[\\/]*|\\\\*) ;;
+      *)
+        echo "[pre-push] private-name list is stale, but a path it uses is not absolute (PRIVATE_NAMES_FILE, PRIVATE_NAMES_CACHE_DIR, XDG_CONFIG_HOME or HOME); not refreshing it here."
+        return 0 ;;
+    esac
+  done
 
   # One at a time. mkdir is the atomic primitive available everywhere; a stale
   # lock older than a day is cleared, so a killed refresh cannot wedge it.

@@ -151,17 +151,33 @@ clean
 mkdir -p "$repo/rel"
 printf 'private\tns\tx\t-\t\n' > "$repo/rel/list.tsv"
 touch -d '30 days ago' "$repo/rel/list.tsv" 2>/dev/null || touch -t 202001010000 "$repo/rel/list.tsv"
-out="$(cd "$repo" && PRIVATE_NAMES_FILE=rel/list.tsv bash -c '
+out="$(cd "$repo" && HOME="$tmp" XDG_CONFIG_HOME="$tmp/xdg" PRIVATE_NAMES_FILE=rel/list.tsv bash -c '
   source "$1/scripts/security_hooks.sh"
   sec_maybe_refresh_private_names
 ' _ "$ROOT_DIR")"
 sleep 4
 if [[ -f "$probe" ]] || [[ -e "$repo/rel/list.tsv.refresh.lock" ]] || [[ -e "$repo/rel/list.tsv.refresh.log" ]]; then
   error "a relative PRIVATE_NAMES_FILE was refreshed inside the working tree"
-elif ! grep -q 'path is not absolute' <<<"$out"; then
+elif ! grep -q 'is not absolute' <<<"$out"; then
   error "a relative PRIVATE_NAMES_FILE was skipped without saying so"
 else
   ok "a relative PRIVATE_NAMES_FILE is not refreshed, and the hook says why"
+fi
+
+# 8. An absolute list with a relative XDG_CONFIG_HOME: the per-owner caches,
+# which hold the same names, would be written into the working tree.
+clean; stale
+out="$(cd "$repo" && HOME="$tmp" XDG_CONFIG_HOME=relxdg PRIVATE_NAMES_FILE="$list" bash -c '
+  source "$1/scripts/security_hooks.sh"
+  sec_maybe_refresh_private_names
+' _ "$ROOT_DIR")"
+sleep 4
+if [[ -f "$probe" ]] || [[ -e "$repo/relxdg" ]]; then
+  error "a relative cache directory was refreshed inside the working tree"
+elif ! grep -q 'is not absolute' <<<"$out"; then
+  error "a relative cache directory was skipped without saying so"
+else
+  ok "a relative XDG_CONFIG_HOME (the cache directory) is not refreshed either"
 fi
 
 if [[ $failures -gt 0 ]]; then
