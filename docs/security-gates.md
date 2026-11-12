@@ -572,6 +572,15 @@ content under changed names, supported archives, and publication text. Exit 2
 also refuses publication. Reports above the inspection limit or unreadable
 archives require local inspection rather than an unchecked push.
 
+Objects up to 64 MiB are inspected whole. A larger uncompressed binary, such
+as a Go executable or a package, is read in 8 MiB chunks; each chunk carries
+the last unfinished line (at most 64 KiB) into the next, so a result line that
+crosses a chunk boundary is still found. Memory depends on the chunk size, not the
+file size. Text, compressed files, archives and binaries that carry scanner
+JSON keys (`RuleID`, `Fingerprint`, `finding_counts`) above 64 MiB still exit 2. The
+largest object checked is `CHECK_SCAN_OUTPUT_MAX_MIB` or `--max-mib` (1..2048,
+default 2048); anything larger, or an invalid value, exits 2.
+
 `/scans/`, `/scan-results/`, `/security-reports/`, and scanner report patterns are
 ignored. Hooks also reject force-added files. Ordinary scanner configuration
 and reviewed synthetic false-positive ignores remain allowed.

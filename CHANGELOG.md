@@ -1,5 +1,6 @@
 ## Unreleased
 
+- **`check_scan_output.py` checks binaries above 64 MiB instead of refusing them.** A Go binary or package over 64 MiB made `check_publication.sh` exit 2. Uncompressed binaries are now streamed in 8 MiB chunks with a 64 KiB carry-over, so a result line split across a chunk boundary is still found; text, compressed files, archives and binaries carrying scanner JSON keys above 64 MiB still exit 2. `CHECK_SCAN_OUTPUT_MAX_MIB` or `--max-mib` (1..2048, default 2048) caps the size; larger or invalid exits 2. Tests: `LargeFileTests` in `tests/scan_output_test.py`.
 - **Workflows check out without a stored token, and `scripts/check_workflow_actions.sh` keeps it that way.** Every `actions/checkout` sets `persist-credentials: false`; the one step that pushes (`scripts/pin_production.sh` in `auto-tag-release.yml`) gets `github.token` in its own env as an auth header. The gate refuses a `uses:` outside `actions/*` or `github/*` at a 40-hex SHA and `nikolareljin/ci-helpers/...@production`, a checkout without `persist-credentials: false`, `secrets: inherit`, and a flow-style `{uses: ...}` step it cannot read. It runs as `make lint-workflows` in CI on Linux and macOS. Test: `tests/workflow_actions_test.sh` (fails against 0.63.0: seven checkouts kept the token).
 
 ## 2026-11-09 — v0.63.0

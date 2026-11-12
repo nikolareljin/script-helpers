@@ -46,7 +46,18 @@ NATIVE_RESULT = re.compile(
     r"(?i)^(?:\d{1,2}:\d{2}(?::\d{2})?(?:AM|PM)?\s+)?"
     r"(?:(?:INF|WRN|ERR)\s+)?(?:no leaks found\.?|leaks found\s*:\s*\d+|\d+\s+leaks? found)\s*$"
 )
-LIMIT = 64 * 1024 * 1024
+MIB = 1024 * 1024
+# Objects up to LIMIT are inspected whole (text, JSON, archives). Larger binary
+# files up to MAX_BYTES are streamed in CHUNK pieces; see inspect_stream.
+LIMIT = 64 * MIB
+MAX_MIB_CAP = 2048
+MAX_BYTES = MAX_MIB_CAP * MIB
+CHUNK = 8 * MIB
+# Every pattern this file matches is shorter than OVERLAP, so a match that
+# crosses a chunk boundary lies whole inside the next window.
+OVERLAP = 64 * 1024
+# A JSON report can be larger than one window, so its keys alone stop a stream.
+STREAM_JSON_REPORT = re.compile(rb'(?i)"(?:ruleid|fingerprint|finding_counts)"\s*:')
 BASH = shutil.which("bash") or "bash"
 
 
@@ -108,9 +119,58 @@ def structured(value):
     return False
 
 
-def inspect(name, raw, depth=0):
+def set_max_mib(value):
+    """Apply CHECK_SCAN_OUTPUT_MAX_MIB or --max-mib (1..2048, default 2048)."""
+    global LIMIT, MAX_BYTES
+    if value is None:
+        value = os.environ.get("CHECK_SCAN_OUTPUT_MAX_MIB", "")
+    if value == "":
+        value = str(MAX_MIB_CAP)
+    if not re.fullmatch(r"[0-9]{1,4}", value) or not 1 <= int(value) <= MAX_MIB_CAP:
+        raise Unchecked()
+    MAX_BYTES = int(value) * MIB
+    LIMIT = min(LIMIT, MAX_BYTES)
+
+
+def inspect_stream(name, stream):
+    """Inspect a binary object above LIMIT without holding more than CHUNK + OVERLAP bytes.
+
+    Only uncompressed binary content qualifies. Large text, compressed data and
+    archives still need whole inspection, so they stay unchecked.
+    """
+    normalized = "/".join(part for part in name.replace("\\", "/").split("/") if part not in ("", "."))
+    if REPORT_NAME.search(normalized):
+        raise Refused()
+    chunk = stream.read(CHUNK)
+    if (b"\0" not in chunk or chunk.startswith((b"\x1f\x8b", b"BZh", b"\xfd7zXZ\x00", b"PK\x03\x04"))
+            or chunk[257:262] == b"ustar"
+            or name.lower().endswith((".zip", ".tar", ".tgz", ".tar.gz", ".tar.xz", ".tar.bz2"))):
+        raise Unchecked()
+    total = 0
+    carry = b""
+    while chunk:
+        total += len(chunk)
+        if total > MAX_BYTES:
+            raise Unchecked()
+        window = carry + chunk
+        if STREAM_JSON_REPORT.search(window):
+            raise Unchecked()
+        # Carry the unfinished last line, or the last OVERLAP bytes of a longer one.
+        cut = window.rfind(b"\n", max(0, len(window) - OVERLAP)) + 1
+        if cut:
+            inspect(name, window[:cut], text_only=True)
+            carry = window[cut:]
+        else:
+            inspect(name, window, text_only=True)
+            carry = window[-OVERLAP:]
+        chunk = stream.read(CHUNK)
+    if carry:
+        inspect(name, carry, text_only=True)
+
+
+def inspect(name, raw, depth=0, text_only=False):
     try:
-        _inspect(name, raw, depth)
+        _inspect(name, raw, depth, text_only)
     except Refused as exc:
         if exc.tool == "Security":
             text = raw.decode("utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8", errors="replace")
@@ -124,14 +184,16 @@ def inspect(name, raw, depth=0):
         raise
 
 
-def _inspect(name, raw, depth=0):
+def _inspect(name, raw, depth=0, text_only=False):
     normalized = "/".join(part for part in name.replace("\\", "/").split("/") if part not in ("", "."))
     if REPORT_NAME.search(normalized):
         raise Refused()
     if len(raw) > LIMIT or depth > 3:
         raise Unchecked()
     # Inspect archives in memory. Never extract paths supplied by the archive.
-    if raw.startswith((b"\x1f\x8b", b"BZh", b"\xfd7zXZ\x00")):
+    if text_only:
+        pass
+    elif raw.startswith((b"\x1f\x8b", b"BZh", b"\xfd7zXZ\x00")):
         opener = gzip.GzipFile if raw.startswith(b"\x1f\x8b") else bz2.BZ2File if raw.startswith(b"BZh") else lzma.LZMAFile
         try:
             with opener(io.BytesIO(raw)) as stream:
@@ -140,7 +202,7 @@ def _inspect(name, raw, depth=0):
         except (OSError, EOFError, ValueError, lzma.LZMAError, zlib.error):
             raise Unchecked() from None
         return
-    if raw.startswith(b"PK\x03\x04") or name.lower().endswith(".zip"):
+    elif raw.startswith(b"PK\x03\x04") or name.lower().endswith(".zip"):
         try:
             with zipfile.ZipFile(io.BytesIO(raw)) as archive:
                 total = 0
@@ -155,7 +217,7 @@ def _inspect(name, raw, depth=0):
         except (OSError, ValueError, RuntimeError, zipfile.BadZipFile, zlib.error):
             raise Unchecked() from None
         return
-    if raw[257:262] == b"ustar" or name.lower().endswith((".tar", ".tgz", ".tar.gz", ".tar.xz", ".tar.bz2")):
+    elif raw[257:262] == b"ustar" or name.lower().endswith((".tar", ".tgz", ".tar.gz", ".tar.xz", ".tar.bz2")):
         try:
             with tarfile.open(fileobj=io.BytesIO(raw), mode="r:*") as archive:
                 total = 0
@@ -247,10 +309,21 @@ def check_blob(repo, oid, path, seen):
     key = (oid, Path(path).suffix)
     if key not in seen:
         size = int(git(repo, "cat-file", "-s", oid))
-        if size > LIMIT:
+        if size > MAX_BYTES:
             raise Unchecked()
         try:
-            inspect(path, git(repo, "cat-file", "blob", oid))
+            if size > LIMIT:
+                proc = subprocess.Popen(["git", "-C", repo, "cat-file", "blob", oid], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                try:
+                    inspect_stream(path, proc.stdout)
+                finally:
+                    # A refusal stops reading early; git then dies on SIGPIPE.
+                    proc.stdout.close()
+                    status = proc.wait()
+                if status:
+                    raise Unchecked()
+            else:
+                inspect(path, git(repo, "cat-file", "blob", oid))
         except Refused as exc:
             raise Refused(path, exc.tool) from None
         seen.add(key)
@@ -329,19 +402,26 @@ def main():
     modes.add_argument("--stdin", action="store_true")
     parser.add_argument("--repo", default=".")
     parser.add_argument("--remote", default="")
+    parser.add_argument("--max-mib")
     args = parser.parse_args()
     seen = set()
     try:
+        set_max_mib(args.max_mib)
         if args.file:
             for name in args.file:
                 with open(name, "rb") as stream:
                     resolved = str(Path(name).resolve())
                     if REPORT_NAME.search(name.replace("\\", "/")):
                         raise Refused(name)
-                    raw = stream.read(LIMIT + 1)
-                    inspect(name, raw)
-                    if name != resolved:
-                        inspect(resolved, raw)
+                    if os.fstat(stream.fileno()).st_size > LIMIT:
+                        inspect_stream(name, stream)
+                        if REPORT_NAME.search(resolved.replace("\\", "/")):
+                            raise Refused(name)
+                    else:
+                        raw = stream.read(LIMIT + 1)
+                        inspect(name, raw)
+                        if name != resolved:
+                            inspect(resolved, raw)
                     probe = subprocess.run(["git", "-C", str(Path(resolved).parent), "rev-parse", "--show-toplevel"], capture_output=True, env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
                     if probe.returncode == 0:
                         root = Path(os.fsdecode(probe.stdout).strip())

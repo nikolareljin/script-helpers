@@ -654,7 +654,7 @@ Exit codes: not in the header; the script has no explicit `exit`.
 Refuse scanner results before a commit, push or text publication.
 
 ```text
-Usage: scripts/check_scan_output.sh [--staged|--push-refs <file>|--range <ref>|--tree <ref>|--file <path>|--stdin] [--remote <name>] [--repo <path>]
+Usage: scripts/check_scan_output.sh [--staged|--push-refs <file>|--range <ref>|--tree <ref>|--file <path>|--stdin] [--remote <name>] [--repo <path>] [--max-mib <n>]
   --staged          Check staged blobs, not working files.
   --push-refs FILE  Check every outgoing commit and annotated tag.
   --range REF       Check a revision or revision range.
@@ -663,6 +663,9 @@ Usage: scripts/check_scan_output.sh [--staged|--push-refs <file>|--range <ref>|-
   --stdin           Check publication text on stdin.
   --remote NAME     Target remote for new refs.
   --repo PATH       Repository, default current directory.
+  --max-mib N       Largest file or blob checked, 1..2048 MiB (default 2048,
+                    or CHECK_SCAN_OUTPUT_MAX_MIB). Above 64 MiB only
+                    uncompressed binaries are checked, in streamed chunks.
   -h, --help        Show help.
 ```
 
