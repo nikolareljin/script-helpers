@@ -572,6 +572,35 @@ content under changed names, supported archives, and publication text. Exit 2
 also refuses publication. Reports above the inspection limit or unreadable
 archives require local inspection rather than an unchecked push.
 
+Objects up to 64 MiB are inspected whole. A larger executable (ELF, Mach-O or
+PE) is read in 8 MiB chunks; each chunk carries the last unfinished line (at
+most 64 KiB) into the next, so a result line that crosses a chunk boundary is
+still found. Memory depends on the chunk size, not the file size.
+
+Compressed or archived data embedded in the executable (gzip, bzip2, xz, zip,
+tar, and zstd on Python 3.14 or newer) is decoded and scanned with the same
+rules, nested containers included. No external decoder is run. Decoded members
+go to `check_sensitive.sh` in batches of up to 64 MiB, not one process per
+member. Signature bytes that do not decode are not a finding: Go binaries carry
+them as code.
+
+A file above 64 MiB that cannot be fully checked is incomplete, not refused:
+a non-executable, data above the decode limits (64 MiB per member, 512 MiB per
+file, 300 s), an encrypted or unsupported member, 7z, a zstd frame on Python older than
+3.14, or scanner JSON keys
+(`RuleID`, `Fingerprint`, `finding_counts`). Locally the checker prints
+`WARNING: security check incomplete: <path>: could not fully check: <reason>`
+and exits 3. With `GITHUB_ACTIONS=true` or `--non-blocking` it prints a
+`::warning` annotation with the path and reason and exits 0. A scanner result
+found anywhere still exits 1, in CI too: every file above 64 MiB is still
+scanned as text to its end, whatever part of it could not be decoded. The hooks
+in `security_hooks.sh` keep checker output in the private report but show the
+incomplete-check lines (path and reason only) on the terminal, or as the
+annotation in CI. Each embedded member is scanned on its own, so a result line
+split across two members, or one stored base64-encoded, is not found. The largest object checked is
+`CHECK_SCAN_OUTPUT_MAX_MIB` or `--max-mib` (1..2048, default 2048); a larger
+one is incomplete, and an invalid value exits 2.
+
 `/scans/`, `/scan-results/`, `/security-reports/`, and scanner report patterns are
 ignored. Hooks also reject force-added files. Ordinary scanner configuration
 and reviewed synthetic false-positive ignores remain allowed.
