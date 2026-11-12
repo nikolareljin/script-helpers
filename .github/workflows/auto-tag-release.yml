@@ -74,6 +74,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-19
         with:
+          persist-credentials: false
           fetch-depth: 0
           fetch-tags: true
       # Delegates to scripts/pin_production.sh rather than repeating the move
@@ -87,10 +88,18 @@ jobs:
       # flag, in the repository that needs it.
       - name: Move production branch to the new tag
         shell: bash
+        # The checkout keeps no token (persist-credentials: false), so this
+        # step alone gets it, as an auth header through GIT_CONFIG_* env.
         env:
           RELEASE_TAG: ${{ needs.tag.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::$auth"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
           bash scripts/pin_production.sh "$RELEASE_TAG"
 
   note_candidate:
