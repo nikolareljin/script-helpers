@@ -17,6 +17,8 @@ export SCRIPT_HELPERS_NO_AUTO_INSTALL=1
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Run from inside the global hooks, their script directory would be used.
 unset SCRIPT_HELPERS_SECURITY_DIR
+# The hook refuses relative list, cache and temporary paths; start from known ones.
+unset PRIVATE_NAMES_CACHE_DIR TMPDIR
 failures=0
 note()  { echo "[private_names_autorefresh_test] $*"; }
 ok()    { note "PASS: $*"; }
@@ -172,13 +174,50 @@ out="$(cd "$repo" && HOME="$tmp" XDG_CONFIG_HOME=relxdg PRIVATE_NAMES_FILE="$lis
   sec_maybe_refresh_private_names
 ' _ "$ROOT_DIR")"
 sleep 4
-if [[ -f "$probe" ]] || [[ -e "$repo/relxdg" ]]; then
+if [[ -f "$probe" ]]; then
   error "a relative cache directory was refreshed inside the working tree"
 elif ! grep -q 'is not absolute' <<<"$out"; then
   error "a relative cache directory was skipped without saying so"
 else
   ok "a relative XDG_CONFIG_HOME (the cache directory) is not refreshed either"
 fi
+
+# 9. A relative PRIVATE_NAMES_CACHE_DIR or TMPDIR, the list itself absolute.
+for var in PRIVATE_NAMES_CACHE_DIR TMPDIR; do
+  clean; stale
+  out="$(cd "$repo" && env HOME="$tmp" XDG_CONFIG_HOME="$tmp/xdg" PRIVATE_NAMES_FILE="$list" "$var=reldir" bash -c '
+    source "$1/scripts/security_hooks.sh"
+    sec_maybe_refresh_private_names
+  ' _ "$ROOT_DIR")"
+  sleep 4
+  if [[ -f "$probe" ]]; then
+    error "a relative $var was refreshed inside the working tree"
+  elif ! grep -q 'is not absolute' <<<"$out"; then
+    error "a relative $var was skipped without saying so"
+  else
+    ok "a relative $var is not refreshed"
+  fi
+done
+
+# 10. Drive-letter and UNC paths are absolute on Windows only.
+for form in 'C:/Users/x/list.tsv' 'C:\Users\x\list.tsv' '\\srv\share\list.tsv'; do
+  for os in msys linux-gnu; do
+    got="$(OSTYPE="$os" bash -c '
+      source "$1/scripts/security_hooks.sh"
+      command -v gh >/dev/null 2>&1 || exit 0
+      find() { :; }          # the list counts as stale without touching disk
+      sec_find() { echo /bin/true; }
+      mkdir() { return 1; }  # stop at the lock: nothing is started
+      PRIVATE_NAMES_FILE="$2" sec_maybe_refresh_private_names
+    ' _ "$ROOT_DIR" "$form")"
+    if [[ "$os" == msys ]] && grep -q 'is not absolute' <<<"$got"; then
+      error "$form was refused on Windows"
+    elif [[ "$os" == linux-gnu ]] && ! grep -q 'is not absolute' <<<"$got"; then
+      error "$form counted as absolute outside Windows"
+    fi
+  done
+done
+ok "drive-letter and UNC paths are absolute on Windows only"
 
 if [[ $failures -gt 0 ]]; then
   echo "[private_names_autorefresh_test] FAILED ($failures)" >&2

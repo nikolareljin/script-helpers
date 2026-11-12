@@ -138,17 +138,24 @@ sec_maybe_refresh_private_names() {
   # Hooks run at the top of the working tree, so a relative path would have the
   # list (with its temporary file, log and lock) or the per-owner caches, which
   # hold the same names, written into the repository being pushed. Those are
-  # what the gate keeps out of public trees: refresh only when both are
-  # absolute. The cache directory is derived as refresh_private_names.sh does.
+  # what the gate keeps out of public trees: refresh only when they, and
+  # TMPDIR (its temporary files hold the names too), are absolute. The cache
+  # directory is derived as refresh_private_names.sh does. Drive-letter and UNC
+  # forms are absolute only on Windows; elsewhere they are relative names.
   local cache_dir="${PRIVATE_NAMES_CACHE_DIR:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/owners}"
   local p
-  for p in "$list" "$cache_dir"; do
+  for p in "$list" "$cache_dir" "${TMPDIR:-/tmp}"; do
     case "$p" in
-      /*|[A-Za-z]:[\\/]*|\\\\*) ;;
-      *)
-        echo "[pre-push] private-name list is stale, but a path it uses is not absolute (PRIVATE_NAMES_FILE, PRIVATE_NAMES_CACHE_DIR, XDG_CONFIG_HOME or HOME); not refreshing it here."
-        return 0 ;;
+      /*) continue ;;
     esac
+    case "${OSTYPE:-}" in
+      msys*|cygwin*|win32*)
+        case "$p" in
+          [A-Za-z]:[\\/]*|\\\\*) continue ;;
+        esac ;;
+    esac
+    echo "[pre-push] private-name list is stale, but a path it uses is not absolute (PRIVATE_NAMES_FILE, PRIVATE_NAMES_CACHE_DIR, XDG_CONFIG_HOME, HOME or TMPDIR); not refreshing it here."
+    return 0
   done
 
   # One at a time. mkdir is the atomic primitive available everywhere; a stale
