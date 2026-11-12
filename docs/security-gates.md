@@ -130,6 +130,23 @@ Install the pinned release, checked against the SHA-256 in `lib/ci_defaults.sh`
 bash scripts/setup-hooks.sh --install-foxguard     # or: scripts/ci_security.sh --install-foxguard
 ```
 
+## Workflow actions
+
+`scripts/check_workflow_actions.sh` checks `.github/workflows` (or the files and
+directories it is given) and exits 1 on any of:
+
+| refused | allowed instead |
+|---|---|
+| a `uses:` outside the list | `actions/<name>@<40-hex sha>`, `github/<name>@<40-hex sha>`, `nikolareljin/ci-helpers/<path>@production`; owner and name lowercase |
+| `actions/checkout` without `persist-credentials: false` in its step | pass the token to the one step that pushes, through its `env` |
+| `secrets: inherit` | name each secret the called workflow needs |
+| a flow-style step such as `- {uses: ...}` | write the step in block style |
+
+A checkout that must keep the token says so on its `uses:` line:
+`# persist-credentials-exception: <reason>`. An empty reason is refused.
+Exit 2: unknown option, missing path, or no workflow file. CI runs it as
+`make lint-workflows`.
+
 ## Auditing and cleaning a repository's history
 
 A push checks what it sends. Some decisions need the whole history instead:

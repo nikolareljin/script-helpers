@@ -4,6 +4,10 @@
 
 - **`refresh_private_names.sh` without `--out` writes `PRIVATE_NAMES_FILE` when that is set**, the file `check_private_names.sh` reads, instead of `~/.config/script-helpers/private-names.tsv`. Its loss guard and `--check` compare against that file too. Re-stage the global hooks (`scripts/setup-hooks.sh --global`) so the pre-push refresh uses this version.
 
+### Changed
+
+- **Workflows check out without a stored token, and `scripts/check_workflow_actions.sh` keeps it that way.** Every `actions/checkout` sets `persist-credentials: false`; the one step that pushes (`scripts/pin_production.sh` in `auto-tag-release.yml`) gets `github.token` in its own env as an auth header. The gate refuses a `uses:` outside `actions/*` or `github/*` at a 40-hex SHA and `nikolareljin/ci-helpers/...@production`, a checkout without `persist-credentials: false`, `secrets: inherit`, and a flow-style `{uses: ...}` step it cannot read. It runs as `make lint-workflows` in CI on Linux and macOS. Test: `tests/workflow_actions_test.sh` (fails against 0.63.0: seven checkouts kept the token).
+
 ### Fixed
 
 - **The pre-push hook's background refresh writes the list it checked.** It read the age of `PRIVATE_NAMES_FILE`, then ran `refresh_private_names.sh` without `--out`, which wrote the default `~/.config/script-helpers/private-names.tsv`. A custom list was never refreshed, so it was found stale on every push, and the default list was overwritten instead. The hook now passes `--out`, and `refresh_private_names.sh` defaults `--out` to `PRIVATE_NAMES_FILE` when that is set. Tests: new cases in `tests/private_names_autorefresh_test.sh` and `tests/refresh_private_names_test.sh` (both fail against 0.63.0).

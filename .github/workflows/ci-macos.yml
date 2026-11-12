@@ -40,6 +40,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-19
+        with:
+          persist-credentials: false
 
       - name: Environment info
         run: |
@@ -100,6 +102,10 @@ jobs:
       # BSD grep never matches, so this reported every function as undocumented.
       - name: make lint-docs
         run: make lint-docs
+
+      # BSD awk reads the workflow gate here.
+      - name: make lint-workflows
+        run: make lint-workflows
 
       # The unit test stubs curl; this checks the pinned SHA-256 against the real release.
       - name: Pinned foxguard downloads, matches its SHA-256 and runs
