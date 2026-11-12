@@ -16,6 +16,14 @@ import shutil
 import tempfile
 import unittest
 import zipfile
+import contextlib
+import types
+from unittest import mock
+
+try:
+    from compression import zstd as ZSTD
+except ImportError:
+    ZSTD = None
 import tarfile
 
 
@@ -47,12 +55,14 @@ class PublicationTests(unittest.TestCase):
             capture_output=True, text=True, check=check,
         )
 
-    def check(self, *args, expected=0, env=None, text=None):
+    def check(self, *args, expected=0, env=None, text=None, script=None):
+        command = [CHECK.as_posix(), "--repo", str(self.repo)] if script is None else [script.as_posix()]
         proc = subprocess.run(
-            [BASH, CHECK.as_posix(), "--repo", str(self.repo), *args],
+            [BASH, *command, *args],
             input=text, capture_output=True, text=True, env=env or self.env, cwd=self.repo,
         )
-        self.assertEqual(proc.returncode, expected, proc.stderr)
+        if expected is not None:
+            self.assertEqual(proc.returncode, expected, proc.stderr)
         return proc
 
     def stage(self, name, data):
@@ -538,6 +548,13 @@ class LargeFileTests(unittest.TestCase):
         self.env.pop("CI", None)
         self.env.pop("GITHUB_ACTIONS", None)
         self.env["XDG_STATE_HOME"] = str(self.base / "state")
+        # Decoded members go to check_sensitive.sh, which needs a gitleaks; CI
+        # legs have none. A stub that finds nothing keeps the outcome the same.
+        scanner = self.base / "clean-scanner"
+        scanner.write_bytes(b"#!/bin/sh\nexit 0\n")
+        scanner.chmod(0o700)
+        self.env["GITLEAKS_BIN"] = str(scanner)
+        self.repo = self.base
 
     def sparse(self, name, size, head=b"\x7fELF\0", at=None, data=b""):
         path = self.base / name
@@ -549,9 +566,26 @@ class LargeFileTests(unittest.TestCase):
             stream.truncate(size)
         return path
 
-    def run_check(self, *args, extra=None, script=CHECK):
-        env = dict(self.env, **(extra or {}))
-        return subprocess.run([BASH, script.as_posix(), *args], capture_output=True, text=True, env=env, cwd=self.base)
+    def run_check(self, *args, extra=None):
+        """Run check_scan_output.py's main() in this process, as the shell wrapper would."""
+        checker = load_checker()
+        out, err = io.StringIO(), io.StringIO()
+        saved = os.getcwd()
+        os.chdir(self.base)
+        try:
+            with mock.patch.dict(os.environ, dict(self.env, **(extra or {})), clear=True), \
+                    mock.patch.object(sys, "argv", ["check_scan_output.py", *args]), \
+                    contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                try:
+                    code = checker.main()
+                except SystemExit as exc:
+                    code = exc.code
+        finally:
+            os.chdir(saved)
+        return types.SimpleNamespace(returncode=code, stdout=out.getvalue(), stderr=err.getvalue())
+
+    def run_script(self, script, *args, extra=None):
+        return PublicationTests.check(self, *args, expected=None, env=dict(self.env, **(extra or {})), script=script)
 
     def status(self, *args, extra=None):
         return self.run_check(*args, extra=extra).returncode
@@ -575,9 +609,9 @@ class LargeFileTests(unittest.TestCase):
             path = self.sparse("service", 71 * MIB, at=70 * MIB, data=data)
             self.assertEqual(self.status("--file", str(path)), 1, data[:4])
 
-    @unittest.skipUnless(shutil.which("zstd"), "zstd not installed")
+    @unittest.skipUnless(ZSTD, "compression.zstd needs Python 3.14")
     def test_result_inside_embedded_zstd_is_found(self):
-        frame = subprocess.run(["zstd", "-cq"], input=PACKED_PAYLOAD, capture_output=True, check=True).stdout
+        frame = ZSTD.compress(PACKED_PAYLOAD)
         self.assertNotIn(RESULT_LINE.strip(), frame)
         path = self.sparse("service", 71 * MIB, at=70 * MIB, data=frame)
         self.assertEqual(self.status("--file", str(path)), 1)
@@ -628,7 +662,7 @@ class LargeFileTests(unittest.TestCase):
     def test_publication_check_forwards_incomplete_warning(self):
         path = self.sparse("blob.bin", 65 * MIB, head=b"\0data")
         script = ROOT / "scripts/check_publication.sh"
-        local = self.run_check("--file", str(path), script=script)
+        local = self.run_script(script, "--file", str(path))
         self.assertEqual(local.returncode, 3, local.stderr)
         self.assertIn("WARNING: security check incomplete", local.stderr)
 
@@ -643,9 +677,9 @@ class LargeFileTests(unittest.TestCase):
         for path in cases:
             self.assertEqual(self.status("--file", str(path), extra={"GITHUB_ACTIONS": "true"}), 1, path.name)
 
-    @unittest.skipUnless(shutil.which("zstd"), "zstd not installed")
+    @unittest.skipUnless(ZSTD, "compression.zstd needs Python 3.14")
     def test_clean_zstd_frame_far_from_the_end_passes(self):
-        frame = subprocess.run(["zstd", "-cq"], input=_TEXT * 3, capture_output=True, check=True).stdout
+        frame = ZSTD.compress(_TEXT * 3)
         path = self.sparse("service", 200 * MIB, at=MIB, data=frame)
         proc = self.run_check("--file", str(path))
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -679,24 +713,26 @@ class LargeFileTests(unittest.TestCase):
             path = self.sparse("service", 70 * MIB, at=MIB, data=packed.getvalue())
             self.assertEqual(self.status("--file", str(path), extra={"GITHUB_ACTIONS": "true"}), 1, kind)
 
-    @unittest.skipIf(os.name == "nt", "POSIX executable bit")
-    def test_zstd_from_a_relative_path_entry_is_not_run(self):
-        marker = self.base / "ran"
-        fake = self.base / "zstd"
-        fake.write_text("#!/bin/sh\ntouch '%s'\n" % marker)
-        fake.chmod(0o755)
-        path = self.sparse("service", 65 * MIB, at=MIB, data=b"\x28\xb5\x2f\xfd\x00" + b"\0" * 64)
-        self.run_check("--file", str(path), extra={"PATH": "." + os.pathsep + self.env.get("PATH", "")})
-        self.assertFalse(marker.exists())
+    def test_zstd_without_a_decoder_is_incomplete(self):
+        # 'hello' as a zstd frame; no external zstd command is ever run.
+        path = self.sparse("service", 65 * MIB, at=MIB, data=bytes.fromhex("28b52ffd045831000068656c6c6f0a5388bd91"))
+        checker = load_checker()
+        with path.open("rb") as stream:
+            checker.ZstdDecompressor = None
+            with self.assertRaises(checker.Anomaly):
+                checker.inspect_large("service", stream)
+        if ZSTD is None:
+            self.assertEqual(self.status("--file", str(path)), 3)
+            self.assertEqual(self.status("--file", str(path), extra={"GITHUB_ACTIONS": "true"}), 0)
 
     def test_hooks_show_incomplete_warning_outside_the_report(self):
         path = self.sparse("blob.bin", 65 * MIB, head=b"\0data")
         wrapper = self.base / "guard.sh"
         wrapper.write_text('source "%s"\nsec_guard sec_scan_output "$@"\n' % (ROOT / "scripts/security_hooks.sh").as_posix())
-        local = self.run_check("--file", str(path), script=wrapper)
+        local = self.run_script(wrapper, "--file", str(path))
         self.assertNotEqual(local.returncode, 0)
         self.assertIn("WARNING: security check incomplete: " + str(path), local.stderr)
-        ci = self.run_check("--file", str(path), script=wrapper, extra={"GITHUB_ACTIONS": "true", "CI": "true"})
+        ci = self.run_script(wrapper, "--file", str(path), extra={"GITHUB_ACTIONS": "true", "CI": "true"})
         self.assertEqual(ci.returncode, 0, ci.stderr)
         self.assertIn("::warning title=Security check incomplete::" + str(path), ci.stdout)
 

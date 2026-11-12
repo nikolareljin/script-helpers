@@ -578,14 +578,16 @@ most 64 KiB) into the next, so a result line that crosses a chunk boundary is
 still found. Memory depends on the chunk size, not the file size.
 
 Compressed or archived data embedded in the executable (gzip, bzip2, xz, zip,
-tar, zstd when the `zstd` command is installed) is decoded and scanned with the
-same rules, nested containers included. Decoded members go to
-`check_sensitive.sh` in batches of up to 64 MiB, not one process per member. Signature bytes that do not decode are
-not a finding: Go binaries carry them as code.
+tar, and zstd on Python 3.14 or newer) is decoded and scanned with the same
+rules, nested containers included. No external decoder is run. Decoded members
+go to `check_sensitive.sh` in batches of up to 64 MiB, not one process per
+member. Signature bytes that do not decode are not a finding: Go binaries carry
+them as code.
 
 A file above 64 MiB that cannot be fully checked is incomplete, not refused:
 a non-executable, data above the decode limits (64 MiB per member, 512 MiB per
-file, 300 s), an encrypted or unsupported member, 7z, or scanner JSON keys
+file, 300 s), an encrypted or unsupported member, 7z, a zstd frame on Python older than
+3.14, or scanner JSON keys
 (`RuleID`, `Fingerprint`, `finding_counts`). Locally the checker prints
 `WARNING: security check incomplete: <path>: could not fully check: <reason>`
 and exits 3. With `GITHUB_ACTIONS=true` or `--non-blocking` it prints a

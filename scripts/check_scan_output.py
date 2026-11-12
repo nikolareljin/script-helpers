@@ -20,6 +20,14 @@ import time
 import zipfile
 import zlib
 
+try:
+    from compression.zstd import ZstdDecompressor, ZstdError
+except ImportError:
+    ZstdDecompressor = None
+
+    class ZstdError(Exception):
+        pass
+
 
 class Refused(Exception):
     def __init__(self, path=None, tool="Security"):
@@ -221,7 +229,7 @@ def _decode(dec, f, offset, budget):
                 while not dec.eof and not dec.needs_input:
                     grow(dec.decompress(b"", MIB))
             budget.tick()
-    except (zlib.error, OSError, EOFError, lzma.LZMAError, ValueError):
+    except (zlib.error, OSError, EOFError, lzma.LZMAError, ValueError, ZstdError):
         return bytes(out), False
     return bytes(out), dec.eof
 
@@ -315,42 +323,45 @@ def _tar_members(name, f, offset, budget):
             budget.tars.append((offset - 257, offset - 257 + max(archive.offset, 512)))
 
 
-def _zstd_frame(name, f, offset, budget, size):
+def _zstd_blocks_end(f, offset, descriptor):
+    """Walk a zstd frame's block headers; True when they reach a last block.
+
+    Without a decoder this tells a frame from the stray magic bytes Go binaries
+    carry: those are followed by code, or by zero bytes (empty raw blocks).
+    """
+    single = descriptor & 0x20
+    pos = offset + 5 + (0 if single else 1) + (0, 1, 2, 4)[descriptor & 3]
+    pos += ((1 if single else 0), 2, 4, 8)[descriptor >> 6]
+    for _ in range(SIGNATURES_MAX):
+        f.seek(pos)
+        raw = f.read(3)
+        if len(raw) != 3:
+            return False
+        header = int.from_bytes(raw, "little")
+        kind, length = (header >> 1) & 3, header >> 3
+        if kind == 3 or length > 128 * 1024 or (kind == 0 and length == 0 and not header & 1):
+            return False
+        pos += 3 + (1 if kind == 1 else length)
+        if header & 1:
+            return True
+    return False
+
+
+def _zstd_frame(name, f, offset, budget):
     f.seek(offset + 4)
     descriptor = f.read(1)
     if len(descriptor) != 1 or descriptor[0] & 0x08:
         return
-    zstd = shutil.which("zstd")
-    # Never a relative PATH entry: that would run a zstd from the checked tree.
-    if not zstd or not os.path.isabs(zstd):
-        raise Anomaly("no zstd decoder")
-    fed = min(size - offset, MEMBER_MAX + MIB)
-    # An unnamed file: Windows cannot reopen a NamedTemporaryFile while it is open.
-    with tempfile.TemporaryFile() as frame:
-        f.seek(offset)
-        frame.write(f.read(fed))
-        frame.seek(0)
-        proc = subprocess.Popen([zstd, "-dcq"], stdin=frame, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        out = bytearray()
-        try:
-            while True:
-                piece = proc.stdout.read(MIB)
-                if not piece:
-                    break
-                out.extend(piece)
-                if len(out) > MEMBER_MAX:
-                    raise Anomaly("embedded data above the decode limit")
-                budget.tick()
-        finally:
-            proc.kill()
-            proc.stdout.close()
-            status = proc.wait()
-    # zstd exits nonzero on the bytes after the frame, so a nonzero status is
-    # normal here; a frame too large to feed decodes above MEMBER_MAX instead.
-    _scan_decoded(name + ":zstd", bytes(out), status == 0, budget)
+    # Python 3.14+ only; no external decoder is run.
+    if ZstdDecompressor is None:
+        if _zstd_blocks_end(f, offset, descriptor[0]):
+            raise Anomaly("no zstd decoder")
+        return
+    data, complete = _decode(ZstdDecompressor(), f, offset, budget)
+    _scan_decoded(name + ":zstd", data, complete, budget)
 
 
-def _embedded(name, f, offset, magic, budget, size):
+def _embedded(name, f, offset, magic, budget):
     """Decode the data a signature starts; bytes that do not decode are not a finding."""
     budget.hits += 1
     if budget.hits > SIGNATURES_MAX:
@@ -380,7 +391,7 @@ def _embedded(name, f, offset, magic, budget, size):
     elif magic == b"ustar":
         _tar_members(name, f, offset, budget)
     else:
-        _zstd_frame(name, f, offset, budget, size)
+        _zstd_frame(name, f, offset, budget)
 
 
 def inspect_large(name, f):
@@ -421,7 +432,7 @@ def inspect_large(name, f):
             if offset not in done:
                 done.add(offset)
                 try:
-                    _embedded(name, f, offset, match.group(), budget, size)
+                    _embedded(name, f, offset, match.group(), budget)
                 except Anomaly as exc:
                     reasons.append(exc.args[0])
                     # The object's budget is spent: stop decoding, keep scanning text.
