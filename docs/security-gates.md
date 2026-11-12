@@ -579,7 +579,8 @@ still found. Memory depends on the chunk size, not the file size.
 
 Compressed or archived data embedded in the executable (gzip, bzip2, xz, zip,
 tar, zstd when the `zstd` command is installed) is decoded and scanned with the
-same rules, nested containers included. Signature bytes that do not decode are
+same rules, nested containers included. Decoded members go to
+`check_sensitive.sh` in batches of up to 64 MiB, not one process per member. Signature bytes that do not decode are
 not a finding: Go binaries carry them as code.
 
 A file above 64 MiB that cannot be fully checked is incomplete, not refused:
@@ -589,7 +590,12 @@ file, 300 s), an encrypted or unsupported member, 7z, or scanner JSON keys
 `WARNING: security check incomplete: <path>: could not fully check: <reason>`
 and exits 3. With `GITHUB_ACTIONS=true` or `--non-blocking` it prints a
 `::warning` annotation with the path and reason and exits 0. A scanner result
-found anywhere still exits 1, in CI too. The largest object checked is
+found anywhere still exits 1, in CI too: every file above 64 MiB is still
+scanned as text to its end, whatever part of it could not be decoded. The hooks
+in `security_hooks.sh` keep checker output in the private report but show the
+incomplete-check lines (path and reason only) on the terminal, or as the
+annotation in CI. Each embedded member is scanned on its own, so a result line
+split across two members, or one stored base64-encoded, is not found. The largest object checked is
 `CHECK_SCAN_OUTPUT_MAX_MIB` or `--max-mib` (1..2048, default 2048); a larger
 one is incomplete, and an invalid value exits 2.
 

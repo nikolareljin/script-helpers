@@ -77,6 +77,7 @@ MEMBER_MAX = 64 * MIB      # decoded bytes per embedded member
 DECODED_MAX = 512 * MIB    # decoded bytes per large object
 SIGNATURES_MAX = 4096      # signature hits per large object
 DECODE_SECONDS = 300       # wall time per large object
+BUDGET_SPENT = ("decode limit reached", "time limit reached", "too many embedded signatures")
 ANOMALIES = []
 NON_BLOCKING = [False]
 BASH = shutil.which("bash") or "bash"
@@ -159,12 +160,37 @@ class _Budget:
     def __init__(self):
         self.decoded = 0
         self.hits = 0
+        # (start, end) of every embedded tar already read, so a header inside
+        # one is not read again as the start of another (2000 members cost n^2).
+        self.tars = []
+        self.pending = []
+        self.pending_bytes = 0
         self.deadline = time.monotonic() + DECODE_SECONDS
 
     def take(self, count):
         self.decoded += count
         if self.decoded > DECODED_MAX:
             raise Anomaly("decode limit reached")
+
+    def sensitive(self, name, data):
+        """Queue decoded data for check_sensitive.sh: one process per batch, not per member."""
+        self.pending.append(os.fsencode(name) + b"\n" + data.replace(b"\0", b" ") + b"\n")
+        self.pending_bytes += len(self.pending[-1])
+        if self.pending_bytes > MEMBER_MAX:
+            self.flush()
+
+    def flush(self):
+        if not self.pending:
+            return
+        raw, self.pending, self.pending_bytes = b"".join(self.pending), [], 0
+        proc = subprocess.run(
+            [BASH, Path(__file__).with_name("check_sensitive.sh").as_posix(), "--stdin", "--no-inline-allow"],
+            input=raw, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        if proc.returncode == 1:
+            raise Refused()
+        if proc.returncode:
+            raise Anomaly("embedded data could not be checked")
 
     def tick(self):
         if time.monotonic() > self.deadline:
@@ -204,7 +230,8 @@ def _scan_decoded(name, data, complete, budget):
     budget.take(len(data))
     try:
         if complete:
-            inspect_archive_member(name, data, 1)
+            inspect(name, data, 1)
+            budget.sensitive(name, data)
         elif data:
             # Partial output of stray bytes: cheap result scan only.
             inspect(name, data, 1)
@@ -249,7 +276,7 @@ def _zip_member(name, f, offset, budget):
 
 
 def _tar_members(name, f, offset, budget):
-    if offset < 257:
+    if offset < 257 or any(start <= offset < end for start, end in budget.tars):
         return
     f.seek(offset - 257)
     header = f.read(512)
@@ -262,6 +289,7 @@ def _tar_members(name, f, offset, budget):
     if stored != sum(header[:148]) + 256 + sum(header[156:]):
         return
     f.seek(offset - 257)
+    archive = None
     try:
         with tarfile.open(fileobj=f, mode="r|") as archive:
             for index, member in enumerate(archive):
@@ -271,7 +299,7 @@ def _tar_members(name, f, offset, budget):
                 if REPORT_NAME.search(member.name):
                     raise Refused()
                 if not member.isfile():
-                    inspect_archive_member(member.name, os.fsencode(member.linkname), 1)
+                    budget.sensitive(member.name, os.fsencode(member.linkname))
                     continue
                 if member.size > MEMBER_MAX:
                     raise Anomaly("embedded data above the decode limit")
@@ -282,6 +310,9 @@ def _tar_members(name, f, offset, budget):
         pass
     except Unchecked:
         raise Anomaly("embedded data could not be checked") from None
+    finally:
+        if archive is not None:
+            budget.tars.append((offset - 257, offset - 257 + max(archive.offset, 512)))
 
 
 def _zstd_frame(name, f, offset, budget, size):
@@ -290,9 +321,10 @@ def _zstd_frame(name, f, offset, budget, size):
     if len(descriptor) != 1 or descriptor[0] & 0x08:
         return
     zstd = shutil.which("zstd")
-    if not zstd:
+    # Never a relative PATH entry: that would run a zstd from the checked tree.
+    if not zstd or not os.path.isabs(zstd):
         raise Anomaly("no zstd decoder")
-    fed = min(size - offset, MEMBER_MAX)
+    fed = min(size - offset, MEMBER_MAX + MIB)
     # An unnamed file: Windows cannot reopen a NamedTemporaryFile while it is open.
     with tempfile.TemporaryFile() as frame:
         f.seek(offset)
@@ -313,8 +345,8 @@ def _zstd_frame(name, f, offset, budget, size):
             proc.kill()
             proc.stdout.close()
             status = proc.wait()
-    if status and out and fed < size - offset:
-        raise Anomaly("embedded data above the decode limit")
+    # zstd exits nonzero on the bytes after the frame, so a nonzero status is
+    # normal here; a frame too large to feed decodes above MEMBER_MAX instead.
     _scan_decoded(name + ":zstd", bytes(out), status == 0, budget)
 
 
@@ -354,9 +386,11 @@ def _embedded(name, f, offset, magic, budget, size):
 def inspect_large(name, f):
     """Inspect a seekable object above LIMIT without holding more than CHUNK + OVERLAP bytes.
 
-    Only executables (STREAM_FORMATS) are read. Embedded compressed data and
-    archives are decoded, within bounds, and scanned. What cannot be fully
-    checked raises Anomaly; a scanner result raises Refused.
+    Every object is scanned as text to the end, so a scanner result blocks
+    even when something earlier could not be checked. Only executables
+    (STREAM_FORMATS) also have embedded compressed data and archives decoded,
+    within bounds. A scanner result raises Refused; otherwise anything not fully
+    checked raises Anomaly once the whole object has been read.
     """
     normalized = "/".join(part for part in name.replace("\\", "/").split("/") if part not in ("", "."))
     if REPORT_NAME.search(normalized):
@@ -366,9 +400,11 @@ def inspect_large(name, f):
         raise Anomaly("larger than the size limit")
     f.seek(0)
     chunk = f.read(CHUNK)
-    if (not chunk.startswith(STREAM_FORMATS)
-            or name.lower().endswith((".zip", ".tar", ".tgz", ".tar.gz", ".tar.xz", ".tar.bz2"))):
-        raise Anomaly("not an executable")
+    reasons = []
+    decoding = (chunk.startswith(STREAM_FORMATS)
+                and not name.lower().endswith((".zip", ".tar", ".tgz", ".tar.gz", ".tar.xz", ".tar.bz2")))
+    if not decoding:
+        reasons.append("not an executable")
     budget = _Budget()
     done = set()
     pos = 0
@@ -378,13 +414,20 @@ def inspect_large(name, f):
         window = carry + chunk
         base = pos - len(window)
         # The carry holds the start of any signature or line cut at the chunk boundary.
-        if STREAM_JSON_REPORT.search(window):
-            raise Anomaly("possible report data")
-        for match in STREAM_PACKED.finditer(window):
+        if STREAM_JSON_REPORT.search(window) and "possible report data" not in reasons:
+            reasons.append("possible report data")
+        for match in STREAM_PACKED.finditer(window) if decoding else ():
             offset = base + match.start()
             if offset not in done:
                 done.add(offset)
-                _embedded(name, f, offset, match.group(), budget, size)
+                try:
+                    _embedded(name, f, offset, match.group(), budget, size)
+                except Anomaly as exc:
+                    reasons.append(exc.args[0])
+                    # The object's budget is spent: stop decoding, keep scanning text.
+                    decoding = exc.args[0] not in BUDGET_SPENT
+                    if not decoding:
+                        break
         # Carry the unfinished last line, or the last OVERLAP bytes of a longer one.
         cut = window.rfind(b"\n", max(0, len(window) - OVERLAP)) + 1
         if cut:
@@ -397,6 +440,12 @@ def inspect_large(name, f):
         chunk = f.read(CHUNK)
     if carry:
         inspect(name, carry, text_only=True)
+    try:
+        budget.flush()
+    except Anomaly as exc:
+        reasons.append(exc.args[0])
+    if reasons:
+        raise Anomaly(reasons[0])
 
 
 def report_anomalies():

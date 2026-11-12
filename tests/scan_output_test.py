@@ -3,6 +3,7 @@
 import io
 import json
 import random
+import time
 import gzip
 import bz2
 import lzma
@@ -630,6 +631,75 @@ class LargeFileTests(unittest.TestCase):
         local = self.run_check("--file", str(path), script=script)
         self.assertEqual(local.returncode, 3, local.stderr)
         self.assertIn("WARNING: security check incomplete", local.stderr)
+
+    def test_result_after_an_unchecked_part_still_blocks(self):
+        packed = io.BytesIO()
+        with zipfile.ZipFile(packed, "w") as archive:
+            archive.writestr("x.txt", "hi")
+        encrypted = bytearray(packed.getvalue())
+        encrypted[6] |= 1
+        cases = (self.sparse("service", 70 * MIB, at=MIB, data=bytes(encrypted) + b"\0" * (59 * MIB) + RESULT_LINE),
+                 self.sparse("blob.bin", 70 * MIB, head=b"\0data", at=60 * MIB, data=RESULT_LINE))
+        for path in cases:
+            self.assertEqual(self.status("--file", str(path), extra={"GITHUB_ACTIONS": "true"}), 1, path.name)
+
+    @unittest.skipUnless(shutil.which("zstd"), "zstd not installed")
+    def test_clean_zstd_frame_far_from_the_end_passes(self):
+        frame = subprocess.run(["zstd", "-cq"], input=_TEXT * 3, capture_output=True, check=True).stdout
+        path = self.sparse("service", 200 * MIB, at=MIB, data=frame)
+        proc = self.run_check("--file", str(path))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_tar_with_many_members_is_read_once(self):
+        packed = io.BytesIO()
+        with tarfile.open(fileobj=packed, mode="w") as archive:
+            for index in range(1900):
+                info = tarfile.TarInfo("f%d" % index)
+                info.size = 3
+                archive.addfile(info, io.BytesIO(b"abc"))
+        path = self.sparse("service", 70 * MIB, at=MIB, data=packed.getvalue())
+        started = time.monotonic()
+        proc = self.run_check("--file", str(path))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertLess(time.monotonic() - started, 60)
+
+    def test_personal_data_in_one_of_many_embedded_members_is_refused(self):
+        email = ("jane.roe" + "@mailbox.org").encode()
+        for kind in ("content", "link"):
+            packed = io.BytesIO()
+            with tarfile.open(fileobj=packed, mode="w") as archive:
+                for index in range(400):
+                    info = tarfile.TarInfo("f%d" % index)
+                    body = email if kind == "content" and index == 300 else b"abc"
+                    if kind == "link" and index == 300:
+                        info.type, info.linkname = tarfile.SYMTYPE, email.decode()
+                        body = b""
+                    info.size = len(body)
+                    archive.addfile(info, io.BytesIO(body))
+            path = self.sparse("service", 70 * MIB, at=MIB, data=packed.getvalue())
+            self.assertEqual(self.status("--file", str(path), extra={"GITHUB_ACTIONS": "true"}), 1, kind)
+
+    @unittest.skipIf(os.name == "nt", "POSIX executable bit")
+    def test_zstd_from_a_relative_path_entry_is_not_run(self):
+        marker = self.base / "ran"
+        fake = self.base / "zstd"
+        fake.write_text("#!/bin/sh\ntouch '%s'\n" % marker)
+        fake.chmod(0o755)
+        path = self.sparse("service", 65 * MIB, at=MIB, data=b"\x28\xb5\x2f\xfd\x00" + b"\0" * 64)
+        self.run_check("--file", str(path), extra={"PATH": "." + os.pathsep + self.env.get("PATH", "")})
+        self.assertFalse(marker.exists())
+
+    def test_hooks_show_incomplete_warning_outside_the_report(self):
+        path = self.sparse("blob.bin", 65 * MIB, head=b"\0data")
+        lib = (ROOT / "scripts/security_hooks.sh").as_posix()
+        command = 'source "$1"; sec_guard sec_scan_output --file "$2"'
+        local = subprocess.run([BASH, "-c", command, "x", lib, str(path)], capture_output=True, text=True, env=self.env, cwd=self.base)
+        self.assertNotEqual(local.returncode, 0)
+        self.assertIn("WARNING: security check incomplete: " + str(path), local.stderr)
+        ci = subprocess.run([BASH, "-c", command, "x", lib, str(path)], capture_output=True, text=True,
+                            env=dict(self.env, GITHUB_ACTIONS="true", CI="true"), cwd=self.base)
+        self.assertEqual(ci.returncode, 0, ci.stderr)
+        self.assertIn("::warning title=Security check incomplete::" + str(path), ci.stdout)
 
     def scan(self, checker, data):
         path = self.base / "window.bin"
