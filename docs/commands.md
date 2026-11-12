@@ -718,6 +718,32 @@ Example:
   scripts/check_sensitive.sh --range origin/main..HEAD
 ```
 
+### `scripts/check_workflow_actions.sh`
+
+Fail when a GitHub Actions workflow uses an action outside the allowed list, checks out with a persisted token, or passes `secrets: inherit`.
+
+```text
+Usage: scripts/check_workflow_actions.sh [-h] [path ...]
+  path         Workflow files or directories of them (*.yml, *.yaml).
+               Default: .github/workflows under the repository root.
+  -h, --help   Show this help message.
+```
+
+Exit codes:
+
+```text
+0  Every `uses:` is allowed, every checkout sets persist-credentials: false,
+and no job passes `secrets: inherit` (also -h/--help).
+1  At least one violation; each is printed as file:line: reason.
+2  Could not check: unknown option, no such path, or no workflow file found.
+```
+
+Example:
+
+```text
+  scripts/check_workflow_actions.sh .github/workflows
+```
+
 ### `scripts/ci_gitleaks_report.sh`
 
 Normalize and evaluate a Gitleaks SARIF report for reusable workflows and similar CI runners.

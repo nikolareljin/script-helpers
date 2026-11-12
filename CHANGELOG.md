@@ -1,3 +1,7 @@
+## Unreleased
+
+- **Workflows check out without a stored token, and `scripts/check_workflow_actions.sh` keeps it that way.** Every `actions/checkout` sets `persist-credentials: false`; the one step that pushes (`scripts/pin_production.sh` in `auto-tag-release.yml`) gets `github.token` in its own env as an auth header. The gate refuses a `uses:` outside `actions/*` or `github/*` at a 40-hex SHA and `nikolareljin/ci-helpers/...@production`, a checkout without `persist-credentials: false`, `secrets: inherit`, and a flow-style `{uses: ...}` step it cannot read. It runs as `make lint-workflows` in CI on Linux and macOS. Test: `tests/workflow_actions_test.sh` (fails against 0.63.0: seven checkouts kept the token).
+
 ## 2026-11-09 — v0.63.0
 
 ### Upgrade notes
