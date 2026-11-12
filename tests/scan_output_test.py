@@ -557,13 +557,11 @@ class LargeFileTests(unittest.TestCase):
     def test_large_staged_blob_is_streamed(self):
         repo = self.base / "repo"
         repo.mkdir()
-        git = ["git", "-C", str(repo)]
-        subprocess.run(git + ["init", "-q"], check=True, env=self.env)
         self.sparse("repo/clean.bin", 65 * MIB)
         self.sparse("repo/dirty.bin", 65 * MIB, at=8 * MIB - 10, data=RESULT_LINE)
-        subprocess.run(git + ["add", "clean.bin"], check=True, env=self.env)
-        self.assertEqual(self.run_check("--repo", str(repo), "--staged"), 0)
-        subprocess.run(git + ["add", "dirty.bin"], check=True, env=self.env)
+        for args, expected in ((["init", "-q"], 0), (["add", "clean.bin"], 0), (["add", "dirty.bin"], 1)):
+            subprocess.run(["git", "-C", str(repo), *args], check=True, env=self.env)
+            self.assertEqual(self.run_check("--repo", str(repo), "--staged"), expected)
         self.assertEqual(self.run_check("--repo", str(repo), "--staged"), 1)
 
     def test_still_unchecked_large_text_archive_and_report_name(self):
