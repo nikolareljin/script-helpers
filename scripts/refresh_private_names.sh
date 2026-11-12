@@ -50,8 +50,9 @@
 # thing the gate exists to keep out of public trees.
 #
 # So it lives outside every working tree, at
-# ${XDG_CONFIG_HOME:-~/.config}/script-helpers/private-names.tsv, one file per
-# machine serving every repository on it.
+# ${XDG_CONFIG_HOME:-~/.config}/script-helpers/private-names.tsv (or
+# PRIVATE_NAMES_FILE, which the checks read too), one file per machine serving
+# every repository on it.
 #
 # WHY THE NETWORK IS HERE AND NOWHERE ELSE. This script talks to GitHub; the
 # gate never does. A check that made a network call would add a round trip to
