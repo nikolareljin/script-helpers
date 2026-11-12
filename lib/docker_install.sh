@@ -302,7 +302,9 @@ _shlib_docker_install_dnf() {
     echo "  [dry-run] verify https://download.docker.com/linux/$id/gpg is $SHLIB_DOCKER_RPM_FPR, install to $keyfile, rpm --import" >&2
   else
     _shlib_docker_fetch_key "$id" "$SHLIB_DOCKER_RPM_FPR" || return 1
-    if ! _shlib_docker_sudo install -D -m 0644 "$_shlib_docker_key_dir/key.asc" "$keyfile" \
+    # install -d then -m, not install -D: BSD install has no -D.
+    if ! _shlib_docker_sudo install -d -m 0755 "${keyfile%/*}" \
+       || ! _shlib_docker_sudo install -m 0644 "$_shlib_docker_key_dir/key.asc" "$keyfile" \
        || ! _shlib_docker_sudo rpm --import "$keyfile"; then
       _shlib_docker_sudo rm -f -- "$keyfile"
       rm -rf -- "$_shlib_docker_key_dir"

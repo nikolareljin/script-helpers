@@ -98,6 +98,13 @@ if [[ "$1" == config-manager ]]; then
     >"$FAKE_ROOT/etc/yum.repos.d/docker-ce.repo"
 fi
 EOF
+# install: refuse -D the way BSD install on macOS does, so Linux runs catch it.
+real_install="$(command -v install)"
+cat >"$stubs/install" <<EOF
+#!/usr/bin/env bash
+for a in "\$@"; do [[ "\$a" == -D ]] && { echo "install: illegal option -- D" >&2; exit 64; }; done
+exec "$real_install" "\$@"
+EOF
 printf '#!/usr/bin/env bash\necho amd64\n' >"$stubs/dpkg"
 printf '#!/usr/bin/env bash\necho 1000\n' >"$stubs/id"
 chmod +x "$stubs"/*
