@@ -37,6 +37,7 @@ probe="$tmp/refresh-ran"
 cat > "$repo/scripts/refresh_private_names.sh" <<STUB
 #!/usr/bin/env bash
 sleep 3
+printf '%s\n' "\$@" > "$probe.args"
 echo ran > "$probe"
 STUB
 printf '#!/usr/bin/env bash\nexit 0\n' > "$repo/scripts/check_private_names.sh"
@@ -55,7 +56,7 @@ hook_run() {
 make_list() { printf 'private\tns\tx\t-\t\n' > "$list"; }
 stale()     { make_list; touch -d '30 days ago' "$list" 2>/dev/null || touch -t 202001010000 "$list"; }
 fresh()     { make_list; touch "$list"; }
-clean()     { rm -f "$probe"; rm -rf "$list.refresh.lock"; }
+clean()     { rm -f "$probe" "$probe.args"; rm -rf "$list.refresh.lock"; }
 
 if ! command -v gh >/dev/null 2>&1; then
   note "SKIP: gh is not installed, the hook returns before deciding anything"
@@ -79,6 +80,12 @@ else
 fi
 sleep 4
 [[ -f "$probe" ]] && ok "the refresh really ran" || error "the refresh was announced but never ran"
+# A custom PRIVATE_NAMES_FILE is the list that is refreshed, not the default.
+if [[ "$(cat "$probe.args" 2>/dev/null)" == "$(printf -- '--out\n%s' "$list")" ]]; then
+  ok "the refresh writes the list it checked (PRIVATE_NAMES_FILE)"
+else
+  error "the refresh was not pointed at PRIVATE_NAMES_FILE: $(tr '\n' ' ' < "$probe.args" 2>/dev/null)"
+fi
 
 # 2. Fresh: nothing happens. Without this the refresh is simply always on.
 clean; fresh

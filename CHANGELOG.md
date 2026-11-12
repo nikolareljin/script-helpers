@@ -1,3 +1,13 @@
+## 2026-11-12 — v0.63.1
+
+### Upgrade notes
+
+- **`refresh_private_names.sh` without `--out` writes `PRIVATE_NAMES_FILE` when that is set**, the file `check_private_names.sh` reads, instead of `~/.config/script-helpers/private-names.tsv`. Its loss guard and `--check` compare against that file too. Re-stage the global hooks (`scripts/setup-hooks.sh --global`) so the pre-push refresh uses this version.
+
+### Fixed
+
+- **The pre-push hook's background refresh writes the list it checked.** It read the age of `PRIVATE_NAMES_FILE`, then ran `refresh_private_names.sh` without `--out`, which wrote the default `~/.config/script-helpers/private-names.tsv`. A custom list was never refreshed, so it was found stale on every push, and the default list was overwritten instead. The hook now passes `--out`, and `refresh_private_names.sh` defaults `--out` to `PRIVATE_NAMES_FILE` when that is set. Tests: new cases in `tests/private_names_autorefresh_test.sh` and `tests/refresh_private_names_test.sh` (both fail against 0.63.0).
+
 ## 2026-11-09 — v0.63.0
 
 ### Upgrade notes

@@ -146,7 +146,9 @@ sec_maybe_refresh_private_names() {
   # run_bounded_test refuses, and it buys nothing. A refresh that is killed
   # leaves the lock, which the day-old check above clears.
   (
-    bash "$refresher" >"${list}.refresh.log" 2>&1
+    # --out: the list whose age was just checked, not the default one. A
+    # refresher staged before it read PRIVATE_NAMES_FILE would write elsewhere.
+    bash "$refresher" --out "$list" >"${list}.refresh.log" 2>&1
     rmdir "$lock" 2>/dev/null
   ) </dev/null >/dev/null 2>&1 &
   return 0

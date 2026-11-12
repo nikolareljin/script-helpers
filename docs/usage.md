@@ -630,7 +630,9 @@ those names match nothing.
 The `pre-push` hook refreshes in the background when the list is older than
 `PRIVATE_NAMES_REFRESH_DAYS` (7). It never blocks or fails a push, holds a lock
 so two pushes do not start two refreshes, and `PRIVATE_NAMES_AUTO_REFRESH=false`
-turns it off. A scheduler was deliberately not used: git runs hooks under bash
+turns it off. It refreshes the list the checks read: `PRIVATE_NAMES_FILE` when
+that is set, which is also `refresh_private_names.sh`'s default `--out`. A
+scheduler was deliberately not used: git runs hooks under bash
 on Linux, macOS and Windows alike, so there is nothing to install.
 
 #### Codes and renamed repositories

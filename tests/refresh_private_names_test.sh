@@ -808,6 +808,38 @@ else
   ok "a run reports no missing command"
 fi
 
+# PRIVATE_NAMES_FILE is the default --out: the checks read that file, so a
+# refresh without --out must write it, not the one under ~/.config. HOME and
+# XDG_CONFIG_HOME point into $tmp, so the real list is never touched.
+mkdir -p "$tmp/home" "$tmp/xdg"
+PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" HOME="$tmp/home" \
+  XDG_CONFIG_HOME="$tmp/xdg" PRIVATE_NAMES_CACHE_DIR="$tmp/cache-envfile" \
+  PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_FILE="$tmp/envfile.tsv" \
+  bash "$SCRIPT" --owner testns >/dev/null 2>&1
+rc=$?
+if [[ $rc -ne 0 ]]; then
+  error "a refresh with PRIVATE_NAMES_FILE set failed (exit $rc)"
+elif [[ ! -s "$tmp/envfile.tsv" ]]; then
+  error "PRIVATE_NAMES_FILE was not written when --out was not given"
+elif [[ -e "$tmp/xdg/script-helpers/private-names.tsv" ]]; then
+  error "the default list was written although PRIVATE_NAMES_FILE was set"
+else
+  ok "without --out, the list named by PRIVATE_NAMES_FILE is written"
+fi
+PATH="$tmp/bin:$PATH" PRIVATE_NAMES_WORDLIST="$tmp/words" HOME="$tmp/home" \
+  XDG_CONFIG_HOME="$tmp/xdg" PRIVATE_NAMES_CACHE_DIR="$tmp/cache-envfile" \
+  PRIVATE_NAMES_TTL_SELF=0 PRIVATE_NAMES_TTL_ORG=0 \
+  PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE="$tmp/does-not-exist" \
+  PRIVATE_NAMES_FILE="$tmp/envfile-unused.tsv" \
+  bash "$SCRIPT" --owner testns --out "$tmp/envfile-out.tsv" >/dev/null 2>&1
+if [[ -s "$tmp/envfile-out.tsv" && ! -e "$tmp/envfile-unused.tsv" ]]; then
+  ok "--out wins over PRIVATE_NAMES_FILE"
+else
+  error "--out did not take precedence over PRIVATE_NAMES_FILE"
+fi
+
 if [[ $failures -gt 0 ]]; then
   echo "[refresh_private_names_test] FAILED ($failures)" >&2
   exit 1
