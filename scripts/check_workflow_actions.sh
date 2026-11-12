@@ -79,6 +79,11 @@ for f in "${files[@]}"; do
         if (s ~ /^[ ]*#/) continue
         if (unquote(s) ~ /^[ ]*(-[ ]+)?secrets:[ ]*inherit[ ]*(#.*)?$/)
           report(i, "secrets: inherit passes every secret; name the ones the called workflow needs")
+        # A flow mapping ({uses: x}) would slip past the line checks below.
+        if (s ~ /^[ ]*(-[ ]+)?\{.*uses[ ]*:/) {
+          report(i, "flow-style uses: is not checked; write the step in block style")
+          continue
+        }
         if (s !~ /^[ ]*(-[ ]+)?uses:/) continue
 
         v = s

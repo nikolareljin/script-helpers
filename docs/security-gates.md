@@ -140,6 +140,7 @@ directories it is given) and exits 1 on any of:
 | a `uses:` outside the list | `actions/<name>@<40-hex sha>`, `github/<name>@<40-hex sha>`, `nikolareljin/ci-helpers/<path>@production`; owner and name lowercase |
 | `actions/checkout` without `persist-credentials: false` in its step | pass the token to the one step that pushes, through its `env` |
 | `secrets: inherit` | name each secret the called workflow needs |
+| a flow-style step such as `- {uses: ...}` | write the step in block style |
 
 A checkout that must keep the token says so on its `uses:` line:
 `# persist-credentials-exception: <reason>`. An empty reason is refused.

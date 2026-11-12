@@ -150,6 +150,13 @@ jobs:
       - uses: docker://alpine:3
 YML
 
+expect 1 flow_style "block style" <<YML
+jobs:
+  a:
+    steps:
+      - {uses: someone/action@v1}
+YML
+
 expect 1 secrets_inherit "secrets: inherit" <<YML
 jobs:
   a:
