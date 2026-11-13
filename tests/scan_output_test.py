@@ -2,6 +2,8 @@
 
 import io
 import json
+import random
+import time
 import gzip
 import bz2
 import lzma
@@ -14,6 +16,14 @@ import shutil
 import tempfile
 import unittest
 import zipfile
+import contextlib
+import types
+from unittest import mock
+
+try:
+    from compression import zstd as ZSTD
+except ImportError:
+    ZSTD = None
 import tarfile
 
 
@@ -45,12 +55,14 @@ class PublicationTests(unittest.TestCase):
             capture_output=True, text=True, check=check,
         )
 
-    def check(self, *args, expected=0, env=None, text=None):
+    def check(self, *args, expected=0, env=None, text=None, script=None):
+        command = [CHECK.as_posix(), "--repo", str(self.repo)] if script is None else [script.as_posix()]
         proc = subprocess.run(
-            [BASH, CHECK.as_posix(), "--repo", str(self.repo), *args],
+            [BASH, *command, *args],
             input=text, capture_output=True, text=True, env=env or self.env, cwd=self.repo,
         )
-        self.assertEqual(proc.returncode, expected, proc.stderr)
+        if expected is not None:
+            self.assertEqual(proc.returncode, expected, proc.stderr)
         return proc
 
     def stage(self, name, data):
@@ -500,6 +512,285 @@ class PublicationTests(unittest.TestCase):
         for args in (["gist", "create", str(safe_asset)], ["pr", "review", "1", "--approve"]):
             proc = subprocess.run([sys.executable, "-I", str(ROOT / "scripts/guard_gh.py"), str(gh), *args], env=env, capture_output=True, text=True)
             self.assertEqual(proc.returncode, 0, proc.stderr)
+
+
+def load_checker():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("check_scan_output", ROOT / "scripts/check_scan_output.py")
+    module = importlib.util.module_from_spec(spec)
+    # Leave no __pycache__ in scripts/; lint-docs treats it as an undocumented file.
+    saved, sys.dont_write_bytecode = sys.dont_write_bytecode, True
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = saved
+    return module
+
+
+MIB = 1024 * 1024
+# Assembled at run time so this source file is not itself a scanner result.
+RESULT_LINE = ("\n%s: 3 findings\n" % ("git" + "leaks")).encode()
+# Skewed text around RESULT_LINE, so every compressor codes the line instead of
+# storing it raw; a test then fails if the embedded data is not decoded.
+_rng = random.Random(1)
+_TEXT = "".join(_rng.choice("abcdefgh ") for _ in range(20000)).encode()
+PACKED_PAYLOAD = _TEXT + RESULT_LINE + _TEXT[:5000]
+
+
+class LargeFileTests(unittest.TestCase):
+    """Executables above 64 MiB are streamed and their embedded data decoded."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.base = Path(self.tmp.name)
+        self.env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "CHECK_SCAN_OUTPUT_"))}
+        self.env.pop("CI", None)
+        self.env.pop("GITHUB_ACTIONS", None)
+        self.env["XDG_STATE_HOME"] = str(self.base / "state")
+        # Decoded members go to check_sensitive.sh, which needs a gitleaks; CI
+        # legs have none. A stub that finds nothing keeps the outcome the same.
+        scanner = self.base / "clean-scanner"
+        scanner.write_bytes(b"#!/bin/sh\nexit 0\n")
+        scanner.chmod(0o700)
+        self.env["GITLEAKS_BIN"] = str(scanner)
+        self.repo = self.base
+
+    def sparse(self, name, size, head=b"\x7fELF\0", at=None, data=b""):
+        path = self.base / name
+        with path.open("wb") as stream:
+            stream.write(head)
+            if at is not None:
+                stream.seek(at)
+                stream.write(data)
+            stream.truncate(size)
+        return path
+
+    def run_check(self, *args, extra=None):
+        """Run check_scan_output.py's main() in this process, as the shell wrapper would."""
+        checker = load_checker()
+        out, err = io.StringIO(), io.StringIO()
+        saved = os.getcwd()
+        os.chdir(self.base)
+        try:
+            with mock.patch.dict(os.environ, dict(self.env, **(extra or {})), clear=True), \
+                    mock.patch.object(sys, "argv", ["check_scan_output.py", *args]), \
+                    contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                try:
+                    code = checker.main()
+                except SystemExit as exc:
+                    code = exc.code
+        finally:
+            os.chdir(saved)
+        return types.SimpleNamespace(returncode=code, stdout=out.getvalue(), stderr=err.getvalue())
+
+    def run_script(self, script, *args, extra=None):
+        return PublicationTests.check(self, *args, expected=None, env=dict(self.env, **(extra or {})), script=script)
+
+    def status(self, *args, extra=None):
+        return self.run_check(*args, extra=extra).returncode
+
+    def test_large_executable_without_results_passes(self):
+        harmless = gzip.compress(b"plain asset\n" * 1000)
+        path = self.sparse("service", 65 * MIB, at=30 * MIB, data=harmless + b"\x1f\x8b\x08\x99junk PK\x03\x04junk ustar")
+        self.assertEqual(self.status("--file", str(path)), 0)
+
+    def test_result_across_chunk_boundary_is_found(self):
+        # The line starts 10 bytes before the first 8 MiB boundary.
+        path = self.sparse("service", 65 * MIB, at=8 * MIB - 10, data=RESULT_LINE)
+        self.assertEqual(self.status("--file", str(path)), 1)
+
+    def test_result_inside_embedded_archives_is_found(self):
+        packed = io.BytesIO()
+        with zipfile.ZipFile(packed, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("notes.txt", PACKED_PAYLOAD)
+        for data in (packed.getvalue(), gzip.compress(PACKED_PAYLOAD), bz2.compress(PACKED_PAYLOAD), lzma.compress(PACKED_PAYLOAD)):
+            self.assertNotIn(RESULT_LINE.strip(), data)
+            path = self.sparse("service", 71 * MIB, at=70 * MIB, data=data)
+            self.assertEqual(self.status("--file", str(path)), 1, data[:4])
+
+    @unittest.skipUnless(ZSTD, "compression.zstd needs Python 3.14")
+    def test_result_inside_embedded_zstd_is_found(self):
+        frame = ZSTD.compress(PACKED_PAYLOAD)
+        self.assertNotIn(RESULT_LINE.strip(), frame)
+        path = self.sparse("service", 71 * MIB, at=70 * MIB, data=frame)
+        self.assertEqual(self.status("--file", str(path)), 1)
+
+    def test_large_staged_blob_is_streamed(self):
+        repo = self.base / "repo"
+        repo.mkdir()
+        self.sparse("repo/clean.bin", 65 * MIB)
+        self.sparse("repo/dirty.bin", 65 * MIB, at=8 * MIB - 10, data=RESULT_LINE)
+        for args, expected in ((["init", "-q"], 0), (["add", "clean.bin"], 0), (["add", "dirty.bin"], 1)):
+            subprocess.run(["git", "-C", str(repo), *args], check=True, env=self.env)
+            self.assertEqual(self.status("--repo", str(repo), "--staged"), expected)
+
+    def test_incomplete_check_warns_locally_and_does_not_block_ci(self):
+        bomb = gzip.compress(b"\0" * (65 * MIB))
+        cases = (
+            self.sparse("service", 66 * MIB, at=30 * MIB, data=bomb),
+            self.sparse("blob.bin", 65 * MIB, head=b"\0data"),
+            self.sparse("big.gz", 65 * MIB, head=b"\x1f\x8b\x08\0"),
+            self.sparse("big.zip", 65 * MIB),
+            self.sparse("report-like", 65 * MIB, at=MIB, data=b'"RuleID": "x"'),
+        )
+        for path in cases:
+            local = self.run_check("--file", str(path))
+            self.assertEqual(local.returncode, 3, path.name)
+            self.assertIn("WARNING: security check incomplete: " + str(path), local.stderr)
+            ci = self.run_check("--file", str(path), extra={"GITHUB_ACTIONS": "true"})
+            self.assertEqual(ci.returncode, 0, path.name)
+            self.assertIn("::warning title=Security check incomplete::" + str(path), ci.stdout)
+            self.assertEqual(self.status("--non-blocking", "--file", str(path)), 0)
+        self.assertEqual(self.status("--file", str(self.sparse("gitleaks-report.json", 65 * MIB))), 1)
+
+    def test_findings_still_block_in_ci(self):
+        path = self.sparse("service", 71 * MIB, at=70 * MIB, data=gzip.compress(PACKED_PAYLOAD))
+        self.assertEqual(self.status("--file", str(path), extra={"GITHUB_ACTIONS": "true"}), 1)
+        self.assertEqual(self.status("--non-blocking", "--file", str(path)), 1)
+
+    def test_size_limit_is_configurable_and_validated(self):
+        path = self.sparse("service", 65 * MIB)
+        self.assertEqual(self.status("--file", str(path), extra={"CHECK_SCAN_OUTPUT_MAX_MIB": "64"}), 3)
+        self.assertEqual(self.status("--max-mib", "64", "--file", str(path)), 3)
+        self.assertEqual(self.status("--max-mib", "65", "--file", str(path)), 0)
+        small = self.sparse("small", 2 * MIB)
+        self.assertEqual(self.status("--file", str(small), extra={"CHECK_SCAN_OUTPUT_MAX_MIB": "1"}), 3)
+        for bad in ("0", "2049", "-1", "1.5", "x"):
+            self.assertEqual(self.status("--file", str(small), extra={"CHECK_SCAN_OUTPUT_MAX_MIB": bad}), 2, bad)
+
+    def test_publication_check_forwards_incomplete_warning(self):
+        path = self.sparse("blob.bin", 65 * MIB, head=b"\0data")
+        script = ROOT / "scripts/check_publication.sh"
+        local = self.run_script(script, "--file", str(path))
+        self.assertEqual(local.returncode, 3, local.stderr)
+        self.assertIn("WARNING: security check incomplete", local.stderr)
+
+    def test_result_after_an_unchecked_part_still_blocks(self):
+        packed = io.BytesIO()
+        with zipfile.ZipFile(packed, "w") as archive:
+            archive.writestr("x.txt", "hi")
+        encrypted = bytearray(packed.getvalue())
+        encrypted[6] |= 1
+        cases = (self.sparse("service", 70 * MIB, at=MIB, data=bytes(encrypted) + b"\0" * (59 * MIB) + RESULT_LINE),
+                 self.sparse("blob.bin", 70 * MIB, head=b"\0data", at=60 * MIB, data=RESULT_LINE))
+        for path in cases:
+            self.assertEqual(self.status("--file", str(path), extra={"GITHUB_ACTIONS": "true"}), 1, path.name)
+
+    @unittest.skipUnless(ZSTD, "compression.zstd needs Python 3.14")
+    def test_clean_zstd_frame_far_from_the_end_passes(self):
+        frame = ZSTD.compress(_TEXT * 3)
+        path = self.sparse("service", 200 * MIB, at=MIB, data=frame)
+        proc = self.run_check("--file", str(path))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_tar_with_many_members_is_read_once(self):
+        packed = io.BytesIO()
+        with tarfile.open(fileobj=packed, mode="w") as archive:
+            for index in range(1900):
+                info = tarfile.TarInfo("f%d" % index)
+                info.size = 3
+                archive.addfile(info, io.BytesIO(b"abc"))
+        path = self.sparse("service", 70 * MIB, at=MIB, data=packed.getvalue())
+        started = time.monotonic()
+        proc = self.run_check("--file", str(path))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertLess(time.monotonic() - started, 60)
+
+    def test_personal_data_in_one_of_many_embedded_members_is_refused(self):
+        email = ("jane.roe" + "@mailbox.org").encode()
+        for kind in ("content", "link"):
+            packed = io.BytesIO()
+            with tarfile.open(fileobj=packed, mode="w") as archive:
+                for index in range(400):
+                    info = tarfile.TarInfo("f%d" % index)
+                    body = email if kind == "content" and index == 300 else b"abc"
+                    if kind == "link" and index == 300:
+                        info.type, info.linkname = tarfile.SYMTYPE, email.decode()
+                        body = b""
+                    info.size = len(body)
+                    archive.addfile(info, io.BytesIO(body))
+            path = self.sparse("service", 70 * MIB, at=MIB, data=packed.getvalue())
+            self.assertEqual(self.status("--file", str(path), extra={"GITHUB_ACTIONS": "true"}), 1, kind)
+
+    def test_file_under_home_with_embedded_data_passes(self):
+        # The file's own path is not part of the decoded data it carries.
+        home = self.base / "home"
+        (home / "bin").mkdir(parents=True)
+        path = self.sparse("home/bin/service", 65 * MIB, at=MIB, data=gzip.compress(b"plain asset\n" * 100))
+        ids = self.base / "machine-ids.tsv"
+        ids.write_text("this machine's home directory\t%s\n" % home)
+        proc = self.run_check("--file", str(path), extra={"SENSITIVE_MACHINE_IDS_FILE": str(ids)})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_zstd_without_a_decoder_is_incomplete(self):
+        # 'hello' as a zstd frame; no external zstd command is ever run.
+        path = self.sparse("service", 65 * MIB, at=MIB, data=bytes.fromhex("28b52ffd045831000068656c6c6f0a5388bd91"))
+        checker = load_checker()
+        with path.open("rb") as stream:
+            checker.ZstdDecompressor = None
+            with self.assertRaises(checker.Anomaly):
+                checker.inspect_large("service", stream)
+        if ZSTD is None:
+            self.assertEqual(self.status("--file", str(path)), 3)
+            self.assertEqual(self.status("--file", str(path), extra={"GITHUB_ACTIONS": "true"}), 0)
+
+    def test_hooks_show_incomplete_warning_outside_the_report(self):
+        path = self.sparse("blob.bin", 65 * MIB, head=b"\0data")
+        wrapper = self.base / "guard.sh"
+        wrapper.write_text('source "%s"\nsec_guard sec_scan_output "$@"\n' % (ROOT / "scripts/security_hooks.sh").as_posix())
+        local = self.run_script(wrapper, "--file", str(path))
+        self.assertNotEqual(local.returncode, 0)
+        self.assertIn("WARNING: security check incomplete: " + str(path), local.stderr)
+        ci = self.run_script(wrapper, "--file", str(path), extra={"GITHUB_ACTIONS": "true", "CI": "true"})
+        self.assertEqual(ci.returncode, 0, ci.stderr)
+        self.assertIn("::warning title=Security check incomplete::" + str(path), ci.stdout)
+
+    def scan(self, checker, data):
+        path = self.base / "window.bin"
+        path.write_bytes(bytes(data))
+        with path.open("rb") as stream:
+            checker.inspect_large("service", stream)
+
+    def test_stream_memory_is_bounded_and_boundaries_are_covered(self):
+        checker = load_checker()
+        checker.CHUNK, checker.OVERLAP = 4096, 256
+        sizes = []
+        real = checker.inspect
+
+        def spy(name, raw, depth=0, text_only=False):
+            if text_only:
+                sizes.append(len(raw))
+            return real(name, raw, depth, text_only)
+
+        checker.inspect = spy
+        data = bytearray(b"\x7fELF" + b"\0" * (100 * 4096 - 4))
+        self.scan(checker, data)
+        self.assertTrue(sizes)
+        self.assertLessEqual(max(sizes), 4096 + 256)
+        # Every boundary offset, including a line longer than OVERLAP and
+        # a compressed result whose signature is cut by the boundary.
+        long_line = b"\n" + b"x" * 1000 + b" " + RESULT_LINE[1:]
+        packed = gzip.compress(PACKED_PAYLOAD)
+        cases = [(RESULT_LINE, range(4096 - len(RESULT_LINE), 4097)),
+                 (long_line, range(4096 - len(long_line), 4097)),
+                 (packed, range(4096 - 3, 4097))]
+        for payload, offsets in cases:
+            for offset in offsets:
+                blob = bytearray(data)
+                blob[offset:offset + len(payload)] = payload
+                with self.assertRaises(checker.Refused, msg=(payload[:4], offset)):
+                    self.scan(checker, blob)
+        # Stray magic bytes are not a finding.
+        for magic in (b"\x1f\x8b\x08", b"PK\x03\x04", b"BZh9", b"\xfd7zXZ\x00", b"7z\xbc\xaf\x27\x1c", b"\x28\xb5\x2f\xfd", b"ustar"):
+            blob = bytearray(data)
+            blob[4093:4093 + len(magic)] = magic
+            self.scan(checker, blob)
+        tail = bytearray(data)
+        tail[-len(RESULT_LINE):] = RESULT_LINE
+        with self.assertRaises(checker.Refused):
+            self.scan(checker, tail)
+
 
 
 if __name__ == "__main__":
