@@ -168,6 +168,10 @@ grep -q "signed-by=/etc/apt/keyrings/docker.gpg" "$fake/etc/apt/sources.list.d/d
 grep -q "install -y -qq docker-ce" "$STUB_LOG" || error "apt: packages not installed"
 STUB_KEY="$work/bad"     run_case "apt wrong key" _shlib_docker_install_apt refuse
 STUB_KEY="$work/apt.two" run_case "apt two primary keys" _shlib_docker_install_apt refuse
+# The refusal lists both fingerprints on one line, with no literal $' (bash 3.2).
+out="$(STUB_KEY="$work/apt.two" _shlib_docker_install_apt 2>&1)" || true
+grep -qF "got 2 ($APT_FPR $BAD_FPR)" <<<"$out" || error "two-key refusal message: $out"
+[[ "$out" != *"\$'"* ]] || error "refusal message has a literal \$': $out"
 STUB_KEY="$work/rpm.good" run_case "apt given the rpm key" _shlib_docker_install_apt refuse
 STUB_CURL=empty run_case "apt empty response" _shlib_docker_install_apt refuse
 STUB_CURL=fail  run_case "apt curl failure" _shlib_docker_install_apt refuse

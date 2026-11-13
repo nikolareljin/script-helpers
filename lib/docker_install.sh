@@ -140,7 +140,7 @@ _shlib_docker_fetch_key() {
     | awk -F: '$1 == "pub" { p = 1; next } p && $1 == "fpr" { print $10; p = 0 }')"
   count="$(printf '%s\n' "$fprs" | grep -c '^[0-9A-F]\{40\}$' || true)"
   if [[ "$count" -ne 1 || "$fprs" != "$want" ]]; then
-    log_error "Docker signing key from $url failed verification: expected one primary key $want, got ${count} (${fprs//$'\n'/ })."
+    log_error "Docker signing key from $url failed verification: expected one primary key $want, got ${count} ($(printf '%s' "$fprs" | tr '\n' ' '))."
     log_error "Refusing to install. Nothing was written."
     rm -rf -- "$dir"
     return 1
