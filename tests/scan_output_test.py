@@ -15,7 +15,6 @@ import shlex
 import shutil
 import tempfile
 import unittest
-import tarfile
 import zipfile
 import contextlib
 import types
