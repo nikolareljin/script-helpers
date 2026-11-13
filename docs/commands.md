@@ -991,7 +991,8 @@ Build the private-repository name list that check_private_names.sh reads, from y
 Usage: scripts/refresh_private_names.sh [--owner <user-or-org>] [--out <path>] [--stdout] [--check] [--force] [--codes <path>] [--limit <n>] [--ttl <days>] [-h]
   --owner <name>  Limit to this user or organization; repeatable. Default: every
                   account this token can see (you, plus your organizations).
-  --out <path>    Where to write. Default: ${XDG_CONFIG_HOME:-~/.config}/script-helpers/private-names.tsv
+  --out <path>    Where to write. Default: $PRIVATE_NAMES_FILE, else
+                  ${XDG_CONFIG_HOME:-~/.config}/script-helpers/private-names.tsv
   --stdout        Print the list instead of writing it.
   --check         Compare the written list with GitHub; the list is not written.
                   Always refetches, so it is the slow path and it does
@@ -1011,6 +1012,8 @@ Usage: scripts/refresh_private_names.sh [--owner <user-or-org>] [--out <path>] [
                   ~/.config/script-helpers/private-names-codes.tsv
   -h, --help      Show this help message.
 ENVIRONMENT:
+  PRIVATE_NAMES_FILE                  The list to write when --out is not given, the
+                                      same file check_private_names.sh reads.
   PRIVATE_NAMES_NEVER_AMBIGUOUS       Names to match bare even though they are dictionary
                                       words. Comma or newline separated.
   PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE  A file of the same, one per line, comments allowed.

@@ -17,6 +17,8 @@ export SCRIPT_HELPERS_NO_AUTO_INSTALL=1
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Run from inside the global hooks, their script directory would be used.
 unset SCRIPT_HELPERS_SECURITY_DIR
+# The hook refuses relative list, cache and temporary paths; start from known ones.
+unset PRIVATE_NAMES_CACHE_DIR TMPDIR
 failures=0
 note()  { echo "[private_names_autorefresh_test] $*"; }
 ok()    { note "PASS: $*"; }
@@ -37,6 +39,7 @@ probe="$tmp/refresh-ran"
 cat > "$repo/scripts/refresh_private_names.sh" <<STUB
 #!/usr/bin/env bash
 sleep 3
+printf '%s\n' "\$@" > "$probe.args"
 echo ran > "$probe"
 STUB
 printf '#!/usr/bin/env bash\nexit 0\n' > "$repo/scripts/check_private_names.sh"
@@ -55,7 +58,7 @@ hook_run() {
 make_list() { printf 'private\tns\tx\t-\t\n' > "$list"; }
 stale()     { make_list; touch -d '30 days ago' "$list" 2>/dev/null || touch -t 202001010000 "$list"; }
 fresh()     { make_list; touch "$list"; }
-clean()     { rm -f "$probe"; rm -rf "$list.refresh.lock"; }
+clean()     { rm -f "$probe" "$probe.args"; rm -rf "$list.refresh.lock"; }
 
 if ! command -v gh >/dev/null 2>&1; then
   note "SKIP: gh is not installed, the hook returns before deciding anything"
@@ -79,6 +82,12 @@ else
 fi
 sleep 4
 [[ -f "$probe" ]] && ok "the refresh really ran" || error "the refresh was announced but never ran"
+# A custom PRIVATE_NAMES_FILE is the list that is refreshed, not the default.
+if [[ "$(cat "$probe.args" 2>/dev/null)" == "$(printf -- '--out\n%s' "$list")" ]]; then
+  ok "the refresh writes the list it checked (PRIVATE_NAMES_FILE)"
+else
+  error "the refresh was not pointed at PRIVATE_NAMES_FILE: $(tr '\n' ' ' < "$probe.args" 2>/dev/null)"
+fi
 
 # 2. Fresh: nothing happens. Without this the refresh is simply always on.
 clean; fresh
@@ -118,6 +127,97 @@ if [[ -f "$probe" ]] || grep -q 'refreshing' <<<"$out"; then
 else
   ok "PRIVATE_NAMES_AUTO_REFRESH=false is respected"
 fi
+
+# 6. Without PRIVATE_NAMES_FILE, the default list is the one refreshed. HOME
+# and XDG_CONFIG_HOME point into $tmp, and the stub writes nothing there.
+clean
+default_list="$tmp/xdg/script-helpers/private-names.tsv"
+mkdir -p "$tmp/xdg/script-helpers"
+printf 'private\tns\tx\t-\t\n' > "$default_list"
+touch -d '30 days ago' "$default_list" 2>/dev/null || touch -t 202001010000 "$default_list"
+(cd "$repo" && env -u PRIVATE_NAMES_FILE HOME="$tmp" XDG_CONFIG_HOME="$tmp/xdg" bash -c '
+  source "$1/scripts/security_hooks.sh"
+  sec_maybe_refresh_private_names
+' _ "$ROOT_DIR") >/dev/null
+sleep 4
+if [[ "$(cat "$probe.args" 2>/dev/null)" == "$(printf -- '--out\n%s' "$default_list")" ]]; then
+  ok "without PRIVATE_NAMES_FILE, the default list is refreshed"
+else
+  error "the default list was not the one refreshed: $(tr '\n' ' ' < "$probe.args" 2>/dev/null)"
+fi
+rm -rf "$default_list.refresh.lock"
+
+# 7. A relative PRIVATE_NAMES_FILE is not refreshed: the hook runs in the
+# working tree, and the list would be written into the repository.
+clean
+mkdir -p "$repo/rel"
+printf 'private\tns\tx\t-\t\n' > "$repo/rel/list.tsv"
+touch -d '30 days ago' "$repo/rel/list.tsv" 2>/dev/null || touch -t 202001010000 "$repo/rel/list.tsv"
+out="$(cd "$repo" && HOME="$tmp" XDG_CONFIG_HOME="$tmp/xdg" PRIVATE_NAMES_FILE=rel/list.tsv bash -c '
+  source "$1/scripts/security_hooks.sh"
+  sec_maybe_refresh_private_names
+' _ "$ROOT_DIR")"
+sleep 4
+if [[ -f "$probe" ]] || [[ -e "$repo/rel/list.tsv.refresh.lock" ]] || [[ -e "$repo/rel/list.tsv.refresh.log" ]]; then
+  error "a relative PRIVATE_NAMES_FILE was refreshed inside the working tree"
+elif ! grep -q 'is not absolute' <<<"$out"; then
+  error "a relative PRIVATE_NAMES_FILE was skipped without saying so"
+else
+  ok "a relative PRIVATE_NAMES_FILE is not refreshed, and the hook says why"
+fi
+
+# 8. An absolute list with a relative XDG_CONFIG_HOME: the per-owner caches,
+# which hold the same names, would be written into the working tree.
+clean; stale
+out="$(cd "$repo" && HOME="$tmp" XDG_CONFIG_HOME=relxdg PRIVATE_NAMES_FILE="$list" bash -c '
+  source "$1/scripts/security_hooks.sh"
+  sec_maybe_refresh_private_names
+' _ "$ROOT_DIR")"
+sleep 4
+if [[ -f "$probe" ]]; then
+  error "a relative cache directory was refreshed inside the working tree"
+elif ! grep -q 'is not absolute' <<<"$out"; then
+  error "a relative cache directory was skipped without saying so"
+else
+  ok "a relative XDG_CONFIG_HOME (the cache directory) is not refreshed either"
+fi
+
+# 9. A relative PRIVATE_NAMES_CACHE_DIR or TMPDIR, the list itself absolute.
+for var in PRIVATE_NAMES_CACHE_DIR TMPDIR; do
+  clean; stale
+  out="$(cd "$repo" && env HOME="$tmp" XDG_CONFIG_HOME="$tmp/xdg" PRIVATE_NAMES_FILE="$list" "$var=reldir" bash -c '
+    source "$1/scripts/security_hooks.sh"
+    sec_maybe_refresh_private_names
+  ' _ "$ROOT_DIR")"
+  sleep 4
+  if [[ -f "$probe" ]]; then
+    error "a relative $var was refreshed inside the working tree"
+  elif ! grep -q 'is not absolute' <<<"$out"; then
+    error "a relative $var was skipped without saying so"
+  else
+    ok "a relative $var is not refreshed"
+  fi
+done
+
+# 10. Drive-letter and UNC paths are absolute on Windows only.
+for form in 'C:/Users/x/list.tsv' 'C:\Users\x\list.tsv' '\\srv\share\list.tsv'; do
+  for os in msys linux-gnu; do
+    got="$(OSTYPE="$os" bash -c '
+      source "$1/scripts/security_hooks.sh"
+      command -v gh >/dev/null 2>&1 || exit 0
+      find() { :; }          # the list counts as stale without touching disk
+      sec_find() { echo /bin/true; }
+      mkdir() { return 1; }  # stop at the lock: nothing is started
+      PRIVATE_NAMES_FILE="$2" sec_maybe_refresh_private_names
+    ' _ "$ROOT_DIR" "$form")"
+    if [[ "$os" == msys ]] && grep -q 'is not absolute' <<<"$got"; then
+      error "$form was refused on Windows"
+    elif [[ "$os" == linux-gnu ]] && ! grep -q 'is not absolute' <<<"$got"; then
+      error "$form counted as absolute outside Windows"
+    fi
+  done
+done
+ok "drive-letter and UNC paths are absolute on Windows only"
 
 if [[ $failures -gt 0 ]]; then
   echo "[private_names_autorefresh_test] FAILED ($failures)" >&2
