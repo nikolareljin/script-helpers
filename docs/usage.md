@@ -169,7 +169,8 @@ Bundled CLIs
   scripts/refresh_private_names.sh --check          # compare with GitHub, write nothing
   ```
 
-  It writes `${XDG_CONFIG_HOME:-~/.config}/script-helpers/private-names.tsv`: one
+  It writes `${XDG_CONFIG_HOME:-~/.config}/script-helpers/private-names.tsv`
+  (`PRIVATE_NAMES_FILE` when that is set, `--out` over both): one
   file per machine serving every repository on it, and outside every working
   tree, because a file listing your private repositories is precisely what the
   gate exists to keep out of public ones.
@@ -630,7 +631,15 @@ those names match nothing.
 The `pre-push` hook refreshes in the background when the list is older than
 `PRIVATE_NAMES_REFRESH_DAYS` (7). It never blocks or fails a push, holds a lock
 so two pushes do not start two refreshes, and `PRIVATE_NAMES_AUTO_REFRESH=false`
-turns it off. A scheduler was deliberately not used: git runs hooks under bash
+turns it off. It refreshes the list the checks read: `PRIVATE_NAMES_FILE` when
+that is set, which is also `refresh_private_names.sh`'s default `--out`. A
+list or cache path that is not absolute (`PRIVATE_NAMES_FILE`,
+`PRIVATE_NAMES_CACHE_DIR`, a relative `XDG_CONFIG_HOME` or `HOME` behind their
+defaults, or `TMPDIR`) is not refreshed by the hook: hooks run at the top of the
+working tree, so the list, the per-owner caches or the temporary files would be
+written into the repository. Drive-letter and UNC paths count as absolute on
+Windows only. A
+scheduler was deliberately not used: git runs hooks under bash
 on Linux, macOS and Windows alike, so there is nothing to install.
 
 #### Codes and renamed repositories

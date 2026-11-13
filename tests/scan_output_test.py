@@ -214,7 +214,7 @@ class PublicationTests(unittest.TestCase):
         self.check("--stdin", text=json.dumps({tool: {"findings": []}}), expected=1)
         self.check("--stdin", text=json.dumps({tool: {"enabled": True, "version": "8.30.1"}}))
 
-    def test_private_report_marker_and_wrapped_native_fields(self):
+    def test_report_marker_private_and_wrapped_native_fields(self):
         marker = "SCRIPT_HELPERS_PRIVATE_" + "SECURITY_REPORT_V1"
         self.check("--stdin", text=marker + "\nordinary diagnostics\n", expected=1)
         self.check("--stdin", text="```text\n" + marker + "\nordinary diagnostics\n```", expected=1)
