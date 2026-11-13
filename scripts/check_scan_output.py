@@ -508,7 +508,13 @@ def _inspect(name, raw, depth=0, text_only=False):
     if text_only:
         pass
     elif raw.startswith((b"\x1f\x8b", b"BZh", b"\xfd7zXZ\x00")):
-        opener = gzip.GzipFile if raw.startswith(b"\x1f\x8b") else bz2.BZ2File if raw.startswith(b"BZh") else lzma.LZMAFile
+        # GzipFile's first positional argument is a filename; BZ2File and
+        # LZMAFile take a file object there.
+        if raw.startswith(b"\x1f\x8b"):
+            def opener(fileobj):
+                return gzip.GzipFile(fileobj=fileobj)
+        else:
+            opener = bz2.BZ2File if raw.startswith(b"BZh") else lzma.LZMAFile
         try:
             with opener(io.BytesIO(raw)) as stream:
                 expanded = stream.read(LIMIT + 1)

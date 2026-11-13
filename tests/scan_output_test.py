@@ -15,6 +15,7 @@ import shlex
 import shutil
 import tempfile
 import unittest
+import tarfile
 import zipfile
 import contextlib
 import types
@@ -106,6 +107,31 @@ class PublicationTests(unittest.TestCase):
         self.stage("scans/ordinary.txt", b"[]")
         for path in ("./scans/ordinary.txt", str(self.repo / "scans/ordinary.txt")):
             self.check("--file", path, expected=1)
+
+    def test_small_compressed_files_are_read(self):
+        # A release tarball under the large-file limit goes through _inspect.
+        # gzip used to crash there (GzipFile took the BytesIO as a filename),
+        # so every .tar.gz was refused whatever it held.
+        packed = io.BytesIO()
+        with tarfile.open(fileobj=packed, mode="w:gz") as archive:
+            info = tarfile.TarInfo("app-1.0/README.md")
+            body = b"plain release notes\n"
+            info.size = len(body)
+            archive.addfile(info, io.BytesIO(body))
+        harmless = {"app-1.0.tar.gz": packed.getvalue(), "notes.txt.gz": gzip.compress(b"plain\n"),
+                    "notes.txt.bz2": bz2.compress(b"plain\n"), "notes.txt.xz": lzma.compress(b"plain\n")}
+        for name, data in harmless.items():
+            with self.subTest(name=name):
+                path = self.base / name
+                path.write_bytes(data)
+                proc = self.check("--file", str(path), expected=0)
+                self.assertNotIn("Traceback", proc.stderr)
+        for compress in (gzip.compress, bz2.compress, lzma.compress):
+            with self.subTest(compress=compress.__module__):
+                path = self.base / "packed.bin"
+                path.write_bytes(compress(b"notes\n" + RESULT_LINE))
+                proc = self.check("--file", str(path), expected=1)
+                self.assertNotIn("Traceback", proc.stderr)
 
     def test_sarif_and_wrapped_gitleaks(self):
         self.check("--stdin", text=json.dumps({"version": "2.1.0", "runs": []}), expected=1)
