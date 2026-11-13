@@ -1,3 +1,7 @@
+## Unreleased
+
+- **`check_scan_output.py` reads gzip files under the large-file limit instead of crashing.** `gzip.GzipFile` took the in-memory buffer as a filename and raised `TypeError`, so `check_publication.sh` refused every small `.tar.gz` or `.gz` (release tarballs included) whatever it held. bz2 and xz were not affected. Test: `test_small_compressed_files_are_read` in `tests/scan_output_test.py`.
+
 ## 2026-11-13 — v0.64.1
 
 ### Upgrade notes
@@ -24,7 +28,6 @@
 
 ### Fixed
 
-- **`check_scan_output.py` reads gzip files under the large-file limit instead of crashing.** `gzip.GzipFile` took the in-memory buffer as a filename and raised `TypeError`, so `check_publication.sh` refused every small `.tar.gz` or `.gz` (release tarballs included) whatever it held. bz2 and xz were not affected. Test: `test_small_compressed_files_are_read` in `tests/scan_output_test.py`.
 - **`install_docker` checks Docker's repository signing key against a pinned fingerprint.** The apt key was piped from curl into `gpg --dearmor` and the dnf/yum repo fetched its key by URL, both unchecked. The key is now downloaded to a temp file and used only when it holds exactly one primary key with Docker's published fingerprint (`9DC8...CD88` deb, `060A...9F35` rpm); dnf/yum `rpm --import` the verified file and `docker-ce.repo` points `gpgkey` at it. A wrong key, an appended second key, an empty response or a curl failure returns 1 and leaves no keyring, key file or repository. Test: `tests/docker_install_keys_test.sh` (fails against main).
 
 - **`check_scan_output.py` checks executables above 64 MiB instead of refusing them.** ELF, Mach-O and PE files are read in 8 MiB chunks with a 64 KiB carry-over, so a result line split across a chunk boundary is still found. Embedded gzip, bzip2, xz, zip and tar data, and zstd on Python 3.14+ (`compression.zstd`; older Pythons report a zstd frame as incomplete), is decoded in-process within bounds and scanned; signature bytes that do not decode (Go binaries carry them) are ignored. A file above 64 MiB that cannot be fully checked exits 3 with a warning locally, and exits 0 with a `::warning` annotation when `GITHUB_ACTIONS=true` or `--non-blocking`; `check_publication.sh` passes both through. Results still exit 1 everywhere: the whole file is scanned as text even when part of it could not be decoded, and the hooks in `security_hooks.sh` show the incomplete-check lines outside the private report. `CHECK_SCAN_OUTPUT_MAX_MIB` or `--max-mib` (1..2048, default 2048) caps the size. Tests: `LargeFileTests` in `tests/scan_output_test.py`.
