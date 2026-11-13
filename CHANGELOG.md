@@ -1,9 +1,33 @@
-## Unreleased
+## 2026-11-13 — v0.64.1
+
+### Upgrade notes
+
+- **`refresh_private_names.sh` without `--out` writes `PRIVATE_NAMES_FILE` when that is set**, the file `check_private_names.sh` reads, instead of `~/.config/script-helpers/private-names.tsv`. Its loss guard and `--check` compare against that file too. Re-stage the global hooks (`scripts/setup-hooks.sh --global`) so the pre-push refresh uses this version.
+
+### Fixed
+
+- **The pre-push hook's background refresh writes the list it checked.** It read the age of `PRIVATE_NAMES_FILE`, then ran `refresh_private_names.sh` without `--out`, which wrote the default `~/.config/script-helpers/private-names.tsv`. A custom list was never refreshed, so it was found stale on every push, and the default list was overwritten instead. The hook now passes `--out`, and `refresh_private_names.sh` defaults `--out` to `PRIVATE_NAMES_FILE` when that is set. The hook does not refresh, and says so, when the list or the per-owner cache directory is not an absolute path (`PRIVATE_NAMES_FILE`, `PRIVATE_NAMES_CACHE_DIR`, a relative `XDG_CONFIG_HOME` or `HOME` behind their defaults, or `TMPDIR`): hooks run at the top of the working tree, so the list, its log and lock, the caches or the temporary files would land in the repository being pushed. Drive-letter and UNC paths count as absolute on Windows only. Tests: new cases in `tests/private_names_autorefresh_test.sh` and `tests/refresh_private_names_test.sh` (both fail against 0.64.0).
+
+- **A push from 0.63.0 or 0.64.0 is no longer refused by its own tree check.** A test method in `tests/scan_output_test.py` began with a private repository name; it is renamed.
+
+## 2026-11-13 — v0.64.0
+
+### Upgrade notes
+
+- **Large executables are checked, and an incomplete check exits 3 locally.** `check_scan_output.py` used to refuse ELF, Mach-O and PE files above 64 MiB; it now scans them, and one that cannot be fully checked exits 3 with a warning on a workstation. In CI (`GITHUB_ACTIONS=true`) or with `--non-blocking` it exits 0 with a `::warning` annotation. Callers that treated any nonzero exit as a found result should handle 3.
+- **`install_docker` refuses a Docker repository key that does not match the pinned fingerprint.** The apt and dnf/yum keys are checked before use. A failure here means Docker rotated its key: verify the new fingerprint from Docker's documentation and update `SHLIB_DOCKER_APT_FPR` or `SHLIB_DOCKER_RPM_FPR` in `lib/docker_install.sh`.
+- **The production pin step in `auto-tag-release.yml` pushes with an explicit token header.** Checkouts keep no token (`persist-credentials: false`); the `pin_production.sh` step sets `http.https://github.com/.extraheader` from `github.token` in its own env.
+
+### Changed
+
+- **Workflows check out without a stored token, and `scripts/check_workflow_actions.sh` keeps it that way.** Every `actions/checkout` sets `persist-credentials: false`; the one step that pushes (`scripts/pin_production.sh` in `auto-tag-release.yml`) gets `github.token` in its own env as an auth header. The gate refuses a `uses:` outside `actions/*` or `github/*` at a 40-hex SHA and `nikolareljin/ci-helpers/...@production`, a checkout without `persist-credentials: false`, `secrets: inherit`, and a flow-style `{uses: ...}` step it cannot read. It runs as `make lint-workflows` in CI on Linux and macOS. Test: `tests/workflow_actions_test.sh` (fails against 0.63.0: seven checkouts kept the token).
+
+### Fixed
 
 - **`check_scan_output.py` reads gzip files under the large-file limit instead of crashing.** `gzip.GzipFile` took the in-memory buffer as a filename and raised `TypeError`, so `check_publication.sh` refused every small `.tar.gz` or `.gz` (release tarballs included) whatever it held. bz2 and xz were not affected. Test: `test_small_compressed_files_are_read` in `tests/scan_output_test.py`.
 - **`install_docker` checks Docker's repository signing key against a pinned fingerprint.** The apt key was piped from curl into `gpg --dearmor` and the dnf/yum repo fetched its key by URL, both unchecked. The key is now downloaded to a temp file and used only when it holds exactly one primary key with Docker's published fingerprint (`9DC8...CD88` deb, `060A...9F35` rpm); dnf/yum `rpm --import` the verified file and `docker-ce.repo` points `gpgkey` at it. A wrong key, an appended second key, an empty response or a curl failure returns 1 and leaves no keyring, key file or repository. Test: `tests/docker_install_keys_test.sh` (fails against main).
+
 - **`check_scan_output.py` checks executables above 64 MiB instead of refusing them.** ELF, Mach-O and PE files are read in 8 MiB chunks with a 64 KiB carry-over, so a result line split across a chunk boundary is still found. Embedded gzip, bzip2, xz, zip and tar data, and zstd on Python 3.14+ (`compression.zstd`; older Pythons report a zstd frame as incomplete), is decoded in-process within bounds and scanned; signature bytes that do not decode (Go binaries carry them) are ignored. A file above 64 MiB that cannot be fully checked exits 3 with a warning locally, and exits 0 with a `::warning` annotation when `GITHUB_ACTIONS=true` or `--non-blocking`; `check_publication.sh` passes both through. Results still exit 1 everywhere: the whole file is scanned as text even when part of it could not be decoded, and the hooks in `security_hooks.sh` show the incomplete-check lines outside the private report. `CHECK_SCAN_OUTPUT_MAX_MIB` or `--max-mib` (1..2048, default 2048) caps the size. Tests: `LargeFileTests` in `tests/scan_output_test.py`.
-- **Workflows check out without a stored token, and `scripts/check_workflow_actions.sh` keeps it that way.** Every `actions/checkout` sets `persist-credentials: false`; the one step that pushes (`scripts/pin_production.sh` in `auto-tag-release.yml`) gets `github.token` in its own env as an auth header. The gate refuses a `uses:` outside `actions/*` or `github/*` at a 40-hex SHA and `nikolareljin/ci-helpers/...@production`, a checkout without `persist-credentials: false`, `secrets: inherit`, and a flow-style `{uses: ...}` step it cannot read. It runs as `make lint-workflows` in CI on Linux and macOS. Test: `tests/workflow_actions_test.sh` (fails against 0.63.0: seven checkouts kept the token).
 
 ## 2026-11-09 — v0.63.0
 
