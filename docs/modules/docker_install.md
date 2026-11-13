@@ -103,6 +103,8 @@ The repository line uses `UBUNTU_CODENAME` in preference to `VERSION_CODENAME`, 
 
 For dnf/yum, RHEL, CentOS, Rocky, AlmaLinux and Oracle Linux map onto `centos`; Fedora uses its own repository.
 
+Docker's signing key is checked before any repository is added. The key is downloaded to a private temp dir, imported into a throwaway `GNUPGHOME`, and used only when it holds exactly one primary key with the pinned fingerprint (`SHLIB_DOCKER_APT_FPR` = `9DC858229FC7DD38854AE2D88D81803C0EBFCD88`, `SHLIB_DOCKER_RPM_FPR` = `060A61C51B558A7F742B77AAC52FEB6B621E9F35`). apt gets the dearmored key at `/etc/apt/keyrings/docker.gpg`; dnf/yum get it at `/etc/pki/rpm-gpg/docker-ce.gpg`, `rpm --import`ed, and `docker-ce.repo` points `gpgkey` at that file. Any other key, an empty download or a failed download returns 1 with nothing written.
+
 openSUSE has no official Docker repository, so the distribution package is used and the function says so.
 
 WSL
