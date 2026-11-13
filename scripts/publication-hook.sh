@@ -38,4 +38,6 @@ case "$hook" in
   *) fail ;;
 esac
 if ! bash "$dir/check_scan_output.sh" "${args[@]}" >"$tmp/check" 2>&1; then fail; fi
+# CI: a file above 64 MiB that was not fully checked is a warning, not a stop.
+grep -E '^::warning title=Security check incomplete::' "$tmp/check" || true
 if ! bash "$dir/check_sensitive.sh" --no-inline-allow "${args[@]}" >"$tmp/check" 2>&1; then fail; fi
