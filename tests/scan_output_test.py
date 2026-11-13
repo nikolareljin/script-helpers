@@ -118,23 +118,19 @@ class PublicationTests(unittest.TestCase):
             body = b"plain release notes\n"
             info.size = len(body)
             archive.addfile(info, io.BytesIO(body))
-        harmless = {"app-1.0.tar.gz": packed.getvalue(), "notes.txt.gz": gzip.compress(b"plain\n"),
-                    "notes.txt.bz2": bz2.compress(b"plain\n"), "notes.txt.xz": lzma.compress(b"plain\n")}
         # Decoded members go to check_sensitive.sh, which needs a gitleaks; CI
         # legs have none. A stub that finds nothing keeps the outcome the same.
         scanner = self.base / "clean-scanner"
         scanner.write_bytes(b"#!/bin/sh\nexit 0\n")
         scanner.chmod(0o700)
         env = dict(self.env, GITLEAKS_BIN=str(scanner))
-        # The crash exited 1, so a clean archive passing is the proof.
-        for name, data in harmless.items():
-            with self.subTest(name=name):
-                (self.repo / name).write_bytes(data)
-                self.check("--file", name, expected=0, env=env)
-        for compress in (gzip.compress, bz2.compress, lzma.compress):
-            with self.subTest(compress=compress.__module__):
-                (self.repo / "packed.bin").write_bytes(compress(b"notes\n" + RESULT_LINE))
-                self.check("--file", "packed.bin", expected=1, env=env)
+        # The crash exited 1, so a clean archive passing is the proof. bz2 and
+        # xz were never affected and test_renamed_compressed_reports_refused
+        # covers them; each check run costs seconds on the Windows leg.
+        (self.repo / "app-1.0.tar.gz").write_bytes(packed.getvalue())
+        self.check("--file", "app-1.0.tar.gz", expected=0, env=env)
+        (self.repo / "packed.gz").write_bytes(gzip.compress(b"notes\n" + RESULT_LINE))
+        self.check("--file", "packed.gz", expected=1, env=env)
 
     def test_sarif_and_wrapped_gitleaks(self):
         self.check("--stdin", text=json.dumps({"version": "2.1.0", "runs": []}), expected=1)
