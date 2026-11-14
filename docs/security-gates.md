@@ -602,41 +602,47 @@ one is incomplete, and an invalid value exits 2.
 
 ### Built binaries and packages
 
-`check_publication.sh` sorts each file by its magic bytes, not its name:
+`check_publication.sh` sorts each file by its magic bytes and headers, not its
+name. A decodable container (gzip, xz, bzip2, zstd, zip, tar, cpio, ar, rpm) is
+always decoded first, whatever its name or trailer.
 
 | Type | Recognised by | Decoded |
 |---|---|---|
-| ELF, Mach-O (thin and fat), PE | header magic | embedded data, above 64 MiB |
-| AppImage | ELF with `AI` at byte 8 | no: the squashfs payload |
+| ELF, Mach-O (thin and fat), PE | a valid header with its tables inside the file | embedded data, above 64 MiB |
+| AppImage | a valid ELF with `AI` at byte 8 | no: the squashfs payload |
 | deb, other ar archives | `!<arch>` | yes: every member, then its tarball |
 | rpm | lead magic | yes: the cpio payload (gzip, xz, bzip2; zstd on Python 3.14) |
 | APK, AAB, JAR | zip with `AndroidManifest.xml`, `classes.dex`, `BundleConfig.pb` or `META-INF/MANIFEST.MF` | yes: every member |
-| disk image (dmg) | `koly` trailer | no |
-| byte-split part | name ends in `.split-NNN` and the start is not UTF-8 text | no |
+| disk image (dmg) | `koly` trailer, no container magic | no |
+| byte-split part | name ends in `.split-NNN`, no container magic, not UTF-8 text | no |
 
-A built binary, and every member of one, gets the secrets-only profile
-(`check_sensitive.sh --binary`): its printable runs (ASCII and UTF-16LE) are
-checked for credentials (gitleaks), personal terms, this machine's addresses
-and hostname, and a home directory path such as `/home/<name>/`,
-`/Users/<name>/` or `C:\Users\<name>\`. These do not block in a built binary:
-email, phone, SSN and card patterns (third-party libraries and their
-`copyright` files carry them), and the home of a CI runner user (`runner`,
-`runneradmin`, `github`, `root`) or of Homebrew on Linux (`linuxbrew`). A Rust
-release binary built on a runner embeds `/home/runner/.cargo/registry/...`; the
-same binary built on a workstation embeds the developer's home and is refused.
-File names keep the full check. Package metadata such as a deb's `control`
-file is part of the package: its maintainer address does not block.
+A built binary, and binary data inside a package (a member that is not text),
+gets the secrets-only profile (`check_sensitive.sh --binary`). Its printable
+runs (UTF-8, UTF-16LE and UTF-16BE, from 3 characters) are checked for
+credentials (gitleaks), personal terms, this machine's identifiers, and a home
+directory path such as `/home/<name>/`, `/Users/<name>/` or
+`C:\Users\<name>\`. These do not block in a built binary: email, phone, SSN
+and card patterns (third-party libraries carry them), and the home of a CI
+runner user (`runner`, `runneradmin`, `github`, `root`) or of Homebrew on Linux
+(`linuxbrew`). A Rust release binary built on a runner embeds
+`/home/runner/.cargo/registry/...`; the same binary built on a workstation
+embeds the developer's home and is refused.
 
-Text and source files, and the members of a plain zip or tarball that are not
-built binaries themselves, keep every check.
+A text member keeps every check, inside a package too: a `.json`, `.xml`,
+`.txt` or other text-suffixed member, or any member that is UTF-8 text, such as
+a `copyright` file. The one exception is a deb `control` file, whose
+`Maintainer`, `Uploaders` and `Changed-By` fields get the secrets-only profile.
+File names keep the full check. Magic bytes alone (a text file that starts
+with `\x7fELF`) do not make a file a binary.
 
 Data inside a built binary that cannot be decoded (the AppImage squashfs, a
-disk image, zstd without Python 3.14, 7z) is checked for secrets as raw
-bytes and does not make the check incomplete. Anything else that cannot be
-decoded still does (exit 3 locally), and a crash, a checker error or a
-truncated package still exits 2. Each downgrade is named on stderr as
-`NOTICE: security policy: <path>: <category>`, never with a value, count or
-snippet.
+disk image, a split part, zstd without Python 3.14, 7z) has its raw bytes
+checked for secrets by the checker itself, so the hooks and CI get the same
+check as `check_publication.sh`; when that check runs, the file is not
+incomplete. Anything else that cannot be decoded is still incomplete (exit 3
+locally), and a crash, a checker error or a truncated package still exits 2.
+Each downgrade is named on stderr as `NOTICE: security policy: <path>:
+<category>`, never with a value, count or snippet.
 
 A byte-split part is a range of another file, so a compressed file split into
 parts cannot be decoded, and a secret that crosses a part boundary is not

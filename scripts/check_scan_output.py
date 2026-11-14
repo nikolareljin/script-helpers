@@ -99,10 +99,14 @@ MACHO = (b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf", b"\xce\xfa\xed\xfe", b"\xcf\x
 PACKAGE_MARKERS = {"AndroidManifest.xml", "classes.dex", "BundleConfig.pb",
                    "base/manifest/AndroidManifest.xml", "META-INF/MANIFEST.MF"}
 HEAD = 4096
-# Printable runs for --strings and --binary input: ASCII and UTF-16LE.
-STRINGS_ASCII = re.compile(rb"[\t\n\r\x20-\x7e]{6,}")
-STRINGS_WIDE = re.compile(rb"(?:[\x20-\x7e]\x00){6,}")
-STRINGS_BREAK = re.compile(rb"[^\t\n\r\x20-\x7e\x00]|\x00\x00")
+# Printable runs for --strings and --binary input: UTF-8, UTF-16LE and UTF-16BE
+# (ASCII and Latin-1 code points), at least 3 characters, the shortest personal term.
+STRINGS_UTF8 = re.compile(rb"(?:[\t\n\r\x20-\x7e]|[\xc2-\xdf][\x80-\xbf]|[\xe0-\xef][\x80-\xbf]{2}"
+                          rb"|[\xf0-\xf4][\x80-\xbf]{3}){3,}")
+STRINGS_LE = re.compile(rb"(?:[\x20-\x7e\xa0-\xff]\x00){3,}")
+STRINGS_BE = re.compile(rb"(?:\x00[\x20-\x7e\xa0-\xff]){3,}")
+# No run crosses a control byte (other than tab, LF, CR) or two NULs.
+STRINGS_BREAK = re.compile(rb"[\x01-\x08\x0b\x0c\x0e-\x1f\x7f]|\x00\x00")
 CURRENT = [""]
 NOTICES = set()
 
@@ -119,35 +123,109 @@ def _is_text(head):
     return True
 
 
-def classify(name, head, tail=b"", names=None):
-    """Return the built-binary type of a file from its magic bytes, or None.
+def _elf_ok(head, size):
+    """A structurally valid ELF header: class, byte order, type, and tables inside the file."""
+    if len(head) < 64 or head[4] not in (1, 2) or head[5] not in (1, 2) or head[6] != 1:
+        return False
+    order = "<" if head[5] == 1 else ">"
+    if head[4] == 2:
+        fields = struct.unpack(order + "HHIQQQIHHHHHH", head[16:64])
+        ehsize, phent, shent = 64, 56, 64
+    else:
+        fields = struct.unpack(order + "HHIIIIIHHHHHH", head[16:52])
+        ehsize, phent, shent = 52, 32, 40
+    kind, _, version, _, phoff, shoff, _, size_eh, size_ph, phnum, size_sh, shnum, _ = fields
+    if not 1 <= kind <= 4 or version != 1 or size_eh != ehsize or phnum + shnum == 0:
+        return False
+    if phnum and (size_ph != phent or phoff < ehsize or phoff + phnum * phent > size):
+        return False
+    if shnum and (size_sh != shent or shoff < ehsize or shoff + shnum * shent > size):
+        return False
+    return True
+
+
+def _macho_ok(head, size):
+    """A thin Mach-O header with a load command table inside the file, or a fat header."""
+    if head[:4] in MACHO:
+        order = "<" if head[:4] in (b"\xce\xfa\xed\xfe", b"\xcf\xfa\xed\xfe") else ">"
+        if len(head) < 28:
+            return False
+        _, _, filetype, ncmds, sizeofcmds = struct.unpack(order + "iiIII", head[4:24])
+        header = 32 if head[:4] in (b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe") else 28
+        return 1 <= filetype <= 12 and 1 <= ncmds <= 10000 and header + sizeofcmds <= size
+    count = int.from_bytes(head[4:8], "big")
+    if not 1 <= count <= 30 or len(head) < 8 + 20 * count:
+        return False
+    for index in range(count):
+        _, _, offset, length, _ = struct.unpack(">iiIII", head[8 + 20 * index:28 + 20 * index])
+        if offset < 8 + 20 * count or offset + length > size:
+            return False
+    return True
+
+
+def _pe_ok(head, size):
+    if len(head) < 64:
+        return False
+    offset = struct.unpack("<I", head[60:64])[0]
+    if offset + 24 > min(len(head), size) or head[offset:offset + 4] != b"PE\0\0":
+        return False
+    machine, sections = struct.unpack("<HH", head[offset + 4:offset + 8])
+    optional = struct.unpack("<H", head[offset + 20:offset + 22])[0]
+    return machine in (0x14C, 0x8664, 0xAA64, 0x1C0, 0x1C4) and 1 <= sections <= 96 and optional > 0
+
+
+def _container(head):
+    """True when head starts a format the checker decodes: gzip, xz, bzip2, zstd, zip, tar, cpio, ar, rpm."""
+    return (head.startswith((b"\x1f\x8b", b"\xfd7zXZ\x00", b"\x28\xb5\x2f\xfd", b"PK\x03\x04", b"0707",
+                             b"!<arch>\n", b"\xed\xab\xee\xdb"))
+            or (head.startswith(b"BZh") and head[3:4].isdigit()) or head[257:262] == b"ustar")
+
+
+def classify(name, head, tail=b"", names=None, size=None):
+    """Return the built-binary type of a file from its magic bytes and headers, or None.
 
     head is the first HEAD bytes, tail the last 512, names the member names of
-    a zip. The name is used only for byte-split parts, which have no magic.
+    a zip, size the file size. A byte-split part or a disk image is only named
+    when no decodable container starts the data.
     """
-    base = name.replace("\\", "/").rsplit("/", 1)[-1]
-    if SPLIT_PART.search(base) and not _is_text(head):
-        return "split part"
+    size = len(head) if size is None else size
     if head.startswith(b"\x7fELF"):
+        if not _elf_ok(head, size):
+            return None
         return "AppImage" if head[8:10] == b"AI" and head[10:11] in (b"\x01", b"\x02") else "ELF"
-    if head[:4] in MACHO:
-        return "Mach-O"
-    if head.startswith(b"\xca\xfe\xba\xbe") and len(head) >= 8:
-        # A fat Mach-O counts its architectures here; a Java class has its version (>= 45).
-        return "Mach-O" if int.from_bytes(head[4:8], "big") < 45 else "Java class"
-    if head.startswith(b"MZ") and len(head) >= 64:
-        offset = struct.unpack("<I", head[60:64])[0]
-        if head[offset:offset + 4] == b"PE\0\0":
-            return "PE"
+    if head[:4] in MACHO or (head.startswith(b"\xca\xfe\xba\xbe") and int.from_bytes(head[4:8], "big") < 45):
+        return "Mach-O" if _macho_ok(head, size) else None
+    if head.startswith(b"\xca\xfe\xba\xbe") and 45 <= int.from_bytes(head[6:8], "big") <= 80:
+        return "Java class"
+    if head.startswith(b"MZ"):
+        return "PE" if _pe_ok(head, size) else None
     if head.startswith(b"!<arch>\n"):
         return "deb" if head[8:21] == b"debian-binary" else "ar archive"
     if head.startswith(b"\xed\xab\xee\xdb"):
         return "rpm"
-    if len(tail) == 512 and tail.startswith(b"koly"):
-        return "disk image"
     if names is not None and PACKAGE_MARKERS.intersection(names):
         return "Android or Java package"
+    if _container(head):
+        return None
+    base = name.replace("\\", "/").rsplit("/", 1)[-1]
+    if SPLIT_PART.search(base) and not _is_text(head):
+        return "split part"
+    if len(tail) == 512 and tail.startswith(b"koly"):
+        return "disk image"
     return None
+
+
+TEXT_SUFFIXES = (".txt", ".json", ".xml", ".properties", ".yaml", ".yml", ".md", ".html", ".htm", ".js",
+                 ".css", ".sh", ".py", ".rb", ".kt", ".java", ".dart", ".toml", ".ini", ".cfg", ".conf",
+                 ".plist", ".csv", ".env", ".pem", ".key", ".desktop", ".service", ".ts", ".c", ".h", ".rs", ".go")
+DEB_CONTROL_FIELD = re.compile(rb"(?im)^(?:Maintainer|Uploaders|Original-Maintainer|XSBC-Original-Maintainer|Changed-By):.*(?:\n[ \t].*)*$")
+
+
+def looks_text(name, raw):
+    """True for a text member: a text suffix, UTF-8 or UTF-16 with a BOM. Text keeps every check."""
+    if name.lower().endswith(TEXT_SUFFIXES) or not raw or raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return True
+    return _is_text(raw[:8192])
 
 
 def classify_file(name, f):
@@ -168,7 +246,7 @@ def classify_file(name, f):
         except (OSError, ValueError, RuntimeError, zipfile.BadZipFile):
             names = None
     f.seek(0)
-    return classify(name, head, tail, names)
+    return classify(name, head, tail, names, size)
 
 
 def downgrade(category):
@@ -196,10 +274,11 @@ def strings(data, out, final=True):
         if cut == 0 and len(data) > MIB:
             cut = len(data) - OVERLAP
     block = data[:cut]
-    for match in STRINGS_ASCII.finditer(block):
+    for match in STRINGS_UTF8.finditer(block):
         out.write(match.group() + b"\n")
-    for match in STRINGS_WIDE.finditer(block):
-        out.write(match.group()[::2] + b"\n")
+    for pattern, codec in ((STRINGS_LE, "utf-16-le"), (STRINGS_BE, "utf-16-be")):
+        for match in pattern.finditer(block):
+            out.write(match.group().decode(codec).encode("utf-8") + b"\n")
     return data[cut:]
 
 
@@ -233,15 +312,22 @@ def run_sensitive(raw, binary):
     return proc.returncode
 
 
-def inspect_archive_member(name, raw, depth, binary=False):
-    kind = classify(name, raw[:HEAD], raw[-512:] if len(raw) >= 512 else b"")
-    binary = binary or kind is not None
-    inspect(name, raw, depth, binary=binary)
-    # Binary diffs and archive scanners can omit member names and link targets.
-    if binary:
-        payload = os.fsencode(name) + b"\n" + strings_of(raw)
-    else:
-        payload = os.fsencode(name) + b"\n" + raw.replace(b"\0", b" ")
+def _label(name):
+    """The name line for check_sensitive.sh: a member name, never the checked file's own path.
+
+    The path is local (a home directory, a build directory), not content the file carries.
+    """
+    current = CURRENT[0]
+    for outer in ((current, os.path.abspath(current)) if current else ()):
+        if name == outer:
+            return b""
+        if name.startswith(outer + ":"):
+            name = name[len(outer) + 1:]
+            break
+    return os.fsencode(name) + b"\n"
+
+
+def _sensitive_or_raise(payload, binary):
     status = run_sensitive(payload, binary)
     if status == 1:
         raise Refused()
@@ -249,10 +335,34 @@ def inspect_archive_member(name, raw, depth, binary=False):
         raise Unchecked()
 
 
+def inspect_archive_member(name, raw, depth, binary=False):
+    """Check one member. binary means the member is inside a built binary or package.
+
+    Only a member that is itself a built binary, or binary data inside a
+    package, gets the secrets-only profile; a text member keeps every check.
+    """
+    kind = classify(name, raw[:HEAD], raw[-512:] if len(raw) >= 512 else b"", size=len(raw))
+    inspect(name, raw, depth, binary=binary or kind is not None)
+    label = _label(name)
+    # Binary diffs and archive scanners can omit member names and link targets.
+    if kind is not None or (binary and not looks_text(name, raw)):
+        _sensitive_or_raise(label + strings_of(raw), True)
+        return
+    base = name.replace("\\", "/").rsplit("/", 1)[-1]
+    if binary and base == "control" and raw.startswith(b"Package:"):
+        # A deb control file: only its maintainer fields get the secrets-only profile.
+        fields = b"\n".join(m.group() for m in DEB_CONTROL_FIELD.finditer(raw))
+        if fields:
+            downgrade("deb control maintainer fields: personal-data patterns do not block")
+            _sensitive_or_raise(label + fields, True)
+            raw = DEB_CONTROL_FIELD.sub(b"", raw)
+    _sensitive_or_raise(label + raw.replace(b"\0", b" "), False)
+
+
 def opaque_in_binary(name, raw, what):
     """Data in a built binary that cannot be decoded: scan its raw bytes for secrets only."""
     downgrade(what + " in a built binary was not decoded; its raw bytes were checked for secrets only")
-    status = run_sensitive(os.fsencode(name) + b"\n" + strings_of(raw), True)
+    status = run_sensitive(_label(name) + strings_of(raw), True)
     if status == 1:
         raise Refused()
     if status:
@@ -344,7 +454,7 @@ def _large_tar(label, spool, depth):
 def _sensitive_spool(label, spool):
     """check_sensitive.sh --binary on a spooled member's printable runs, in bounded memory."""
     with tempfile.TemporaryFile() as text:
-        text.write(os.fsencode(label) + b"\n")
+        text.write(_label(label))
         spool.seek(0)
         carry = b""
         while True:
@@ -526,6 +636,8 @@ class _Budget:
         # (start, end) of every embedded tar already read, so a header inside
         # one is not read again as the start of another (2000 members cost n^2).
         self.tars = []
+        # Set when data in the executable could not be decoded: its raw bytes get a secrets check.
+        self.opaque = False
         self.pending = []
         self.pending_bytes = 0
         self.deadline = time.monotonic() + DECODE_SECONDS
@@ -536,24 +648,33 @@ class _Budget:
             raise Anomaly("decode limit reached")
 
     def sensitive(self, name, data):
-        """Queue decoded data for check_sensitive.sh: one process per batch, not per member."""
+        """Queue decoded data for check_sensitive.sh: one process per batch, not per member.
+
+        A text member keeps every check; binary data embedded in the executable
+        gets the secrets-only profile.
+        """
         if name.startswith(self.outer):
             name = name[len(self.outer):]
-        # Only executables are decoded, so every member here is in a built binary.
-        self.pending.append(os.fsencode(name) + b"\n" + strings_of(data) + b"\n")
-        self.pending_bytes += len(self.pending[-1])
+        binary = not looks_text(name, data)
+        body = strings_of(data) if binary else data.replace(b"\0", b" ")
+        self.pending.append((binary, os.fsencode(name) + b"\n" + body + b"\n"))
+        self.pending_bytes += len(self.pending[-1][1])
         if self.pending_bytes > MEMBER_MAX:
             self.flush()
 
     def flush(self):
         if not self.pending:
             return
-        raw, self.pending, self.pending_bytes = b"".join(self.pending), [], 0
-        status = run_sensitive(raw, True)
-        if status == 1:
-            raise Refused()
-        if status:
-            raise Anomaly("embedded data could not be checked")
+        pending, self.pending, self.pending_bytes = self.pending, [], 0
+        for binary in (False, True):
+            raw = b"".join(body for kind, body in pending if kind == binary)
+            if not raw:
+                continue
+            status = run_sensitive(raw, binary)
+            if status == 1:
+                raise Refused()
+            if status:
+                raise Anomaly("embedded data could not be checked")
 
     def tick(self):
         if time.monotonic() > self.deadline:
@@ -709,11 +830,9 @@ def _zstd_frame(name, f, offset, budget):
         return
     # Python 3.14+ only; no external decoder is run.
     if ZstdDecompressor is None:
-        # Only executables are decoded; the whole file's printable runs are
-        # checked for secrets by check_publication.sh.
+        # Only executables are decoded; inspect_large checks the raw bytes for secrets.
         if _zstd_blocks_end(f, offset, descriptor[0]):
-            downgrade("zstd data (no zstd decoder) in a built binary was not decoded;"
-                      " the file's raw bytes are checked for secrets only")
+            budget.opaque = "zstd data (no zstd decoder)"
         return
     data, complete = _decode(ZstdDecompressor(), f, offset, budget)
     _scan_decoded(name + ":zstd", data, complete, budget)
@@ -745,7 +864,7 @@ def _embedded(name, f, offset, magic, budget):
         f.seek(offset + 8)
         start = f.read(24)
         if len(start) == 24 and zlib.crc32(start[4:]) & 0xFFFFFFFF == struct.unpack("<I", start[:4])[0]:
-            downgrade("7z data in a built binary was not decoded; the file's raw bytes are checked for secrets only")
+            budget.opaque = "7z data"
     elif magic == b"ustar":
         _tar_members(name, f, offset, budget)
     else:
@@ -755,8 +874,8 @@ def _embedded(name, f, offset, magic, budget):
 def _large_package(name, f, kind):
     """Decode a package above LIMIT that is not an executable: deb, ar, rpm, APK/AAB/JAR.
 
-    A disk image or a byte-split part is not decoded: its raw bytes are
-    checked for secrets by check_publication.sh, and nothing is incomplete.
+    A disk image or a byte-split part is not decoded: inspect_large checks
+    its raw bytes for secrets instead.
     """
     f.seek(0)
     try:
@@ -779,8 +898,6 @@ def _large_package(name, f, kind):
                         _checked(pending, _package_member, name + ":" + member.filename, stream, member.file_size, 1)
             if pending:
                 raise pending[0]
-        elif kind in ("disk image", "split part"):
-            downgrade(kind + ": not decoded; its raw bytes are checked for secrets only")
     except Unchecked:
         raise Anomaly("package could not be decoded") from None
     except (OSError, ValueError, RuntimeError, EOFError, zipfile.BadZipFile, zlib.error):
@@ -854,6 +971,17 @@ def inspect_large(name, f):
         budget.flush()
     except Anomaly as exc:
         reasons.append(exc.args[0])
+    opaque = budget.opaque or {"disk image": "disk image", "split part": "split part",
+                               "AppImage": "the AppImage squashfs payload"}.get(kind)
+    if opaque:
+        # What was not decoded gets a secrets check on its raw bytes, in every mode.
+        status = _sensitive_spool(name, f)
+        if status == 1:
+            raise Refused()
+        if status:
+            reasons.append("raw bytes could not be checked")
+        else:
+            downgrade(opaque + " in a built binary was not decoded; its raw bytes were checked for secrets only")
     if reasons:
         raise Anomaly(reasons[0])
 
@@ -879,7 +1007,14 @@ def report_anomalies():
 
 def inspect(name, raw, depth=0, text_only=False, binary=False):
     try:
-        _inspect(name, raw, depth, text_only, binary)
+        try:
+            _inspect(name, raw, depth, text_only, binary)
+        except Unchecked:
+            # The first part of a split compressed file is a truncated stream.
+            base = name.replace("\\", "/").rsplit("/", 1)[-1]
+            if depth or text_only or not SPLIT_PART.search(base) or not _container(raw[:HEAD]):
+                raise
+            opaque_in_binary(name, raw, "a split part that does not decode alone")
     except Refused as exc:
         if exc.tool == "Security":
             text = raw.decode("utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8", errors="replace")
@@ -902,17 +1037,13 @@ def _inspect(name, raw, depth=0, text_only=False, binary=False):
     if len(raw) > LIMIT or depth > 4:
         raise Unchecked()
     # Inspect archives in memory. Never extract paths supplied by the archive.
-    kind = None if text_only else classify(name, raw[:HEAD], raw[-512:] if len(raw) >= 512 else b"")
-    if kind == "split part":
-        # A byte range of another file: its compressed data cannot be decoded
-        # alone. check_publication.sh checks its raw bytes for secrets.
-        downgrade("split part: not decoded; its raw bytes are checked for secrets only")
-        text_only = True
-    elif kind == "disk image":
-        downgrade("disk image: not decoded; its raw bytes are checked for secrets only")
+    kind = None if text_only else classify(name, raw[:HEAD], raw[-512:] if len(raw) >= 512 else b"", size=len(raw))
+    if kind in ("split part", "disk image"):
+        # Not decodable alone: its raw bytes get the secrets check instead.
+        opaque_in_binary(name, raw, kind)
         text_only = True
     elif kind == "AppImage":
-        downgrade("AppImage: the squashfs payload is not decoded; its raw bytes are checked for secrets only")
+        opaque_in_binary(name, raw, "the AppImage squashfs payload")
     if text_only:
         pass
     elif kind in ("deb", "ar archive", "rpm"):

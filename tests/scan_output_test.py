@@ -722,10 +722,8 @@ class LargeFileTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertLess(time.monotonic() - started, 60)
 
-    def test_home_path_in_one_of_many_embedded_members_is_refused(self):
-        # Members embedded in an executable get the binary profile: a local
-        # home path blocks there, an email address does not (BinaryPolicyTests).
-        email = b"/home/alice/src/build.rs"
+    def test_personal_data_in_one_of_many_embedded_members_is_refused(self):
+        email = ("jane.roe" + "@mailbox.org").encode()
         for kind in ("content", "link"):
             packed = io.BytesIO()
             with tarfile.open(fileobj=packed, mode="w") as archive:
@@ -993,9 +991,15 @@ def _rpm(members):
     return lead + header + header + gzip.compress(_cpio(members))
 
 
-ELF_HEAD = b"\x7fELF\x02\x01\x01" + b"\0" * 57
-APPIMAGE_HEAD = b"\x7fELF\x02\x01\x01\0AI\x02" + b"\0" * 53
-MACHO_HEAD = b"\xcf\xfa\xed\xfe\x07\x00\x00\x01" + b"\0" * 24
+def _elf_head(ident=b"\x7fELF\x02\x01\x01\0" + b"\0" * 8):
+    """A valid ELF64 header (executable, x86-64) with one program header."""
+    return ident + struct.pack("<HHIQQQIHHHHHH", 2, 62, 1, 0x401000, 64, 0, 0, 64, 56, 1, 64, 0, 0) + b"\0" * 56
+
+
+ELF_HEAD = _elf_head()
+APPIMAGE_HEAD = _elf_head(b"\x7fELF\x02\x01\x01\0AI\x02" + b"\0" * 5)
+# A thin 64-bit Mach-O executable with one 16-byte load command.
+MACHO_HEAD = b"\xcf\xfa\xed\xfe" + struct.pack("<iiIIIII", 0x01000007, 3, 2, 1, 16, 0, 0) + b"\0" * 16
 
 
 class BinaryPolicyTests(unittest.TestCase):
@@ -1029,6 +1033,9 @@ class BinaryPolicyTests(unittest.TestCase):
         ids.write_text("this machine's home directory\t/home/runner\n")
         self.env["SENSITIVE_MACHINE_IDS_FILE"] = str(ids)
 
+    def run_check(self, *args, extra=None):
+        return LargeFileTests.run_check(self, *args, extra=extra)
+
     def publish(self, name, data, extra=None):
         path = self.base / name
         path.write_bytes(data)
@@ -1049,7 +1056,9 @@ class BinaryPolicyTests(unittest.TestCase):
         return packed.getvalue()
 
     def deb(self, data_members):
-        control = _tar({"./control": b"Package: demo\nMaintainer: Anna Weber <" + self.ADDRESS.encode() + b">\n"}, "w:gz")
+        control = _tar({"./control": b"Package: demo\nMaintainer: Anna Weber <" + self.ADDRESS.encode() + b">\n"
+                                     b"Uploaders: Ben Roe <ben.roe" + b"@" + b"firma-gmbh.de>,\n Cleo Doe <" + self.ADDRESS.encode() + b">\n"
+                                     b"Description: demo\n"}, "w:gz")
         return _ar([("debian-binary", b"2.0\n"), ("control.tar.gz", control),
                     ("data.tar.xz", _tar(data_members, "w:xz"))])
 
@@ -1094,9 +1103,13 @@ class BinaryPolicyTests(unittest.TestCase):
         self.assertStatus("docs.zip", _zip({"README": b"mail " + self.ADDRESS.encode() + b"\n"}), 1)
 
     def test_deb_members_are_decoded(self):
-        copyright = b"Copyright: Anna Weber <" + self.ADDRESS.encode() + b">\n"
-        clean = {"./usr/share/doc/demo/copyright": copyright, "./usr/bin/demo": ELF_HEAD + b"\0ok\0"}
+        # The control file's Maintainer field and a binary's strings do not block.
+        library = ELF_HEAD + b"\0support " + self.ADDRESS.encode() + b"\0"
+        clean = {"./usr/lib/demo/libdemo.so": library, "./usr/bin/demo": ELF_HEAD + b"\0ok\0"}
         self.assertStatus("demo_1.0_amd64.deb", self.deb(clean), 0)
+        # A text member keeps every check, inside a package too.
+        copyright = b"Copyright: Anna Weber <" + self.ADDRESS.encode() + b">\n"
+        self.assertStatus("demo_1.0_amd64.deb", self.deb(dict(clean, **{"./usr/share/doc/demo/copyright": copyright})), 1)
         secret = dict(clean, **{"./etc/demo.conf": ("token = " + self.TOKEN + "\n").encode()})
         self.assertStatus("demo_1.0_amd64.deb", self.deb(secret), 1)
         home = dict(clean, **{"./usr/bin/demo": ELF_HEAD + b"\0/home/alice/build/x.rs\0"})
@@ -1105,7 +1118,7 @@ class BinaryPolicyTests(unittest.TestCase):
         self.assertStatus("cut.deb", self.deb(clean)[:200], 2)
 
     def test_rpm_payload_is_decoded(self):
-        clean = {"./usr/share/doc/demo/copyright": b"Anna Weber <" + self.ADDRESS.encode() + b">\n"}
+        clean = {"./usr/lib/libdemo.so": ELF_HEAD + b"\0Anna Weber <" + self.ADDRESS.encode() + b">\0"}
         self.assertStatus("demo-1.0.x86_64.rpm", _rpm(clean), 0)
         secret = dict(clean, **{"./etc/demo.conf": ("token = " + self.TOKEN + "\n").encode()})
         self.assertStatus("demo-1.0.x86_64.rpm", _rpm(secret), 1)
@@ -1138,12 +1151,14 @@ class BinaryPolicyTests(unittest.TestCase):
         checker = load_checker()
         checker.LIMIT, checker.CHUNK, checker.OVERLAP = 16384, 8192, 4096
         filler = random.Random(6).randbytes(32768)
-        clean = {"./usr/share/doc/demo/copyright": self.ADDRESS.encode() + b"\n", "./usr/bin/demo": ELF_HEAD + filler}
+        clean = {"./usr/lib/libdemo.so": ELF_HEAD + b"\0" + self.ADDRESS.encode() + b"\0", "./usr/bin/demo": ELF_HEAD + filler}
         secret = dict(clean, **{"./etc/demo.conf": filler + ("token = " + self.TOKEN + "\n").encode()})
         cases = (("demo.deb", self.deb(clean), None), ("demo.deb", self.deb(secret), checker.Refused),
                  ("app.apk", self.apk(ELF_HEAD + filler + self.ADDRESS.encode()), None),
                  ("app.apk", self.apk(ELF_HEAD + filler + self.AWS.encode()), checker.Refused),
-                 ("demo.rpm", _rpm(dict(clean, pad=filler)), None))
+                 ("demo.rpm", _rpm(dict(clean, pad=filler)), None),
+                 ("demo.deb", self.deb(dict(clean, **{"./usr/share/doc/demo/README": filler[:0] + self.ADDRESS.encode() + b"\n"})),
+                  checker.Refused))
         with mock.patch.dict(os.environ, self.env, clear=True):
             for name, data, error in cases:
                 path = self.base / name
@@ -1154,6 +1169,73 @@ class BinaryPolicyTests(unittest.TestCase):
                     else:
                         with self.assertRaises(error, msg=name):
                             checker.inspect_large(name, stream)
+
+    def test_container_magic_wins_over_split_name_and_disk_image_trailer(self):
+        body = b"contact " + self.ADDRESS.encode() + b"\n"
+        # A whole gzip named like a part is decoded, not skipped.
+        self.assertStatus("notes.gz.split-000", gzip.compress(body), 1)
+        # A zip with a disk-image trailer is decoded too.
+        self.assertStatus("bundle.zip", _zip({"README": body}) + b"koly" + b"\0" * 508, 1)
+
+    def test_spoofed_binary_magic_keeps_the_full_check(self):
+        body = b" contact " + self.ADDRESS.encode() + b"\n"
+        # Magic bytes without a valid header are not an executable.
+        for head in (b"\x7fELF", b"\x7fELF\x02\x01\x01" + b"\0" * 60, b"\xcf\xfa\xed\xfe", b"MZ" + b"\0" * 62):
+            self.assertStatus("app", head + body, 1)
+        # A text member of a package keeps every check.
+        for name in ("assets/config.json", "assets/notes.txt", "assets/README"):
+            self.assertStatus("app-release.apk", _zip_apk({name: body}), 1)
+
+    def test_raw_secrets_check_runs_without_check_publication(self):
+        # The hook path (check_scan_output.sh alone) checks what it did not decode.
+        part = random.Random(4).randbytes(2048) + self.TOKEN.encode() + b"\0"
+        appimage = APPIMAGE_HEAD + b"hsqs" + b"\0" * 60 + self.TOKEN.encode() + b"\0"
+        for name, data in (("app.tar.gz.split-001", part), ("app.AppImage", appimage),
+                           ("app.tar.gz.split-000", gzip.compress(b"x" * 4096)[:200] + self.TOKEN.encode())):
+            path = self.base / name
+            path.write_bytes(data)
+            for extra in ({}, {"GITHUB_ACTIONS": "true"}):
+                proc = self.run_check("--file", str(path), extra=extra)
+                self.assertEqual(proc.returncode, 1, (name, extra, proc.stderr))
+        clean = self.base / "app.tar.gz.split-002"
+        clean.write_bytes(random.Random(5).randbytes(2048))
+        proc = self.run_check("--file", str(clean))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("incomplete", proc.stderr)
+
+    def test_large_executable_with_undecoded_zstd_gets_a_raw_secrets_check(self):
+        frame = bytes.fromhex("28b52ffd045831000068656c6c6f0a5388bd91")
+        path = LargeFileTests.sparse(self, "app.AppImage", 65 * MIB, head=APPIMAGE_HEAD, at=MIB,
+                                     data=frame + b"\0" + self.TOKEN.encode() + b"\0")
+        checker = load_checker()
+        checker.ZstdDecompressor = None
+        with mock.patch.dict(os.environ, self.env, clear=True), path.open("rb") as stream:
+            with self.assertRaises(checker.Refused):
+                checker.inspect_large("app.AppImage", stream)
+
+    def test_personal_terms_and_machine_home_match_every_encoding(self):
+        terms = self.base / "terms.txt"
+        terms.write_text("Zed\nkestrelhill\n")
+        terms.chmod(0o600)
+        extra = {"SENSITIVE_TERMS_FILE": str(terms)}
+        for data in (b"\0Zed\0", "kestrelhill".encode("utf-16-le"), "kestrelhill".encode("utf-16-be"),
+                     "\u00fcber kestrelhill".encode("utf-8")):
+            self.assertStatus("app", ELF_HEAD + b"\x01" + data + b"\x01", 1, extra)
+        ids = self.base / "local-ids.tsv"
+        ids.write_text("this machine's home directory\t/home/zoe\n")
+        self.assertStatus("app", ELF_HEAD + b"\0/home/zoe\0", 1, {"SENSITIVE_MACHINE_IDS_FILE": str(ids)})
+        self.assertStatus("app", ELF_HEAD + b"\0/home/runner\0", 0)
+
+    def test_the_checked_files_own_path_is_not_its_content(self):
+        # A build under a home directory: the path names a home, the content does not.
+        (self.base / "home/alice").mkdir(parents=True)
+        for name, data in (("home/alice/app.AppImage", APPIMAGE_HEAD + b"hsqs\0"),
+                           ("home/alice/app.tar.gz.split-001", random.Random(4).randbytes(2048)),
+                           ("home/alice/demo.deb", self.deb({"./usr/bin/demo": ELF_HEAD + b"\0ok\0"}))):
+            path = self.base / name
+            path.write_bytes(data)
+            proc = self.run_check("--file", str(path))
+            self.assertEqual(proc.returncode, 0, (name, proc.stderr))
 
     def test_large_unknown_blob_is_still_incomplete(self):
         path = LargeFileTests.sparse(self, "blob.bin", 2 * MIB, head=b"\0data")

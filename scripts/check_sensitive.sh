@@ -287,8 +287,8 @@ build_terms() {
   [[ -f "$TERMS_FILE" ]] || echo "$TAG notice: no $TERMS_FILE; only machine identifiers and PII patterns are checked." >&2
   [[ "$USE_MACHINE" == true ]] || return 0
   machine_ids | awk -F'\t' -v binary="$BINARY" '
-    # A built binary carries its build machine home path; a local one is checked below.
-    binary == "true" && $1 == "this machine'"'"'s home directory" { next }
+    # A built binary built on a CI runner carries the runner home path; it does not block.
+    binary == "true" && $1 == "this machine'"'"'s home directory" && $2 ~ /^((\/var)?\/home|\/Users|\/[A-Za-z]\/Users|[A-Za-z]:[\\\/]Users)[\\\/](runner|runneradmin|github)$|^\/root$/ { next }
     { print }
     $2 ~ /^[0-9A-Fa-f][0-9A-Fa-f][:-][0-9A-Fa-f][0-9A-Fa-f][:-][0-9A-Fa-f][0-9A-Fa-f][:-][0-9A-Fa-f][0-9A-Fa-f][:-][0-9A-Fa-f][0-9A-Fa-f][:-][0-9A-Fa-f][0-9A-Fa-f]$/ {
       v = $2; if (index(v, ":")) gsub(/:/, "-", v); else gsub(/-/, ":", v); print $1 "\t" v }' \
@@ -459,6 +459,12 @@ case "$MODE" in
       # NULs go before awk: the macOS awk ends a record at a NUL and drops the rest.
       tr -d '\000' < "$src" | awk -v f="$f" '{ print f ":" FNR "\t" $0 }' >> "$units" || fail "could not read $f"
       TEXT_FILES+=("$src")
+      # gitleaks skips a file it reads as binary: give it the printable runs as well.
+      if [[ "$BINARY" != true && -s "$f" ]] && ! LC_ALL=C grep -qI . "$f" 2>/dev/null; then
+        src="$tmp/binary.${#TEXT_FILES[@]}.txt"
+        bash "$SELF_DIR/check_scan_output.sh" --strings "$f" > "$src" 2>/dev/null || { fail "could not read the strings of $f"; continue; }
+        TEXT_FILES+=("$src")
+      fi
       basename -- "$f" >> "$metadata"
     done
     ;;
@@ -466,7 +472,7 @@ case "$MODE" in
     cat > "$tmp/stdin.txt" || fail "could not read standard input"
     if [[ "$BINARY" == true ]]; then
       # Printable runs only, as for --file; the caller may have extracted them already.
-      { tr -c '\011\012\015\040-\176' '\012' < "$tmp/stdin.txt" > "$tmp/stdin.bin" && mv -- "$tmp/stdin.bin" "$tmp/stdin.txt"; } \
+      { tr -c '\011\012\015\040-\176\200-\377' '\012' < "$tmp/stdin.txt" > "$tmp/stdin.bin" && mv -- "$tmp/stdin.bin" "$tmp/stdin.txt"; } \
         || fail "could not read standard input"
     fi
     tr -d '\000' < "$tmp/stdin.txt" | awk '{ print "stdin:" FNR "\t" $0 }' >> "$units" || fail "could not read standard input"
