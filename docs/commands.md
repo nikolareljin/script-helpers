@@ -575,6 +575,11 @@ Usage: scripts/check_publication.sh --file <path> | --stdin
   --file PATH  Check a complete publication file; repeatable.
   --stdin      Check publication text on stdin.
   -h, --help   Show help.
+Built binaries and packages (ELF, Mach-O, PE, AppImage, deb, rpm, APK/AAB/JAR,
+disk images, <name>.split-NNN parts), found by their magic bytes, get the
+secrets-only profile: credentials and a local home path block; email, phone
+and card patterns and a CI runner's home path do not. Each downgrade is
+named on stderr ("NOTICE: security policy:"), never with the matched value.
 ```
 
 Exit codes:
@@ -660,13 +665,16 @@ Exit codes: not in the header; the script has no explicit `exit`.
 Refuse scanner results before a commit, push or text publication.
 
 ```text
-Usage: scripts/check_scan_output.sh [--staged|--push-refs <file>|--range <ref>|--tree <ref>|--file <path>|--stdin] [--remote <name>] [--repo <path>] [--max-mib <n>] [--non-blocking]
+Usage: scripts/check_scan_output.sh [--staged|--push-refs <file>|--range <ref>|--tree <ref>|--file <path>|--stdin|--classify <path>|--strings <path>] [--remote <name>] [--repo <path>] [--max-mib <n>] [--non-blocking]
   --staged          Check staged blobs, not working files.
   --push-refs FILE  Check every outgoing commit and annotated tag.
   --range REF       Check a revision or revision range.
   --tree REF        Check all files at a revision.
   --file PATH       Check a publication file; repeatable.
   --stdin           Check publication text on stdin.
+  --classify PATH   Print the built-binary type of a file (ELF, deb, ...), or
+                    "text"; check_publication.sh uses it to pick the profile.
+  --strings PATH    Print the printable runs (ASCII, UTF-16LE) of a file.
   --remote NAME     Target remote for new refs.
   --repo PATH       Repository, default current directory.
   --max-mib N       Largest file or blob checked, 1..2048 MiB (default 2048,
@@ -695,7 +703,7 @@ scripts/check_scan_output.sh --staged
 Fail when text about to be published carries a credential, a personal identifier or PII.
 
 ```text
-Usage: scripts/check_sensitive.sh [--push-refs <file>|--range <revs>|--staged|--file <path>|--stdin] [--repo <path>] [--no-gitleaks] [--no-machine] [--no-inline-allow] [--terms <path>] [--refresh-public-ip] [--list-identifiers] [-h]
+Usage: scripts/check_sensitive.sh [--push-refs <file>|--range <revs>|--staged|--file <path>|--stdin] [--repo <path>] [--no-gitleaks] [--no-machine] [--no-inline-allow] [--binary] [--terms <path>] [--refresh-public-ip] [--list-identifiers] [-h]
   --push-refs <file>  The ref lines git gives a pre-push hook on stdin, saved to a file.
                       Checks every commit in the push that the target lacks (--remote).
   --range <revs>      Commits to check, as git log arguments, e.g. origin/main..HEAD.
@@ -715,6 +723,12 @@ Usage: scripts/check_sensitive.sh [--push-refs <file>|--range <revs>|--staged|--
   --list-identifiers  Print the kinds of identifier checked and how many, never the values.
   --no-inline-allow   Ignore `sensitive:allow` in the text. For text whose author is
                       the one being checked (the agent hook): it could add the marker.
+  --binary            The input is a built binary or package (--file, --stdin): only
+                      its printable runs are read, and only credentials, personal
+                      terms, machine identifiers and a local home path such as
+                      /home/<name>/ block. Email, phone, SSN and card patterns, and
+                      the home of a CI runner user (runner, runneradmin, github,
+                      root), do not. File names are still checked in full.
   -h, --help          Show this help message.
 ```
 

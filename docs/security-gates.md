@@ -586,8 +586,7 @@ them as code.
 
 A file above 64 MiB that cannot be fully checked is incomplete, not refused:
 a non-executable, data above the decode limits (64 MiB per member, 512 MiB per
-file, 300 s), an encrypted or unsupported member, 7z, a zstd frame on Python older than
-3.14, or scanner JSON keys
+file, 300 s), an encrypted or unsupported member, or scanner JSON keys
 (`RuleID`, `Fingerprint`, `finding_counts`). Locally the checker prints
 `WARNING: security check incomplete: <path>: could not fully check: <reason>`
 and exits 3. With `GITHUB_ACTIONS=true` or `--non-blocking` it prints a
@@ -600,6 +599,68 @@ annotation in CI. Each embedded member is scanned on its own, so a result line
 split across two members, or one stored base64-encoded, is not found. The largest object checked is
 `CHECK_SCAN_OUTPUT_MAX_MIB` or `--max-mib` (1..2048, default 2048); a larger
 one is incomplete, and an invalid value exits 2.
+
+### Built binaries and packages
+
+`check_publication.sh` sorts each file by its magic bytes and headers, not its
+name. A decodable container (gzip, xz, bzip2, zstd, zip, tar, cpio, ar, rpm) is
+always decoded first, whatever its name or trailer.
+
+| Type | Recognised by | Decoded |
+|---|---|---|
+| ELF, Mach-O (thin and fat), PE | a valid header with its tables inside the file | embedded data, above 64 MiB |
+| AppImage | a valid ELF with `AI` at byte 8 | no: the squashfs payload |
+| deb, other ar archives | `!<arch>` | yes: every member, then its tarball |
+| rpm | lead magic | yes: the cpio payload (gzip, xz, bzip2; zstd on Python 3.14) |
+| APK, AAB, JAR | zip with `AndroidManifest.xml`, `classes.dex`, `BundleConfig.pb` or `META-INF/MANIFEST.MF` | yes: every member |
+| disk image (dmg) | `koly` trailer, no container magic | no |
+| byte-split part | name ends in `.split-NNN`, no container magic, not UTF-8 text | no |
+
+A built binary, and binary data inside a package (a member that is not text),
+gets the secrets-only profile (`check_sensitive.sh --binary`). Its printable
+runs (UTF-8, UTF-16LE and UTF-16BE, from 3 characters) are checked for
+credentials (gitleaks), personal terms, this machine's identifiers, and a home
+directory path such as `/home/<name>/`, `/Users/<name>/` or
+`C:\Users\<name>\`, also after a flag such as `-I` or `LDFLAGS=`. A web URL
+(`https://host/home/x/`) or a longer path (`/opt/home/x/`) is not a home. These do not block in a built binary: email, phone, SSN
+and card patterns (third-party libraries carry them), and the home of a CI
+runner user (`runner`, `runneradmin`, `github`, `root`) or of Homebrew on Linux
+(`linuxbrew`). A Rust release binary built on a runner embeds
+`/home/runner/.cargo/registry/...`; the same binary built on a workstation
+embeds the developer's home and is refused.
+
+A text member keeps every check, inside a package too: a `.json`, `.xml`,
+`.txt` or other text-suffixed member, or any member that is UTF-8 text. Two
+exceptions, both inside a recognised package (deb, rpm, APK/AAB/JAR, or the
+members of a `.app` bundle in a tarball, one with `Contents/Info.plist` and a
+Mach-O in `Contents/MacOS/`):
+
+- License and documentation text: a member named exactly `LICENSE`,
+  `LICENCE`, `COPYING`, `NOTICE`, `COPYRIGHT` or `copyright` (any case, with
+  no extension or `.txt`, `.md`, `.html`, `.rst`), or `LICENSES.<name>.html`;
+  or, under `usr/share/doc/` or `usr/share/licenses/`, a `.txt`, `.md`,
+  `.html`, `.rst`, `changelog*` or `readme*` member. Email, phone, SSN and
+  card patterns do not block there; credentials, personal terms, machine
+  identifiers and a local home path do. The member path is normalized first;
+  a path with a `..` component, or a link, keeps every check.
+- A deb `control` file's `Maintainer`, `Uploaders` and `Changed-By` fields.
+
+A loose `LICENSE` file, or one in a plain tarball, keeps every check.
+File names keep the full check. Magic bytes alone (a text file that starts
+with `\x7fELF`) do not make a file a binary.
+
+Data inside a built binary that cannot be decoded (the AppImage squashfs, a
+disk image, a split part, zstd without Python 3.14, 7z) has its raw bytes
+checked for secrets by the checker itself, so the hooks and CI get the same
+check as `check_publication.sh`; when that check runs, the file is not
+incomplete. Anything else that cannot be decoded is still incomplete (exit 3
+locally), and a crash, a checker error or a truncated package still exits 2.
+Each downgrade is named on stderr as `NOTICE: security policy: <path>:
+<category>`, never with a value, count or snippet.
+
+A byte-split part is a range of another file, so a compressed file split into
+parts cannot be decoded, and a secret that crosses a part boundary is not
+found. Check the whole file before it is split.
 
 `/scans/`, `/scan-results/`, `/security-reports/`, and scanner report patterns are
 ignored. Hooks also reject force-added files. Ordinary scanner configuration
