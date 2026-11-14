@@ -318,7 +318,8 @@ def _label(name):
     The path is local (a home directory, a build directory), not content the file carries.
     """
     current = CURRENT[0]
-    for outer in ((current, os.path.abspath(current)) if current else ()):
+    # main() also checks the resolved path (/private/var on macOS for /var).
+    for outer in ((current, os.path.abspath(current), str(Path(current).resolve())) if current else ()):
         if name == outer:
             return b""
         if name.startswith(outer + ":"):
