@@ -1256,6 +1256,15 @@ class BinaryPolicyTests(unittest.TestCase):
             proc = self.assertStatus("demo.deb", self.deb(dict(lib, **{path: body})), 0)
             self.assertIn("license or documentation text", proc.stderr)
         self.assertStatus("demo.rpm", _rpm(dict(lib, **{"./usr/share/doc/demo/copyright": body})), 0)
+        # Third-party notice files, as an Electron app ships them.
+        for path in ("./usr/share/code/resources/app/ThirdPartyNotices.txt", "./opt/demo/THIRD-PARTY-NOTICES.md",
+                     "./opt/demo/third_party_notices", "./opt/demo/ThirdPartyNotice.html", "./opt/demo/NOTICES"):
+            self.assertStatus("demo.deb", self.deb(dict(lib, **{path: body})), 0)
+        notices = "./usr/share/code/resources/app/ThirdPartyNotices.txt"
+        self.assertStatus("demo.deb", self.deb(dict(lib, **{notices: body + ("token = " + self.TOKEN + "\n").encode()})), 1)
+        self.assertStatus("demo.deb", self.deb(dict(lib, **{"./opt/demo/ThirdPartyNoticesfoo.json": body})), 1)
+        self.assertStatus("ThirdPartyNotices.txt", body, 1)
+        self.assertStatus("src.tar.gz", _tar({"src/ThirdPartyNotices.txt": body}, "w:gz"), 1)
         self.assertStatus("app.apk", _zip_apk({"META-INF/LICENSE": body}), 0)
         bundle = {"Demo.app/Contents/Info.plist": b"<plist/>\n", "Demo.app/Contents/MacOS/Demo": MACHO_HEAD + b"\0",
                   "Demo.app/Contents/Resources/LICENSE": body}

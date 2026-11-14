@@ -636,7 +636,8 @@ members of a `.app` bundle in a tarball, one with `Contents/Info.plist` and a
 Mach-O in `Contents/MacOS/`):
 
 - License and documentation text: a member named exactly `LICENSE`,
-  `LICENCE`, `COPYING`, `NOTICE`, `COPYRIGHT` or `copyright` (any case, with
+  `LICENCE`, `COPYING`, `NOTICE`, `NOTICES`, `COPYRIGHT`, `copyright`, `ThirdPartyNotices`,
+  `ThirdPartyNotice`, `THIRD-PARTY-NOTICES` or `THIRD_PARTY_NOTICES` (any case, with
   no extension or `.txt`, `.md`, `.html`, `.rst`), or `LICENSES.<name>.html`;
   or, under `usr/share/doc/` or `usr/share/licenses/`, a `.txt`, `.md`,
   `.html`, `.rst`, `changelog*` or `readme*` member. Email, phone, SSN and

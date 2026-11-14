@@ -222,7 +222,8 @@ DEB_CONTROL_FIELD = re.compile(rb"(?im)^(?:Maintainer|Uploaders|Original-Maintai
 
 
 DOC_PREFIXES = ("usr/share/doc/", "usr/share/licenses/")
-LICENSE_NAME = re.compile(r"(?i)(?:license|licence|copying|notice|copyright)(?:\.(?:txt|md|html|rst))?"
+LICENSE_NAME = re.compile(r"(?i)(?:license|licence|copying|notice|notices|copyright|thirdpartynotices?"
+                          r"|third-party-notices|third_party_notices)(?:\.(?:txt|md|html|rst))?"
                           r"|licenses\.[a-z0-9_-]+\.html")
 DOC_FORMAT = re.compile(r"(?i)[^/]+\.(?:txt|md|html|rst)|changelog[a-z0-9._-]*|readme[a-z0-9._-]*")
 
