@@ -642,35 +642,46 @@ if [[ -s "$tmp/text" ]]; then
   } > "$tmp/pii"
   [[ -f "$tmp/pii.failed" ]] && unchecked=1
   # Random bytes hold short email-shaped runs: 60 MB of /dev/urandom gives
-  # about one "x@ab.cd" that passes email_ok. An address in text has text
-  # around it, so an email candidate whose 4 bytes on either side are not
-  # ASCII text or valid UTF-8 is binary noise and is dropped.
+  # about one "x@ab.cd" that passes email_ok. Only such a short match (local
+  # part <= 3 characters, every domain label <= 3) is skipped, and only when
+  # every occurrence on its line has bytes on both sides that are not ASCII
+  # text or valid UTF-8. The byte next to each end is not judged: it can be a
+  # length prefix or the next record's type byte. Each skip is named on stderr.
   if grep -aq "$(printf '\temail\t')" "$tmp/pii"; then
-    awk -F'\t' '
+    awk -F'\t' -v tag="$TAG" '
       function noise(s) {
         gsub(/[\302-\337][\200-\277]|[\340-\357][\200-\277][\200-\277]|[\360-\364][\200-\277][\200-\277][\200-\277]/, "", s)
         return s ~ /[\001-\010\016-\037\177-\377]/
       }
-      FILENAME == ARGV[1] { row[++n] = $0; ln[n] = $1; kind[n] = $2; val[n] = $3; if ($2 == "email") need[$1] = 1; next }
+      function short(v,   at, k, lab, j) {
+        at = index(v, "@")
+        if (at < 2 || at > 4) return 0
+        k = split(substr(v, at + 1), lab, ".")
+        for (j = 1; j <= k; j++) if (length(lab[j]) > 3) return 0
+        return 1
+      }
+      FILENAME == ARGV[1] { row[++n] = $0; ln[n] = $1; kind[n] = $2; val[n] = $3; if ($2 == "email" && short($3)) need[$1] = 1; next }
+      FILENAME == ARGV[2] { if (FNR in need) name[FNR] = $0; next }
       (FNR in need) { line[FNR] = $0 }
       END {
         for (i = 1; i <= n; i++) {
-          # Kept when any occurrence on the line has text around it.
           keep = 1
-          if (kind[i] == "email" && (ln[i] in line)) {
+          if (kind[i] == "email" && (ln[i] in line) && short(val[i])) {
             s = line[ln[i]]; off = 0; keep = 0; seen = 0
             while ((p = index(substr(s, off + 1), val[i])) > 0) {
               p += off; off = p; seen = 1
-              b = (p > 4 ? p - 4 : 1); before = substr(s, b, p - b); after = substr(s, p + length(val[i]), 4)
+              b = (p > 5 ? p - 5 : 1); before = (p > 1 ? substr(s, b, p - 1 - b) : "")
+              after = substr(s, p + length(val[i]) + 1, 4)
               sub(/^[\200-\277]+/, "", before)                       # tail of a character cut by the window
               sub(/[\302-\364][\200-\277]?[\200-\277]?$/, "", after)  # head of a character cut by the window
-              if (!noise(before) && !noise(after)) { keep = 1; break }
+              if (!noise(before) || !noise(after)) { keep = 1; break }
             }
             if (!seen) keep = 1
+            if (!keep) print tag " notice: " name[ln[i]] ": skipped a short email-shaped match in binary data (" substr(val[i], 1, 1) "***)" > "/dev/stderr"
           }
           if (keep) print row[i]
         }
-      }' "$tmp/pii" "$tmp/text" > "$tmp/pii.ctx" && mv -- "$tmp/pii.ctx" "$tmp/pii" \
+      }' "$tmp/pii" "$tmp/labels" "$tmp/text" > "$tmp/pii.ctx" && mv -- "$tmp/pii.ctx" "$tmp/pii" \
       || { echo "$TAG the email context check failed; NOT checked." >&2; unchecked=1; }
   fi
   if [[ -s "$tmp/pii" ]]; then

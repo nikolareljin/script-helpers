@@ -888,6 +888,18 @@ class CompressedInputTests(unittest.TestCase):
             self.assertEqual(self.status_of("outer.gz", gzip.compress(inner)), expected)
             self.assertEqual(self.status_of("outer.tar.gz", _tar({"inner.tar.gz": inner}, "w:gz")), expected)
 
+    def test_nesting_beyond_the_limit_is_refused(self):
+        # Every layer counts: three tarballs deep, clean or not, is not checked.
+        for body in (b"plain\n", ("TOKEN=" + self.TOKEN + "\n").encode()):
+            data = _tar({"a.txt": body}, "w:gz")
+            for level in range(2):
+                data = _tar({"level%d.tar.gz" % level: data}, "w:gz")
+            self.assertEqual(self.status_of("deep.tar.gz", data), 2, body[:6])
+            chain = body
+            for _ in range(6):
+                chain = gzip.compress(chain)
+            self.assertEqual(self.status_of("deep.gz", chain), 2, body[:6])
+
     def test_truncated_or_corrupt_input_is_refused(self):
         whole = _tar(self.CLEAN, "w:gz")
         corrupt = bytearray(whole)
@@ -914,14 +926,21 @@ class BinaryNoiseEmailTests(unittest.TestCase):
 
     def test_random_bytes_are_not_an_email_address(self):
         # This 4 MiB block holds an email-shaped run that was refused before.
-        self.assertEqual(self.scan(random.Random(5).randbytes(4 * MIB)).returncode, 0)
-        self.assertEqual(self.scan(b"\xff\x01\x9c\x02" + b"q@zk.vo" + b"\x03\xfe\x80\x04").returncode, 0)
+        proc = self.scan(random.Random(5).randbytes(4 * MIB))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        proc = self.scan(b"\xff\x01\x9c\x02" + b"q@zk.vo" + b"\x03\xfe\x80\x04")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        # A skip is never silent.
+        self.assertIn(b"skipped a short email-shaped match", proc.stderr)
 
     def test_addresses_in_text_are_still_found(self):
         address = ("anna.weber" + "@" + "firma-gmbh.de").encode()
         for data in (b"contact " + address + b" today\n", address + b"\n", b"mail:" + address,
                      "連絡先：".encode() + address + "。".encode(),
                      b"\x7fELF\x01\x02\0\0support: " + address + b"\0usage: %s\0",
+                     # Length-prefixed strings in a binary blob.
+                     b"\x88\x01\xfe\x7f" + bytes([len(address)]) + address + b"\x03\x9a\xff\x02",
+                     b"\x88\x01\xfe\x7f\x05" + b"name:\x08" + b"jo@ab.de" + b" \x01",
                      random.Random(5).randbytes(4096) + b"\n" + address + b"\n",
                      # The same address beside noise first and in text later on one line.
                      b"\x01\x02\x03\x04" + address + b"\x05\x06 and mail " + address + b" again\n"):
