@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SCRIPT: check_sensitive.sh
 # DESCRIPTION: Fail when text about to be published carries a credential, a personal identifier or PII.
-# USAGE: scripts/check_sensitive.sh [--push-refs <file>|--range <revs>|--staged|--file <path>|--stdin] [--repo <path>] [--no-gitleaks] [--no-machine] [--no-inline-allow] [--terms <path>] [--refresh-public-ip] [--list-identifiers] [-h]
+# USAGE: scripts/check_sensitive.sh [--push-refs <file>|--range <revs>|--staged|--file <path>|--stdin] [--repo <path>] [--no-gitleaks] [--no-machine] [--no-inline-allow] [--binary] [--terms <path>] [--refresh-public-ip] [--list-identifiers] [-h]
 # PARAMETERS:
 #   --push-refs <file>  The ref lines git gives a pre-push hook on stdin, saved to a file.
 #                       Checks every commit in the push that the target lacks (--remote).
@@ -22,6 +22,12 @@
 #   --list-identifiers  Print the kinds of identifier checked and how many, never the values.
 #   --no-inline-allow   Ignore `sensitive:allow` in the text. For text whose author is
 #                       the one being checked (the agent hook): it could add the marker.
+#   --binary            The input is a built binary or package (--file, --stdin): only
+#                       its printable runs are read, and only credentials, personal
+#                       terms, machine identifiers and a local home path such as
+#                       /home/<name>/ block. Email, phone, SSN and card patterns, and
+#                       the home of a CI runner user (runner, runneradmin, github,
+#                       root), do not. File names are still checked in full.
 #   -h, --help          Show this help message.
 # EXIT_CODES:
 #   0  Nothing found (also -h/--help, --refresh-public-ip, --list-identifiers).
@@ -79,6 +85,8 @@ TERMS_FROM_ARG=false
 PUSH_REMOTE=""
 LIST_IDS=false
 INLINE_ALLOW=true
+BINARY=false
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() { sed -n '2,/^# ------/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; }
 
@@ -112,6 +120,7 @@ while [[ $# -gt 0 ]]; do
     --refresh-public-ip) REFRESH_IP=true; shift ;;
     --list-identifiers) LIST_IDS=true; shift ;;
     --no-inline-allow) INLINE_ALLOW=false; shift ;;
+    --binary) BINARY=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "$TAG unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -277,7 +286,9 @@ build_terms() {
   # Optional, but its absence is said, not silent.
   [[ -f "$TERMS_FILE" ]] || echo "$TAG notice: no $TERMS_FILE; only machine identifiers and PII patterns are checked." >&2
   [[ "$USE_MACHINE" == true ]] || return 0
-  machine_ids | awk -F'\t' '
+  machine_ids | awk -F'\t' -v binary="$BINARY" '
+    # A built binary carries its build machine home path; a local one is checked below.
+    binary == "true" && $1 == "this machine'"'"'s home directory" { next }
     { print }
     $2 ~ /^[0-9A-Fa-f][0-9A-Fa-f][:-][0-9A-Fa-f][0-9A-Fa-f][:-][0-9A-Fa-f][0-9A-Fa-f][:-][0-9A-Fa-f][0-9A-Fa-f][:-][0-9A-Fa-f][0-9A-Fa-f][:-][0-9A-Fa-f][0-9A-Fa-f]$/ {
       v = $2; if (index(v, ":")) gsub(/:/, "-", v); else gsub(/-/, ":", v); print $1 "\t" v }' \
@@ -440,14 +451,24 @@ case "$MODE" in
   file)
     for f in "${FILES[@]}"; do
       [[ -r "$f" ]] || { echo "$TAG cannot read $f" >&2; unchecked=1; continue; }
+      src="$f"
+      if [[ "$BINARY" == true ]]; then
+        src="$tmp/binary.${#TEXT_FILES[@]}.txt"
+        bash "$SELF_DIR/check_scan_output.sh" --strings "$f" > "$src" 2>/dev/null || { fail "could not read the strings of $f"; continue; }
+      fi
       # NULs go before awk: the macOS awk ends a record at a NUL and drops the rest.
-      tr -d '\000' < "$f" | awk -v f="$f" '{ print f ":" FNR "\t" $0 }' >> "$units" || fail "could not read $f"
-      TEXT_FILES+=("$f")
+      tr -d '\000' < "$src" | awk -v f="$f" '{ print f ":" FNR "\t" $0 }' >> "$units" || fail "could not read $f"
+      TEXT_FILES+=("$src")
       basename -- "$f" >> "$metadata"
     done
     ;;
   stdin)
     cat > "$tmp/stdin.txt" || fail "could not read standard input"
+    if [[ "$BINARY" == true ]]; then
+      # Printable runs only, as for --file; the caller may have extracted them already.
+      { tr -c '\011\012\015\040-\176' '\012' < "$tmp/stdin.txt" > "$tmp/stdin.bin" && mv -- "$tmp/stdin.bin" "$tmp/stdin.txt"; } \
+        || fail "could not read standard input"
+    fi
     tr -d '\000' < "$tmp/stdin.txt" | awk '{ print "stdin:" FNR "\t" $0 }' >> "$units" || fail "could not read standard input"
     TEXT_FILES+=("$tmp/stdin.txt")
     ;;
@@ -498,6 +519,15 @@ fi
 { git -C "$TOP" config --get user.email 2>/dev/null; git config --global --get user.email 2>/dev/null; } | grep -v '^$' > "$tmp/ident" || true
 
 cut -f1 "$units" > "$tmp/labels" && cut -f2- "$units" > "$tmp/text" || { echo "$TAG could not split the text to check" >&2; exit 2; }
+# --binary: personal-data patterns apply to file names (Git metadata) only.
+pii_labels="$tmp/labels"; pii_text="$tmp/text"
+if [[ "$BINARY" == true ]]; then
+  echo "$TAG notice: --binary: email, phone, SSN and card patterns are not applied to the contents." >&2
+  pii_labels="$tmp/pii.labels"; pii_text="$tmp/pii.text"
+  rc=0; grep -a '^Git metadata:' "$units" > "$tmp/pii.units" || rc=$?
+  [[ "$rc" -le 1 ]] || { echo "$TAG could not select the file names to check" >&2; exit 2; }
+  cut -f1 "$tmp/pii.units" > "$pii_labels" && cut -f2- "$tmp/pii.units" > "$pii_text" || { echo "$TAG could not split the text to check" >&2; exit 2; }
+fi
 findings="$tmp/findings"    # label<TAB>what
 : > "$findings"
 
@@ -628,12 +658,12 @@ B='(^|[^0-9A-Za-z_.+-])'
 A='([^0-9A-Za-z_]|$)'
 pii_candidates() {   # <kind> <regex>
   local rc=0
-  grep -anoE "$2" "$tmp/text" > "$tmp/cand" 2>/dev/null || rc=$?
+  grep -anoE "$2" "$pii_text" > "$tmp/cand" 2>/dev/null || rc=$?
   # grep: 1 is "no match"; 2 is an error, which must not read as clean.
   if [[ "$rc" -gt 1 ]]; then echo "$TAG the $1 scan failed (grep exit $rc); NOT checked." >&2; touch "$tmp/pii.failed"; return 0; fi
   awk -v k="$1" '{ i = index($0, ":"); print substr($0, 1, i - 1) "\t" k "\t" substr($0, i + 1) }' "$tmp/cand" || touch "$tmp/pii.failed"
 }
-if [[ -s "$tmp/text" ]]; then
+if [[ -s "$pii_text" ]]; then
   {
     pii_candidates email '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}'
     pii_candidates phone "${B}(\([2-9][0-9]{2}\) ?|[2-9][0-9]{2}[-.])[2-9][0-9]{2}[-.][0-9]{4}${A}"
@@ -712,7 +742,7 @@ if [[ -s "$tmp/text" ]]; then
           }
           if (keep) print row[i]
         }
-      }' "$tmp/pii" "$tmp/labels" "$tmp/text" > "$tmp/pii.ctx" && mv -- "$tmp/pii.ctx" "$tmp/pii" \
+      }' "$tmp/pii" "$pii_labels" "$pii_text" > "$tmp/pii.ctx" && mv -- "$tmp/pii.ctx" "$tmp/pii" \
       || { echo "$TAG the email context check failed; NOT checked." >&2; unchecked=1; }
   fi
   if [[ -s "$tmp/pii" ]]; then
@@ -798,9 +828,33 @@ if [[ -s "$tmp/text" ]]; then
         if (kind == "phone" && phone_ok(v, (substr(v, 1, 1) == "+" ? "intl" : "us"))) next
         what = (kind == "email" ? "an email address" : kind == "phone" ? "a phone number" : kind == "ssn" ? "a US social security number" : "a payment card number")
         print lab[line] "\t" what " (" mask(v) ")"
-      }' "$allow_list" "$tmp/ident" "$tmp/labels" "$tmp/pii" >> "$findings" 2> "$tmp/allowed" \
+      }' "$allow_list" "$tmp/ident" "$pii_labels" "$tmp/pii" >> "$findings" 2> "$tmp/allowed" \
       || { echo "$TAG the PII scan failed; NOT checked." >&2; unchecked=1; }
     sed "s/^/$TAG /" "$tmp/allowed" >&2
+  fi
+fi
+
+# --------------------------------------------------------------- home paths
+# --binary: a home directory path from the machine that built the file. The
+# home of a CI runner user, and placeholder names, do not block.
+if [[ "$BINARY" == true && -s "$tmp/text" ]]; then
+  rc=0
+  grep -anoE '(/home/|/Users/|/var/home/|/[A-Za-z]/Users/|[A-Za-z]:[\\/]Users[\\/])[A-Za-z0-9._-]+[\\/]' "$tmp/text" > "$tmp/homes" 2>/dev/null || rc=$?
+  if [[ "$rc" -gt 1 ]]; then
+    echo "$TAG the home path scan failed (grep exit $rc); NOT checked." >&2; unchecked=1
+  elif [[ -s "$tmp/homes" ]]; then
+    awk -v tag="$TAG" '
+      FILENAME == ARGV[1] { lab[FNR] = $0; next }
+      {
+        i = index($0, ":"); ln = substr($0, 1, i - 1); v = substr($0, i + 1)
+        u = substr(v, 1, length(v) - 1); sub(/^.*[\\\/]/, "", u); lu = tolower(u)
+        if (lu ~ /^(runner|runneradmin|github|root|vsts|cloudtest|linuxbrew|user|username|yourname|you|me|name|example|foo|test|nobody|default|public|shared|guest)$/) {
+          ci++; next
+        }
+        print lab[ln] "\ta local home directory path (" substr(v, 1, length(v) - length(u) - 1) substr(u, 1, 1) "***)"
+      }
+      END { if (ci) print tag " notice: --binary: CI runner or placeholder home paths do not block." > "/dev/stderr" }' \
+      "$tmp/labels" "$tmp/homes" >> "$findings" || { echo "$TAG the home path scan failed; NOT checked." >&2; unchecked=1; }
   fi
 fi
 

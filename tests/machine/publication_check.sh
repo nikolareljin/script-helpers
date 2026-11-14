@@ -30,6 +30,12 @@ check "$?" 0 'clean publication with installed scanner'
 ssh-keygen -q -t ed25519 -N '' -f "$scratch/private-key" || exit 2
 bash "$root/scripts/check_publication.sh" --file "$scratch/private-key" > "$scratch/output" 2>&1
 check "$?" 1 'generated private key refused'
+{ printf '\177ELF\002\001\001\000'; head -c 56 /dev/zero; cat "$scratch/private-key"; } > "$scratch/app-with-key"
+bash "$root/scripts/check_publication.sh" --file "$scratch/app-with-key" > "$scratch/output" 2>&1
+check "$?" 1 'private key inside an executable refused'
+{ printf '\177ELF\002\001\001\000'; head -c 56 /dev/zero; printf 'support: %s%s\000' 'anna.weber' '@firma-gmbh.de'; } > "$scratch/app-with-email"
+bash "$root/scripts/check_publication.sh" --file "$scratch/app-with-email" > "$scratch/output" 2>&1
+check "$?" 0 'email address inside an executable passes'
 python3 - "$scratch/archive.zip" <<'PYTHON'
 import secrets, sys, zipfile
 with zipfile.ZipFile(sys.argv[1], "w") as archive:

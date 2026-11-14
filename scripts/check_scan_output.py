@@ -91,18 +91,368 @@ NON_BLOCKING = [False]
 BASH = shutil.which("bash") or "bash"
 
 
-def inspect_archive_member(name, raw, depth):
-    inspect(name, raw, depth)
+# File types. A built binary or package gets the secrets-only profile in
+# check_sensitive.sh (--binary): credentials and a local home path still block;
+# personal-data patterns and the CI runner's home path do not.
+SPLIT_PART = re.compile(r"\.split-[0-9]{3}$")
+MACHO = (b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf", b"\xce\xfa\xed\xfe", b"\xcf\xfa\xed\xfe")
+PACKAGE_MARKERS = {"AndroidManifest.xml", "classes.dex", "BundleConfig.pb",
+                   "base/manifest/AndroidManifest.xml", "META-INF/MANIFEST.MF"}
+HEAD = 4096
+# Printable runs for --strings and --binary input: ASCII and UTF-16LE.
+STRINGS_ASCII = re.compile(rb"[\t\n\r\x20-\x7e]{6,}")
+STRINGS_WIDE = re.compile(rb"(?:[\x20-\x7e]\x00){6,}")
+STRINGS_BREAK = re.compile(rb"[^\t\n\r\x20-\x7e\x00]|\x00\x00")
+CURRENT = [""]
+NOTICES = set()
+
+
+def _is_text(head):
+    """True when head is UTF-8 text: a renamed text file is not a split part."""
+    if not head or b"\0" in head:
+        return False
+    try:
+        head.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        # Only a character cut at the end of head is allowed.
+        return exc.start >= len(head) - 3 and exc.reason == "unexpected end of data"
+    return True
+
+
+def classify(name, head, tail=b"", names=None):
+    """Return the built-binary type of a file from its magic bytes, or None.
+
+    head is the first HEAD bytes, tail the last 512, names the member names of
+    a zip. The name is used only for byte-split parts, which have no magic.
+    """
+    base = name.replace("\\", "/").rsplit("/", 1)[-1]
+    if SPLIT_PART.search(base) and not _is_text(head):
+        return "split part"
+    if head.startswith(b"\x7fELF"):
+        return "AppImage" if head[8:10] == b"AI" and head[10:11] in (b"\x01", b"\x02") else "ELF"
+    if head[:4] in MACHO:
+        return "Mach-O"
+    if head.startswith(b"\xca\xfe\xba\xbe") and len(head) >= 8:
+        # A fat Mach-O counts its architectures here; a Java class has its version (>= 45).
+        return "Mach-O" if int.from_bytes(head[4:8], "big") < 45 else "Java class"
+    if head.startswith(b"MZ") and len(head) >= 64:
+        offset = struct.unpack("<I", head[60:64])[0]
+        if head[offset:offset + 4] == b"PE\0\0":
+            return "PE"
+    if head.startswith(b"!<arch>\n"):
+        return "deb" if head[8:21] == b"debian-binary" else "ar archive"
+    if head.startswith(b"\xed\xab\xee\xdb"):
+        return "rpm"
+    if len(tail) == 512 and tail.startswith(b"koly"):
+        return "disk image"
+    if names is not None and PACKAGE_MARKERS.intersection(names):
+        return "Android or Java package"
+    return None
+
+
+def classify_file(name, f):
+    """classify() for a seekable file."""
+    size = os.fstat(f.fileno()).st_size
+    f.seek(0)
+    head = f.read(HEAD)
+    tail = b""
+    if size >= 512:
+        f.seek(size - 512)
+        tail = f.read(512)
+    names = None
+    if head.startswith(b"PK\x03\x04"):
+        try:
+            f.seek(0)
+            with zipfile.ZipFile(f) as archive:
+                names = archive.namelist()
+        except (OSError, ValueError, RuntimeError, zipfile.BadZipFile):
+            names = None
+    f.seek(0)
+    return classify(name, head, tail, names)
+
+
+def downgrade(category):
+    """Log a policy downgrade on stderr: the checked file and a category, never content."""
+    key = (CURRENT[0], category)
+    if key in NOTICES:
+        return
+    NOTICES.add(key)
+    path = re.sub(r"[\x00-\x1f\x7f]", "?", CURRENT[0] or "input")
+    print("NOTICE: security policy: " + path + ": " + category, file=sys.stderr)
+
+
+def strings(data, out, final=True):
+    """Write the printable runs of data to out, one per line. Return the unread tail.
+
+    With final False the tail that may continue in the next block is returned
+    instead of written: no run contains a byte STRINGS_BREAK matches.
+    """
+    cut = len(data)
+    if not final:
+        cut = 0
+        start = max(0, len(data) - MIB)
+        for match in STRINGS_BREAK.finditer(data, start):
+            cut = match.end()
+        if cut == 0 and len(data) > MIB:
+            cut = len(data) - OVERLAP
+    block = data[:cut]
+    for match in STRINGS_ASCII.finditer(block):
+        out.write(match.group() + b"\n")
+    for match in STRINGS_WIDE.finditer(block):
+        out.write(match.group()[::2] + b"\n")
+    return data[cut:]
+
+
+def strings_of(raw):
+    out = io.BytesIO()
+    strings(raw, out)
+    return out.getvalue()
+
+
+def write_strings(path):
+    """--strings: the printable runs of a file, streamed to stdout."""
+    out = sys.stdout.buffer
+    with open(path, "rb") as stream:
+        carry = b""
+        while True:
+            chunk = stream.read(CHUNK)
+            if not chunk:
+                break
+            carry = strings(carry + chunk, out, final=False)
+        strings(carry, out)
+    out.flush()
+
+
+def run_sensitive(raw, binary):
+    """check_sensitive.sh on raw; with binary, on its printable runs with --binary."""
+    command = [BASH, Path(__file__).with_name("check_sensitive.sh").as_posix(), "--stdin", "--no-inline-allow"]
+    if binary:
+        command.append("--binary")
+    proc = subprocess.run(command, input=raw, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return proc.returncode
+
+
+def inspect_archive_member(name, raw, depth, binary=False):
+    kind = classify(name, raw[:HEAD], raw[-512:] if len(raw) >= 512 else b"")
+    binary = binary or kind is not None
+    inspect(name, raw, depth, binary=binary)
     # Binary diffs and archive scanners can omit member names and link targets.
-    proc = subprocess.run(
-        [BASH, Path(__file__).with_name("check_sensitive.sh").as_posix(),
-         "--stdin", "--no-inline-allow"],
-        input=os.fsencode(name) + b"\n" + raw.replace(b"\0", b" "), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-    )
-    if proc.returncode == 1:
+    if binary:
+        payload = os.fsencode(name) + b"\n" + strings_of(raw)
+    else:
+        payload = os.fsencode(name) + b"\n" + raw.replace(b"\0", b" ")
+    status = run_sensitive(payload, binary)
+    if status == 1:
         raise Refused()
-    if proc.returncode:
+    if status:
         raise Unchecked()
+
+
+def opaque_in_binary(name, raw, what):
+    """Data in a built binary that cannot be decoded: scan its raw bytes for secrets only."""
+    downgrade(what + " in a built binary was not decoded; its raw bytes were checked for secrets only")
+    status = run_sensitive(os.fsencode(name) + b"\n" + strings_of(raw), True)
+    if status == 1:
+        raise Refused()
+    if status:
+        raise Unchecked()
+
+
+def _checked(pending, check, *args):
+    """Run one member check; an Anomaly is kept so later members are still checked."""
+    try:
+        check(*args)
+    except Anomaly as exc:
+        pending.append(exc)
+
+
+def _read_exact(f, size):
+    data = f.read(size)
+    if len(data) != size:
+        raise Unchecked()
+    return data
+
+
+def _package_member(label, stream, size, depth):
+    """One member of a deb or rpm: read whole, or spooled and streamed above LIMIT."""
+    if size <= LIMIT:
+        inspect_archive_member(label, _read_exact(stream, size), depth, binary=True)
+        return
+    with tempfile.TemporaryFile() as spool:
+        left = size
+        while left:
+            piece = stream.read(min(CHUNK, left))
+            if not piece:
+                raise Unchecked()
+            spool.write(piece)
+            left -= len(piece)
+        spool.flush()
+        spool.seek(0)
+        magic = spool.read(6)
+        compressed = magic.startswith((b"\x1f\x8b", b"BZh", b"\xfd7zXZ"))
+        if magic.startswith(b"\x28\xb5\x2f\xfd"):
+            if ZstdDecompressor is None:
+                downgrade("zstd data (no zstd decoder) in a built binary was not decoded;"
+                          " its raw bytes were checked for secrets only")
+            else:
+                compressed = True
+        if not compressed:
+            status = _sensitive_spool(label, spool)
+            if status == 1:
+                raise Refused()
+            if status:
+                raise Unchecked()
+        if compressed:
+            _large_tar(label, spool, depth)
+        elif not magic.startswith(b"\x28\xb5\x2f\xfd"):
+            try:
+                inspect_large(label, spool)
+            except Anomaly as exc:
+                # Its raw bytes had the secrets check above; it is part of a package.
+                if exc.args[0] != "not an executable":
+                    raise
+                downgrade("a large member of a package that is not an executable was not decoded;"
+                          " its raw bytes were checked for secrets only")
+
+
+def _large_tar(label, spool, depth):
+    """A compressed tarball above LIMIT inside a package, read as a stream."""
+    spool.seek(0)
+    pending = []
+    try:
+        with tarfile.open(fileobj=spool, mode="r|*") as archive:
+            for index, member in enumerate(archive):
+                if index >= 100000:
+                    raise Unchecked()
+                if REPORT_NAME.search(member.name):
+                    raise Refused()
+                if not member.isfile():
+                    _checked(pending, inspect_archive_member, label + ":" + member.name,
+                             os.fsencode(member.linkname), depth + 1, True)
+                    continue
+                stream = archive.extractfile(member)
+                if stream is None:
+                    raise Unchecked()
+                _checked(pending, _package_member, label + ":" + member.name, stream, member.size, depth + 1)
+    except (OSError, ValueError, EOFError, tarfile.TarError, lzma.LZMAError, zlib.error, ZstdError):
+        raise Unchecked() from None
+    if pending:
+        raise pending[0]
+
+
+def _sensitive_spool(label, spool):
+    """check_sensitive.sh --binary on a spooled member's printable runs, in bounded memory."""
+    with tempfile.TemporaryFile() as text:
+        text.write(os.fsencode(label) + b"\n")
+        spool.seek(0)
+        carry = b""
+        while True:
+            chunk = spool.read(CHUNK)
+            if not chunk:
+                break
+            carry = strings(carry + chunk, text, final=False)
+        strings(carry, text)
+        text.seek(0)
+        command = [BASH, Path(__file__).with_name("check_sensitive.sh").as_posix(),
+                   "--stdin", "--no-inline-allow", "--binary"]
+        return subprocess.run(command, stdin=text, stdout=subprocess.PIPE, stderr=subprocess.PIPE).returncode
+
+
+def _ar_package(name, f, depth):
+    """Members of an ar archive (a deb), each checked with the binary profile."""
+    if f.read(8) != b"!<arch>\n":
+        raise Unchecked()
+    pending = []
+    for _ in range(2000):
+        header = f.read(60)
+        if not header:
+            break
+        if len(header) != 60 or header[58:60] != b"`\n":
+            raise Unchecked()
+        try:
+            size = int(header[48:58].strip() or b"x")
+        except ValueError:
+            raise Unchecked() from None
+        member = header[:16].decode("utf-8", "replace").strip().rstrip("/") or "member"
+        if REPORT_NAME.search(member):
+            raise Refused()
+        _checked(pending, _package_member, name + ":" + member, f, size, depth + 1)
+        if size % 2:
+            f.read(1)
+    else:
+        raise Unchecked()
+    if pending:
+        raise pending[0]
+
+
+def _rpm_header(f, align):
+    head = _read_exact(f, 16)
+    if head[:4] != b"\x8e\xad\xe8\x01":
+        raise Unchecked()
+    count, size = struct.unpack(">II", head[8:16])
+    length = 16 * count + size
+    if length > LIMIT:
+        raise Unchecked()
+    _read_exact(f, length)
+    if align and (16 + length) % 8:
+        _read_exact(f, 8 - (16 + length) % 8)
+
+
+def _rpm_package(name, f, depth):
+    """The cpio payload of an rpm, each member checked with the binary profile."""
+    lead = _read_exact(f, 96)
+    if not lead.startswith(b"\xed\xab\xee\xdb"):
+        raise Unchecked()
+    _rpm_header(f, True)
+    _rpm_header(f, False)
+    start = f.tell()
+    magic = f.read(6)
+    f.seek(start)
+    if magic.startswith(b"\x1f\x8b"):
+        payload = gzip.GzipFile(fileobj=f)
+    elif magic.startswith(b"\xfd7zXZ"):
+        payload = lzma.LZMAFile(f)
+    elif magic.startswith(b"BZh"):
+        payload = bz2.BZ2File(f)
+    elif magic.startswith(b"\x28\xb5\x2f\xfd") and ZstdDecompressor is not None:
+        from compression.zstd import ZstdFile
+        payload = ZstdFile(f)
+    elif magic.startswith(b"\x28\xb5\x2f\xfd"):
+        downgrade("a zstd rpm payload (no zstd decoder) in a built binary was not decoded;"
+                  " its raw bytes were checked for secrets only")
+        status = _sensitive_spool(name, f)
+        if status == 1:
+            raise Refused()
+        if status:
+            raise Unchecked()
+        return
+    elif magic.startswith(b"0707"):
+        payload = f
+    else:
+        raise Unchecked()
+    pending = []
+    try:
+        for _ in range(100000):
+            header = payload.read(110)
+            if len(header) != 110 or header[:6] not in (b"070701", b"070702"):
+                raise Unchecked()
+            size = int(header[54:62], 16)
+            name_size = int(header[94:102], 16)
+            member = payload.read(name_size)
+            payload.read((4 - (110 + name_size) % 4) % 4)
+            member = member.rstrip(b"\0").decode("utf-8", "replace")
+            if member == "TRAILER!!!":
+                break
+            if REPORT_NAME.search(member):
+                raise Refused()
+            _checked(pending, _package_member, name + ":" + member, payload, size, depth + 1)
+            payload.read((4 - size % 4) % 4)
+        else:
+            raise Unchecked()
+    except (OSError, EOFError, ValueError, lzma.LZMAError, zlib.error, ZstdError):
+        raise Unchecked() from None
+    if pending:
+        raise pending[0]
 
 
 def git(repo, *args):
@@ -186,7 +536,8 @@ class _Budget:
         """Queue decoded data for check_sensitive.sh: one process per batch, not per member."""
         if name.startswith(self.outer):
             name = name[len(self.outer):]
-        self.pending.append(os.fsencode(name) + b"\n" + data.replace(b"\0", b" ") + b"\n")
+        # Only executables are decoded, so every member here is in a built binary.
+        self.pending.append(os.fsencode(name) + b"\n" + strings_of(data) + b"\n")
         self.pending_bytes += len(self.pending[-1])
         if self.pending_bytes > MEMBER_MAX:
             self.flush()
@@ -195,13 +546,10 @@ class _Budget:
         if not self.pending:
             return
         raw, self.pending, self.pending_bytes = b"".join(self.pending), [], 0
-        proc = subprocess.run(
-            [BASH, Path(__file__).with_name("check_sensitive.sh").as_posix(), "--stdin", "--no-inline-allow"],
-            input=raw, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        )
-        if proc.returncode == 1:
+        status = run_sensitive(raw, True)
+        if status == 1:
             raise Refused()
-        if proc.returncode:
+        if status:
             raise Anomaly("embedded data could not be checked")
 
     def tick(self):
@@ -358,8 +706,11 @@ def _zstd_frame(name, f, offset, budget):
         return
     # Python 3.14+ only; no external decoder is run.
     if ZstdDecompressor is None:
+        # Only executables are decoded; the whole file's printable runs are
+        # checked for secrets by check_publication.sh.
         if _zstd_blocks_end(f, offset, descriptor[0]):
-            raise Anomaly("no zstd decoder")
+            downgrade("zstd data (no zstd decoder) in a built binary was not decoded;"
+                      " the file's raw bytes are checked for secrets only")
         return
     data, complete = _decode(ZstdDecompressor(), f, offset, budget)
     _scan_decoded(name + ":zstd", data, complete, budget)
@@ -391,11 +742,46 @@ def _embedded(name, f, offset, magic, budget):
         f.seek(offset + 8)
         start = f.read(24)
         if len(start) == 24 and zlib.crc32(start[4:]) & 0xFFFFFFFF == struct.unpack("<I", start[:4])[0]:
-            raise Anomaly("no 7z decoder")
+            downgrade("7z data in a built binary was not decoded; the file's raw bytes are checked for secrets only")
     elif magic == b"ustar":
         _tar_members(name, f, offset, budget)
     else:
         _zstd_frame(name, f, offset, budget)
+
+
+def _large_package(name, f, kind):
+    """Decode a package above LIMIT that is not an executable: deb, ar, rpm, APK/AAB/JAR.
+
+    A disk image or a byte-split part is not decoded: its raw bytes are
+    checked for secrets by check_publication.sh, and nothing is incomplete.
+    """
+    f.seek(0)
+    try:
+        if kind in ("deb", "ar archive"):
+            _ar_package(name, f, 0)
+        elif kind == "rpm":
+            _rpm_package(name, f, 0)
+        elif kind == "Android or Java package":
+            pending = []
+            with zipfile.ZipFile(f) as archive:
+                members = archive.infolist()
+                if len(members) > 2000:
+                    raise Anomaly("archive has too many members")
+                for member in members:
+                    if member.flag_bits & 1:
+                        raise Anomaly("encrypted archive member")
+                    if REPORT_NAME.search(member.filename):
+                        raise Refused()
+                    with archive.open(member) as stream:
+                        _checked(pending, _package_member, name + ":" + member.filename, stream, member.file_size, 1)
+            if pending:
+                raise pending[0]
+        elif kind in ("disk image", "split part"):
+            downgrade(kind + ": not decoded; its raw bytes are checked for secrets only")
+    except Unchecked:
+        raise Anomaly("package could not be decoded") from None
+    except (OSError, ValueError, RuntimeError, EOFError, zipfile.BadZipFile, zlib.error):
+        raise Anomaly("package could not be decoded") from None
 
 
 def inspect_large(name, f):
@@ -413,12 +799,18 @@ def inspect_large(name, f):
     size = os.fstat(f.fileno()).st_size
     if size > MAX_BYTES:
         raise Anomaly("larger than the size limit")
+    kind = classify_file(name, f)
+    reasons = []
+    try:
+        _large_package(name, f, kind)
+    except Anomaly as exc:
+        reasons.append(exc.args[0])
     f.seek(0)
     chunk = f.read(CHUNK)
-    reasons = []
-    decoding = (chunk.startswith(STREAM_FORMATS)
-                and not name.lower().endswith((".zip", ".tar", ".tgz", ".tar.gz", ".tar.xz", ".tar.bz2")))
-    if not decoding:
+    archive_name = name.lower().endswith((".zip", ".tar", ".tgz", ".tar.gz", ".tar.xz", ".tar.bz2"))
+    decoding = chunk.startswith(STREAM_FORMATS) and not archive_name
+    # A known package is decoded by _large_package; anything else not decoded is incomplete.
+    if not decoding and (kind is None or archive_name and kind not in ("disk image", "split part")):
         reasons.append("not an executable")
     budget = _Budget(name)
     done = set()
@@ -482,9 +874,9 @@ def report_anomalies():
     return 3
 
 
-def inspect(name, raw, depth=0, text_only=False):
+def inspect(name, raw, depth=0, text_only=False, binary=False):
     try:
-        _inspect(name, raw, depth, text_only)
+        _inspect(name, raw, depth, text_only, binary)
     except Refused as exc:
         if exc.tool == "Security":
             text = raw.decode("utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8", errors="replace")
@@ -498,7 +890,7 @@ def inspect(name, raw, depth=0, text_only=False):
         raise
 
 
-def _inspect(name, raw, depth=0, text_only=False):
+def _inspect(name, raw, depth=0, text_only=False, binary=False):
     normalized = "/".join(part for part in name.replace("\\", "/").split("/") if part not in ("", "."))
     if REPORT_NAME.search(normalized):
         raise Refused()
@@ -507,8 +899,25 @@ def _inspect(name, raw, depth=0, text_only=False):
     if len(raw) > LIMIT or depth > 4:
         raise Unchecked()
     # Inspect archives in memory. Never extract paths supplied by the archive.
+    kind = None if text_only else classify(name, raw[:HEAD], raw[-512:] if len(raw) >= 512 else b"")
+    if kind == "split part":
+        # A byte range of another file: its compressed data cannot be decoded
+        # alone. check_publication.sh checks its raw bytes for secrets.
+        downgrade("split part: not decoded; its raw bytes are checked for secrets only")
+        text_only = True
+    elif kind == "disk image":
+        downgrade("disk image: not decoded; its raw bytes are checked for secrets only")
+        text_only = True
+    elif kind == "AppImage":
+        downgrade("AppImage: the squashfs payload is not decoded; its raw bytes are checked for secrets only")
     if text_only:
         pass
+    elif kind in ("deb", "ar archive", "rpm"):
+        try:
+            (_rpm_package if kind == "rpm" else _ar_package)(name, io.BytesIO(raw), depth)
+        except (OSError, ValueError, EOFError, RuntimeError, zipfile.BadZipFile, zlib.error):
+            raise Unchecked() from None
+        return
     elif raw.startswith((b"\x1f\x8b", b"BZh", b"\xfd7zXZ\x00")):
         # GzipFile's first positional argument is a filename; BZ2File and
         # LZMAFile take a file object there.
@@ -520,9 +929,24 @@ def _inspect(name, raw, depth=0, text_only=False):
         try:
             with opener(io.BytesIO(raw)) as stream:
                 expanded = stream.read(LIMIT + 1)
-            inspect_archive_member("compressed-content", expanded, depth + 1)
+            inspect_archive_member("compressed-content", expanded, depth + 1, binary)
         except (OSError, EOFError, ValueError, lzma.LZMAError, zlib.error):
             raise Unchecked() from None
+        return
+    elif raw.startswith(b"\x28\xb5\x2f\xfd"):
+        if ZstdDecompressor is None:
+            if not binary:
+                raise Anomaly("no zstd decoder")
+            opaque_in_binary(name, raw, "zstd data (no zstd decoder)")
+            return
+        try:
+            decoder = ZstdDecompressor()
+            expanded = decoder.decompress(raw, LIMIT + 1)
+            if not decoder.eof or decoder.unused_data:
+                raise Unchecked()
+        except ZstdError:
+            raise Unchecked() from None
+        inspect_archive_member("compressed-content", expanded, depth + 1, binary)
         return
     elif raw.startswith(b"PK\x03\x04") or name.lower().endswith(".zip"):
         try:
@@ -531,11 +955,16 @@ def _inspect(name, raw, depth=0, text_only=False):
                 members = archive.infolist()
                 if len(members) > 2000:
                     raise Unchecked()
+                package = binary or classify(name, b"", names=archive.namelist()) is not None
+                pending = []
                 for member in members:
                     total += member.file_size
                     if total > LIMIT or member.flag_bits & 1:
                         raise Unchecked()
-                    inspect_archive_member(member.filename, b"" if member.is_dir() else archive.read(member), depth + 1)
+                    _checked(pending, inspect_archive_member, member.filename,
+                             b"" if member.is_dir() else archive.read(member), depth + 1, package)
+                if pending:
+                    raise pending[0]
         except (OSError, ValueError, RuntimeError, zipfile.BadZipFile, zlib.error):
             raise Unchecked() from None
         return
@@ -548,6 +977,7 @@ def _inspect(name, raw, depth=0, text_only=False):
                     if index >= 2000:
                         raise Unchecked()
                     members.append(member)
+                pending = []
                 for member in members:
                     total += member.size
                     if total > LIMIT:
@@ -556,9 +986,11 @@ def _inspect(name, raw, depth=0, text_only=False):
                         stream = archive.extractfile(member)
                         if stream is None:
                             raise Unchecked()
-                        inspect_archive_member(member.name, stream.read(LIMIT + 1), depth + 1)
+                        _checked(pending, inspect_archive_member, member.name, stream.read(LIMIT + 1), depth + 1, binary)
                     else:
-                        inspect_archive_member(member.name, os.fsencode(member.linkname), depth + 1)
+                        _checked(pending, inspect_archive_member, member.name, os.fsencode(member.linkname), depth + 1, binary)
+                if pending:
+                    raise pending[0]
         except (OSError, ValueError, tarfile.TarError):
             raise Unchecked() from None
         return
@@ -629,6 +1061,7 @@ def check_blob(repo, oid, path, seen):
     if REPORT_NAME.search(path.replace("\\", "/")):
         raise Refused()
     key = (oid, Path(path).suffix)
+    CURRENT[0] = path
     if key not in seen:
         size = int(git(repo, "cat-file", "-s", oid))
         try:
@@ -644,7 +1077,10 @@ def check_blob(repo, oid, path, seen):
                     except Anomaly as exc:
                         ANOMALIES.append((path, exc.args[0]))
             else:
-                inspect(path, git(repo, "cat-file", "blob", oid))
+                try:
+                    inspect(path, git(repo, "cat-file", "blob", oid))
+                except Anomaly as exc:
+                    ANOMALIES.append((path, exc.args[0]))
         except Refused as exc:
             raise Refused(path, exc.tool) from None
         seen.add(key)
@@ -721,6 +1157,8 @@ def main():
     modes.add_argument("--tree")
     modes.add_argument("--file", action="append")
     modes.add_argument("--stdin", action="store_true")
+    modes.add_argument("--strings")
+    modes.add_argument("--classify")
     parser.add_argument("--repo", default=".")
     parser.add_argument("--remote", default="")
     parser.add_argument("--max-mib")
@@ -730,8 +1168,16 @@ def main():
     try:
         NON_BLOCKING[0] = args.non_blocking
         set_max_mib(args.max_mib)
+        if args.strings:
+            write_strings(args.strings)
+            return 0
+        if args.classify:
+            with open(args.classify, "rb") as stream:
+                print(classify_file(args.classify, stream) or "text")
+            return 0
         if args.file:
             for name in args.file:
+                CURRENT[0] = name
                 with open(name, "rb") as stream:
                     resolved = str(Path(name).resolve())
                     if REPORT_NAME.search(name.replace("\\", "/")):
@@ -745,9 +1191,12 @@ def main():
                             ANOMALIES.append((name, exc.args[0]))
                     else:
                         raw = stream.read(LIMIT + 1)
-                        inspect(name, raw)
-                        if name != resolved:
-                            inspect(resolved, raw)
+                        try:
+                            inspect(name, raw)
+                            if name != resolved:
+                                inspect(resolved, raw)
+                        except Anomaly as exc:
+                            ANOMALIES.append((name, exc.args[0]))
                     probe = subprocess.run(["git", "-C", str(Path(resolved).parent), "rev-parse", "--show-toplevel"], capture_output=True, env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
                     if probe.returncode == 0:
                         root = Path(os.fsdecode(probe.stdout).strip())
@@ -786,7 +1235,7 @@ def main():
             if exc.args:
                 print("Local file to inspect: " + str(exc.args[0]), file=sys.stderr)
         return 1
-    except (Unchecked, OSError, ValueError, RecursionError, IndexError, zlib.error):
+    except (Unchecked, Anomaly, OSError, ValueError, RecursionError, IndexError, zlib.error):
         subprocess.run([BASH, Path(__file__).with_name("security_notice.sh").as_posix(), "Security"], check=False)
         return 2
     return report_anomalies()

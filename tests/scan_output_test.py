@@ -13,6 +13,7 @@ import subprocess
 import sys
 import shlex
 import shutil
+import struct
 import tempfile
 import unittest
 import zipfile
@@ -721,8 +722,10 @@ class LargeFileTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertLess(time.monotonic() - started, 60)
 
-    def test_personal_data_in_one_of_many_embedded_members_is_refused(self):
-        email = ("jane.roe" + "@mailbox.org").encode()
+    def test_home_path_in_one_of_many_embedded_members_is_refused(self):
+        # Members embedded in an executable get the binary profile: a local
+        # home path blocks there, an email address does not (BinaryPolicyTests).
+        email = b"/home/alice/src/build.rs"
         for kind in ("content", "link"):
             packed = io.BytesIO()
             with tarfile.open(fileobj=packed, mode="w") as archive:
@@ -747,17 +750,18 @@ class LargeFileTests(unittest.TestCase):
         proc = self.run_check("--file", str(path), extra={"SENSITIVE_MACHINE_IDS_FILE": str(ids)})
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
-    def test_zstd_without_a_decoder_is_incomplete(self):
-        # 'hello' as a zstd frame; no external zstd command is ever run.
+    def test_zstd_without_a_decoder_in_an_executable_is_not_incomplete(self):
+        # 'hello' as a zstd frame; no external zstd command is ever run. Inside
+        # an executable (an AppImage squashfs) it is named, not incomplete.
         path = self.sparse("service", 65 * MIB, at=MIB, data=bytes.fromhex("28b52ffd045831000068656c6c6f0a5388bd91"))
         checker = load_checker()
         with path.open("rb") as stream:
             checker.ZstdDecompressor = None
-            with self.assertRaises(checker.Anomaly):
-                checker.inspect_large("service", stream)
+            checker.inspect_large("service", stream)
         if ZSTD is None:
-            self.assertEqual(self.status("--file", str(path)), 3)
-            self.assertEqual(self.status("--file", str(path), extra={"GITHUB_ACTIONS": "true"}), 0)
+            proc = self.run_check("--file", str(path))
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("NOTICE: security policy: ", proc.stderr)
 
     def test_hooks_show_incomplete_warning_outside_the_report(self):
         path = self.sparse("blob.bin", 65 * MIB, head=b"\0data")
@@ -959,6 +963,216 @@ class BinaryNoiseEmailTests(unittest.TestCase):
                      # The same address beside noise first and in text later on one line.
                      b"\x01\x02\x03\x04" + address + b"\x05\x06 and mail " + address + b" again\n"):
             self.assertEqual(self.scan(data).returncode, 1, data[:16])
+
+
+def _ar(members):
+    """An ar archive (the deb container) of name -> bytes."""
+    out = bytearray(b"!<arch>\n")
+    for name, body in members:
+        out += b"%-16s%-12d%-6d%-6d%-8s%-10d`\n" % (name.encode(), 0, 0, 0, b"100644", len(body))
+        out += body + (b"\n" if len(body) % 2 else b"")
+    return bytes(out)
+
+
+def _cpio(members):
+    """A cpio newc stream (the rpm payload) of name -> bytes."""
+    out = bytearray()
+    for index, (name, body) in enumerate(list(members.items()) + [("TRAILER!!!", b"")]):
+        raw = name.encode() + b"\0"
+        out += b"070701" + b"".join(b"%08X" % v for v in (
+            index, 0o100644, 0, 0, 1, 0, len(body), 0, 0, 0, 0, len(raw), 0))
+        out += raw + b"\0" * ((4 - (110 + len(raw)) % 4) % 4)
+        out += body + b"\0" * ((4 - len(body) % 4) % 4)
+    return bytes(out)
+
+
+def _rpm(members):
+    """A minimal rpm: lead, empty signature and main headers, gzip cpio payload."""
+    lead = b"\xed\xab\xee\xdb\x03\x00" + b"\0" * 90
+    header = b"\x8e\xad\xe8\x01" + b"\0" * 4 + struct.pack(">II", 0, 0)
+    return lead + header + header + gzip.compress(_cpio(members))
+
+
+ELF_HEAD = b"\x7fELF\x02\x01\x01" + b"\0" * 57
+APPIMAGE_HEAD = b"\x7fELF\x02\x01\x01\0AI\x02" + b"\0" * 53
+MACHO_HEAD = b"\xcf\xfa\xed\xfe\x07\x00\x00\x01" + b"\0" * 24
+
+
+class BinaryPolicyTests(unittest.TestCase):
+    """Built binaries and packages: secrets and local home paths block, personal-data patterns do not."""
+
+    TOKEN = CompressedInputTests.TOKEN
+    ADDRESS = CompressedInputTests.ADDRESS
+    PHONE = b"(415) 555-" + b"2671"
+    AWS = "AKIA" + "Z4QW7XRT2LMN5PQ8"
+    PEM = "-----BEGIN OPENSSH " + "PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ\n-----END OPENSSH " + "PRIVATE KEY-----\n"
+
+    def setUp(self):
+        LargeFileTests.setUp(self)
+        # A gitleaks stand-in that finds a GitHub token, an AWS key id or a PEM
+        # private key in the directory or file it is pointed at.
+        scanner = self.base / "secret-scanner"
+        scanner.write_text(
+            "#!/bin/sh\nsrc=; rep=; prev=\n"
+            "for a in \"$@\"; do\n"
+            "  case \"$prev\" in --source|dir) src=$a ;; --report-path) rep=$a ;; esac\n"
+            "  prev=$a\n"
+            "done\n"
+            "if grep -rqaE '" + self.TOKEN + "|" + self.AWS + "|BEGIN OPENSSH PRIVATE' \"$src\" 2>/dev/null; then\n"
+            "  printf '[{\"RuleID\":\"stand-in\"}]\\n' > \"$rep\"; exit 1\n"
+            "fi\nprintf '[]\\n' > \"$rep\"; exit 0\n"
+        )
+        scanner.chmod(0o700)
+        self.env["GITLEAKS_BIN"] = str(scanner)
+        # This machine's identifiers are those of a CI runner.
+        ids = self.base / "machine-ids.tsv"
+        ids.write_text("this machine's home directory\t/home/runner\n")
+        self.env["SENSITIVE_MACHINE_IDS_FILE"] = str(ids)
+
+    def publish(self, name, data, extra=None):
+        path = self.base / name
+        path.write_bytes(data)
+        return PublicationTests.check(self, "--file", str(path), expected=None,
+                                      env=dict(self.env, **(extra or {})), script=ROOT / "scripts/check_publication.sh")
+
+    def assertStatus(self, name, data, expected, extra=None):
+        proc = self.publish(name, data, extra)
+        self.assertEqual(proc.returncode, expected, (name, proc.stdout, proc.stderr))
+        return proc
+
+    def apk(self, library):
+        packed = io.BytesIO()
+        with zipfile.ZipFile(packed, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("AndroidManifest.xml", b"\x03\x00\x08\x00manifest")
+            archive.writestr("classes.dex", b"dex\n035\0")
+            archive.writestr("lib/arm64-v8a/libfoo.so", library)
+        return packed.getvalue()
+
+    def deb(self, data_members):
+        control = _tar({"./control": b"Package: demo\nMaintainer: Anna Weber <" + self.ADDRESS.encode() + b">\n"}, "w:gz")
+        return _ar([("debian-binary", b"2.0\n"), ("control.tar.gz", control),
+                    ("data.tar.xz", _tar(data_members, "w:xz"))])
+
+    def test_stand_in_scanner_reports_each_secret(self):
+        for secret in (self.TOKEN, self.AWS, self.PEM):
+            proc = subprocess.run(
+                [BASH, str(ROOT / "scripts/check_sensitive.sh"), "--stdin", "--no-machine"],
+                input="value=" + secret + "\n", capture_output=True, text=True, env=self.env, cwd=self.base,
+            )
+            self.assertEqual(proc.returncode, 1, secret[:8])
+
+    def test_personal_data_in_an_executable_passes(self):
+        body = b"\0engine\0support: " + self.ADDRESS.encode() + b"\0call " + self.PHONE + b"\0"
+        for name, head in (("app", ELF_HEAD), ("app-macos", MACHO_HEAD)):
+            proc = self.assertStatus(name, head + body, 0)
+            self.assertIn("NOTICE: security policy: ", proc.stderr)
+            self.assertNotIn(self.ADDRESS, proc.stderr + proc.stdout)
+
+    def test_secrets_in_an_executable_are_refused(self):
+        for secret in (self.TOKEN, self.AWS, self.PEM):
+            for name, head in (("app", ELF_HEAD), ("app-macos", MACHO_HEAD)):
+                self.assertStatus(name, head + b"\0cfg\0" + secret.encode() + b"\0", 1)
+
+    def test_local_home_path_in_an_executable_is_refused(self):
+        registry = b"/.cargo/registry/src/index.crates.io-6f17d22bba15001f/serde-1.0.0/src/de.rs\0"
+        self.assertStatus("app", ELF_HEAD + b"\0/home/alice" + registry, 1)
+        self.assertStatus("app-macos", MACHO_HEAD + b"\0/Users/alice" + registry, 1)
+        # UTF-16LE, as a PE stores it.
+        self.assertStatus("app.exe", ELF_HEAD + "C:\\Users\\alice\\src\\main.rs".encode("utf-16-le"), 1)
+        for runner in (b"/home/runner", b"/Users/runner", b"/home/linuxbrew"):
+            self.assertStatus("app", ELF_HEAD + b"\0" + runner + registry, 0)
+
+    def test_apk_library_personal_data_passes_and_secrets_are_refused(self):
+        self.assertStatus("app-release.apk", self.apk(ELF_HEAD + b"\0" + self.ADDRESS.encode() + b"\0" + self.PHONE), 0)
+        for secret in (self.AWS, self.PEM):
+            self.assertStatus("app-release.apk", self.apk(ELF_HEAD + b"\0" + secret.encode() + b"\0"), 1)
+        self.assertStatus("app-release.apk", self.apk(ELF_HEAD + b"\0/home/alice/src/x.c\0"), 1)
+
+    def test_text_file_with_personal_data_is_still_refused(self):
+        self.assertStatus("notes.txt", b"contact " + self.ADDRESS.encode() + b"\n", 1)
+        # A plain archive of text is not a package.
+        self.assertStatus("docs.zip", _zip({"README": b"mail " + self.ADDRESS.encode() + b"\n"}), 1)
+
+    def test_deb_members_are_decoded(self):
+        copyright = b"Copyright: Anna Weber <" + self.ADDRESS.encode() + b">\n"
+        clean = {"./usr/share/doc/demo/copyright": copyright, "./usr/bin/demo": ELF_HEAD + b"\0ok\0"}
+        self.assertStatus("demo_1.0_amd64.deb", self.deb(clean), 0)
+        secret = dict(clean, **{"./etc/demo.conf": ("token = " + self.TOKEN + "\n").encode()})
+        self.assertStatus("demo_1.0_amd64.deb", self.deb(secret), 1)
+        home = dict(clean, **{"./usr/bin/demo": ELF_HEAD + b"\0/home/alice/build/x.rs\0"})
+        self.assertStatus("demo_1.0_amd64.deb", self.deb(home), 1)
+        # A truncated deb is not checked.
+        self.assertStatus("cut.deb", self.deb(clean)[:200], 2)
+
+    def test_rpm_payload_is_decoded(self):
+        clean = {"./usr/share/doc/demo/copyright": b"Anna Weber <" + self.ADDRESS.encode() + b">\n"}
+        self.assertStatus("demo-1.0.x86_64.rpm", _rpm(clean), 0)
+        secret = dict(clean, **{"./etc/demo.conf": ("token = " + self.TOKEN + "\n").encode()})
+        self.assertStatus("demo-1.0.x86_64.rpm", _rpm(secret), 1)
+
+    def test_split_part_is_scanned_raw(self):
+        whole = gzip.compress(random.Random(3).randbytes(4096) + self.ADDRESS.encode())
+        part = whole[: len(whole) // 2]
+        proc = self.assertStatus("app.tar.gz.split-000", part, 0)
+        self.assertIn("split part", proc.stderr)
+        self.assertStatus("app.tar.gz.split-001", random.Random(4).randbytes(2048), 0)
+        self.assertStatus("app.tar.gz.split-001", random.Random(4).randbytes(2048) + self.TOKEN.encode() + b"\0", 1)
+        # A text file named like a part keeps the full check.
+        self.assertStatus("notes.txt.split-000", b"mail " + self.ADDRESS.encode() + b"\n", 1)
+
+    def test_appimage_personal_data_passes_and_secrets_are_refused(self):
+        payload = b"hsqs" + b"\0" * 60 + b"Maintainer " + self.ADDRESS.encode() + b"\0"
+        self.assertStatus("app.AppImage", APPIMAGE_HEAD + payload, 0)
+        self.assertStatus("app.AppImage", APPIMAGE_HEAD + payload + self.PEM.encode(), 1)
+
+    @unittest.skipIf(ZSTD, "needs a Python without compression.zstd")
+    def test_undecodable_unknown_data_is_incomplete(self):
+        # 'hello' as a zstd frame, outside any built binary: not checked, exit 3 locally.
+        frame = bytes.fromhex("28b52ffd045831000068656c6c6f0a5388bd91")
+        self.assertStatus("data.zst", frame, 3)
+        # Inside a built binary its raw bytes get the secrets check instead.
+        self.assertStatus("app-release.apk", _zip_apk({"assets/data.zst": frame}), 0)
+
+    def test_packages_above_the_limit_are_decoded_as_streams(self):
+        # LIMIT shrunk in process, so the large-file path runs on small fixtures.
+        checker = load_checker()
+        checker.LIMIT, checker.CHUNK, checker.OVERLAP = 16384, 8192, 4096
+        filler = random.Random(6).randbytes(32768)
+        clean = {"./usr/share/doc/demo/copyright": self.ADDRESS.encode() + b"\n", "./usr/bin/demo": ELF_HEAD + filler}
+        secret = dict(clean, **{"./etc/demo.conf": filler + ("token = " + self.TOKEN + "\n").encode()})
+        cases = (("demo.deb", self.deb(clean), None), ("demo.deb", self.deb(secret), checker.Refused),
+                 ("app.apk", self.apk(ELF_HEAD + filler + self.ADDRESS.encode()), None),
+                 ("app.apk", self.apk(ELF_HEAD + filler + self.AWS.encode()), checker.Refused),
+                 ("demo.rpm", _rpm(dict(clean, pad=filler)), None))
+        with mock.patch.dict(os.environ, self.env, clear=True):
+            for name, data, error in cases:
+                path = self.base / name
+                path.write_bytes(data)
+                with path.open("rb") as stream:
+                    if error is None:
+                        checker.inspect_large(name, stream)
+                    else:
+                        with self.assertRaises(error, msg=name):
+                            checker.inspect_large(name, stream)
+
+    def test_large_unknown_blob_is_still_incomplete(self):
+        path = LargeFileTests.sparse(self, "blob.bin", 2 * MIB, head=b"\0data")
+        proc = PublicationTests.check(self, "--file", str(path), expected=None,
+                                      env=dict(self.env, CHECK_SCAN_OUTPUT_MAX_MIB="1"),
+                                      script=ROOT / "scripts/check_publication.sh")
+        self.assertEqual(proc.returncode, 3, proc.stderr)
+
+
+def _zip(members):
+    packed = io.BytesIO()
+    with zipfile.ZipFile(packed, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, body in members.items():
+            archive.writestr(name, body)
+    return packed.getvalue()
+
+
+def _zip_apk(members):
+    return _zip(dict({"AndroidManifest.xml": b"\x03\x00\x08\x00manifest", "classes.dex": b"dex\n035\0"}, **members))
 
 
 if __name__ == "__main__":

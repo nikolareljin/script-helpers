@@ -586,8 +586,7 @@ them as code.
 
 A file above 64 MiB that cannot be fully checked is incomplete, not refused:
 a non-executable, data above the decode limits (64 MiB per member, 512 MiB per
-file, 300 s), an encrypted or unsupported member, 7z, a zstd frame on Python older than
-3.14, or scanner JSON keys
+file, 300 s), an encrypted or unsupported member, or scanner JSON keys
 (`RuleID`, `Fingerprint`, `finding_counts`). Locally the checker prints
 `WARNING: security check incomplete: <path>: could not fully check: <reason>`
 and exits 3. With `GITHUB_ACTIONS=true` or `--non-blocking` it prints a
@@ -600,6 +599,48 @@ annotation in CI. Each embedded member is scanned on its own, so a result line
 split across two members, or one stored base64-encoded, is not found. The largest object checked is
 `CHECK_SCAN_OUTPUT_MAX_MIB` or `--max-mib` (1..2048, default 2048); a larger
 one is incomplete, and an invalid value exits 2.
+
+### Built binaries and packages
+
+`check_publication.sh` sorts each file by its magic bytes, not its name:
+
+| Type | Recognised by | Decoded |
+|---|---|---|
+| ELF, Mach-O (thin and fat), PE | header magic | embedded data, above 64 MiB |
+| AppImage | ELF with `AI` at byte 8 | no: the squashfs payload |
+| deb, other ar archives | `!<arch>` | yes: every member, then its tarball |
+| rpm | lead magic | yes: the cpio payload (gzip, xz, bzip2; zstd on Python 3.14) |
+| APK, AAB, JAR | zip with `AndroidManifest.xml`, `classes.dex`, `BundleConfig.pb` or `META-INF/MANIFEST.MF` | yes: every member |
+| disk image (dmg) | `koly` trailer | no |
+| byte-split part | name ends in `.split-NNN` and the start is not UTF-8 text | no |
+
+A built binary, and every member of one, gets the secrets-only profile
+(`check_sensitive.sh --binary`): its printable runs (ASCII and UTF-16LE) are
+checked for credentials (gitleaks), personal terms, this machine's addresses
+and hostname, and a home directory path such as `/home/<name>/`,
+`/Users/<name>/` or `C:\Users\<name>\`. These do not block in a built binary:
+email, phone, SSN and card patterns (third-party libraries and their
+`copyright` files carry them), and the home of a CI runner user (`runner`,
+`runneradmin`, `github`, `root`) or of Homebrew on Linux (`linuxbrew`). A Rust
+release binary built on a runner embeds `/home/runner/.cargo/registry/...`; the
+same binary built on a workstation embeds the developer's home and is refused.
+File names keep the full check. Package metadata such as a deb's `control`
+file is part of the package: its maintainer address does not block.
+
+Text and source files, and the members of a plain zip or tarball that are not
+built binaries themselves, keep every check.
+
+Data inside a built binary that cannot be decoded (the AppImage squashfs, a
+disk image, zstd without Python 3.14, 7z) is checked for secrets as raw
+bytes and does not make the check incomplete. Anything else that cannot be
+decoded still does (exit 3 locally), and a crash, a checker error or a
+truncated package still exits 2. Each downgrade is named on stderr as
+`NOTICE: security policy: <path>: <category>`, never with a value, count or
+snippet.
+
+A byte-split part is a range of another file, so a compressed file split into
+parts cannot be decoded, and a secret that crosses a part boundary is not
+found. Check the whole file before it is split.
 
 `/scans/`, `/scan-results/`, `/security-reports/`, and scanner report patterns are
 ignored. Hooks also reject force-added files. Ordinary scanner configuration
