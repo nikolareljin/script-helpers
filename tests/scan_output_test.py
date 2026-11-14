@@ -922,7 +922,9 @@ class BinaryNoiseEmailTests(unittest.TestCase):
         for data in (b"contact " + address + b" today\n", address + b"\n", b"mail:" + address,
                      "連絡先：".encode() + address + "。".encode(),
                      b"\x7fELF\x01\x02\0\0support: " + address + b"\0usage: %s\0",
-                     random.Random(5).randbytes(4096) + b"\n" + address + b"\n"):
+                     random.Random(5).randbytes(4096) + b"\n" + address + b"\n",
+                     # The same address beside noise first and in text later on one line.
+                     b"\x01\x02\x03\x04" + address + b"\x05\x06 and mail " + address + b" again\n"):
             self.assertEqual(self.scan(data).returncode, 1, data[:16])
 
 

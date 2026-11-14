@@ -655,16 +655,20 @@ if [[ -s "$tmp/text" ]]; then
       (FNR in need) { line[FNR] = $0 }
       END {
         for (i = 1; i <= n; i++) {
+          # Kept when any occurrence on the line has text around it.
+          keep = 1
           if (kind[i] == "email" && (ln[i] in line)) {
-            s = line[ln[i]]; p = index(s, val[i])
-            if (p > 0) {
+            s = line[ln[i]]; off = 0; keep = 0; seen = 0
+            while ((p = index(substr(s, off + 1), val[i])) > 0) {
+              p += off; off = p; seen = 1
               b = (p > 4 ? p - 4 : 1); before = substr(s, b, p - b); after = substr(s, p + length(val[i]), 4)
               sub(/^[\200-\277]+/, "", before)                       # tail of a character cut by the window
               sub(/[\302-\364][\200-\277]?[\200-\277]?$/, "", after)  # head of a character cut by the window
-              if (noise(before) || noise(after)) continue
+              if (!noise(before) && !noise(after)) { keep = 1; break }
             }
+            if (!seen) keep = 1
           }
-          print row[i]
+          if (keep) print row[i]
         }
       }' "$tmp/pii" "$tmp/text" > "$tmp/pii.ctx" && mv -- "$tmp/pii.ctx" "$tmp/pii" \
       || { echo "$TAG the email context check failed; NOT checked." >&2; unchecked=1; }
