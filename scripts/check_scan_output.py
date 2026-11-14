@@ -222,19 +222,38 @@ DEB_CONTROL_FIELD = re.compile(rb"(?im)^(?:Maintainer|Uploaders|Original-Maintai
 
 
 DOC_PREFIXES = ("usr/share/doc/", "usr/share/licenses/")
-DOC_NAMES = ("license", "licence", "copying", "notice", "copyright")
+LICENSE_NAME = re.compile(r"(?i)(?:license|licence|copying|notice|copyright)(?:\.(?:txt|md|html|rst))?"
+                          r"|licenses\.[a-z0-9_-]+\.html")
+DOC_FORMAT = re.compile(r"(?i)[^/]+\.(?:txt|md|html|rst)|changelog[a-z0-9._-]*|readme[a-z0-9._-]*")
 
 
-def doc_member(name):
+def doc_member(member):
     """True for a license or documentation member path inside a package.
 
-    The path is normalized; one with a .. component never matches.
+    member is the member's own path inside its archive. It is normalized;
+    a path with a .. component never matches.
     """
-    parts = [part for part in name.rsplit(":", 1)[-1].replace("\\", "/").split("/") if part not in ("", ".")]
+    parts = [part for part in member.replace("\\", "/").split("/") if part not in ("", ".")]
     if not parts or ".." in parts:
         return False
-    path = "/".join(parts).lower()
-    return path.startswith(DOC_PREFIXES) or parts[-1].lower().startswith(DOC_NAMES)
+    if LICENSE_NAME.fullmatch(parts[-1]):
+        return True
+    return "/".join(parts).lower().startswith(DOC_PREFIXES) and DOC_FORMAT.fullmatch(parts[-1]) is not None
+
+
+def _app_bundles(archive, members):
+    """Prefixes of real macOS .app bundles in a tarball: Contents/Info.plist and a Mach-O in Contents/MacOS/."""
+    names = {member.name for member in members if member.isfile()}
+    bundles = set()
+    for member in members:
+        match = re.fullmatch(r"(.*?\.app/)Contents/MacOS/[^/]+", member.name)
+        if not match or not member.isfile() or match.group(1) + "Contents/Info.plist" not in names:
+            continue
+        stream = archive.extractfile(member)
+        head = stream.read(HEAD) if stream is not None else b""
+        if classify(member.name, head, size=member.size) == "Mach-O":
+            bundles.add(match.group(1))
+    return bundles
 
 
 def looks_text(name, raw):
@@ -352,22 +371,23 @@ def _sensitive_or_raise(payload, binary):
         raise Unchecked()
 
 
-def inspect_archive_member(name, raw, depth, binary=False):
+def inspect_archive_member(name, raw, depth, binary=False, member=None):
     """Check one member. binary means the member is inside a built binary or package.
 
     Only a member that is itself a built binary, or binary data inside a
     package, gets the secrets-only profile; a text member keeps every check.
     """
     kind = classify(name, raw[:HEAD], raw[-512:] if len(raw) >= 512 else b"", size=len(raw))
-    inspect(name, raw, depth, binary=binary or kind is not None)
+    decoded = inspect(name, raw, depth, binary=binary or kind is not None)
     label = _label(name)
     # Binary diffs and archive scanners can omit member names and link targets.
     # A container's own bytes: each member gets its own check, so only secrets,
     # terms and identifiers are looked for across them (tar owner names, say).
-    if kind is not None or _container(raw[:HEAD]) or (binary and not looks_text(name, raw)):
+    # Only bytes _inspect actually decoded count: magic bytes alone do not.
+    if kind is not None or decoded or (binary and not looks_text(name, raw)):
         _sensitive_or_raise(label + strings_of(raw), True)
         return
-    if binary and doc_member(name):
+    if binary and doc_member(name if member is None else member):
         # License and copyright text of a package: email, phone, SSN and card
         # patterns do not block; secrets, terms, identifiers and home paths do.
         downgrade("license or documentation text in a package: personal-data patterns do not block")
@@ -409,10 +429,13 @@ def _read_exact(f, size):
     return data
 
 
-def _package_member(label, stream, size, depth, package=True):
-    """One member of a deb or rpm: read whole, or spooled and streamed above LIMIT."""
+def _package_member(label, stream, size, depth, package=True, member=None):
+    """One member of a deb or rpm: read whole, or spooled and streamed above LIMIT.
+
+    label is outer:member for messages; member is the path inside the archive.
+    """
     if size <= LIMIT:
-        inspect_archive_member(label, _read_exact(stream, size), depth, binary=package)
+        inspect_archive_member(label, _read_exact(stream, size), depth, binary=package, member=member)
         return
     with tempfile.TemporaryFile() as spool:
         left = size
@@ -469,7 +492,7 @@ def _large_tar(label, spool, depth):
                 stream = archive.extractfile(member)
                 if stream is None:
                     raise Unchecked()
-                _checked(pending, _package_member, label + ":" + member.name, stream, member.size, depth + 1)
+                _checked(pending, _package_member, label + ":" + member.name, stream, member.size, depth + 1, True, member.name)
     except (OSError, ValueError, EOFError, tarfile.TarError, lzma.LZMAError, zlib.error, ZstdError):
         raise Unchecked() from None
     if pending:
@@ -514,7 +537,7 @@ def _ar_package(name, f, depth):
         member = header[:16].decode("utf-8", "replace").strip().rstrip("/") or "member"
         if REPORT_NAME.search(member):
             raise Refused()
-        _checked(pending, _package_member, name + ":" + member, f, size, depth + 1)
+        _checked(pending, _package_member, name + ":" + member, f, size, depth + 1, True, member)
         if size % 2:
             f.read(1)
     else:
@@ -584,7 +607,7 @@ def _rpm_package(name, f, depth):
                 break
             if REPORT_NAME.search(member):
                 raise Refused()
-            _checked(pending, _package_member, name + ":" + member, payload, size, depth + 1, not link)
+            _checked(pending, _package_member, name + ":" + member, payload, size, depth + 1, not link, member)
             payload.read((4 - size % 4) % 4)
         else:
             raise Unchecked()
@@ -921,7 +944,7 @@ def _large_package(name, f, kind):
                     if REPORT_NAME.search(member.filename):
                         raise Refused()
                     with archive.open(member) as stream:
-                        _checked(pending, _package_member, name + ":" + member.filename, stream, member.file_size, 1)
+                        _checked(pending, _package_member, name + ":" + member.filename, stream, member.file_size, 1, True, member.filename)
             if pending:
                 raise pending[0]
     except Unchecked:
@@ -1034,13 +1057,14 @@ def report_anomalies():
 def inspect(name, raw, depth=0, text_only=False, binary=False):
     try:
         try:
-            _inspect(name, raw, depth, text_only, binary)
+            return _inspect(name, raw, depth, text_only, binary)
         except Unchecked:
             # The first part of a split compressed file is a truncated stream.
             base = name.replace("\\", "/").rsplit("/", 1)[-1]
             if depth or text_only or not SPLIT_PART.search(base) or not _container(raw[:HEAD]):
                 raise
             opaque_in_binary(name, raw, "a split part that does not decode alone")
+            return False
     except Refused as exc:
         if exc.tool == "Security":
             text = raw.decode("utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8", errors="replace")
@@ -1077,7 +1101,7 @@ def _inspect(name, raw, depth=0, text_only=False, binary=False):
             (_rpm_package if kind == "rpm" else _ar_package)(name, io.BytesIO(raw), depth)
         except (OSError, ValueError, EOFError, RuntimeError, zipfile.BadZipFile, zlib.error):
             raise Unchecked() from None
-        return
+        return True
     elif raw.startswith((b"\x1f\x8b", b"BZh", b"\xfd7zXZ\x00")):
         # GzipFile's first positional argument is a filename; BZ2File and
         # LZMAFile take a file object there.
@@ -1092,7 +1116,7 @@ def _inspect(name, raw, depth=0, text_only=False, binary=False):
             inspect_archive_member("compressed-content", expanded, depth + 1, binary)
         except (OSError, EOFError, ValueError, lzma.LZMAError, zlib.error):
             raise Unchecked() from None
-        return
+        return True
     elif raw.startswith(b"\x28\xb5\x2f\xfd"):
         if ZstdDecompressor is None:
             if not binary:
@@ -1107,7 +1131,7 @@ def _inspect(name, raw, depth=0, text_only=False, binary=False):
         except ZstdError:
             raise Unchecked() from None
         inspect_archive_member("compressed-content", expanded, depth + 1, binary)
-        return
+        return True
     elif raw.startswith(b"PK\x03\x04") or name.lower().endswith(".zip"):
         try:
             with zipfile.ZipFile(io.BytesIO(raw)) as archive:
@@ -1127,7 +1151,7 @@ def _inspect(name, raw, depth=0, text_only=False, binary=False):
                     raise pending[0]
         except (OSError, ValueError, RuntimeError, zipfile.BadZipFile, zlib.error):
             raise Unchecked() from None
-        return
+        return True
     elif raw[257:262] == b"ustar" or name.lower().endswith((".tar", ".tgz", ".tar.gz", ".tar.xz", ".tar.bz2")):
         try:
             with tarfile.open(fileobj=io.BytesIO(raw), mode="r:*") as archive:
@@ -1138,9 +1162,10 @@ def _inspect(name, raw, depth=0, text_only=False, binary=False):
                         raise Unchecked()
                     members.append(member)
                 pending = []
-                # A macOS .app bundle tarball is a package too.
-                package = binary or any(".app/Contents/" in m.name for m in members)
+                bundles = _app_bundles(archive, members)
                 for member in members:
+                    # Members of a real macOS .app bundle are package members.
+                    package = binary or any(member.name.startswith(prefix) for prefix in bundles)
                     total += member.size
                     if total > LIMIT:
                         raise Unchecked()
@@ -1156,7 +1181,7 @@ def _inspect(name, raw, depth=0, text_only=False, binary=False):
                     raise pending[0]
         except (OSError, ValueError, tarfile.TarError):
             raise Unchecked() from None
-        return
+        return True
     try:
         text = raw.decode("utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8-sig")
     except UnicodeError:

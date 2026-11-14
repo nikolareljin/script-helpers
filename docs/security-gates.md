@@ -621,7 +621,8 @@ gets the secrets-only profile (`check_sensitive.sh --binary`). Its printable
 runs (UTF-8, UTF-16LE and UTF-16BE, from 3 characters) are checked for
 credentials (gitleaks), personal terms, this machine's identifiers, and a home
 directory path such as `/home/<name>/`, `/Users/<name>/` or
-`C:\Users\<name>\`. These do not block in a built binary: email, phone, SSN
+`C:\Users\<name>\`, also after a flag such as `-I` or `LDFLAGS=`. A web URL
+(`https://host/home/x/`) or a longer path (`/opt/home/x/`) is not a home. These do not block in a built binary: email, phone, SSN
 and card patterns (third-party libraries carry them), and the home of a CI
 runner user (`runner`, `runneradmin`, `github`, `root`) or of Homebrew on Linux
 (`linuxbrew`). A Rust release binary built on a runner embeds
@@ -630,15 +631,18 @@ embeds the developer's home and is refused.
 
 A text member keeps every check, inside a package too: a `.json`, `.xml`,
 `.txt` or other text-suffixed member, or any member that is UTF-8 text. Two
-exceptions, both inside a recognised package (deb, rpm, APK/AAB/JAR, or a
-tarball holding a `.app` bundle):
+exceptions, both inside a recognised package (deb, rpm, APK/AAB/JAR, or the
+members of a `.app` bundle in a tarball, one with `Contents/Info.plist` and a
+Mach-O in `Contents/MacOS/`):
 
-- License and documentation text: a member under `usr/share/doc/` or
-  `usr/share/licenses/`, or named `LICENSE*`, `LICENCE*`, `COPYING*`,
-  `NOTICE*` or `COPYRIGHT*` (any case). Email, phone, SSN and card patterns
-  do not block there; credentials, personal terms, machine identifiers and a
-  local home path do. The member path is normalized first; a path with a
-  `..` component, or a link, keeps every check.
+- License and documentation text: a member named exactly `LICENSE`,
+  `LICENCE`, `COPYING`, `NOTICE`, `COPYRIGHT` or `copyright` (any case, with
+  no extension or `.txt`, `.md`, `.html`, `.rst`), or `LICENSES.<name>.html`;
+  or, under `usr/share/doc/` or `usr/share/licenses/`, a `.txt`, `.md`,
+  `.html`, `.rst`, `changelog*` or `readme*` member. Email, phone, SSN and
+  card patterns do not block there; credentials, personal terms, machine
+  identifiers and a local home path do. The member path is normalized first;
+  a path with a `..` component, or a link, keeps every check.
 - A deb `control` file's `Maintainer`, `Uploaders` and `Changed-By` fields.
 
 A loose `LICENSE` file, or one in a plain tarball, keeps every check.

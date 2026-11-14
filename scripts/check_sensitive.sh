@@ -845,8 +845,12 @@ fi
 # home of a CI runner user, and placeholder names, do not block.
 if [[ "$BINARY" == true && -s "$tmp/text" ]]; then
   rc=0
-  # Not part of a longer path or URL: https://host/home/privacy/ names no home.
-  grep -anoE '(^|[^A-Za-z0-9._-])(/home/|/Users/|/var/home/|/[A-Za-z]/Users/|[A-Za-z]:[\\/]Users[\\/])[A-Za-z0-9._-]+[\\/]' "$tmp/text" > "$tmp/homes" 2>/dev/null || rc=$?
+  # A web URL names no home (https://host/home/privacy/): drop URLs first,
+  # keeping line numbers. file:///home/<name>/ is still a home path.
+  sed -E 's#(https?|ftp)://[^[:space:]"<>]*# #g' "$tmp/text" > "$tmp/text.nourl" || rc=2
+  # The match carries the path segment before it: /opt/home/build/ is a longer
+  # path, not a home; -I/home/<name>/ and =/home/<name>/ are homes.
+  [[ "$rc" -eq 0 ]] && { grep -anoE '(/?[A-Za-z0-9._-]*)(/home/|/Users/|[A-Za-z]:[\\/]Users[\\/])[A-Za-z0-9._-]+[\\/]' "$tmp/text.nourl" > "$tmp/homes" 2>/dev/null || rc=$?; }
   if [[ "$rc" -gt 1 ]]; then
     echo "$TAG the home path scan failed (grep exit $rc); NOT checked." >&2; unchecked=1
   elif [[ -s "$tmp/homes" ]]; then
@@ -854,8 +858,10 @@ if [[ "$BINARY" == true && -s "$tmp/text" ]]; then
       FILENAME == ARGV[1] { lab[FNR] = $0; next }
       {
         i = index($0, ":"); ln = substr($0, 1, i - 1); v = substr($0, i + 1)
-        if (substr(v, 1, 1) !~ /[\/A-Za-z]/) v = substr(v, 2)
-        if (substr(v, 1, 2) == "//") v = substr(v, 2)
+        # Split off the segment before the home prefix. /var/home and /c/Users are homes.
+        if (!match(v, /(\/home\/|\/Users\/|[A-Za-z]:[\\\/]Users[\\\/])/)) next
+        pre = substr(v, 1, RSTART - 1); v = substr(v, RSTART)
+        if (pre ~ /^\/[A-Za-z0-9._-]+$/ && pre != "/var" && pre !~ /^\/[A-Za-z]$/) next
         u = substr(v, 1, length(v) - 1); sub(/^.*[\\\/]/, "", u); lu = tolower(u)
         if (lu ~ /^(runner|runneradmin|github|root|vsts|cloudtest|linuxbrew|user|username|yourname|you|me|name|example|foo|test|nobody|default|public|shared|guest)$/) {
           ci++; next

@@ -1089,9 +1089,12 @@ class BinaryPolicyTests(unittest.TestCase):
         self.assertStatus("app-macos", MACHO_HEAD + b"\0/Users/alice" + registry, 1)
         # UTF-16LE, as a PE stores it.
         self.assertStatus("app.exe", ELF_HEAD + "C:\\Users\\alice\\src\\main.rs".encode("utf-16-le"), 1)
-        # A URL or a longer path is not a home directory; file:///home/alice/ is.
-        self.assertStatus("app", ELF_HEAD + b"\0https://www.example.net/home/privacy/ /opt/home/build/x\0", 0)
-        self.assertStatus("app", ELF_HEAD + b"\0file:///home/alice/doc\0 cfg=/home/alice/.config\0", 1)
+        # A web URL is not a home directory; file:///home/alice/ and -I/home/alice/ are.
+        self.assertStatus("app", ELF_HEAD + b"\0https://www.example.net/home/privacy/ \"http://h.example/Users/team/x\"\0", 0)
+        self.assertStatus("app", ELF_HEAD + b"\0file:///home/alice/doc\0", 1)
+        for flag in (b"-I/home/alice/include", b"-L/Users/bob/lib", b"LDFLAGS=/home/carol/lib"):
+            self.assertStatus("app", ELF_HEAD + b"\0" + flag + b"\0", 1)
+        self.assertStatus("app", ELF_HEAD + b"\0/opt/home/build/x\0", 0)
         for runner in (b"/home/runner", b"/Users/runner", b"/home/linuxbrew"):
             self.assertStatus("app", ELF_HEAD + b"\0" + runner + registry, 0)
 
@@ -1189,6 +1192,10 @@ class BinaryPolicyTests(unittest.TestCase):
         # A text member of a package keeps every check.
         for name in ("assets/config.json", "assets/notes.txt", "assets/README"):
             self.assertStatus("app-release.apk", _zip_apk({name: body}), 1)
+        # Text that starts like a cpio, gzip or bzip2 header is still text: it never decodes.
+        for head in (b"070701", b"\x1f\x8b", b"BZh9"):
+            proc = self.publish("app-release.apk", _zip_apk({"assets/data": head + body}))
+            self.assertNotEqual(proc.returncode, 0, head)
 
     def test_raw_secrets_check_runs_without_check_publication(self):
         # The hook path (check_scan_output.sh alone) checks what it did not decode.
@@ -1250,8 +1257,17 @@ class BinaryPolicyTests(unittest.TestCase):
             self.assertIn("license or documentation text", proc.stderr)
         self.assertStatus("demo.rpm", _rpm(dict(lib, **{"./usr/share/doc/demo/copyright": body})), 0)
         self.assertStatus("app.apk", _zip_apk({"META-INF/LICENSE": body}), 0)
-        self.assertStatus("Demo.app.tar.gz", _tar({"Demo.app/Contents/Info.plist": b"<plist/>\n",
-                                                   "Demo.app/Contents/Resources/LICENSE": body}, "w:gz"), 0)
+        bundle = {"Demo.app/Contents/Info.plist": b"<plist/>\n", "Demo.app/Contents/MacOS/Demo": MACHO_HEAD + b"\0",
+                  "Demo.app/Contents/Resources/LICENSE": body}
+        self.assertStatus("Demo.app.tar.gz", _tar(bundle, "w:gz"), 0)
+        # Only a real bundle (Info.plist and a Mach-O in Contents/MacOS), and only its members.
+        fake = dict(bundle, **{"Demo.app/Contents/MacOS/Demo": b"#!/bin/sh\n"})
+        self.assertStatus("Demo.app.tar.gz", _tar(fake, "w:gz"), 1)
+        self.assertStatus("Demo.app.tar.gz", _tar(dict(bundle, **{"LICENSE": body}), "w:gz"), 1)
+        # Only license names, exactly, and document formats under the document paths.
+        for path in ("./opt/demo/LICENSEfoo.json", "./opt/demo/notice-config.yaml", "./usr/share/doc/demo/config.json",
+                     "./opt/demo/notes:LICENSE"):
+            self.assertStatus("demo.deb", self.deb(dict(lib, **{path: body})), 1)
         # Secrets and a local home path still block there.
         token = ("token = " + self.TOKEN + "\n").encode()
         self.assertStatus("demo.deb", self.deb(dict(lib, **{"./usr/share/doc/demo/copyright": body + token})), 1)
