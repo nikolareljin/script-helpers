@@ -398,7 +398,7 @@ case "$MODE" in
         if [[ "$rsha" != "$t" ]]; then
           sed -n 's/^tag //p' "$tagobj" >> "$metadata"
           awk '/^-----BEGIN (PGP|SSH) SIGNATURE-----/ { exit } p { print } /^$/ { p = 1 }' "$tagobj" > "$tagobj.msg"
-          awk -v t="${t:0:7}" '{ print "tag " t ":" FNR "\t" $0 }' "$tagobj.msg" >> "$units"
+          tr -d '\000' < "$tagobj.msg" | awk -v t="${t:0:7}" '{ print "tag " t ":" FNR "\t" $0 }' >> "$units"
           [[ -s "$tagobj.msg" ]] && TEXT_FILES+=("$tagobj.msg")
         fi
         t="$(awk '$1 == "object" { print $2; exit }' "$tagobj")"
@@ -440,14 +440,15 @@ case "$MODE" in
   file)
     for f in "${FILES[@]}"; do
       [[ -r "$f" ]] || { echo "$TAG cannot read $f" >&2; unchecked=1; continue; }
-      awk -v f="$f" '{ print f ":" FNR "\t" $0 }' "$f" >> "$units" || fail "could not read $f"
+      # NULs go before awk: the macOS awk ends a record at a NUL and drops the rest.
+      tr -d '\000' < "$f" | awk -v f="$f" '{ print f ":" FNR "\t" $0 }' >> "$units" || fail "could not read $f"
       TEXT_FILES+=("$f")
       basename -- "$f" >> "$metadata"
     done
     ;;
   stdin)
     cat > "$tmp/stdin.txt" || fail "could not read standard input"
-    awk '{ print "stdin:" FNR "\t" $0 }' "$tmp/stdin.txt" >> "$units" || fail "could not read standard input"
+    tr -d '\000' < "$tmp/stdin.txt" | awk '{ print "stdin:" FNR "\t" $0 }' >> "$units" || fail "could not read standard input"
     TEXT_FILES+=("$tmp/stdin.txt")
     ;;
 esac
@@ -649,8 +650,7 @@ if [[ -s "$tmp/text" ]]; then
   # length prefix or the next record's type byte. Each skip is named on stderr.
   if grep -aq "$(printf '\temail\t')" "$tmp/pii"; then
     awk -F'\t' -v tag="$TAG" '
-      # Bytes are classed by string comparison, not by regex ranges above
-      # \177, which the macOS awk does not match reliably.
+      # Bytes are classed by string comparison rather than regex ranges above \177.
       # 0 text, 1 control or invalid, 2 UTF-8 continuation, 3-5 lead of 2-4 bytes.
       function cls(c) {
         if (c == "\t" || c == "\r" || c == "\v" || c == "\f") return 0

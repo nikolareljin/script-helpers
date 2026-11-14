@@ -933,10 +933,24 @@ class BinaryNoiseEmailTests(unittest.TestCase):
         # A skip is never silent.
         self.assertIn(b"skipped a short email-shaped match", proc.stderr)
 
+    def test_text_after_a_nul_is_read(self):
+        # The macOS awk ends a record at a NUL; check_sensitive.sh strips NULs first.
+        address = ("anna.weber" + "@" + "firma-gmbh.de").encode()
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        with tempfile.TemporaryDirectory() as tmp:
+            env["XDG_STATE_HOME"] = tmp
+            blob = Path(tmp) / "blob.bin"
+            blob.write_bytes(b"\x7fELF\0\0\0usage\0" + address + b"\0")
+            proc = subprocess.run(
+                [BASH, str(ROOT / "scripts/check_sensitive.sh"), "--file", str(blob), "--no-gitleaks", "--no-machine"],
+                capture_output=True, env=env, cwd=tmp,
+            )
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+
     def test_addresses_in_text_are_still_found(self):
         address = ("anna.weber" + "@" + "firma-gmbh.de").encode()
         for data in (b"contact " + address + b" today\n", address + b"\n", b"mail:" + address,
-                     "連絡先：".encode() + address + "。".encode(),
+                     "\u9023\u7d61\u5148\uff1a".encode() + address + "\u3002".encode(),
                      b"\x7fELF\x01\x02\0\0support: " + address + b"\0usage: %s\0",
                      # Length-prefixed strings in a binary blob.
                      b"\x88\x01\xfe\x7f" + bytes([len(address)]) + address + b"\x03\x9a\xff\x02",
