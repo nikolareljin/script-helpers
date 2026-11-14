@@ -1,6 +1,8 @@
 ## Unreleased
 
 - **`check_scan_output.py` reads gzip files under the large-file limit instead of crashing.** `gzip.GzipFile` took the in-memory buffer as a filename and raised `TypeError`, so `check_publication.sh` refused every small `.tar.gz` or `.gz` (release tarballs included) whatever it held. bz2 and xz were not affected. Test: `test_small_compressed_files_are_read` in `tests/scan_output_test.py`.
+- **A tarball inside a tarball is read instead of refused.** The gzip, bzip2 or xz wrapper and its tar each took a nesting level, so a `.tar.gz` inside a `.tar.gz` passed the limit of 3 and exited 2. The wrapper around a tar now shares the tar's level. Tests: `CompressedInputTests` in `tests/scan_output_test.py` (clean, planted token and address, nested, truncated and corrupt `.gz`/`.tar.gz`/`.tar.bz2`/`.tar.xz`).
+- **`check_sensitive.sh` no longer reads binary noise as an email address.** 60 MB of random bytes held about one short match such as `x@ab.cd`, so large binaries and compressed members were refused. An email candidate is dropped when the 4 bytes on either side of it are not ASCII text or valid UTF-8; addresses in text, including after CJK punctuation, are still found. Tests: `BinaryNoiseEmailTests` in `tests/scan_output_test.py`.
 
 ## 2026-11-13 — v0.64.1
 

@@ -518,7 +518,9 @@ def _inspect(name, raw, depth=0, text_only=False):
         try:
             with opener(io.BytesIO(raw)) as stream:
                 expanded = stream.read(LIMIT + 1)
-            inspect_archive_member("compressed-content", expanded, depth + 1)
+            # A .tar.gz is one archive: its tar counts the level, so a tarball
+            # inside a tarball is depth 2, not 4.
+            inspect_archive_member("compressed-content", expanded, depth if expanded[257:262] == b"ustar" else depth + 1)
         except (OSError, EOFError, ValueError, lzma.LZMAError, zlib.error):
             raise Unchecked() from None
         return

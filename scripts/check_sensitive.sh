@@ -641,6 +641,34 @@ if [[ -s "$tmp/text" ]]; then
     pii_candidates card "${B}[0-9]([ -]?[0-9]){12,18}${A}"
   } > "$tmp/pii"
   [[ -f "$tmp/pii.failed" ]] && unchecked=1
+  # Random bytes hold short email-shaped runs: 60 MB of /dev/urandom gives
+  # about one "x@ab.cd" that passes email_ok. An address in text has text
+  # around it, so an email candidate whose 4 bytes on either side are not
+  # ASCII text or valid UTF-8 is binary noise and is dropped.
+  if grep -aq "$(printf '\temail\t')" "$tmp/pii"; then
+    awk -F'\t' '
+      function noise(s) {
+        gsub(/[\302-\337][\200-\277]|[\340-\357][\200-\277][\200-\277]|[\360-\364][\200-\277][\200-\277][\200-\277]/, "", s)
+        return s ~ /[\001-\010\016-\037\177-\377]/
+      }
+      FILENAME == ARGV[1] { row[++n] = $0; ln[n] = $1; kind[n] = $2; val[n] = $3; if ($2 == "email") need[$1] = 1; next }
+      (FNR in need) { line[FNR] = $0 }
+      END {
+        for (i = 1; i <= n; i++) {
+          if (kind[i] == "email" && (ln[i] in line)) {
+            s = line[ln[i]]; p = index(s, val[i])
+            if (p > 0) {
+              b = (p > 4 ? p - 4 : 1); before = substr(s, b, p - b); after = substr(s, p + length(val[i]), 4)
+              sub(/^[\200-\277]+/, "", before)                       # tail of a character cut by the window
+              sub(/[\302-\364][\200-\277]?[\200-\277]?$/, "", after)  # head of a character cut by the window
+              if (noise(before) || noise(after)) continue
+            }
+          }
+          print row[i]
+        }
+      }' "$tmp/pii" "$tmp/text" > "$tmp/pii.ctx" && mv -- "$tmp/pii.ctx" "$tmp/pii" \
+      || { echo "$TAG the email context check failed; NOT checked." >&2; unchecked=1; }
+  fi
   if [[ -s "$tmp/pii" ]]; then
     awk -F'\t' '
       function mask(v,   n) { n = length(v); if (n <= 6) return substr(v, 1, 1) "***"; return substr(v, 1, 3) "***" substr(v, n - 1, 2) }

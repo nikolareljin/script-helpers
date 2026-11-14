@@ -816,6 +816,115 @@ class LargeFileTests(unittest.TestCase):
             self.scan(checker, tail)
 
 
+def _tar(members, mode):
+    packed = io.BytesIO()
+    with tarfile.open(fileobj=packed, mode=mode) as archive:
+        for name, body in members.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(body)
+            archive.addfile(info, io.BytesIO(body))
+    return packed.getvalue()
+
+
+class CompressedInputTests(unittest.TestCase):
+    """Small .gz, .bz2, .xz files and tarballs go through _inspect, not the large-file path."""
+
+    # Assembled at run time so this source file holds no token or address.
+    TOKEN = "ghp_" + "Fx7Qw2Lm9Rt4Yu6Io8Pa1Sd3Gh5Jk0ZxCvBn"
+    ADDRESS = "anna.weber" + "@" + "firma-gmbh.de"
+    CLEAN = {"app-1.0/README.md": b"plain release notes\n", "app-1.0/bin/run": b"#!/bin/sh\necho ok\n"}
+
+    def setUp(self):
+        LargeFileTests.setUp(self)
+        # A gitleaks stand-in that reports a finding when the token is in the
+        # directory it is pointed at, and writes its JSON report as gitleaks does.
+        scanner = self.base / "token-scanner"
+        scanner.write_text(
+            "#!/bin/sh\nsrc=; rep=; prev=\n"
+            "for a in \"$@\"; do\n"
+            "  case \"$prev\" in --source|dir) src=$a ;; --report-path) rep=$a ;; esac\n"
+            "  prev=$a\n"
+            "done\n"
+            "if grep -rqF '" + self.TOKEN + "' \"$src\" 2>/dev/null; then\n"
+            "  printf '[{\"RuleID\":\"github-pat\"}]\\n' > \"$rep\"; exit 1\n"
+            "fi\nprintf '[]\\n' > \"$rep\"; exit 0\n"
+        )
+        scanner.chmod(0o700)
+        self.env["GITLEAKS_BIN"] = str(scanner)
+
+    def run_check(self, *args, extra=None):
+        return LargeFileTests.run_check(self, *args, extra=extra)
+
+    def status_of(self, name, data):
+        path = self.base / name
+        path.write_bytes(data)
+        return self.run_check("--file", str(path)).returncode
+
+    def test_stand_in_scanner_reports_the_token(self):
+        # Without this the token cases below could pass on a scanner that never fires.
+        proc = subprocess.run(
+            [BASH, str(ROOT / "scripts/check_sensitive.sh"), "--stdin", "--no-machine"],
+            input="token=" + self.TOKEN + "\n", capture_output=True, text=True, env=self.env, cwd=self.base,
+        )
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+
+    def test_clean_tarballs_pass(self):
+        for name, mode in (("a.tar.gz", "w:gz"), ("a.tgz", "w:gz"), ("a.tar.bz2", "w:bz2"), ("a.tar.xz", "w:xz")):
+            self.assertEqual(self.status_of(name, _tar(self.CLEAN, mode)), 0, name)
+        self.assertEqual(self.status_of("notes.gz", gzip.compress(b"plain notes\n")), 0)
+
+    def test_planted_secret_in_tarball_is_found(self):
+        for body in (("token = '" + self.TOKEN + "'\n").encode(), ("contact: " + self.ADDRESS + "\n").encode()):
+            members = dict(self.CLEAN, **{"app-1.0/config.ini": body})
+            for name, mode in (("a.tar.gz", "w:gz"), ("a.tar.bz2", "w:bz2"), ("a.tar.xz", "w:xz")):
+                self.assertEqual(self.status_of(name, _tar(members, mode)), 1, (name, body[:8]))
+            self.assertEqual(self.status_of("config.gz", gzip.compress(body)), 1, body[:8])
+
+    def test_nested_archives_are_opened(self):
+        secret = _tar(dict(self.CLEAN, **{"app-1.0/.env": ("TOKEN=" + self.TOKEN + "\n").encode()}), "w:gz")
+        clean = _tar(self.CLEAN, "w:gz")
+        for inner, expected in ((secret, 1), (clean, 0)):
+            # A .tar.gz inside a gzip, and inside another .tar.gz.
+            self.assertEqual(self.status_of("outer.gz", gzip.compress(inner)), expected)
+            self.assertEqual(self.status_of("outer.tar.gz", _tar({"inner.tar.gz": inner}, "w:gz")), expected)
+
+    def test_truncated_or_corrupt_input_is_refused(self):
+        whole = _tar(self.CLEAN, "w:gz")
+        corrupt = bytearray(whole)
+        corrupt[-6] ^= 0xFF  # inside the CRC32 trailer
+        for name, data in (("cut.tar.gz", whole[: len(whole) // 2]), ("cut.gz", whole[:-4]),
+                           ("crc.tar.gz", bytes(corrupt)), ("trailing.tar.gz", whole + b"not gzip"),
+                           ("cut.tar.bz2", _tar(self.CLEAN, "w:bz2")[:-10]),
+                           ("cut.tar.xz", _tar(self.CLEAN, "w:xz")[:-10])):
+            self.assertEqual(self.status_of(name, data), 2, name)
+
+
+class BinaryNoiseEmailTests(unittest.TestCase):
+    """Random bytes hold short email-shaped runs; addresses in text are still found."""
+
+    def scan(self, data):
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        with tempfile.TemporaryDirectory() as tmp:
+            env["XDG_STATE_HOME"] = tmp
+            proc = subprocess.run(
+                [BASH, str(ROOT / "scripts/check_sensitive.sh"), "--stdin", "--no-gitleaks", "--no-machine"],
+                input=data, capture_output=True, env=env, cwd=tmp,
+            )
+        return proc
+
+    def test_random_bytes_are_not_an_email_address(self):
+        # This 4 MiB block holds an email-shaped run that was refused before.
+        self.assertEqual(self.scan(random.Random(5).randbytes(4 * MIB)).returncode, 0)
+        self.assertEqual(self.scan(b"\xff\x01\x9c\x02" + b"q@zk.vo" + b"\x03\xfe\x80\x04").returncode, 0)
+
+    def test_addresses_in_text_are_still_found(self):
+        address = ("anna.weber" + "@" + "firma-gmbh.de").encode()
+        for data in (b"contact " + address + b" today\n", address + b"\n", b"mail:" + address,
+                     "連絡先：".encode() + address + "。".encode(),
+                     b"\x7fELF\x01\x02\0\0support: " + address + b"\0usage: %s\0",
+                     random.Random(5).randbytes(4096) + b"\n" + address + b"\n"):
+            self.assertEqual(self.scan(data).returncode, 1, data[:16])
+
 
 if __name__ == "__main__":
     unittest.main()
