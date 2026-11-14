@@ -1,4 +1,6 @@
-## Unreleased
+## 2026-11-14 — v0.64.2
+
+### Fixed
 
 - **`check_scan_output.py` reads gzip files under the large-file limit instead of crashing.** `gzip.GzipFile` took the in-memory buffer as a filename and raised `TypeError`, so `check_publication.sh` refused every small `.tar.gz` or `.gz` (release tarballs included) whatever it held. bz2 and xz were not affected. Test: `test_small_compressed_files_are_read` in `tests/scan_output_test.py`.
 - **A tarball inside a tarball is read instead of refused.** Every decompression and archive layer counts toward the nesting limit, so a `.tar.gz` inside a `.tar.gz` put its members at depth 4, past the limit of 3, and exited 2. The limit is 4; one level deeper still exits 2. Tests: `CompressedInputTests` in `tests/scan_output_test.py` (clean, planted token and address, nested, too deep, truncated and corrupt `.gz`/`.tar.gz`/`.tar.bz2`/`.tar.xz`).
