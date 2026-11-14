@@ -221,6 +221,22 @@ TEXT_SUFFIXES = (".txt", ".json", ".xml", ".properties", ".yaml", ".yml", ".md",
 DEB_CONTROL_FIELD = re.compile(rb"(?im)^(?:Maintainer|Uploaders|Original-Maintainer|XSBC-Original-Maintainer|Changed-By):.*(?:\n[ \t].*)*$")
 
 
+DOC_PREFIXES = ("usr/share/doc/", "usr/share/licenses/")
+DOC_NAMES = ("license", "licence", "copying", "notice", "copyright")
+
+
+def doc_member(name):
+    """True for a license or documentation member path inside a package.
+
+    The path is normalized; one with a .. component never matches.
+    """
+    parts = [part for part in name.rsplit(":", 1)[-1].replace("\\", "/").split("/") if part not in ("", ".")]
+    if not parts or ".." in parts:
+        return False
+    path = "/".join(parts).lower()
+    return path.startswith(DOC_PREFIXES) or parts[-1].lower().startswith(DOC_NAMES)
+
+
 def looks_text(name, raw):
     """True for a text member: a text suffix, UTF-8 or UTF-16 with a BOM. Text keeps every check."""
     if name.lower().endswith(TEXT_SUFFIXES) or not raw or raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
@@ -346,8 +362,16 @@ def inspect_archive_member(name, raw, depth, binary=False):
     inspect(name, raw, depth, binary=binary or kind is not None)
     label = _label(name)
     # Binary diffs and archive scanners can omit member names and link targets.
-    if kind is not None or (binary and not looks_text(name, raw)):
+    # A container's own bytes: each member gets its own check, so only secrets,
+    # terms and identifiers are looked for across them (tar owner names, say).
+    if kind is not None or _container(raw[:HEAD]) or (binary and not looks_text(name, raw)):
         _sensitive_or_raise(label + strings_of(raw), True)
+        return
+    if binary and doc_member(name):
+        # License and copyright text of a package: email, phone, SSN and card
+        # patterns do not block; secrets, terms, identifiers and home paths do.
+        downgrade("license or documentation text in a package: personal-data patterns do not block")
+        _sensitive_or_raise(label + raw.replace(b"\0", b" "), True)
         return
     base = name.replace("\\", "/").rsplit("/", 1)[-1]
     if binary and base == "control" and raw.startswith(b"Package:"):
@@ -385,10 +409,10 @@ def _read_exact(f, size):
     return data
 
 
-def _package_member(label, stream, size, depth):
+def _package_member(label, stream, size, depth, package=True):
     """One member of a deb or rpm: read whole, or spooled and streamed above LIMIT."""
     if size <= LIMIT:
-        inspect_archive_member(label, _read_exact(stream, size), depth, binary=True)
+        inspect_archive_member(label, _read_exact(stream, size), depth, binary=package)
         return
     with tempfile.TemporaryFile() as spool:
         left = size
@@ -440,7 +464,7 @@ def _large_tar(label, spool, depth):
                     raise Refused()
                 if not member.isfile():
                     _checked(pending, inspect_archive_member, label + ":" + member.name,
-                             os.fsencode(member.linkname), depth + 1, True)
+                             os.fsencode(member.linkname), depth + 1, False)
                     continue
                 stream = archive.extractfile(member)
                 if stream is None:
@@ -551,6 +575,7 @@ def _rpm_package(name, f, depth):
             if len(header) != 110 or header[:6] not in (b"070701", b"070702"):
                 raise Unchecked()
             size = int(header[54:62], 16)
+            link = int(header[14:22], 16) & 0o170000 == 0o120000
             name_size = int(header[94:102], 16)
             member = payload.read(name_size)
             payload.read((4 - (110 + name_size) % 4) % 4)
@@ -559,7 +584,7 @@ def _rpm_package(name, f, depth):
                 break
             if REPORT_NAME.search(member):
                 raise Refused()
-            _checked(pending, _package_member, name + ":" + member, payload, size, depth + 1)
+            _checked(pending, _package_member, name + ":" + member, payload, size, depth + 1, not link)
             payload.read((4 - size % 4) % 4)
         else:
             raise Unchecked()
@@ -1113,6 +1138,8 @@ def _inspect(name, raw, depth=0, text_only=False, binary=False):
                         raise Unchecked()
                     members.append(member)
                 pending = []
+                # A macOS .app bundle tarball is a package too.
+                package = binary or any(".app/Contents/" in m.name for m in members)
                 for member in members:
                     total += member.size
                     if total > LIMIT:
@@ -1121,9 +1148,10 @@ def _inspect(name, raw, depth=0, text_only=False, binary=False):
                         stream = archive.extractfile(member)
                         if stream is None:
                             raise Unchecked()
-                        _checked(pending, inspect_archive_member, member.name, stream.read(LIMIT + 1), depth + 1, binary)
+                        _checked(pending, inspect_archive_member, member.name, stream.read(LIMIT + 1), depth + 1, package)
                     else:
-                        _checked(pending, inspect_archive_member, member.name, os.fsencode(member.linkname), depth + 1, binary)
+                        # A link target keeps every check: a link cannot borrow a document path.
+                        _checked(pending, inspect_archive_member, member.name, os.fsencode(member.linkname), depth + 1, False)
                 if pending:
                     raise pending[0]
         except (OSError, ValueError, tarfile.TarError):

@@ -1089,6 +1089,9 @@ class BinaryPolicyTests(unittest.TestCase):
         self.assertStatus("app-macos", MACHO_HEAD + b"\0/Users/alice" + registry, 1)
         # UTF-16LE, as a PE stores it.
         self.assertStatus("app.exe", ELF_HEAD + "C:\\Users\\alice\\src\\main.rs".encode("utf-16-le"), 1)
+        # A URL or a longer path is not a home directory; file:///home/alice/ is.
+        self.assertStatus("app", ELF_HEAD + b"\0https://www.example.net/home/privacy/ /opt/home/build/x\0", 0)
+        self.assertStatus("app", ELF_HEAD + b"\0file:///home/alice/doc\0 cfg=/home/alice/.config\0", 1)
         for runner in (b"/home/runner", b"/Users/runner", b"/home/linuxbrew"):
             self.assertStatus("app", ELF_HEAD + b"\0" + runner + registry, 0)
 
@@ -1108,9 +1111,9 @@ class BinaryPolicyTests(unittest.TestCase):
         library = ELF_HEAD + b"\0support " + self.ADDRESS.encode() + b"\0"
         clean = {"./usr/lib/demo/libdemo.so": library, "./usr/bin/demo": ELF_HEAD + b"\0ok\0"}
         self.assertStatus("demo_1.0_amd64.deb", self.deb(clean), 0)
-        # A text member keeps every check, inside a package too.
-        copyright = b"Copyright: Anna Weber <" + self.ADDRESS.encode() + b">\n"
-        self.assertStatus("demo_1.0_amd64.deb", self.deb(dict(clean, **{"./usr/share/doc/demo/copyright": copyright})), 1)
+        # A text member outside the license and document paths keeps every check.
+        notes = b"Contact: Anna Weber <" + self.ADDRESS.encode() + b">\n"
+        self.assertStatus("demo_1.0_amd64.deb", self.deb(dict(clean, **{"./usr/share/demo/notes.txt": notes})), 1)
         secret = dict(clean, **{"./etc/demo.conf": ("token = " + self.TOKEN + "\n").encode()})
         self.assertStatus("demo_1.0_amd64.deb", self.deb(secret), 1)
         home = dict(clean, **{"./usr/bin/demo": ELF_HEAD + b"\0/home/alice/build/x.rs\0"})
@@ -1158,7 +1161,7 @@ class BinaryPolicyTests(unittest.TestCase):
                  ("app.apk", self.apk(ELF_HEAD + filler + self.ADDRESS.encode()), None),
                  ("app.apk", self.apk(ELF_HEAD + filler + self.AWS.encode()), checker.Refused),
                  ("demo.rpm", _rpm(dict(clean, pad=filler)), None),
-                 ("demo.deb", self.deb(dict(clean, **{"./usr/share/doc/demo/README": filler[:0] + self.ADDRESS.encode() + b"\n"})),
+                 ("demo.deb", self.deb(dict(clean, **{"./usr/share/demo/notes.txt": self.ADDRESS.encode() + b"\n"})),
                   checker.Refused))
         with mock.patch.dict(os.environ, self.env, clear=True):
             for name, data, error in cases:
@@ -1237,6 +1240,35 @@ class BinaryPolicyTests(unittest.TestCase):
             path.write_bytes(data)
             proc = self.run_check("--file", str(path))
             self.assertEqual(proc.returncode, 0, (name, proc.stderr))
+
+    def test_license_text_in_a_package_skips_personal_data_patterns_only(self):
+        lib = {"./usr/bin/demo": ELF_HEAD + b"\0ok\0"}
+        body = b"Copyright: Anna Weber <" + self.ADDRESS.encode() + b">, " + self.PHONE + b"\n"
+        for path in ("./usr/share/doc/demo/copyright", "./usr/share/licenses/demo/LICENSE",
+                     "./opt/demo/LICENSES.chromium.html", "./opt/demo/NOTICE.txt", "./opt/demo/COPYING"):
+            proc = self.assertStatus("demo.deb", self.deb(dict(lib, **{path: body})), 0)
+            self.assertIn("license or documentation text", proc.stderr)
+        self.assertStatus("demo.rpm", _rpm(dict(lib, **{"./usr/share/doc/demo/copyright": body})), 0)
+        self.assertStatus("app.apk", _zip_apk({"META-INF/LICENSE": body}), 0)
+        self.assertStatus("Demo.app.tar.gz", _tar({"Demo.app/Contents/Info.plist": b"<plist/>\n",
+                                                   "Demo.app/Contents/Resources/LICENSE": body}, "w:gz"), 0)
+        # Secrets and a local home path still block there.
+        token = ("token = " + self.TOKEN + "\n").encode()
+        self.assertStatus("demo.deb", self.deb(dict(lib, **{"./usr/share/doc/demo/copyright": body + token})), 1)
+        self.assertStatus("demo.deb", self.deb(dict(lib, **{"./usr/share/doc/demo/copyright": b"/home/alice/src\n"})), 1)
+        # No path tricks: .. leaves the document tree, and a link keeps every check.
+        self.assertStatus("demo.deb", self.deb(dict(lib, **{"./usr/share/doc/../../etc/foo": body})), 1)
+        link = io.BytesIO()
+        with tarfile.open(fileobj=link, mode="w:xz") as archive:
+            info = tarfile.TarInfo("./usr/share/doc/demo/copyright")
+            info.type, info.linkname = tarfile.SYMTYPE, self.ADDRESS
+            archive.addfile(info)
+        control = _tar({"./control": b"Package: demo\n"}, "w:gz")
+        self.assertStatus("demo.deb", _ar([("debian-binary", b"2.0\n"), ("control.tar.gz", control),
+                                           ("data.tar.xz", link.getvalue())]), 1)
+        # Not inside a package: a loose LICENSE, or one in a plain tarball.
+        self.assertStatus("LICENSE", body, 1)
+        self.assertStatus("src.tar.gz", _tar({"src/LICENSE": body}, "w:gz"), 1)
 
     def test_large_unknown_blob_is_still_incomplete(self):
         path = LargeFileTests.sparse(self, "blob.bin", 2 * MIB, head=b"\0data")

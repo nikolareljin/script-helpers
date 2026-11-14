@@ -629,9 +629,19 @@ runner user (`runner`, `runneradmin`, `github`, `root`) or of Homebrew on Linux
 embeds the developer's home and is refused.
 
 A text member keeps every check, inside a package too: a `.json`, `.xml`,
-`.txt` or other text-suffixed member, or any member that is UTF-8 text, such as
-a `copyright` file. The one exception is a deb `control` file, whose
-`Maintainer`, `Uploaders` and `Changed-By` fields get the secrets-only profile.
+`.txt` or other text-suffixed member, or any member that is UTF-8 text. Two
+exceptions, both inside a recognised package (deb, rpm, APK/AAB/JAR, or a
+tarball holding a `.app` bundle):
+
+- License and documentation text: a member under `usr/share/doc/` or
+  `usr/share/licenses/`, or named `LICENSE*`, `LICENCE*`, `COPYING*`,
+  `NOTICE*` or `COPYRIGHT*` (any case). Email, phone, SSN and card patterns
+  do not block there; credentials, personal terms, machine identifiers and a
+  local home path do. The member path is normalized first; a path with a
+  `..` component, or a link, keeps every check.
+- A deb `control` file's `Maintainer`, `Uploaders` and `Changed-By` fields.
+
+A loose `LICENSE` file, or one in a plain tarball, keeps every check.
 File names keep the full check. Magic bytes alone (a text file that starts
 with `\x7fELF`) do not make a file a binary.
 
