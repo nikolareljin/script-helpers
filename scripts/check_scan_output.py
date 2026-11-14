@@ -212,7 +212,7 @@ def strings_of(raw):
 def write_strings(path):
     """--strings: the printable runs of a file, streamed to stdout."""
     out = sys.stdout.buffer
-    with open(path, "rb") as stream:
+    with Path(path).open("rb") as stream:
         carry = b""
         while True:
             chunk = stream.read(CHUNK)
@@ -225,10 +225,11 @@ def write_strings(path):
 
 def run_sensitive(raw, binary):
     """check_sensitive.sh on raw; with binary, on its printable runs with --binary."""
-    command = [BASH, Path(__file__).with_name("check_sensitive.sh").as_posix(), "--stdin", "--no-inline-allow"]
-    if binary:
-        command.append("--binary")
-    proc = subprocess.run(command, input=raw, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.run(
+        [BASH, Path(__file__).with_name("check_sensitive.sh").as_posix(), "--stdin", "--no-inline-allow",
+         "--binary" if binary else "--no-inline-allow"],
+        input=raw, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
     return proc.returncode
 
 
@@ -353,9 +354,11 @@ def _sensitive_spool(label, spool):
             carry = strings(carry + chunk, text, final=False)
         strings(carry, text)
         text.seek(0)
-        command = [BASH, Path(__file__).with_name("check_sensitive.sh").as_posix(),
-                   "--stdin", "--no-inline-allow", "--binary"]
-        return subprocess.run(command, stdin=text, stdout=subprocess.PIPE, stderr=subprocess.PIPE).returncode
+        proc = subprocess.run(
+            [BASH, Path(__file__).with_name("check_sensitive.sh").as_posix(), "--stdin", "--no-inline-allow", "--binary"],
+            stdin=text, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        return proc.returncode
 
 
 def _ar_package(name, f, depth):
