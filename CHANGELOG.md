@@ -1,3 +1,7 @@
+## Unreleased
+
+- **`check_scan_output.py` reads gzip files under the large-file limit instead of crashing.** `gzip.GzipFile` took the in-memory buffer as a filename and raised `TypeError`, so `check_publication.sh` refused every small `.tar.gz` or `.gz` (release tarballs included) whatever it held. bz2 and xz were not affected. Test: `test_small_compressed_files_are_read` in `tests/scan_output_test.py`.
+
 ## 2026-11-13 — v0.64.1
 
 ### Upgrade notes

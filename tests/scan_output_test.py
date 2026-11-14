@@ -107,6 +107,30 @@ class PublicationTests(unittest.TestCase):
         for path in ("./scans/ordinary.txt", str(self.repo / "scans/ordinary.txt")):
             self.check("--file", path, expected=1)
 
+    def test_small_compressed_files_are_read(self):
+        # A release tarball under the large-file limit goes through _inspect.
+        # gzip used to crash there (GzipFile took the BytesIO as a filename),
+        # so every .tar.gz was refused whatever it held.
+        packed = io.BytesIO()
+        with tarfile.open(fileobj=packed, mode="w:gz") as archive:
+            info = tarfile.TarInfo("app-1.0/README.md")
+            body = b"plain release notes\n"
+            info.size = len(body)
+            archive.addfile(info, io.BytesIO(body))
+        # Decoded members go to check_sensitive.sh, which needs a gitleaks; CI
+        # legs have none. A stub that finds nothing keeps the outcome the same.
+        scanner = self.base / "clean-scanner"
+        scanner.write_bytes(b"#!/bin/sh\nexit 0\n")
+        scanner.chmod(0o700)
+        env = dict(self.env, GITLEAKS_BIN=str(scanner))
+        # The crash exited 1, so a clean archive passing is the proof. bz2 and
+        # xz were never affected and test_renamed_compressed_reports_refused
+        # covers them; each check run costs seconds on the Windows leg.
+        (self.repo / "app-1.0.tar.gz").write_bytes(packed.getvalue())
+        self.check("--file", "app-1.0.tar.gz", expected=0, env=env)
+        (self.repo / "packed.gz").write_bytes(gzip.compress(b"notes\n" + RESULT_LINE))
+        self.check("--file", "packed.gz", expected=1, env=env)
+
     def test_sarif_and_wrapped_gitleaks(self):
         self.check("--stdin", text=json.dumps({"version": "2.1.0", "runs": []}), expected=1)
         self.check("--stdin", text=json.dumps({"data": [{"RuleID": "fixture", "Secret": "REDACTED"}]}), expected=1)
