@@ -753,7 +753,8 @@ class LargeFileTests(unittest.TestCase):
         # an executable (an AppImage squashfs) it is named, not incomplete.
         path = self.sparse("service", 65 * MIB, at=MIB, data=bytes.fromhex("28b52ffd045831000068656c6c6f0a5388bd91"))
         checker = load_checker()
-        with path.open("rb") as stream:
+        # The raw-bytes secrets check runs check_sensitive.sh with the stand-in scanner.
+        with mock.patch.dict(os.environ, self.env, clear=True), path.open("rb") as stream:
             checker.ZstdDecompressor = None
             checker.inspect_large("service", stream)
         if ZSTD is None:
