@@ -649,9 +649,40 @@ if [[ -s "$tmp/text" ]]; then
   # length prefix or the next record's type byte. Each skip is named on stderr.
   if grep -aq "$(printf '\temail\t')" "$tmp/pii"; then
     awk -F'\t' -v tag="$TAG" '
-      function noise(s) {
-        gsub(/[\302-\337][\200-\277]|[\340-\357][\200-\277][\200-\277]|[\360-\364][\200-\277][\200-\277][\200-\277]/, "", s)
-        return s ~ /[\001-\010\016-\037\177-\377]/
+      # Bytes are classed by string comparison, not by regex ranges above
+      # \177, which the macOS awk does not match reliably.
+      # 0 text, 1 control or invalid, 2 UTF-8 continuation, 3-5 lead of 2-4 bytes.
+      function cls(c) {
+        if (c == "\t" || c == "\r" || c == "\v" || c == "\f") return 0
+        if (c < " " || c == "\177") return 1
+        if (c < "\177") return 0
+        if (c < "\300") return 2
+        if (c < "\302") return 1
+        if (c < "\340") return 3
+        if (c < "\360") return 4
+        if (c < "\365") return 5
+        return 1
+      }
+      function noise(s,   i, j, k, L) {
+        L = length(s); i = 1
+        while (i <= L) {
+          k = cls(substr(s, i, 1))
+          if (k == 0) { i++; continue }
+          if (k < 3) return 1
+          for (j = 1; j <= k - 2; j++) if (i + j > L || cls(substr(s, i + j, 1)) != 2) return 1
+          i += k - 1
+        }
+        return 0
+      }
+      function trim_tail(s,   j, k, L) {   # drop the head of a character cut by the window
+        L = length(s)
+        for (j = L; j >= 1 && j >= L - 2; j--) {
+          k = cls(substr(s, j, 1))
+          if (k == 2) continue
+          if (k >= 3 && L - j < k - 2) return substr(s, 1, j - 1)
+          break
+        }
+        return s
       }
       function short(v,   at, k, lab, j) {
         at = index(v, "@")
@@ -672,8 +703,8 @@ if [[ -s "$tmp/text" ]]; then
               p += off; off = p; seen = 1
               b = (p > 5 ? p - 5 : 1); before = (p > 1 ? substr(s, b, p - 1 - b) : "")
               after = substr(s, p + length(val[i]) + 1, 4)
-              sub(/^[\200-\277]+/, "", before)                       # tail of a character cut by the window
-              sub(/[\302-\364][\200-\277]?[\200-\277]?$/, "", after)  # head of a character cut by the window
+              while (before != "" && cls(substr(before, 1, 1)) == 2) before = substr(before, 2)   # tail of a cut character
+              after = trim_tail(after)
               if (!noise(before) || !noise(after)) { keep = 1; break }
             }
             if (!seen) keep = 1
