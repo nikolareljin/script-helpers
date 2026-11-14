@@ -649,4 +649,4 @@ or newer from `PATH`. It tries `python3`, then `python`, and skips launchers
 that cannot execute. It prints the executable path and returns 0 on success,
 or returns 1 when neither interpreter is available. It installs nothing.
 
-Archive checks inspect member names, directories and link targets with Gitleaks and PII checks. More than 2,000 members, excessive JSON nesting or an unavailable scanner refuses publication.
+Archive checks inspect member names, directories and link targets with Gitleaks and PII checks. More than 2,000 members, more than 4 nested archive or compression layers (a `.tar.gz` inside a `.tar.gz` is 4), excessive JSON nesting or an unavailable scanner refuses publication.

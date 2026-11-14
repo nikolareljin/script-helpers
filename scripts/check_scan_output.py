@@ -502,7 +502,9 @@ def _inspect(name, raw, depth=0, text_only=False):
     normalized = "/".join(part for part in name.replace("\\", "/").split("/") if part not in ("", "."))
     if REPORT_NAME.search(normalized):
         raise Refused()
-    if len(raw) > LIMIT or depth > 3:
+    # Every decompression and archive layer counts. A .tar.gz inside a .tar.gz
+    # puts its members at depth 4; one level deeper is refused.
+    if len(raw) > LIMIT or depth > 4:
         raise Unchecked()
     # Inspect archives in memory. Never extract paths supplied by the archive.
     if text_only:

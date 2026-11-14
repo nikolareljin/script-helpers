@@ -398,7 +398,7 @@ case "$MODE" in
         if [[ "$rsha" != "$t" ]]; then
           sed -n 's/^tag //p' "$tagobj" >> "$metadata"
           awk '/^-----BEGIN (PGP|SSH) SIGNATURE-----/ { exit } p { print } /^$/ { p = 1 }' "$tagobj" > "$tagobj.msg"
-          awk -v t="${t:0:7}" '{ print "tag " t ":" FNR "\t" $0 }' "$tagobj.msg" >> "$units"
+          tr -d '\000' < "$tagobj.msg" | awk -v t="${t:0:7}" '{ print "tag " t ":" FNR "\t" $0 }' >> "$units"
           [[ -s "$tagobj.msg" ]] && TEXT_FILES+=("$tagobj.msg")
         fi
         t="$(awk '$1 == "object" { print $2; exit }' "$tagobj")"
@@ -440,14 +440,15 @@ case "$MODE" in
   file)
     for f in "${FILES[@]}"; do
       [[ -r "$f" ]] || { echo "$TAG cannot read $f" >&2; unchecked=1; continue; }
-      awk -v f="$f" '{ print f ":" FNR "\t" $0 }' "$f" >> "$units" || fail "could not read $f"
+      # NULs go before awk: the macOS awk ends a record at a NUL and drops the rest.
+      tr -d '\000' < "$f" | awk -v f="$f" '{ print f ":" FNR "\t" $0 }' >> "$units" || fail "could not read $f"
       TEXT_FILES+=("$f")
       basename -- "$f" >> "$metadata"
     done
     ;;
   stdin)
     cat > "$tmp/stdin.txt" || fail "could not read standard input"
-    awk '{ print "stdin:" FNR "\t" $0 }' "$tmp/stdin.txt" >> "$units" || fail "could not read standard input"
+    tr -d '\000' < "$tmp/stdin.txt" | awk '{ print "stdin:" FNR "\t" $0 }' >> "$units" || fail "could not read standard input"
     TEXT_FILES+=("$tmp/stdin.txt")
     ;;
 esac
@@ -641,6 +642,79 @@ if [[ -s "$tmp/text" ]]; then
     pii_candidates card "${B}[0-9]([ -]?[0-9]){12,18}${A}"
   } > "$tmp/pii"
   [[ -f "$tmp/pii.failed" ]] && unchecked=1
+  # Random bytes hold short email-shaped runs: 60 MB of /dev/urandom gives
+  # about one "x@ab.cd" that passes email_ok. Only such a short match (local
+  # part <= 3 characters, every domain label <= 3) is skipped, and only when
+  # every occurrence on its line has bytes on both sides that are not ASCII
+  # text or valid UTF-8. The byte next to each end is not judged: it can be a
+  # length prefix or the next record's type byte. Each skip is named on stderr.
+  if grep -aq "$(printf '\temail\t')" "$tmp/pii"; then
+    awk -F'\t' -v tag="$TAG" '
+      # Bytes are classed by string comparison rather than regex ranges above \177.
+      # 0 text, 1 control or invalid, 2 UTF-8 continuation, 3-5 lead of 2-4 bytes.
+      function cls(c) {
+        if (c == "\t" || c == "\r" || c == "\v" || c == "\f") return 0
+        if (c < " " || c == "\177") return 1
+        if (c < "\177") return 0
+        if (c < "\300") return 2
+        if (c < "\302") return 1
+        if (c < "\340") return 3
+        if (c < "\360") return 4
+        if (c < "\365") return 5
+        return 1
+      }
+      function noise(s,   i, j, k, L) {
+        L = length(s); i = 1
+        while (i <= L) {
+          k = cls(substr(s, i, 1))
+          if (k == 0) { i++; continue }
+          if (k < 3) return 1
+          for (j = 1; j <= k - 2; j++) if (i + j > L || cls(substr(s, i + j, 1)) != 2) return 1
+          i += k - 1
+        }
+        return 0
+      }
+      function trim_tail(s,   j, k, L) {   # drop the head of a character cut by the window
+        L = length(s)
+        for (j = L; j >= 1 && j >= L - 2; j--) {
+          k = cls(substr(s, j, 1))
+          if (k == 2) continue
+          if (k >= 3 && L - j < k - 2) return substr(s, 1, j - 1)
+          break
+        }
+        return s
+      }
+      function short(v,   at, k, lab, j) {
+        at = index(v, "@")
+        if (at < 2 || at > 4) return 0
+        k = split(substr(v, at + 1), lab, ".")
+        for (j = 1; j <= k; j++) if (length(lab[j]) > 3) return 0
+        return 1
+      }
+      FILENAME == ARGV[1] { row[++n] = $0; ln[n] = $1; kind[n] = $2; val[n] = $3; if ($2 == "email" && short($3)) need[$1] = 1; next }
+      FILENAME == ARGV[2] { if (FNR in need) name[FNR] = $0; next }
+      (FNR in need) { line[FNR] = $0 }
+      END {
+        for (i = 1; i <= n; i++) {
+          keep = 1
+          if (kind[i] == "email" && (ln[i] in line) && short(val[i])) {
+            s = line[ln[i]]; off = 0; keep = 0; seen = 0
+            while ((p = index(substr(s, off + 1), val[i])) > 0) {
+              p += off; off = p; seen = 1
+              b = (p > 5 ? p - 5 : 1); before = (p > 1 ? substr(s, b, p - 1 - b) : "")
+              after = substr(s, p + length(val[i]) + 1, 4)
+              while (before != "" && cls(substr(before, 1, 1)) == 2) before = substr(before, 2)   # tail of a cut character
+              after = trim_tail(after)
+              if (!noise(before) || !noise(after)) { keep = 1; break }
+            }
+            if (!seen) keep = 1
+            if (!keep) print tag " notice: " name[ln[i]] ": skipped a short email-shaped match in binary data (" substr(val[i], 1, 1) "***)" > "/dev/stderr"
+          }
+          if (keep) print row[i]
+        }
+      }' "$tmp/pii" "$tmp/labels" "$tmp/text" > "$tmp/pii.ctx" && mv -- "$tmp/pii.ctx" "$tmp/pii" \
+      || { echo "$TAG the email context check failed; NOT checked." >&2; unchecked=1; }
+  fi
   if [[ -s "$tmp/pii" ]]; then
     awk -F'\t' '
       function mask(v,   n) { n = length(v); if (n <= 6) return substr(v, 1, 1) "***"; return substr(v, 1, 3) "***" substr(v, n - 1, 2) }
