@@ -553,6 +553,7 @@ def load_checker():
 
 
 MIB = 1024 * 1024
+LIMIT_MIB = 64  # check_scan_output.py LIMIT
 # Assembled at run time so this source file is not itself a scanner result.
 RESULT_LINE = ("\n%s: 3 findings\n" % ("git" + "leaks")).encode()
 # Skewed text around RESULT_LINE, so every compressor codes the line instead of
@@ -1224,6 +1225,25 @@ class BinaryPolicyTests(unittest.TestCase):
             with self.assertRaises(checker.Refused):
                 checker.inspect_large("app.AppImage", stream)
 
+    @unittest.skipUnless(ZSTD, "compression.zstd needs Python 3.14")
+    def test_decoded_appimage_payload_gets_the_secrets_only_profile(self):
+        # Python 3.14 decodes the zstd blocks of the squashfs payload. They hold
+        # packaged files (a library's license text): secrets block, addresses do not.
+        text = b"Copyright: Anna Weber <" + self.ADDRESS.encode() + b">, " + self.PHONE + b"\n" + _TEXT
+        for data, expected in ((text, None), (text + b"token = " + self.TOKEN.encode() + b"\n", "Refused")):
+            path = LargeFileTests.sparse(self, "app.AppImage", 65 * MIB, head=APPIMAGE_HEAD, at=MIB,
+                                         data=ZSTD.compress(data))
+            checker = load_checker()
+            with mock.patch.dict(os.environ, self.env, clear=True), path.open("rb") as stream:
+                try:
+                    checker.inspect_large("app.AppImage", stream)
+                    outcome = None
+                except checker.Refused:
+                    outcome = "Refused"
+                except checker.Anomaly:
+                    outcome = None
+            self.assertEqual(outcome, expected)
+
     def test_personal_terms_and_machine_home_match_every_encoding(self):
         terms = self.base / "terms.txt"
         terms.write_text("Zed\nkestrelhill\n")
@@ -1315,6 +1335,47 @@ class BinaryPolicyTests(unittest.TestCase):
         self.assertStatus("LICENSE", body, 1)
         self.assertStatus("src.tar.gz", _tar({"src/LICENSE": body}, "w:gz"), 1)
 
+    def test_compressed_license_in_a_package_skips_personal_data_patterns_only(self):
+        # Flutter ships its license notices gzip-compressed as NOTICES.Z; a deb
+        # ships changelog.Debian.gz. The expanded text is still that license file.
+        body = b"Copyright: Anna Weber <" + self.ADDRESS.encode() + b">, " + self.PHONE + b"\n"
+        notices = "base/assets/flutter_assets/NOTICES.Z"
+        proc = self.assertStatus("app-release.aab", _zip_aab({notices: gzip.compress(body)}), 0)
+        self.assertIn("license or documentation text", proc.stderr)
+        lib = {"./usr/bin/demo": ELF_HEAD + b"\0ok\0"}
+        changelog = {"./usr/share/doc/demo/changelog.Debian.gz": gzip.compress(body)}
+        self.assertStatus("demo.deb", self.deb(dict(lib, **changelog)), 0)
+        # Secrets and a local home path still block there.
+        token = ("token = " + self.TOKEN + "\n").encode()
+        self.assertStatus("app-release.aab", _zip_aab({notices: gzip.compress(body + token)}), 1)
+        self.assertStatus("app-release.aab", _zip_aab({notices: gzip.compress(b"/home/alice/src\n")}), 1)
+        # Only license names: other compressed text keeps every check, and so
+        # does a compressed license outside a package.
+        self.assertStatus("app-release.aab", _zip_aab({"base/assets/flutter_assets/data.Z": gzip.compress(body)}), 1)
+        self.assertStatus("NOTICES.Z", gzip.compress(body), 1)
+
+    def test_package_whose_members_expand_past_the_limit_is_streamed(self):
+        # An AAB below 64 MiB whose members total more, as a Flutter release
+        # bundle with debug symbols is: each member is checked, not refused unchecked.
+        big = ELF_HEAD + b"\0" * (LIMIT_MIB * MIB)
+        members = {"base/lib/arm64-v8a/libapp.so": big, "base/lib/x86_64/libapp.so": ELF_HEAD + b"\0ok\0"}
+        self.assertStatus("app-release.aab", _zip_aab(members), 0)
+        secret = dict(members, **{"base/lib/x86_64/libapp.so": ELF_HEAD + b"\0" + self.AWS.encode() + b"\0"})
+        self.assertStatus("app-release.aab", _zip_aab(secret), 1)
+        self.assertStatus("app-release.aab", _zip_aab(dict(members, **{"base/root/notes.txt": b"mail " + self.ADDRESS.encode() + b"\n"})), 1)
+
+    def test_svg_authoring_home_path_in_an_executable_passes(self):
+        # GTK carries theme SVGs whose Inkscape metadata names the artist's home.
+        # In an AppImage's compressed payload the attribute name loses letters.
+        for run in (b'<svg inkscape:export-filename="/home/artist/icons/x.png"',
+                    b'sodipodi:docbase="/home/artist/art"', b'ns:doc=":export-file/home/artist/ico',
+                    b':expofile/home/artist/ico'):
+            self.assertStatus("app", ELF_HEAD + b"\0" + run + b"\0", 0)
+        # Any other attribute or word before the path is still a home path.
+        for run in (b'name="/home/alice/x.png"', b"export-filename=/home/alice/x", b"profile/home/alice/x",
+                    b'<svg inkscape:export-filename="/home/artist/x.png"/>/home/alice/src/x.c'):
+            self.assertStatus("app", ELF_HEAD + b"\0" + run + b"\0", 1)
+
     def test_large_unknown_blob_is_still_incomplete(self):
         path = LargeFileTests.sparse(self, "blob.bin", 2 * MIB, head=b"\0data")
         proc = PublicationTests.check(self, "--file", str(path), expected=None,
@@ -1333,6 +1394,10 @@ def _zip(members):
 
 def _zip_apk(members):
     return _zip(dict({"AndroidManifest.xml": b"\x03\x00\x08\x00manifest", "classes.dex": b"dex\n035\0"}, **members))
+
+
+def _zip_aab(members):
+    return _zip(dict({"BundleConfig.pb": b"\n\x05\n\x031.0", "base/manifest/AndroidManifest.xml": b"\x0a\x08manifest"}, **members))
 
 
 if __name__ == "__main__":

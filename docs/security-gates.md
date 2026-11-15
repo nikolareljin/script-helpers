@@ -612,7 +612,7 @@ always decoded first, whatever its name or trailer.
 | AppImage | a valid ELF with `AI` at byte 8 | no: the squashfs payload |
 | deb, other ar archives | `!<arch>` | yes: every member, then its tarball |
 | rpm | lead magic | yes: the cpio payload (gzip, xz, bzip2; zstd on Python 3.14) |
-| APK, AAB, JAR | zip with `AndroidManifest.xml`, `classes.dex`, `BundleConfig.pb` or `META-INF/MANIFEST.MF` | yes: every member |
+| APK, AAB, JAR | zip with `AndroidManifest.xml`, `classes.dex`, `BundleConfig.pb` or `META-INF/MANIFEST.MF` | yes: every member, streamed one at a time when they total more than 64 MiB |
 | disk image (dmg) | `koly` trailer, no container magic | no |
 | byte-split part | name ends in `.split-NNN`, no container magic, not UTF-8 text | no |
 
@@ -627,7 +627,17 @@ and card patterns (third-party libraries carry them), and the home of a CI
 runner user (`runner`, `runneradmin`, `github`, `root`) or of Homebrew on Linux
 (`linuxbrew`). A Rust release binary built on a runner embeds
 `/home/runner/.cargo/registry/...`; the same binary built on a workstation
-embeds the developer's home and is refused.
+embeds the developer's home and is refused. Two more cases do not block:
+
+- A home path that is the value of an SVG authoring attribute
+  (`inkscape:export-filename="`, `sodipodi:docbase="`, `sodipodi:absref="`),
+  including the shortened `export-file/home/<name>/` form left in compressed
+  bytes. GTK carries theme SVGs with the artist's path there, so every Tauri
+  AppImage held one. Any other attribute keeps the check.
+- A gitleaks `generic-api-key` match that spans two printable runs. Its
+  pattern allows a newline after `key=`, so Dart symbol names such as
+  `RawKeyEventDataIos.==` followed by the next symbol matched in a Flutter
+  `libapp.so`. Every other rule, and a match within one run, still blocks.
 
 A text member keeps every check, inside a package too: a `.json`, `.xml`,
 `.txt` or other text-suffixed member, or any member that is UTF-8 text. Two
@@ -642,7 +652,9 @@ Mach-O in `Contents/MacOS/`):
   or, under `usr/share/doc/` or `usr/share/licenses/`, a `.txt`, `.md`,
   `.html`, `.rst`, `changelog*` or `readme*` member. Email, phone, SSN and
   card patterns do not block there; credentials, personal terms, machine
-  identifiers and a local home path do. The member path is normalized first;
+  identifiers and a local home path do. A compressed member is named
+  without its `.gz`, `.Z`, `.bz2`, `.xz` or `.zst` suffix, so Flutter's
+  `NOTICES.Z` and a deb's `changelog.Debian.gz` count. The member path is normalized first;
   a path with a `..` component, or a link, keeps every check.
 - A deb `control` file's `Maintainer`, `Uploaders` and `Changed-By` fields.
 
@@ -652,7 +664,9 @@ with `\x7fELF`) do not make a file a binary.
 
 Data inside a built binary that cannot be decoded (the AppImage squashfs, a
 disk image, a split part, zstd without Python 3.14, 7z) has its raw bytes
-checked for secrets by the checker itself, so the hooks and CI get the same
+checked for secrets by the checker itself. On Python 3.14 the zstd blocks of
+an AppImage's squashfs payload are also decoded; they hold packaged files, so
+they get the same secrets-only profile. The hooks and CI get the same
 check as `check_publication.sh`; when that check runs, the file is not
 incomplete. Anything else that cannot be decoded is still incomplete (exit 3
 locally), and a crash, a checker error or a truncated package still exits 2.

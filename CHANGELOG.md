@@ -1,5 +1,16 @@
 ## Unreleased
 
+### Fixed
+
+- **`check_publication.sh` passes Flutter release bundles (AAB) and Tauri AppImages again.** Five member checks failed on real bundles:
+  - A home path in Inkscape metadata of a bundled SVG blocked. GTK's theme SVGs carry `inkscape:export-filename="/home/<artist>/..."`, so every AppImage that bundles `libgtk-3.so.0` was refused, also in the shortened form left in its compressed payload. A home path after `export-filename="`, `docbase="` or `absref="` no longer blocks in a built binary; any other attribute still does.
+  - gitleaks `generic-api-key` matched across two printable runs of a binary (`RawKeyEventDataIos.==` and the next Dart symbol in `libapp.so.sym`). In `--binary` mode such a match no longer blocks; other rules, and a match in one run, still do.
+  - Flutter's gzip-compressed `NOTICES.Z` was checked as plain text with every pattern, and the third-party addresses in it blocked. A compressed member is named without its `.gz`/`.Z`/`.bz2`/`.xz`/`.zst` suffix, so it gets the license-text profile (deb `changelog.Debian.gz` too).
+  - On Python 3.14 the decoded zstd blocks of an AppImage's squashfs payload got the full text profile, so library license text blocked. They get the secrets-only profile, as the undecoded payload does.
+  - An APK/AAB under 64 MiB whose members total more (a Flutter AAB with debug symbols) exited 2 unchecked. Its members are streamed one at a time, as for a larger package.
+
+  Tests: `test_svg_authoring_home_path_in_an_executable_passes`, `test_compressed_license_in_a_package_skips_personal_data_patterns_only` and `test_package_whose_members_expand_past_the_limit_is_streamed`, `test_decoded_appimage_payload_gets_the_secrets_only_profile` (Python 3.14) in `tests/scan_output_test.py`, and the symbol-name case in `tests/machine/publication_check.sh` (real gitleaks). Each fails without the fix.
+
 ## 2026-11-15 — v0.65.1
 
 ### Fixed
