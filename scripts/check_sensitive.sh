@@ -49,7 +49,8 @@
 #                    committed), plus this machine's identifiers read at check
 #                    time: non-loopback IPv4/IPv6 addresses, default gateways,
 #                    MAC addresses, hostname, home directory, and the cached
-#                    public IP. Docker/bridge/veth/virbr interfaces are skipped.
+#                    public IP. Docker/bridge/veth/virbr interfaces are skipped,
+#                    and so is a CI runner's home (/home/runner, /root).
 #                    Whole tokens only: 192.0.2.10 does not match 192.0.2.100.
 #   3. PII           email addresses, phone numbers, US SSNs, card numbers
 #                    (Luhn-checked). noreply/example/test addresses, the git
@@ -286,9 +287,10 @@ build_terms() {
   # Optional, but its absence is said, not silent.
   [[ -f "$TERMS_FILE" ]] || echo "$TAG notice: no $TERMS_FILE; only machine identifiers and PII patterns are checked." >&2
   [[ "$USE_MACHINE" == true ]] || return 0
-  machine_ids | awk -F'\t' -v binary="$BINARY" '
-    # A built binary built on a CI runner carries the runner home path; it does not block.
-    binary == "true" && $1 == "this machine'"'"'s home directory" && $2 ~ /^((\/var)?\/home|\/Users|\/[A-Za-z]\/Users|[A-Za-z]:[\\\/]Users)[\\\/](runner|runneradmin|github)$|^\/root$/ { next }
+  machine_ids | awk -F'\t' '
+    # A CI runner home (/home/runner, C:\Users\runneradmin, /root) is a shared, public
+    # path, not a personal one: release notes or a binary made on a runner may name it.
+    $1 == "this machine'"'"'s home directory" && $2 ~ /^((\/var)?\/home|\/Users|\/[A-Za-z]\/Users|[A-Za-z]:[\\\/]Users)[\\\/](runner|runneradmin|github)$|^\/root$/ { next }
     { print }
     $2 ~ /^[0-9A-Fa-f][0-9A-Fa-f][:-][0-9A-Fa-f][0-9A-Fa-f][:-][0-9A-Fa-f][0-9A-Fa-f][:-][0-9A-Fa-f][0-9A-Fa-f][:-][0-9A-Fa-f][0-9A-Fa-f][:-][0-9A-Fa-f][0-9A-Fa-f]$/ {
       v = $2; if (index(v, ":")) gsub(/:/, "-", v); else gsub(/-/, ":", v); print $1 "\t" v }' \
