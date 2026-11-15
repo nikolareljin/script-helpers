@@ -728,7 +728,9 @@ Usage: scripts/check_sensitive.sh [--push-refs <file>|--range <revs>|--staged|--
                       terms, machine identifiers and a local home path such as
                       /home/<name>/ block. Email, phone, SSN and card patterns, and
                       the home of a CI runner user (runner, runneradmin, github,
-                      root), do not. File names are still checked in full.
+                      root), a home in SVG authoring metadata (Inkscape
+                      export-filename), and a generic-api-key match that spans
+                      two printable runs, do not. File names are still checked in full.
   -h, --help          Show this help message.
 ```
 

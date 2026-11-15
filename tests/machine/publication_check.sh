@@ -38,6 +38,14 @@ check "$?" 1 'private key inside an executable refused'
 { elf_head; printf 'support: %s%s\000' 'anna.weber' '@firma-gmbh.de'; } > "$scratch/app-with-email"
 bash "$root/scripts/check_publication.sh" --file "$scratch/app-with-email" > "$scratch/output" 2>&1
 check "$?" 0 'email address inside an executable passes'
+# Dart symbol names, one printable run each: generic-api-key joins
+# "RawKeyEventDataIos.==" and the next run across the newline between them.
+{ elf_head; printf 'RawKeyEventDataIos.==\000PlaceholderDimensions.==\000ScrollableDetails.==\000'; } > "$scratch/app-with-symbols"
+bash "$root/scripts/check_publication.sh" --file "$scratch/app-with-symbols" > "$scratch/output" 2>&1
+check "$?" 0 'symbol names in adjacent runs of an executable pass'
+{ elf_head; printf 'api_key=%s\000' "$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"; } > "$scratch/app-with-api-key"
+bash "$root/scripts/check_publication.sh" --file "$scratch/app-with-api-key" > "$scratch/output" 2>&1
+check "$?" 1 'generic API key in one run of an executable refused'
 { printf '\177ELF'; head -c 60 /dev/zero; cat "$scratch/private-key"; } > "$scratch/blob-with-key"
 bash "$root/scripts/check_publication.sh" --file "$scratch/blob-with-key" > "$scratch/output" 2>&1
 check "$?" 1 'private key inside an unrecognised binary refused'
