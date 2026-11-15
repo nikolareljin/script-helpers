@@ -1,5 +1,7 @@
 ## Unreleased
 
+## 2026-11-15 — v0.65.2
+
 ### Fixed
 
 - **`check_publication.sh` passes Flutter release bundles (AAB) and Tauri AppImages again.** Five member checks failed on real bundles:
