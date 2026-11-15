@@ -10,8 +10,9 @@
 #   --file <path>       A file, all of it: a commit message, a PR or issue body. Repeatable.
 #   --stdin             Standard input, all of it.
 #   --remote <name>     With --push-refs: the remote pushed to (git's first pre-push
-#                       argument). A new branch is checked against that remote's refs
-#                       only; without it, or for a bare URL, its whole history.
+#                       argument). A pushed ref is checked only for commits that
+#                       remote's refs lack; without it, or for a bare URL, a new
+#                       branch is checked whole and an update from the old tip.
 #   --repo <path>       Repository (default: cwd).
 #   --no-gitleaks       Skip the credential scan. It then reports nothing about credentials.
 #   --no-machine        Skip this machine's live identifiers (addresses, hostname, home path).
@@ -429,6 +430,10 @@ case "$MODE" in
         else
           add_revs "$lsha"
         fi
+      elif [[ -n "$PUSH_REMOTE" ]] && grep -qxF -- "$PUSH_REMOTE" <<< "$(git -C "$TOP" remote 2>/dev/null)"; then
+        # Update: commits the target remote already has (moving a branch to a
+        # tip already on its main) cross no boundary and are not re-checked.
+        add_revs "$lsha --not $rsha --remotes=$PUSH_REMOTE"
       else
         add_revs "${rsha}..${lsha}"
       fi
@@ -699,7 +704,7 @@ if [[ -s "$pii_text" ]]; then
   } > "$tmp/pii"
   [[ -f "$tmp/pii.failed" ]] && unchecked=1
   # Random bytes hold short email-shaped runs: 60 MB of /dev/urandom gives
-  # about one "x@ab.cd" that passes email_ok. Only such a short match (local
+  # about one short address that passes email_ok. Only such a short match (local
   # part <= 3 characters, every domain label <= 3) is skipped, and only when
   # every occurrence on its line has bytes on both sides that are not ASCII
   # text or valid UTF-8. The byte next to each end is not judged: it can be a

@@ -230,6 +230,20 @@ expect "an empty push-refs input -> exit 2, not clean" 2 "$(run --repo "$repo" -
 printf 'refs/heads/x %s refs/heads/x %s\n' "$(gc -C "$repo" rev-parse HEAD)" 0000000000000000000000000000000000000000 > "$tmp/one-ref"
 SENSITIVE_MACHINE_IDS_FILE="$tmp/no-machine-ids" bash "$CHECK" --repo "$repo" --push-refs "$tmp/one-ref" --no-gitleaks >/dev/null 2>&1
 rc=$?; [[ "$rc" -ne 2 ]] && ok "a real push-refs input is checked (exit $rc)" || error "a real push-refs input was not checked"
+
+# Branch update: a commit between the old and new tip that the target remote
+# already has (on its main) is not re-checked; one it lacks still is.
+pr="$tmp/pr-repo"; new_repo "$pr"
+pr_old="$(gc -C "$pr" rev-parse HEAD)"
+commit_file "$pr" pub.md "Write to $real_email"
+gc -C "$pr" update-ref refs/remotes/origin/main HEAD
+gc -C "$pr" remote add origin "$tmp/pr-nowhere.git"
+commit_file "$pr" clean.md "release notes"
+printf 'refs/heads/production %s refs/heads/production %s\n' "$(gc -C "$pr" rev-parse HEAD)" "$pr_old" > "$tmp/pr-ref"
+expect "update push: email commit already on the remote's main passes" 0 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+expect "update push without --remote checks old..new and blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --no-gitleaks --no-machine)"
+gc -C "$pr" update-ref refs/remotes/origin/main "$pr_old"
+expect "update push: email commit the remote lacks blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
 printf 'mail %s\n' "$real_email" | bash "$CHECK" --stdin --no-gitleaks --no-machine 2>"$tmp/out" >/dev/null
 grep -q "notice: no " "$tmp/out" && ok "a missing terms file is said" || error "no notice for a missing terms file"
 

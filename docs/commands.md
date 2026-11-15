@@ -711,8 +711,9 @@ Usage: scripts/check_sensitive.sh [--push-refs <file>|--range <revs>|--staged|--
   --file <path>       A file, all of it: a commit message, a PR or issue body. Repeatable.
   --stdin             Standard input, all of it.
   --remote <name>     With --push-refs: the remote pushed to (git's first pre-push
-                      argument). A new branch is checked against that remote's refs
-                      only; without it, or for a bare URL, its whole history.
+                      argument). A pushed ref is checked only for commits that
+                      remote's refs lack; without it, or for a bare URL, a new
+                      branch is checked whole and an update from the old tip.
   --repo <path>       Repository (default: cwd).
   --no-gitleaks       Skip the credential scan. It then reports nothing about credentials.
   --no-machine        Skip this machine's live identifiers (addresses, hostname, home path).
