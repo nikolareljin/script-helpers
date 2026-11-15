@@ -368,28 +368,42 @@ diff_to_units() {
 }
 
 # Prints "--not <id>..." for the commits PUSH_REMOTE's tracking refs hold, so a
-# push is checked only for what that remote lacks. Fails (no exclusion) when
-# PUSH_REMOTE is not a configured remote, or when a pushurl differs from url:
-# the tracking refs then describe another repository. Exact refs only:
-# --remotes=origin would also match origin-fork. Ids are checked to be hex, so
-# the word-split rev string (also gitleaks --log-opts) holds them exactly.
+# push is checked only for what that remote lacks. Fails (no exclusion, so the
+# caller checks the full range) unless all of these hold:
+# - PUSH_REMOTE is a configured remote (a bare URL has no tracking refs);
+# - every URL git pushes to equals the URL it fetches from, after insteadOf and
+#   pushInsteadOf: otherwise the tracking refs describe another repository;
+# - every fetch refspec of PUSH_REMOTE writes under refs/remotes/PUSH_REMOTE/,
+#   and no other remote's does (a remote named origin/x writes under origin/).
+# Ids are checked to be hex, so the word-split rev string (also gitleaks
+# --log-opts) holds them exactly.
 remote_excludes() {
-  local remotes r ref id url pu out=""
+  local remotes r spec dst url pu id out=""
   [[ -n "$PUSH_REMOTE" ]] || return 1
   remotes="$(git -C "$TOP" remote 2>/dev/null)"
+  # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
   grep -qxF -- "$PUSH_REMOTE" <<< "$remotes" || return 1
-  url="$(git -C "$TOP" config --get "remote.$PUSH_REMOTE.url" 2>/dev/null)"
+  url="$(git -C "$TOP" remote get-url "$PUSH_REMOTE" 2>/dev/null)" || return 1
   while IFS= read -r pu; do
-    [[ -z "$pu" || "$pu" == "$url" ]] || return 1
-  done <<< "$(git -C "$TOP" config --get-all "remote.$PUSH_REMOTE.pushurl" 2>/dev/null)"
-  while read -r id ref; do
-    [[ -n "$ref" ]] || continue
-    while IFS= read -r r; do
-      [[ "$r" == "$PUSH_REMOTE/"* && "$ref" == "refs/remotes/$r/"* ]] && continue 2
-    done <<< "$remotes"
+    [[ "$pu" == "$url" ]] || return 1
+  done <<< "$(git -C "$TOP" remote get-url --push --all "$PUSH_REMOTE" 2>/dev/null || echo "-")"
+  while IFS= read -r r; do
+    [[ -n "$r" ]] || continue
+    while IFS= read -r spec; do
+      [[ -n "$spec" ]] || { [[ "$r" == "$PUSH_REMOTE" ]] && return 1; continue; }
+      dst="${spec#+}"; [[ "$dst" == *:* ]] && dst="${dst#*:}" || dst=""
+      if [[ "$r" == "$PUSH_REMOTE" ]]; then
+        [[ "$dst" == "refs/remotes/$PUSH_REMOTE/"* ]] || return 1
+      else
+        [[ "$dst" == "refs/remotes/$PUSH_REMOTE/"* ]] && return 1
+      fi
+    done <<< "$(git -C "$TOP" config --get-all "remote.$r.fetch" 2>/dev/null)"
+  done <<< "$remotes"
+  while IFS= read -r id; do
+    [[ -n "$id" ]] || continue
     [[ "$id" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || return 1
     out+=" $id"
-  done <<< "$(git -C "$TOP" for-each-ref --format='%(objectname) %(refname)' "refs/remotes/$PUSH_REMOTE/" 2>/dev/null)"
+  done <<< "$(git -C "$TOP" for-each-ref --format='%(objectname)' "refs/remotes/$PUSH_REMOTE/" 2>/dev/null)"
   printf -- '--not%s\n' "$out"
 }
 
