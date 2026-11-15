@@ -244,6 +244,26 @@ expect "update push: email commit already on the remote's main passes" 0 "$(run 
 expect "update push without --remote checks old..new and blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --no-gitleaks --no-machine)"
 gc -C "$pr" update-ref refs/remotes/origin/main "$pr_old"
 expect "update push: email commit the remote lacks blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+printf 'refs/heads/feat %s refs/heads/feat %s\n' "$(gc -C "$pr" rev-parse HEAD)" 0000000000000000000000000000000000000000 > "$tmp/pr-new"
+# Only the target's own refs count: origin-fork/main is not origin/main.
+gc -C "$pr" remote add origin-fork "$tmp/pr-fork.git"
+gc -C "$pr" update-ref refs/remotes/origin-fork/main "$(gc -C "$pr" rev-parse HEAD~1)"
+expect "update push: commit only on a prefix-named remote blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+expect "new branch: commit only on a prefix-named remote blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-new" --remote origin --no-gitleaks --no-machine)"
+gc -C "$pr" update-ref -d refs/remotes/origin-fork/main
+# A remote named origin/x keeps its refs under refs/remotes/origin/x/.
+gc -C "$pr" remote add origin/x "$tmp/pr-x.git"
+gc -C "$pr" update-ref refs/remotes/origin/x/main "$(gc -C "$pr" rev-parse HEAD~1)"
+expect "update push: commit only on remote origin/x blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+gc -C "$pr" update-ref -d refs/remotes/origin/x/main
+# A pushurl that differs from url: the tracking refs describe another repository.
+gc -C "$pr" update-ref refs/remotes/origin/main "$(gc -C "$pr" rev-parse HEAD~1)"
+expect "update push: control, commit on origin/main passes" 0 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+gc -C "$pr" config remote.origin.pushurl "$tmp/pr-elsewhere.git"
+expect "update push: a different pushurl ignores tracking refs and blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+expect "new branch: a different pushurl ignores tracking refs and blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-new" --remote origin --no-gitleaks --no-machine)"
+gc -C "$pr" config remote.origin.pushurl "$tmp/pr-nowhere.git"
+expect "update push: a pushurl equal to url keeps the exclusion" 0 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
 printf 'mail %s\n' "$real_email" | bash "$CHECK" --stdin --no-gitleaks --no-machine 2>"$tmp/out" >/dev/null
 grep -q "notice: no " "$tmp/out" && ok "a missing terms file is said" || error "no notice for a missing terms file"
 

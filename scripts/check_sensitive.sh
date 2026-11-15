@@ -367,6 +367,32 @@ diff_to_units() {
     }'
 }
 
+# Prints "--not <id>..." for the commits PUSH_REMOTE's tracking refs hold, so a
+# push is checked only for what that remote lacks. Fails (no exclusion) when
+# PUSH_REMOTE is not a configured remote, or when a pushurl differs from url:
+# the tracking refs then describe another repository. Exact refs only:
+# --remotes=origin would also match origin-fork. Ids are checked to be hex, so
+# the word-split rev string (also gitleaks --log-opts) holds them exactly.
+remote_excludes() {
+  local remotes r ref id url pu out=""
+  [[ -n "$PUSH_REMOTE" ]] || return 1
+  remotes="$(git -C "$TOP" remote 2>/dev/null)"
+  grep -qxF -- "$PUSH_REMOTE" <<< "$remotes" || return 1
+  url="$(git -C "$TOP" config --get "remote.$PUSH_REMOTE.url" 2>/dev/null)"
+  while IFS= read -r pu; do
+    [[ -z "$pu" || "$pu" == "$url" ]] || return 1
+  done <<< "$(git -C "$TOP" config --get-all "remote.$PUSH_REMOTE.pushurl" 2>/dev/null)"
+  while read -r id ref; do
+    [[ -n "$ref" ]] || continue
+    while IFS= read -r r; do
+      [[ "$r" == "$PUSH_REMOTE/"* && "$ref" == "refs/remotes/$r/"* ]] && continue 2
+    done <<< "$remotes"
+    [[ "$id" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || return 1
+    out+=" $id"
+  done <<< "$(git -C "$TOP" for-each-ref --format='%(objectname) %(refname)' "refs/remotes/$PUSH_REMOTE/" 2>/dev/null)"
+  printf -- '--not%s\n' "$out"
+}
+
 add_revs() {
   local revs="$1" log msgs
   log="$tmp/log.$RANDOM"; msgs="$tmp/msgs.$RANDOM"
@@ -424,16 +450,15 @@ case "$MODE" in
         # New branch, or a remote tip this clone has never seen: everything the
         # target remote's refs do not have. Only that remote counts: a commit
         # already on another remote (a private one) is still new to this one.
-        # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
-        if [[ -n "$PUSH_REMOTE" ]] && grep -qxF -- "$PUSH_REMOTE" <<< "$(git -C "$TOP" remote 2>/dev/null)"; then
-          add_revs "$lsha --not --remotes=$PUSH_REMOTE"
+        if excl="$(remote_excludes)"; then
+          add_revs "$lsha $excl"
         else
           add_revs "$lsha"
         fi
-      elif [[ -n "$PUSH_REMOTE" ]] && grep -qxF -- "$PUSH_REMOTE" <<< "$(git -C "$TOP" remote 2>/dev/null)"; then
+      elif excl="$(remote_excludes)"; then
         # Update: commits the target remote already has (moving a branch to a
         # tip already on its main) cross no boundary and are not re-checked.
-        add_revs "$lsha --not $rsha --remotes=$PUSH_REMOTE"
+        add_revs "$lsha ^$rsha $excl"
       else
         add_revs "${rsha}..${lsha}"
       fi
