@@ -1237,6 +1237,26 @@ class BinaryPolicyTests(unittest.TestCase):
         self.assertStatus("app", ELF_HEAD + b"\0/home/zoe\0", 1, {"SENSITIVE_MACHINE_IDS_FILE": str(ids)})
         self.assertStatus("app", ELF_HEAD + b"\0/home/runner\0", 0)
 
+    def test_ci_runner_home_in_text_is_not_a_machine_identifier(self):
+        # Release notes published from a GitHub runner (HOME=/home/runner) that name /home/runner.
+        for home in ("/home/runner", "/Users/runner", "C:\\Users\\runneradmin", "/home/github", "/root"):
+            ids = self.base / "runner-ids.tsv"
+            ids.write_text("this machine's home directory\t%s\n" % home)
+            proc = subprocess.run(
+                [BASH, str(ROOT / "scripts/check_sensitive.sh"), "--stdin", "--no-gitleaks"],
+                input="a runner home path (%s) no longer blocks\n" % home, capture_output=True, text=True,
+                env=dict(self.env, SENSITIVE_MACHINE_IDS_FILE=str(ids)), cwd=self.base,
+            )
+            self.assertEqual(proc.returncode, 0, (home, proc.stderr))
+        # A personal home on this machine still blocks in text.
+        ids.write_text("this machine's home directory\t/home/zoe\n")
+        proc = subprocess.run(
+            [BASH, str(ROOT / "scripts/check_sensitive.sh"), "--stdin", "--no-gitleaks"],
+            input="built in /home/zoe/src\n", capture_output=True, text=True,
+            env=dict(self.env, SENSITIVE_MACHINE_IDS_FILE=str(ids)), cwd=self.base,
+        )
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+
     def test_the_checked_files_own_path_is_not_its_content(self):
         # A build under a home directory: the path names a home, the content does not.
         (self.base / "home/alice").mkdir(parents=True)

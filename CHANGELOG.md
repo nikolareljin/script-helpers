@@ -4,6 +4,8 @@
 
 - **The GitHub Release for 0.64.2 and the ci-helpers vendor sync no longer refuse the changelog.** The 0.64.2 entry quoted an email-shaped example, which `check_sensitive.sh` blocks in release notes. It is reworded, and `make lint-docs` now runs `check_sensitive.sh --file CHANGELOG.md` so the next one fails in CI.
 
+- **`check_sensitive.sh` no longer counts a CI runner's home as this machine's home directory in text.** On a GitHub runner `HOME` is `/home/runner`, so release notes naming `/home/runner` were refused by `check_publication.sh` and the 0.65.0 release step failed. The runner homes the binary check already skipped (`runner`, `runneradmin`, `github` under `/home`, `/Users` or `C:\Users`, and `/root`) are now skipped for every input; a personal home still blocks. Test: `test_ci_runner_home_in_text_is_not_a_machine_identifier` in `tests/scan_output_test.py`.
+
 ## 2026-11-14 — v0.65.0
 
 ### Upgrade notes
