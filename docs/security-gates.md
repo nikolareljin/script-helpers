@@ -720,6 +720,13 @@ checker name and optional local report path, uses `SH_SECURITY_BRANCH` or GitHub
 branch context (then Git), and prints the Leak-Lock link and local remediation.
 Unknown checker names become Security; report paths are suppressed in CI.
 
+`scripts/remote_excludes.sh` decides which commits a push target already has,
+for `check_sensitive.sh`, `check_scan_output.py` and `security_hooks.sh` alike.
+It prints the commit ids of `refs/remotes/<remote>/`, and refuses (exit 1, so
+the whole range is checked) unless `<remote>` is configured, its push URLs equal
+its fetch URL after `insteadOf`/`pushInsteadOf`, its fetch refspecs write only
+under `refs/remotes/<remote>/`, and no other remote's refspec writes there.
+
 `security_python` in `scripts/security_notice.sh` resolves a working Python 3.8
 or newer from `PATH`. It tries `python3`, then `python`, and skips launchers
 that cannot execute. It prints the executable path and returns 0 on success,

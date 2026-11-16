@@ -230,6 +230,81 @@ expect "an empty push-refs input -> exit 2, not clean" 2 "$(run --repo "$repo" -
 printf 'refs/heads/x %s refs/heads/x %s\n' "$(gc -C "$repo" rev-parse HEAD)" 0000000000000000000000000000000000000000 > "$tmp/one-ref"
 SENSITIVE_MACHINE_IDS_FILE="$tmp/no-machine-ids" bash "$CHECK" --repo "$repo" --push-refs "$tmp/one-ref" --no-gitleaks >/dev/null 2>&1
 rc=$?; [[ "$rc" -ne 2 ]] && ok "a real push-refs input is checked (exit $rc)" || error "a real push-refs input was not checked"
+
+# Branch update: a commit between the old and new tip that the target remote
+# already has (on its main) is not re-checked; one it lacks still is.
+pr="$tmp/pr-repo"; new_repo "$pr"
+pr_old="$(gc -C "$pr" rev-parse HEAD)"
+commit_file "$pr" pub.md "Write to $real_email"
+gc -C "$pr" update-ref refs/remotes/origin/main HEAD
+gc -C "$pr" remote add origin "$tmp/pr-nowhere.git"
+commit_file "$pr" clean.md "release notes"
+printf 'refs/heads/production %s refs/heads/production %s\n' "$(gc -C "$pr" rev-parse HEAD)" "$pr_old" > "$tmp/pr-ref"
+expect "update push: email commit already on the remote's main passes" 0 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+expect "update push without --remote checks old..new and blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --no-gitleaks --no-machine)"
+gc -C "$pr" update-ref refs/remotes/origin/main "$pr_old"
+expect "update push: email commit the remote lacks blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+printf 'refs/heads/feat %s refs/heads/feat %s\n' "$(gc -C "$pr" rev-parse HEAD)" 0000000000000000000000000000000000000000 > "$tmp/pr-new"
+# Only the target's own refs count: origin-fork/main is not origin/main.
+gc -C "$pr" remote add origin-fork "$tmp/pr-fork.git"
+gc -C "$pr" update-ref refs/remotes/origin-fork/main "$(gc -C "$pr" rev-parse HEAD~1)"
+expect "update push: commit only on a prefix-named remote blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+expect "new branch: commit only on a prefix-named remote blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-new" --remote origin --no-gitleaks --no-machine)"
+gc -C "$pr" update-ref -d refs/remotes/origin-fork/main; gc -C "$pr" remote remove origin-fork
+# A remote named origin/x keeps its refs under refs/remotes/origin/x/. Newer git
+# refuses `git remote add` for that name; an older one, or the config, still makes it.
+gc -C "$pr" config remote.origin/x.url "$tmp/pr-x.git"
+gc -C "$pr" config remote.origin/x.fetch "+refs/heads/*:refs/remotes/origin/x/*"
+gc -C "$pr" update-ref refs/remotes/origin/x/main "$(gc -C "$pr" rev-parse HEAD~1)"
+expect "update push: commit only on remote origin/x blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+gc -C "$pr" update-ref -d refs/remotes/origin/x/main; gc -C "$pr" config --remove-section remote.origin/x
+# A pushurl that differs from url: the tracking refs describe another repository.
+gc -C "$pr" update-ref refs/remotes/origin/main "$(gc -C "$pr" rev-parse HEAD~1)"
+expect "update push: control, commit on origin/main passes" 0 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+gc -C "$pr" config remote.origin.pushurl "$tmp/pr-elsewhere.git"
+expect "update push: a different pushurl ignores tracking refs and blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+expect "new branch: a different pushurl ignores tracking refs and blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-new" --remote origin --no-gitleaks --no-machine)"
+gc -C "$pr" config remote.origin.pushurl "$tmp/pr-nowhere.git"
+expect "update push: a pushurl equal to url keeps the exclusion" 0 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+gc -C "$pr" config --unset remote.origin.pushurl
+gc -C "$pr" config "url.$tmp/pr-other/.pushInsteadOf" "$tmp/"
+expect "update push: a pushInsteadOf rewrite ignores tracking refs and blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+gc -C "$pr" config --unset "url.$tmp/pr-other/.pushInsteadOf"
+# Two fetch URLs: a plain push goes to both; the second is not what was fetched.
+gc -C "$pr" config --add remote.origin.url "$tmp/pr-second.git"
+expect "update push: a second url ignores tracking refs and blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+gc -C "$pr" config --unset remote.origin.url "pr-second"
+# Fetch refspecs: another remote writing into origin's namespace, or origin
+# writing elsewhere, makes refs/remotes/origin/ untrustworthy.
+gc -C "$pr" remote add other "$tmp/pr-other.git"
+gc -C "$pr" config remote.other.fetch "+refs/heads/*:refs/remotes/origin/*"
+expect "update push: another remote fetching into origin/ blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+expect "new branch: another remote fetching into origin/ blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-new" --remote origin --no-gitleaks --no-machine)"
+gc -C "$pr" config remote.other.fetch "+refs/heads/*:refs/remotes/*"
+expect "update push: another remote fetching into refs/remotes/* blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+gc -C "$pr" config remote.other.fetch "+refs/heads/*:refs/remotes/other/*"
+expect "update push: another remote in its own namespace keeps the exclusion" 0 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+gc -C "$pr" remote remove other
+gc -C "$pr" config --add remote.origin.fetch "^refs/heads/skip"
+expect "update push: a negative origin refspec keeps the exclusion" 0 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+gc -C "$pr" config --unset remote.origin.fetch '^\^refs/heads/skip$'
+gc -C "$pr" config --add remote.origin.fetch "+refs/heads/*:refs/heads/*"
+expect "update push: an origin refspec outside refs/remotes/origin/ blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+gc -C "$pr" config --unset remote.origin.fetch 'refs/heads/\*$'
+expect "update push: refspecs restored, exclusion applies again" 0 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+# security_hooks.sh uses the same rules (remote_excludes.sh): HEAD only on
+# origin/x's refs is still unpushed to origin, so a push with no ref lines checks it.
+head_line() { ( cd "$pr" && source "$ROOT_DIR/scripts/security_hooks.sh" && sec_push_head_line origin ); }
+gc -C "$pr" update-ref refs/remotes/origin/main HEAD
+[[ -z "$(head_line)" ]] && ok "sec_push_head_line: HEAD on origin/main needs no check" || error "sec_push_head_line checked HEAD already on origin/main"
+gc -C "$pr" update-ref refs/remotes/origin/main HEAD~1
+gc -C "$pr" config remote.origin/x.url "$tmp/pr-x.git"
+gc -C "$pr" config remote.origin/x.fetch "+refs/heads/*:refs/remotes/origin/x/*"
+gc -C "$pr" update-ref refs/remotes/origin/x/main HEAD
+[[ -n "$(head_line)" ]] && ok "sec_push_head_line: HEAD only on remote origin/x is checked" || error "sec_push_head_line skipped HEAD only on remote origin/x"
+[[ "$( cd "$pr" && source "$ROOT_DIR/scripts/security_hooks.sh" && sec_not_remote origin )" == "--not" ]] \
+  && ok "sec_not_remote: origin/x in origin's namespace excludes nothing" || error "sec_not_remote trusted origin's namespace with origin/x in it"
+gc -C "$pr" update-ref -d refs/remotes/origin/x/main; gc -C "$pr" config --remove-section remote.origin/x
 printf 'mail %s\n' "$real_email" | bash "$CHECK" --stdin --no-gitleaks --no-machine 2>"$tmp/out" >/dev/null
 grep -q "notice: no " "$tmp/out" && ok "a missing terms file is said" || error "no notice for a missing terms file"
 

@@ -201,6 +201,32 @@ class PublicationTests(unittest.TestCase):
         # Another destination must still inspect the same intermediate commit.
         self.check("--push-refs", str(refs), "--remote", "other", expected=1)
 
+    def test_destination_exclusion_uses_only_trusted_tracking_refs(self):
+        # Same rules as check_sensitive.sh: scripts/remote_excludes.sh.
+        self.git("remote", "add", "destination", str(self.base / "remote.git"))
+        self.stage("old.json", self.report())
+        self.commit()
+        published = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("rm", "-q", "old.json")
+        self.commit()
+        refs = self.base / "refs"
+        refs.write_text("refs/heads/topic " + self.git("rev-parse", "HEAD").stdout.strip() + " refs/heads/topic " + self.initial + "\n")
+        # A prefix-named remote: --remotes=destination would match it.
+        self.git("config", "remote.destination/x.url", str(self.base / "x.git"))
+        self.git("config", "remote.destination/x.fetch", "+refs/heads/*:refs/remotes/destination/x/*")
+        self.git("update-ref", "refs/remotes/destination/x/main", published)
+        self.check("--push-refs", str(refs), "--remote", "destination", expected=1)
+        self.git("update-ref", "-d", "refs/remotes/destination/x/main")
+        self.git("config", "--remove-section", "remote.destination/x")
+        self.git("update-ref", "refs/remotes/destination/main", published)
+        self.check("--push-refs", str(refs), "--remote", "destination")
+        self.git("config", "remote.destination.pushurl", str(self.base / "elsewhere.git"))
+        self.check("--push-refs", str(refs), "--remote", "destination", expected=1)
+        self.git("config", "--unset", "remote.destination.pushurl")
+        self.git("remote", "add", "other", str(self.base / "other.git"))
+        self.git("config", "remote.other.fetch", "+refs/heads/*:refs/remotes/destination/*")
+        self.check("--push-refs", str(refs), "--remote", "destination", expected=1)
+
     def test_commit_and_tag_messages(self):
         message = "fox" + "guard: 19 findings"
         self.git("-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-qm", message)

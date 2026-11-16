@@ -711,8 +711,9 @@ Usage: scripts/check_sensitive.sh [--push-refs <file>|--range <revs>|--staged|--
   --file <path>       A file, all of it: a commit message, a PR or issue body. Repeatable.
   --stdin             Standard input, all of it.
   --remote <name>     With --push-refs: the remote pushed to (git's first pre-push
-                      argument). A new branch is checked against that remote's refs
-                      only; without it, or for a bare URL, its whole history.
+                      argument). A pushed ref is checked only for commits that
+                      remote's refs lack; without it, or for a bare URL, a new
+                      branch is checked whole and an update from the old tip.
   --repo <path>       Repository (default: cwd).
   --no-gitleaks       Skip the credential scan. It then reports nothing about credentials.
   --no-machine        Skip this machine's live identifiers (addresses, hostname, home path).
@@ -2978,6 +2979,31 @@ Example:
 
 ```text
 Installed automatically by scripts/install-publication-hooks.sh --ci
+```
+
+### `scripts/remote_excludes.sh`
+
+The commits a push target already has, for the push gates to leave out.
+
+```text
+Usage: source scripts/remote_excludes.sh; remote_excludes <repo> <remote> | bash scripts/remote_excludes.sh <repo> <remote>
+  <repo>    Repository path.
+  <remote>  Remote pushed to (git's first pre-push argument).
+```
+
+Exit codes:
+
+```text
+0 Prints the commit ids of refs/remotes/<remote>/, one per line (none when
+the namespace is empty).
+1 Refused: nothing may be left out, check the whole range.
+2 Executed with the wrong arguments.
+```
+
+Example:
+
+```text
+bash scripts/remote_excludes.sh . origin
 ```
 
 ### `scripts/security_notice.sh`
