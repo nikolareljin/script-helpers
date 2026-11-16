@@ -251,11 +251,13 @@ gc -C "$pr" update-ref refs/remotes/origin-fork/main "$(gc -C "$pr" rev-parse HE
 expect "update push: commit only on a prefix-named remote blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
 expect "new branch: commit only on a prefix-named remote blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-new" --remote origin --no-gitleaks --no-machine)"
 gc -C "$pr" update-ref -d refs/remotes/origin-fork/main; gc -C "$pr" remote remove origin-fork
-# A remote named origin/x keeps its refs under refs/remotes/origin/x/.
-gc -C "$pr" remote add origin/x "$tmp/pr-x.git"
+# A remote named origin/x keeps its refs under refs/remotes/origin/x/. Newer git
+# refuses `git remote add` for that name; an older one, or the config, still makes it.
+gc -C "$pr" config remote.origin/x.url "$tmp/pr-x.git"
+gc -C "$pr" config remote.origin/x.fetch "+refs/heads/*:refs/remotes/origin/x/*"
 gc -C "$pr" update-ref refs/remotes/origin/x/main "$(gc -C "$pr" rev-parse HEAD~1)"
 expect "update push: commit only on remote origin/x blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
-gc -C "$pr" update-ref -d refs/remotes/origin/x/main; gc -C "$pr" remote remove origin/x
+gc -C "$pr" update-ref -d refs/remotes/origin/x/main; gc -C "$pr" config --remove-section remote.origin/x
 # A pushurl that differs from url: the tracking refs describe another repository.
 gc -C "$pr" update-ref refs/remotes/origin/main "$(gc -C "$pr" rev-parse HEAD~1)"
 expect "update push: control, commit on origin/main passes" 0 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
