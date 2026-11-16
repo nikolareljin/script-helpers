@@ -3,6 +3,7 @@
 ### Fixed
 
 - **`check_sensitive.sh --push-refs --remote` no longer re-checks commits the remote already has when a branch moves.** An update push checked every commit in `old..new`, so moving a `production` branch to a new release re-checked history already on `main`, and one old finding there blocked the move for good. It now excludes the commits held by `refs/remotes/<remote>/`, for new branches and updates, only when the push URLs equal the fetch URL (after `insteadOf`/`pushInsteadOf`) and only that remote's fetch refspecs write into that namespace. Otherwise, or without a named remote, it checks a new branch whole and an update as `old..new`. Test: the update-push cases in `tests/security_gate_test.sh`; the first fails without the fix.
+- **`check_scan_output.py --push-refs` and the pre-push hooks (`security_hooks.sh`) use the same rules.** Both excluded `--remotes=<remote>`, a prefix that also matched another remote's refs (`origin/x`, or one fetching into `refs/remotes/*`), and trusted them whatever the push URL, so a commit only on that other remote, or never sent to the push URL, was waved through. `scripts/remote_excludes.sh` is now the one definition all three gates use. Tests: `test_destination_exclusion_uses_only_trusted_tracking_refs` in `tests/scan_output_test.py` and the `sec_push_head_line` cases in `tests/security_gate_test.sh`; each fails without the fix.
 
 ## 2026-11-15 — v0.65.2
 

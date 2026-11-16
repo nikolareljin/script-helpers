@@ -280,11 +280,28 @@ gc -C "$pr" remote add other "$tmp/pr-other.git"
 gc -C "$pr" config remote.other.fetch "+refs/heads/*:refs/remotes/origin/*"
 expect "update push: another remote fetching into origin/ blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
 expect "new branch: another remote fetching into origin/ blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-new" --remote origin --no-gitleaks --no-machine)"
+gc -C "$pr" config remote.other.fetch "+refs/heads/*:refs/remotes/*"
+expect "update push: another remote fetching into refs/remotes/* blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+gc -C "$pr" config remote.other.fetch "+refs/heads/*:refs/remotes/other/*"
+expect "update push: another remote in its own namespace keeps the exclusion" 0 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
 gc -C "$pr" remote remove other
 gc -C "$pr" config --add remote.origin.fetch "+refs/heads/*:refs/heads/*"
 expect "update push: an origin refspec outside refs/remotes/origin/ blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
 gc -C "$pr" config --unset remote.origin.fetch 'refs/heads/\*$'
 expect "update push: refspecs restored, exclusion applies again" 0 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+# security_hooks.sh uses the same rules (remote_excludes.sh): HEAD only on
+# origin/x's refs is still unpushed to origin, so a push with no ref lines checks it.
+head_line() { ( cd "$pr" && source "$ROOT_DIR/scripts/security_hooks.sh" && sec_push_head_line origin ); }
+gc -C "$pr" update-ref refs/remotes/origin/main HEAD
+[[ -z "$(head_line)" ]] && ok "sec_push_head_line: HEAD on origin/main needs no check" || error "sec_push_head_line checked HEAD already on origin/main"
+gc -C "$pr" update-ref refs/remotes/origin/main HEAD~1
+gc -C "$pr" config remote.origin/x.url "$tmp/pr-x.git"
+gc -C "$pr" config remote.origin/x.fetch "+refs/heads/*:refs/remotes/origin/x/*"
+gc -C "$pr" update-ref refs/remotes/origin/x/main HEAD
+[[ -n "$(head_line)" ]] && ok "sec_push_head_line: HEAD only on remote origin/x is checked" || error "sec_push_head_line skipped HEAD only on remote origin/x"
+[[ "$( cd "$pr" && source "$ROOT_DIR/scripts/security_hooks.sh" && sec_not_remote origin )" == "--not" ]] \
+  && ok "sec_not_remote: origin/x in origin's namespace excludes nothing" || error "sec_not_remote trusted origin's namespace with origin/x in it"
+gc -C "$pr" update-ref -d refs/remotes/origin/x/main; gc -C "$pr" config --remove-section remote.origin/x
 printf 'mail %s\n' "$real_email" | bash "$CHECK" --stdin --no-gitleaks --no-machine 2>"$tmp/out" >/dev/null
 grep -q "notice: no " "$tmp/out" && ok "a missing terms file is said" || error "no notice for a missing terms file"
 

@@ -2981,6 +2981,31 @@ Example:
 Installed automatically by scripts/install-publication-hooks.sh --ci
 ```
 
+### `scripts/remote_excludes.sh`
+
+The commits a push target already has, for the push gates to leave out.
+
+```text
+Usage: source scripts/remote_excludes.sh; remote_excludes <repo> <remote> | bash scripts/remote_excludes.sh <repo> <remote>
+  <repo>    Repository path.
+  <remote>  Remote pushed to (git's first pre-push argument).
+```
+
+Exit codes:
+
+```text
+0 Prints the commit ids of refs/remotes/<remote>/, one per line (none when
+the namespace is empty).
+1 Refused: nothing may be left out, check the whole range.
+2 Executed with the wrong arguments.
+```
+
+Example:
+
+```text
+bash scripts/remote_excludes.sh . origin
+```
+
 ### `scripts/security_notice.sh`
 
 Show the tool, branch and local remediation without scanner results.

@@ -91,6 +91,9 @@ LIST_IDS=false
 INLINE_ALLOW=true
 BINARY=false
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# A copy without remote_excludes.sh excludes nothing: every pushed commit is checked.
+# shellcheck source=/dev/null
+source "$SELF_DIR/remote_excludes.sh" 2>/dev/null || remote_excludes() { return 1; }
 
 usage() { sed -n '2,/^# ------/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; }
 
@@ -368,43 +371,12 @@ diff_to_units() {
 }
 
 # Prints "--not <id>..." for the commits PUSH_REMOTE's tracking refs hold, so a
-# push is checked only for what that remote lacks. Fails (no exclusion, so the
-# caller checks the full range) unless all of these hold:
-# - PUSH_REMOTE is a configured remote (a bare URL has no tracking refs);
-# - every URL git pushes to equals the URL it fetches from, after insteadOf and
-#   pushInsteadOf: otherwise the tracking refs describe another repository;
-# - every fetch refspec of PUSH_REMOTE writes under refs/remotes/PUSH_REMOTE/,
-#   and no other remote's does (a remote named origin/x writes under origin/).
-# Ids are checked to be hex, so the word-split rev string (also gitleaks
-# --log-opts) holds them exactly.
-remote_excludes() {
-  local remotes r spec dst url pu id out=""
-  [[ -n "$PUSH_REMOTE" ]] || return 1
-  remotes="$(git -C "$TOP" remote 2>/dev/null)"
-  # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
-  grep -qxF -- "$PUSH_REMOTE" <<< "$remotes" || return 1
-  url="$(git -C "$TOP" remote get-url "$PUSH_REMOTE" 2>/dev/null)" || return 1
-  while IFS= read -r pu; do
-    [[ "$pu" == "$url" ]] || return 1
-  done <<< "$(git -C "$TOP" remote get-url --push --all "$PUSH_REMOTE" 2>/dev/null || echo "-")"
-  while IFS= read -r r; do
-    [[ -n "$r" ]] || continue
-    while IFS= read -r spec; do
-      [[ -n "$spec" ]] || { [[ "$r" == "$PUSH_REMOTE" ]] && return 1; continue; }
-      dst="${spec#+}"; [[ "$dst" == *:* ]] && dst="${dst#*:}" || dst=""
-      if [[ "$r" == "$PUSH_REMOTE" ]]; then
-        [[ "$dst" == "refs/remotes/$PUSH_REMOTE/"* ]] || return 1
-      else
-        [[ "$dst" == "refs/remotes/$PUSH_REMOTE/"* ]] && return 1
-      fi
-    done <<< "$(git -C "$TOP" config --get-all "remote.$r.fetch" 2>/dev/null)"
-  done <<< "$remotes"
-  while IFS= read -r id; do
-    [[ -n "$id" ]] || continue
-    [[ "$id" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || return 1
-    out+=" $id"
-  done <<< "$(git -C "$TOP" for-each-ref --format='%(objectname)' "refs/remotes/$PUSH_REMOTE/" 2>/dev/null)"
-  printf -- '--not%s\n' "$out"
+# push is checked only for what that remote lacks. Fails (no exclusion: the
+# caller checks the full range) on the conditions in remote_excludes.sh.
+push_excludes() {
+  local ids
+  ids="$(remote_excludes "$TOP" "$PUSH_REMOTE")" || return 1
+  printf -- '--not %s\n' "${ids//$'\n'/ }"
 }
 
 add_revs() {
@@ -464,12 +436,12 @@ case "$MODE" in
         # New branch, or a remote tip this clone has never seen: everything the
         # target remote's refs do not have. Only that remote counts: a commit
         # already on another remote (a private one) is still new to this one.
-        if excl="$(remote_excludes)"; then
+        if excl="$(push_excludes)"; then
           add_revs "$lsha $excl"
         else
           add_revs "$lsha"
         fi
-      elif excl="$(remote_excludes)"; then
+      elif excl="$(push_excludes)"; then
         # Update: commits the target remote already has (moving a branch to a
         # tip already on its main) cross no boundary and are not re-checked.
         add_revs "$lsha ^$rsha $excl"
