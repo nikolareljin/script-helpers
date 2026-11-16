@@ -1,5 +1,7 @@
 ## Unreleased
 
+## 2026-11-15 — v0.65.3
+
 ### Fixed
 
 - **`check_sensitive.sh --push-refs --remote` no longer re-checks commits the remote already has when a branch moves.** An update push checked every commit in `old..new`, so moving a `production` branch to a new release re-checked history already on `main`, and one old finding there blocked the move for good. It now excludes the commits held by `refs/remotes/<remote>/`, for new branches and updates, only when the push URLs equal the fetch URL (after `insteadOf`/`pushInsteadOf`) and only that remote's fetch refspecs write into that namespace. Otherwise, or without a named remote, it checks a new branch whole and an update as `old..new`. Test: the update-push cases in `tests/security_gate_test.sh`; the first fails without the fix.
