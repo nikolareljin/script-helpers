@@ -36,6 +36,8 @@ remote_excludes() {
     [[ -n "$r" ]] || continue
     while IFS= read -r spec; do
       [[ -n "$spec" ]] || { [[ "$r" == "$remote" ]] && return 1; continue; }
+      # A negative refspec (^refs/heads/x) only narrows what is fetched.
+      [[ "$spec" == ^* ]] && continue
       dst="${spec#+}"; [[ "$dst" == *:* ]] && dst="${dst#*:}" || dst=""
       if [[ "$r" == "$remote" ]]; then
         [[ "$dst" == "refs/remotes/$remote/"* ]] || return 1

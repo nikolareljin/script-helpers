@@ -285,6 +285,9 @@ expect "update push: another remote fetching into refs/remotes/* blocks" 1 "$(ru
 gc -C "$pr" config remote.other.fetch "+refs/heads/*:refs/remotes/other/*"
 expect "update push: another remote in its own namespace keeps the exclusion" 0 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
 gc -C "$pr" remote remove other
+gc -C "$pr" config --add remote.origin.fetch "^refs/heads/skip"
+expect "update push: a negative origin refspec keeps the exclusion" 0 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
+gc -C "$pr" config --unset remote.origin.fetch '^\^refs/heads/skip$'
 gc -C "$pr" config --add remote.origin.fetch "+refs/heads/*:refs/heads/*"
 expect "update push: an origin refspec outside refs/remotes/origin/ blocks" 1 "$(run --repo "$pr" --push-refs "$tmp/pr-ref" --remote origin --no-gitleaks --no-machine)"
 gc -C "$pr" config --unset remote.origin.fetch 'refs/heads/\*$'
