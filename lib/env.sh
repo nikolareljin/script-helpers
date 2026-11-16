@@ -30,18 +30,19 @@ get_project_root() {
 # Returns: 0 (also when the file does not exist); a failing command inside the env file does not change the return code.
 # Output: stdout nothing; stderr a debug line when debug logging is on, and whatever the env file prints.
 load_env() {
-  local env_file="${1:-.env}"
-  if [[ -f "$env_file" ]]; then
-    log_debug "Loading environment from $env_file"
-    # A caller that already had allexport on keeps it: switching it off here
-    # silently stopped exporting everything the caller assigned afterwards.
-    local had_allexport=0
-    [[ -o allexport ]] && had_allexport=1
-    set -o allexport
-    # shellcheck disable=SC1090
-    source "$env_file"
-    [[ "$had_allexport" -eq 1 ]] || set +o allexport
-  fi
+  local env_file
+  # Only a regular file is sourced; a directory, fifo or missing path is skipped.
+  [[ -f "${1:-.env}" ]] || return 0
+  printf -v env_file '%s' "${1:-.env}"
+  log_debug "Loading environment from $env_file"
+  # A caller that already had allexport on keeps it: switching it off here
+  # silently stopped exporting everything the caller assigned afterwards.
+  local had_allexport=0
+  [[ -o allexport ]] && had_allexport=1
+  set -o allexport
+  # shellcheck disable=SC1090
+  source "$env_file"
+  [[ "$had_allexport" -eq 1 ]] || set +o allexport
 }
 
 # Usage: require_env <VAR...>; returns non-zero if any are missing.

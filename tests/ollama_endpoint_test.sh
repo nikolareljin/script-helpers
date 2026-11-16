@@ -359,6 +359,9 @@ note "what an Ollama has"
 reset main:7b embed:latest
 check "its models, as it names them" "main:7b embed:latest" "$(ollama_endpoint_models "$URL" | one_line)"
 check "a trailing slash is tolerated" "main:7b embed:latest" "$(ollama_endpoint_models "$URL/" | one_line)"
+# "-K<dir>" would make curl read <dir>/api/tags as its config file.
+mkdir -p "$tmp/kcfg/api"; printf 'url = "%s/api/tags"\n' "$URL" >"$tmp/kcfg/api/tags"
+check "a URL that starts with - is refused, not read by curl as an option" "1:" "$(o="$(ollama_endpoint_models "-K$tmp/kcfg" 2>/dev/null)"; echo "$?:$o")"
 check "(the fake does not serve a doubled slash, so that was the module)" "404" "$(curl -s -o /dev/null -w '%{http_code}' "$URL//api/tags")"
 reset
 check "an Ollama with no models answers, with nothing" "0:" "$(ollama_endpoint_models "$URL"; echo "$?:")"

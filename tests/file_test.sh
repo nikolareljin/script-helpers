@@ -66,6 +66,9 @@ if command -v python3 >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
   rm -f "$tmp/umask.bin"
   ( umask 077; DOWNLOAD_USE_DIALOG=never download_file "http://127.0.0.1:$port/present.bin" "$tmp/umask.bin" 2>/dev/null )
   if [[ "$(file_mode "$tmp/umask.bin")" == "600" ]]; then ok "umask 077 gives a downloaded file 600"; else error "umask 077 mode $(file_mode "$tmp/umask.bin")"; fi
+  # A URL that starts with "-" is an option to curl and wget, not a URL.
+  rc=0; ( cd "$tmp" && DOWNLOAD_USE_DIALOG=never download_file "--version" "$tmp/opt.out" >/dev/null 2>&1 ) || rc=$?
+  if [[ "$rc" == "2" && ! -e "$tmp/opt.out" ]]; then ok "a URL that starts with - is refused (2), nothing written"; else error "option-like URL: rc=$rc, $(ls "$tmp/opt.out" 2>&1)"; fi
   # Re-downloading over an existing file keeps its mode and a symlink, as
   # curl -o writing in place always did.
   printf 'old' >"$tmp/tool.sh"; chmod 755 "$tmp/tool.sh"

@@ -28,16 +28,26 @@ create_directory() {
 }
 
 # Usage: download_file <url> [output]; downloads quietly with optional dialog.
-# Returns: 0 downloaded; 1 no curl or wget, mktemp failed, or the final write failed; otherwise the exit code of curl or wget.
+# Returns: 0 downloaded; 1 no curl or wget, mktemp failed, or the final write failed; 2 an empty URL or one
+#   that starts with "-" (curl and wget would read it as an option); otherwise the exit code of curl or wget.
 # Output: stdout an [Error!] line when no download tool exists; stderr curl/wget errors; a dialog gauge when dialog is used.
 download_file() {
-  local url="$1"; local output="${2:-}"
+  local url output
+  if [[ -z "${1:-}" || "$1" == -* ]]; then
+    print_error "download_file: not a URL: ${1:-(empty)}"
+    return 2
+  fi
+  printf -v url '%s' "$1"
+  output="${2:-}"
   if [[ -z "$output" ]]; then
-    output=$(basename "$url")
+    output=$(basename -- "$url")
     if [[ "$output" != *.* ]]; then
-      output=$(echo "$url" | sed -E 's|.*/([^/]+\.[^/]+)(/.*)?$|\1|')
+      output=$(printf '%s\n' "$url" | sed -E 's|.*/([^/]+\.[^/]+)(/.*)?$|\1|')
     fi
   fi
+  # A name that starts with "-" is a file in the current directory, not an option.
+  [[ "$output" != -* ]] || output="./$output"
+  printf -v output '%s' "$output"
   # Stay quiet during download; the dialog gauge (if used)
   # should be the only visible interface.
 
