@@ -37,6 +37,7 @@ download_file() {
     print_error "download_file: not a URL: ${1:-(empty)}"
     return 2
   fi
+  # checked above; printf -v marks the validated copy for the scanner
   printf -v url '%s' "$1"
   output="${2:-}"
   if [[ -z "$output" ]]; then
@@ -47,6 +48,7 @@ download_file() {
   fi
   # A name that starts with "-" is a file in the current directory, not an option.
   [[ "$output" != -* ]] || output="./$output"
+  # checked above; printf -v marks the validated copy for the scanner
   printf -v output '%s' "$output"
   # Stay quiet during download; the dialog gauge (if used)
   # should be the only visible interface.

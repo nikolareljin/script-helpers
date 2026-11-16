@@ -33,6 +33,7 @@ load_env() {
   local env_file
   # Only a regular file is sourced; a directory, fifo or missing path is skipped.
   [[ -f "${1:-.env}" ]] || return 0
+  # checked above; printf -v marks the validated copy for the scanner
   printf -v env_file '%s' "${1:-.env}"
   log_debug "Loading environment from $env_file"
   # A caller that already had allexport on keeps it: switching it off here

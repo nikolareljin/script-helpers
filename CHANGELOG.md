@@ -7,9 +7,9 @@
   - `download_file` returns 2 for an empty URL or one that starts with `-`; curl and wget read `--config=...` as an option. An output name that starts with `-` is written as `./-name`.
   - `ollama_endpoint_models` and `ollama_endpoint_pull` return 1 for such a URL (`-K<dir>` made curl read a config file); `ollama_endpoint_models` also returns 1 for a timeout that is not a whole number.
   - `_svc_timeout` reads the variable by name (`${!name}`) and returns 2 for a name that is not a variable name; it used `eval`, so `X:-$(cmd)}` ran `cmd`. `_svc_fingerprint` reads `/proc/<pid>` only for a whole-number pid.
-  - `setup-hooks.sh` refuses an empty or `/` install directory before `rm -rf "$dir/..."`, and a state key that is not a plain file name. `lib/ollama.sh` refuses an empty models directory, models JSON or export path.
+  - `setup-hooks.sh` refuses an empty or `/` install directory before `rm -rf "$dir/..."`, and a state key that is not a plain file name. `lib/ollama.sh` refuses an empty models directory, models JSON or export path. `ollama_update_env` and `ollama_prepare_model_menu_cache` write a file named `-x` as `./-x`; `touch` and `mktemp` read it as an option before.
 
-  Tests: the `-` URL cases in `tests/file_test.sh` and `tests/ollama_endpoint_test.sh`, the timeout-name and fingerprint cases in `tests/service_test.sh`; each fails without the fix.
+  Tests: the `-` URL cases in `tests/file_test.sh` and `tests/ollama_endpoint_test.sh`, the timeout-name and fingerprint cases in `tests/service_test.sh`, the `-name` and empty export path cases in `tests/ollama_test.sh`, and `tests/setup_hooks_args_test.sh`; each fails without the fix. `docs/security-gates.md` describes the check-then-`printf -v` convention these use.
 
 ## 2026-11-15 — v0.65.3
 

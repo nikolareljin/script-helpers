@@ -289,6 +289,7 @@ version_stamp() {
 # callers run rm -rf and mv on such paths.
 dir_arg() {
   case "${2:-}" in ''|/) return 1 ;; esac
+  # checked above; printf -v marks the validated copy for the scanner
   printf -v "$1" '%s' "$2"
 }
 
@@ -296,6 +297,7 @@ dir_arg() {
 # leading dot); returns 1 for anything else. A key is a file name.
 key_arg() {
   [[ "${2:-}" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]*$ ]] || return 1
+  # checked above; printf -v marks the validated copy for the scanner
   printf -v "$1" '%s' "$2"
 }
 
@@ -866,6 +868,7 @@ probe_name() {
 probe() {
   local want="$1" label="$2" expect="$3" command="$4" hook="" dir t0 t1 rc=0 why=""
   # Only a file is run; anything else fails as bash would on a missing file (127).
+  # checked above; printf -v marks the validated copy for the scanner
   [[ -f "${5:-}" ]] && printf -v hook '%s' "$5"
   dir="$(mktemp -d)" || { printf '  FAIL  %-44s could not create a temp directory\n' "$label"; return 1; }
   mkdir "$dir/repo" && git init -q "$dir/repo" 2>/dev/null \
@@ -1255,6 +1258,7 @@ remove_exclude() {
 move_agent_backups() {
   local b agent file dest
   key_arg agent "${1:-}" && [[ -n "${2:-}" ]] || return 1
+  # checked above; printf -v marks the validated copy for the scanner
   printf -v file '%s' "$2"
   dest="$common_dir/script-helpers/$agent-backups"
   for b in "$file".bak-*; do

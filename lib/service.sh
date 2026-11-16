@@ -141,6 +141,7 @@ _svc_fingerprint() {
   local pid stat
   # Only a pid: anything else would make /proc/$1 some other path.
   _svc_is_uint "${1:-}" || return 0
+  # checked above; printf -v marks the validated copy for the scanner
   printf -v pid '%s' "$1"
   if [[ -r "/proc/$pid/stat" ]]; then
     stat="$(cat "/proc/$pid/stat" 2>/dev/null)" || return 0
@@ -160,6 +161,7 @@ _svc_group_alive() { kill -0 -- "-$1" 2>/dev/null; }
 _svc_running() {
   local name run pidf startf pid want have
   _svc_name_ok "${1:-}" || { log_error "service: '${1:-}' is not a process name"; return 1; }
+  # checked above; printf -v marks the validated copy for the scanner
   printf -v name '%s' "$1"
   run="$(_svc_root)/.run"; pidf="$run/$name.pid"; startf="$run/$name.started"
   _SVC_PID=""
@@ -329,6 +331,7 @@ _svc_print_urls() {
 _svc_launch() {
   local name cmd="$2" root run pidf logf how="${_SVC_DETACH:-}"
   _svc_name_ok "${1:-}" || { log_error "service: '${1:-}' is not a process name"; return 1; }
+  # checked above; printf -v marks the validated copy for the scanner
   printf -v name '%s' "$1"
   root="$(_svc_root)"; run="$root/.run"
   pidf="$run/$name.pid"; logf="$run/$name.log"
