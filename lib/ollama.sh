@@ -602,7 +602,7 @@ ollama_dialog_select_model() {
   # dialog echoes back the padded tag; 10# forces base ten so the padding is
   # not mistaken for an octal literal.
   local selected_idx=""
-  [[ "$selected" =~ ^[0-9]+$ ]] && selected_idx=$((10#$selected))
+  [[ "$selected" =~ ^[0-9]+$ ]] && selected_idx=$((10#${selected}))
 
   if [[ -z "$selected" || -z "$selected_idx" || -z "${model_lookup[$selected_idx]:-}" ]]; then
     print_error "No model selected." >&2

@@ -726,15 +726,15 @@ _ollama_ep_tier_reserves() {
       print_error "AI_TIER_GPU_RESERVE_GB in $(_ollama_ep_said "$_oep_file") is a whole number of GiB; not $(_ollama_ep_said "$_oep_v")" >&2
       return 2
     fi
-    _oep_gpu=$(( 10#$_oep_v ))
+    _oep_gpu=$(( 10#${_oep_v} ))
   fi
   if [[ "$_oep_names" == *" AI_TIER_RAM_RESERVE_PERCENT "* ]]; then
     _oep_v="$(_ollama_ep_file_val "$_oep_file" AI_TIER_RAM_RESERVE_PERCENT)"
-    if ! _ollama_ep_tier_whole "$_oep_v" || [[ $(( 10#$_oep_v )) -ge 100 ]]; then
+    if ! _ollama_ep_tier_whole "$_oep_v" || [[ $(( 10#${_oep_v} )) -ge 100 ]]; then
       print_error "AI_TIER_RAM_RESERVE_PERCENT in $(_ollama_ep_said "$_oep_file") is a whole number below 100; not $(_ollama_ep_said "$_oep_v")" >&2
       return 2
     fi
-    _oep_ram=$(( 10#$_oep_v ))
+    _oep_ram=$(( 10#${_oep_v} ))
   fi
   printf '%s:%s\n' "$_oep_gpu" "$_oep_ram"
 }
@@ -759,7 +759,7 @@ _ollama_ep_tier_floor() {
     _oep_v="$(_ollama_ep_file_val "$1" "$4")"
   fi
   if _ollama_ep_tier_whole "$_oep_v"; then
-    _oep_v=$(( 10#$_oep_v ))
+    _oep_v=$(( 10#${_oep_v} ))
     if [[ "$_oep_usable" -eq 1 ]]; then
       _oep_g=$(( _oep_v == 0 ? 0 : _oep_v + $5 ))
       _oep_m=$(( (_oep_v * 100 + 99 - $6) / (100 - $6) ))
@@ -1257,9 +1257,9 @@ ollama_endpoint_base_url() {
     _oep_hostport="${_oep_authority##*@}"
   fi
   case "$_oep_hostport" in
-    \[*\]:*) _oep_host="${_oep_hostport%%\]*}]"; _oep_port="${_oep_hostport##*\]:}" ;;
+    \[*\]:*) _oep_host="${_oep_hostport%%']'*}]"; _oep_port="${_oep_hostport##*']:'}" ;;
     \[*\]) _oep_host="$_oep_hostport" ;;
-    \[*|*\]*) return 1 ;;
+    \[*|*']'*) return 1 ;;
     *:*:*) _oep_host="[${_oep_hostport}]" ;;
     *:*) _oep_host="${_oep_hostport%%:*}"; _oep_port="${_oep_hostport##*:}" ;;
     *) _oep_host="$_oep_hostport" ;;
@@ -1297,7 +1297,7 @@ _ollama_ep_host() {
   _oep_rest="${_oep_rest%%[/?#]*}"
   _oep_rest="${_oep_rest##*@}"
   case "$_oep_rest" in
-    \[*) _oep_rest="${_oep_rest#\[}"; _oep_rest="${_oep_rest%%\]*}" ;;
+    \[*) _oep_rest="${_oep_rest#\[}"; _oep_rest="${_oep_rest%%']'*}" ;;
     *) _oep_rest="${_oep_rest%%:*}" ;;
   esac
   _oep_rest="${_oep_rest%.}"

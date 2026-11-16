@@ -193,7 +193,7 @@ PY
   status=$?
   set -e
   if [[ "$status" -eq 1 ]]; then
-    if "$py" - "$tmp/audit.json" "$site" <<'PY'; then
+    if "$py" - "$tmp/audit.json" "$site" <<'PY'
 import json, sys
 r, site = json.load(open(sys.argv[1])), sys.argv[2]
 assert r["crawled"] == 3, r
@@ -208,6 +208,7 @@ assert any(e.startswith("p#long ") for e in wide["iPhone 13"]["elements"]), wide
 clip = f[site + "/clipped.html"]["iPhone 13"]
 assert clip["scroll_width"] == clip["width"] and clip["clipped_headings"], clip
 PY
+    then
       note "audit reports the wide page and the clipped heading on both devices"
     else
       error "audit report checks failed"
@@ -246,7 +247,7 @@ PY
   set -e
   kill "$server_pid" 2>/dev/null || true
   wait "$server_pid" 2>/dev/null || true
-  if [[ "$status" -eq 1 ]] && "$py" - "$tmp/audit-http.json" "$port" <<'PY'; then
+  if [[ "$status" -eq 1 ]] && "$py" - "$tmp/audit-http.json" "$port" <<'PY'
 import json, sys
 r, base = json.load(open(sys.argv[1])), f"http://127.0.0.1:{sys.argv[2]}"
 # /redirect lands on /wide.html, which is also linked: one entry, not two.
@@ -255,15 +256,17 @@ assert not r["http_errors"], r
 # An image opened directly is not a page: listed, not measured.
 assert base + "/wide.png" in r["downloads"], r
 PY
+  then
     note "audit over HTTP reports a redirected page once, under its final URL, and lists an image apart"
   else
     error "audit over HTTP returned $status or reported a page twice: $(cat "$tmp/audit-http.json")"
   fi
-  if [[ "$host_status" -eq 1 ]] && "$py" - "$tmp/audit-host.json" "$port" <<'PY'; then
+  if [[ "$host_status" -eq 1 ]] && "$py" - "$tmp/audit-host.json" "$port" <<'PY'
 import json, sys
 r, base = json.load(open(sys.argv[1])), f"http://127.0.0.1:{sys.argv[2]}"
 assert set(r["findings"]) == {base + "/wide.html", base + "/clipped.html"}, r
 PY
+  then
     note "audit follows a start URL that redirects to another host"
   else
     error "audit of a start URL redirecting to another host returned $host_status: $(cat "$tmp/audit-host.json")"

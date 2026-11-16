@@ -62,6 +62,10 @@ if command -v python3 >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
   rm -f "$tmp/umask.bin"
   ( umask 022; DOWNLOAD_USE_DIALOG=never download_file "http://127.0.0.1:$port/present.bin" "$tmp/umask.bin" 2>/dev/null )
   if [[ "$(file_mode "$tmp/umask.bin")" == "644" ]]; then ok "a downloaded file gets the umask mode, not mktemp's 0600"; else error "downloaded file mode $(file_mode "$tmp/umask.bin")"; fi
+  # umask prints octal (0077); read as decimal it would give 0666 & ~77 = 662.
+  rm -f "$tmp/umask.bin"
+  ( umask 077; DOWNLOAD_USE_DIALOG=never download_file "http://127.0.0.1:$port/present.bin" "$tmp/umask.bin" 2>/dev/null )
+  if [[ "$(file_mode "$tmp/umask.bin")" == "600" ]]; then ok "umask 077 gives a downloaded file 600"; else error "umask 077 mode $(file_mode "$tmp/umask.bin")"; fi
   # Re-downloading over an existing file keeps its mode and a symlink, as
   # curl -o writing in place always did.
   printf 'old' >"$tmp/tool.sh"; chmod 755 "$tmp/tool.sh"

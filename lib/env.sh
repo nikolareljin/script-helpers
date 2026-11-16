@@ -169,7 +169,7 @@ SPLIT
     else
       i=0
       while [[ $i -lt ${#rest} ]]; do
-        c="${rest:$i:1}"
+        c="${rest:i:1}"
         if [[ "$c" == "\\" && ( "${rest:$((i+1)):1}" == '"' || "${rest:$((i+1)):1}" == "\\" ) ]]; then
           inner+="${rest:$((i+1)):1}"; i=$((i+2)); continue
         fi

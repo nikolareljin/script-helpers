@@ -68,7 +68,7 @@ download_file() {
   fi
 
   # Fallback to curl/wget without dialog
-  local rc=0 part
+  local rc=0 part um
   if ! command_exists curl && ! command_exists wget; then
     print_error "Neither curl nor wget is installed."
     return 1
@@ -78,7 +78,8 @@ download_file() {
   # the download, and a file already there survives a failed one.
   part="$(mktemp "$output.XXXXXX")" || return 1
   # mktemp makes the file 0600; a download gets the mode curl would give it.
-  chmod "$(printf '%o' $(( 0666 & ~0$(umask) )))" "$part" 2>/dev/null || true
+  um="$(umask)"
+  chmod "$(printf '%o' $(( 0666 & ~8#${um} )))" "$part" 2>/dev/null || true
   if command_exists curl; then
     # -sS: silent progress, show errors only. -f: an HTTP error is a failure;
     # without it a 404 page was saved as the download and returned 0.

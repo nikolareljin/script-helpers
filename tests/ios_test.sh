@@ -176,7 +176,7 @@ poll_err="$( (
   echo "rc=$? elapsed=$(( $(date +%s) - start ))"
 ) )"
 case "$poll_err" in
-  *"could not list booted simulators"*"rc=1 elapsed=0"*|*"could not list booted simulators"*"rc=1 elapsed=1"*)
+  *'could not list booted simulators'*'rc=1 elapsed=0'*|*'could not list booted simulators'*'rc=1 elapsed=1'*)
     echo "[ios_test] a simctl failure while polling is reported as itself, immediately" ;;
   *) echo "[ios_test] simctl failure while polling was not propagated: $poll_err" >&2; exit 1 ;;
 esac

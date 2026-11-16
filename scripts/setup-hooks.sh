@@ -631,7 +631,7 @@ claude_hook_path() {
   case "$quote:$hook" in
     :\~/*) hook="${HOME:-}/${hook#\~/}" ;;
     [d]:'$HOME/'*|:'$HOME/'*) hook="${HOME:-}/${hook#\$HOME/}" ;;
-    [d]:'${HOME}/'*|:'${HOME}/'*) hook="${HOME:-}/${hook#\$\{HOME\}/}" ;;
+    [d]:\$\{HOME\}/*|:\$\{HOME\}/*) hook="${HOME:-}/${hook#\$\{HOME\}/}" ;;
   esac
   unix_path "$hook"
 }

@@ -304,7 +304,7 @@ if command -v jq >/dev/null 2>&1; then
   # A row without sizes and with a description. Tab is whitespace to `read`,
   # so the empty column vanished and the description was shown as the sizes.
   case "$(logged args)" in
-    *"hf.co/org/quant | sizes: Q4 | from the hub"*"team/tool | sizes: latest"*"zeta | sizes: latest | the last one"*) ok "a model without sizes says latest, and its description stays a description" ;;
+    *'hf.co/org/quant | sizes: Q4 | from the hub'*'team/tool | sizes: latest'*'zeta | sizes: latest | the last one'*) ok "a model without sizes says latest, and its description stays a description" ;;
     *) error "sizes and descriptions: $(logged args)" ;;
   esac
   # A description that is not text, or has a control character in it.
@@ -312,7 +312,7 @@ if command -v jq >/dev/null 2>&1; then
   : >"$tmp/log"
   OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-desc.cache.tsv" FAKE_DIALOG_ANSWER=0001 ollama_dialog_select_model "$tmp/index-desc.json" </dev/null >/dev/null 2>&1
   case "$(logged args)" in
-    *"esc | sizes: latest | a [2Jb c"*"num | sizes: latest | 42"*) ok "a description is shown as text, without its control characters" ;;
+    *'esc | sizes: latest | a [2Jb c'*'num | sizes: latest | 42'*) ok "a description is shown as text, without its control characters" ;;
     *) error "odd descriptions: $(logged args | od -c | sed -n 1,5p)" ;;
   esac
 
@@ -341,7 +341,7 @@ if command -v jq >/dev/null 2>&1; then
   model="$(OLLAMA_MODEL_MENU_CACHE_FILE="$tmp/menu-hand.cache.tsv" FAKE_DIALOG_ANSWER=0002 ollama_dialog_select_model "$tmp/index-hand.json" </dev/null 2>/dev/null)"
   check "a cache made from this index and newer than it is used, without its rows that are not references" "also/fine" "$model"
   case "$(logged args)" in
-    *"Showing 3."*"0003 short | sizes: latest"*) ok "three rows are offered, and one cut short still says latest" ;;
+    *'Showing 3.'*'0003 short | sizes: latest'*) ok "three rows are offered, and one cut short still says latest" ;;
     *) error "rows of a hand-written cache: $(logged args)" ;;
   esac
   # The same cache is not used for another index (a cache path the caller
@@ -426,7 +426,7 @@ INDEX
   check "an index with unusable entries still gives a menu, of the usable ones" "0:registry.example:5000/team/model" "$rc:$model"
   check "three rows, and nothing of the others in the menu" "3:0" "$(grep -vc '^#' "$tmp/menu-bad.cache.tsv" | tr -d ' '):$(grep -c -e 'touch' -e 'two words' -e '--menu/x' -e '(id)' -e 'qwen3:' -e 'trailing' -e 'break' -e "$(printf '\303\250')" -e 'esc' -e 'unit' "$tmp/log")"
   case "$(logged args)" in
-    *"good | sizes: 7b, ok-1 "*"hf.co/org/tagged:Q4_K_M | sizes: in the name "*) ok "the menu shows only the sizes that can be a tag, and none for a name that has its tag" ;;
+    *'good | sizes: 7b, ok-1 '*'hf.co/org/tagged:Q4_K_M | sizes: in the name '*) ok "the menu shows only the sizes that can be a tag, and none for a name that has its tag" ;;
     *) error "sizes shown: $(logged args)" ;;
   esac
   check "names that are not a reference are not listed either" "good hf.co/org/tagged:Q4_K_M registry.example:5000/team/model" "$(ollama_list_models "$tmp/index-bad.json" | sort | tr '\n' ' ' | sed 's/ $//')"
@@ -601,7 +601,7 @@ if [[ "${BASH_VERSINFO[0]}" -ge 4 ]]; then
   one="$(FAKE_DIALOG_ANSWER=1 select_distro </dev/null 2>/dev/null)"; rc=$?
   check "one distro: the choice, with the screen on the terminal" "0:1:1" "$rc:$one:$(grep -c "SCREEN-ERR" "$tty_file")"
   check "--stdout once" "1" "$(logged stdout-flags)"
-  case "$(logged args)" in *" --menu "*"0 Ubuntu"*"1 Debian"*|*" --menu "*"1 Debian"*"0 Ubuntu"*) ok "it is a menu of the caller's entries" ;; *) error "not that menu: $(logged args)" ;; esac
+  case "$(logged args)" in *' --menu '*'0 Ubuntu'*'1 Debian'*|*' --menu '*'1 Debian'*'0 Ubuntu'*) ok "it is a menu of the caller's entries" ;; *) error "not that menu: $(logged args)" ;; esac
   fresh
   many="$(FAKE_DIALOG_ANSWER="0 1" select_multiple_distros </dev/null 2>/dev/null)"
   check "several distros: the choices" "0 1" "$many"

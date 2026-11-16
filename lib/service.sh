@@ -61,7 +61,7 @@ _svc_timeout() {
     log_error "service: $name='$val' is not a number of seconds"
     return 2
   fi
-  printf '%s\n' "$((10#$val))"
+  printf '%s\n' "$((10#${val}))"
 }
 
 # Internal: parse SVC_PROCS into _SVC_NAMES / _SVC_CMDS. Names become file
@@ -107,7 +107,7 @@ _svc_check_ports_config() {
   local e p v
   for e in ${SVC_PORTS[@]+"${SVC_PORTS[@]}"}; do
     p="$(_svc_port_of "$e")"; v="$(_svc_port_var "$e")"
-    if ! _svc_is_uint "$p" || (( 10#$p < 1 || 10#$p > 65535 )); then
+    if ! _svc_is_uint "$p" || (( 10#${p} < 1 || 10#${p} > 65535 )); then
       log_error "service: SVC_PORTS entry '$e' is not a port 1-65535 (or NAME:port)"
       return 2
     fi
@@ -242,11 +242,11 @@ _svc_ports_free() {
       taken=1; i=$((i + 1)); continue
     fi
     free="$(port_next_free "$p" 2>/dev/null)" || free=""
-    log_error "service: port $p${v:+ ($v)} is already in use by $owner"
+    log_error "service: port $p${v:+" ($v)"} is already in use by $owner"
     if [[ -n "$v" ]]; then
-      log_error "service: stop that process, or set $v to a free port${free:+ ($free is free)} in .env or the environment, then start again"
+      log_error "service: stop that process, or set $v to a free port${free:+" ($free is free)"} in .env or the environment, then start again"
     else
-      log_error "service: stop that process, or move the service to a free port${free:+ ($free is free)} (its configuration and SVC_PORTS), then start again"
+      log_error "service: stop that process, or move the service to a free port${free:+" ($free is free)"} (its configuration and SVC_PORTS), then start again"
     fi
     taken=1; i=$((i + 1))
   done
