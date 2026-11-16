@@ -359,6 +359,9 @@ note "what an Ollama has"
 reset main:7b embed:latest
 check "its models, as it names them" "main:7b embed:latest" "$(ollama_endpoint_models "$URL" | one_line)"
 check "a trailing slash is tolerated" "main:7b embed:latest" "$(ollama_endpoint_models "$URL/" | one_line)"
+# "-K<dir>" would make curl read <dir>/api/tags as its config file.
+mkdir -p "$tmp/kcfg/api"; printf 'url = "%s/api/tags"\n' "$URL" >"$tmp/kcfg/api/tags"
+check "a URL that starts with - is refused, not read by curl as an option" "1:" "$(o="$(ollama_endpoint_models "-K$tmp/kcfg" 2>/dev/null)"; echo "$?:$o")"
 check "(the fake does not serve a doubled slash, so that was the module)" "404" "$(curl -s -o /dev/null -w '%{http_code}' "$URL//api/tags")"
 reset
 check "an Ollama with no models answers, with nothing" "0:" "$(ollama_endpoint_models "$URL"; echo "$?:")"
@@ -951,11 +954,11 @@ printf 'OLLAMA_URL=%s\nCLASSIFY_MODEL=team/tool:1b\n' "$URL" >"$tmp/proj/.env"
 check "an unapproved model in .env, no terminal: refused (9), nothing pulled" "9:" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"
 said "the refusal names the model and the approved one" "$tmp/err" "CLASSIFY_MODEL=team/tool:1b is not an approved model" "approved: small:3b"
 reset main:7b embed:latest
-check "on a terminal, after a yes, the model named in .env is the one checked" "0:team/tool:1b" "$( ( _ollama_ep_can_ask() { return 0; }; unset CI GITHUB_ACTIONS; ollama_project_ensure_models "$tmp/proj/ai-models.env" "$tmp/proj/.env" >"$tmp/out" 2>"$tmp/err" <<<"y"; echo $? ) ):$(pulled)"
+check "on a terminal, after a yes, the model named in .env is the one checked" "0:team/tool:1b" "$( ( _ollama_ep_can_ask() { return 0; }; unset CI GITHUB_ACTIONS; ollama_project_ensure_models "$tmp/proj/ai-models.env" "$tmp/proj/.env" <<<"y" >"$tmp/out" 2>"$tmp/err"; echo $? ) ):$(pulled)"
 reset main:7b embed:latest
-check "on a terminal, a no: refused (9)" "9:" "$( ( _ollama_ep_can_ask() { return 0; }; unset CI GITHUB_ACTIONS; ollama_project_ensure_models "$tmp/proj/ai-models.env" "$tmp/proj/.env" >"$tmp/out" 2>"$tmp/err" <<<"n"; echo $? ) ):$(pulled)"
+check "on a terminal, a no: refused (9)" "9:" "$( ( _ollama_ep_can_ask() { return 0; }; unset CI GITHUB_ACTIONS; ollama_project_ensure_models "$tmp/proj/ai-models.env" "$tmp/proj/.env" <<<"n" >"$tmp/out" 2>"$tmp/err"; echo $? ) ):$(pulled)"
 reset main:7b embed:latest
-check "in CI, even with a terminal: refused, never asked" "9:0" "$( ( _ollama_ep_can_ask() { return 0; }; export CI=true; ollama_project_ensure_models "$tmp/proj/ai-models.env" "$tmp/proj/.env" >"$tmp/out" 2>"$tmp/err" <<<"y"; echo $? ) ):$(pulled)$(grep -c 'Use it anyway' "$tmp/err")"
+check "in CI, even with a terminal: refused, never asked" "9:0" "$( ( _ollama_ep_can_ask() { return 0; }; export CI=true; ollama_project_ensure_models "$tmp/proj/ai-models.env" "$tmp/proj/.env" <<<"y" >"$tmp/out" 2>"$tmp/err"; echo $? ) ):$(pulled)$(grep -c 'Use it anyway' "$tmp/err")"
 reset main:7b embed:latest
 printf 'OLLAMA_URL=%s\nCLASSIFY_MODEL=SMALL:3B\n' "$URL" >"$tmp/proj/.env"
 check "an approved model in .env, however written, is not an override" "0:SMALL:3B" "$(project "$tmp/proj/ai-models.env" "$tmp/proj/.env"):$(pulled)"

@@ -106,7 +106,7 @@ if [[ -n "$chromium" && -x "$chromium" ]]; then
   expect_status 1 "a wide page, a clean page and a missing page" \
     webshot_android_audit "http://127.0.0.1:$site_port/" --path /wide.html --path /clean-only.html \
     --path /nope.html --shots "$tmp/shots"
-  if "$py" - "$tmp/out" "$site_port" <<'PY'; then
+  if "$py" - "$tmp/out" "$site_port" <<'PY'
 import json, sys
 r, base = json.load(open(sys.argv[1])), f"http://127.0.0.1:{sys.argv[2]}"
 assert r["device"] == "Fake Phone", r
@@ -116,6 +116,7 @@ f = r["findings"][base + "/wide.html"]["Fake Phone"]
 assert f["scroll_width"] > f["width"] and f["elements"], f
 assert r["http_errors"] == {base + "/nope.html": 404}, r
 PY
+  then
     note "the report names the wide page and the missing one"
   else
     error "android audit report: $(cat "$tmp/out") $(cat "$tmp/err")"

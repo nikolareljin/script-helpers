@@ -221,7 +221,33 @@ if [[ "$ON_WINDOWS" != true ]]; then
   # The shell leaves $HOME and ~ alone in single quotes, so that hook cannot run.
   set_command "bash '$via_home'"
   [[ "$(porcelain_user)" == broken ]] && ok "single-quoted \$HOME/: broken" || error "single-quoted \$HOME: $(bash "$SETUP" --status --porcelain --claude 2>&1)"
+  # The same for ${HOME}/: expanded bare or double-quoted, not single-quoted.
+  via_braced="\${HOME}/../${hook_copy#"$tmp"/}"
+  set_command "bash \"$via_braced\""
+  [[ "$(porcelain_user)" == ok ]] && ok "a double-quoted \${HOME}/ entry: ok" || error "\${HOME} form: $(bash "$SETUP" --status --porcelain --claude 2>&1)"
+  set_command "bash $via_braced"
+  [[ "$(porcelain_user)" == ok ]] && ok "a bare \${HOME}/ entry: ok" || error "bare \${HOME}: $(bash "$SETUP" --status --porcelain --claude 2>&1)"
+  set_command "bash '$via_braced'"
+  [[ "$(porcelain_user)" == broken ]] && ok "single-quoted \${HOME}/: broken" || error "single-quoted \${HOME}: $(bash "$SETUP" --status --porcelain --claude 2>&1)"
 fi
+# claude_hook_path on its own: only a literal ${HOME}/, bare or double-quoted,
+# is expanded by the ${HOME} branch.
+eval "$(sed -n '/^claude_hook_path() {/,/^}/p' "$SETUP")"
+unix_path() { printf '%s\n' "$1"; }
+# shellcheck disable=SC2016 # the inputs are literal ${HOME} and $HOME text
+for case_ in \
+  '"${HOME}/x"|'"$HOME/x" \
+  '${HOME}/x|'"$HOME/x" \
+  "'\${HOME}/x'|\${HOME}/x" \
+  '"$HOME/x"|'"$HOME/x" \
+  "$HOME/x|$HOME/x" \
+  '"${HOME}x"|${HOME}x' \
+  '"${HOMEX}/x"|${HOMEX}/x' \
+  '"{HOME}/x"|{HOME}/x'; do
+  in_="${case_%|*}"; want="${case_#*|}"
+  got="$(claude_hook_path "$in_")"
+  [[ "$got" == "$want" ]] && ok "claude_hook_path $in_ -> $want" || error "claude_hook_path $in_: got $got, want $want"
+done
 point_entry "$tmp/nowhere/scripts/claude-hooks/pretooluse_private_names.sh"
 [[ "$(porcelain_user)" == broken ]] && ok "an entry to a missing file: broken" || error "broken porcelain: $(bash "$SETUP" --status --porcelain --claude 2>&1)"
 rc="$(run --status)"

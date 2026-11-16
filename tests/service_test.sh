@@ -70,6 +70,15 @@ proc_setup() {
   SVC_STOP_TIMEOUT=5; SVC_READY_TIMEOUT=5
 }
 
+# --- internal arguments ------------------------------------------------------
+# A timeout's name is read, never evaluated: this one used to run touch.
+# shellcheck disable=SC2016 # the name is literal text
+bad_name='X:-$(touch "$tmp/pwned")}'
+_svc_timeout "$bad_name" 5 >/dev/null 2>&1; rc=$?
+check "a timeout name that is not a variable name: 2, nothing run" "2:no" "$rc:$([[ -e "$tmp/pwned" ]] && echo yes || echo no)"
+check "a timeout variable is still read" "7" "$(SVC_X_TIMEOUT=7 _svc_timeout SVC_X_TIMEOUT 5)"
+check "a fingerprint is only of a pid (not /proc/self)" "" "$(_svc_fingerprint self)"
+
 # --- usage -------------------------------------------------------------------
 unset SVC_BACKEND
 svc_start >"$out" 2>&1; check "SVC_BACKEND unset is a usage error" 2 $?
@@ -291,7 +300,7 @@ fi
 proc_setup "web:sleep 300"; SVC_HEALTH_URL="http://127.0.0.1:1/health"
 mkdir -p "$tmp/nocurl"; for t in bash sh cat head mkdir rm sleep awk sed ps tr date mv perl setsid git dirname basename; do
   w="$(command -v "$t" 2>/dev/null)" && ln -sf "$w" "$tmp/nocurl/$t"; done
-( PATH="$tmp/nocurl"; svc_start ) >"$out" 2>&1; check "no curl with SVC_HEALTH_URL refuses start" 1 $?
+( export PATH="$tmp/nocurl"; svc_start ) >"$out" 2>&1; check "no curl with SVC_HEALTH_URL refuses start" 1 $?
 said "saying what is needed" "$out" "curl is needed to check SVC_HEALTH_URL"
 check "and nothing was started" no "$([[ -e "$SVC_ROOT/.run/web.pid" ]] && echo yes || echo no)"
 SVC_HEALTH_URL=""

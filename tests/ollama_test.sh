@@ -33,6 +33,17 @@ shlib_import logging os file json env python ollama
 file_mode() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 
 note "ollama_update_env"
+# A file name that starts with "-" is a file, not an option of touch or mktemp.
+mkdir -p "$tmp/dash"
+rc=0; (cd "$tmp/dash" && ollama_update_env -dash.env model qwen2 >/dev/null 2>&1) || rc=$?
+if [[ "$rc" == "0" ]] && grep -q '^model=qwen2$' "$tmp/dash/-dash.env" 2>/dev/null; then ok "a -name file is written"; else error "-name env file rc=$rc"; fi
+rc=0; (cd "$tmp/dash" && ollama_update_env -dash.env model qwen3 >/dev/null 2>&1) || rc=$?
+if [[ "$rc" == "0" ]] && grep -q '^model=qwen3$' "$tmp/dash/-dash.env"; then ok "a -name file is rewritten"; else error "-name env rewrite rc=$rc"; fi
+printf '[{"name":"good","sizes":["7b"]}]\n' >"$tmp/dash/index.json"
+rc=0; (cd "$tmp/dash" && ollama_prepare_model_menu_cache index.json -menu.tsv >/dev/null 2>&1) || rc=$?
+if [[ "$rc" == "0" && -s "$tmp/dash/-menu.tsv" ]]; then ok "a -name menu cache is written"; else error "-name menu cache rc=$rc"; fi
+rc=0; said="$(ollama_runtime_export_model local "$tmp/x.env" good "" 2>&1 >/dev/null)" || rc=$?
+if [[ "$rc" == "1" && "$said" == *"an empty path"* ]]; then ok "an empty export path is refused"; else error "empty export path rc=$rc"; fi
 f="$tmp/app.env"
 printf 'SECRET_TOKEN=s3cr3t\nmodel=llama3\n' >"$f"; chmod 600 "$f"
 ollama_update_env "$f" model qwen2

@@ -245,13 +245,13 @@ ctx_rc() {  # ctx_rc <want> <desc> <text> [args...]
 }
 out="$(printf 'about bluewidget' | PRIVATE_NAMES_ALLOW=bluewidget bash "$GATE" --stdin --list "$list" 2>&1)"
 case "$out" in
-  *"allowed by override"*"checked as a repository reference"*bluewidget*) ok "an override says the word is free and the name still checked" ;;
+  *'allowed by override'*'checked as a repository reference'*bluewidget*) ok "an override says the word is free and the name still checked" ;;
   *) error "the override did not say what it still checks: $out" ;;
 esac
 # A warning by default, as for an everyday-word name: exit 0, with the line shown.
 out="$(printf 'see bluewidget.git for it' | PRIVATE_NAMES_ALLOW=bluewidget bash "$GATE" --stdin --list "$list" 2>&1)"; rc=$?
 case "$rc:$out" in
-  0:*"bluewidget.git"*"shape of a repository reference"*"needs a person"*) ok "a .git suffix on an allowed word warns with the line" ;;
+  0:*'bluewidget.git'*'shape of a repository reference'*'needs a person'*) ok "a .git suffix on an allowed word warns with the line" ;;
   *) error "a .git suffix on an allowed word did not warn (exit $rc): $out" ;;
 esac
 # Strict: a failure, and the hint does not offer an allow list that already holds the word.
@@ -330,7 +330,7 @@ printf 'cd bluewidget && make\n' > "$ctx_repo/build.sh"
 git_t -C "$ctx_repo" add . && git_t -C "$ctx_repo" commit -q -m init
 out="$(cd "$ctx_repo" && PRIVATE_NAMES_ALLOW=bluewidget bash "$GATE" --tree --list "$list" 2>&1)"; rc=$?
 case "$rc:$out" in
-  0:*build.sh*"cd bluewidget"*"shape of a repository reference"*"needs a person"*) ok "the tree warns on an allowed word in repository shape" ;;
+  0:*build.sh*'cd bluewidget'*'shape of a repository reference'*'needs a person'*) ok "the tree warns on an allowed word in repository shape" ;;
   *) error "the tree did not warn on an allowed word in repository shape (exit $rc): $out" ;;
 esac
 case "$out" in

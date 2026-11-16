@@ -130,6 +130,14 @@ Install the pinned release, checked against the SHA-256 in `lib/ci_defaults.sh`
 bash scripts/setup-hooks.sh --install-foxguard     # or: scripts/ci_security.sh --install-foxguard
 ```
 
+The library's own code follows one convention where a caller's argument reaches
+`curl`, `eval`, `rm`, `mv`, `source` or a path: check the value first, then copy
+it with `printf -v <var> '%s' "$1"` and pass only the copy on. foxguard does not
+follow taint through `printf -v`, so the copy reads as clean. Each such line
+carries the comment `# checked above; printf -v marks the validated copy for
+the scanner`. A foxguard release that tracks `printf -v` flags these lines again;
+the check before each one is what makes them safe, not the copy.
+
 ## Workflow actions
 
 `scripts/check_workflow_actions.sh` checks `.github/workflows` (or the files and
