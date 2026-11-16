@@ -1,5 +1,7 @@
 ## Unreleased
 
+## 2026-11-16 — v0.65.4
+
 ### Fixed
 
 - **foxguard 0.14.1 parses every shell file again.** It skipped 20 files with "(parse error)", `scripts/setup-hooks.sh` among them, and a diff gate refuses a changed file it cannot parse, so vendoring them failed. Rewrites that bash reads the same way: `10#$v` as `10#${v}`; `${s%%\]*}` as `${s%%']'*}`; `${v:+ (x $y)}` in double quotes as `${v:+" (x $y)"}`; case patterns with several double-quoted parts (`*"a"*"b"*`) single-quoted or as `[[ == ]]`; `[d]:'${HOME}/'*` as `[d]:\$\{HOME\}/*`; `~0$(umask)` as `~8#${um}`; a here-document in an `if` with `then` on its own line; `<<<` before other redirections. Tests: `tests/foxguard_parse_test.sh` (fails without the fix; skips when foxguard is not installed, `FOXGUARD_REQUIRE=1` makes that a failure), the `${HOME}/` cases in `tests/setup_claude_hook_test.sh` and the umask 077 case in `tests/file_test.sh`. Closes https://github.com/nikolareljin/script-helpers/issues/276.
