@@ -625,11 +625,12 @@ sec_foxguard_level() {
   printf '%s\n' "${level:-high}"
 }
 
-# sec_foxguard_refuse <level> <reason>: the scan could not decide; refuse.
+# sec_foxguard_refuse <level> <reason> [<fix>]: the scan could not decide;
+# refuse. <fix> is the remedy for this cause; the default is to install foxguard.
 sec_foxguard_refuse() {
   echo "Foxguard check failed: $2." >&2
   echo "[pre-push] ERROR: $2; security.foxguardBlock is $1, so the push is refused." >&2
-  echo "[pre-push] Install the pinned foxguard: scripts/setup-hooks.sh --install-foxguard (see docs/security-gates.md)," >&2
+  echo "[pre-push] ${3:-Install the pinned foxguard: scripts/setup-hooks.sh --install-foxguard} (see docs/security-gates.md)," >&2
   echo "[pre-push] or only warn in this repository: git config security.foxguardBlock off" >&2
   return 1
 }
@@ -666,7 +667,7 @@ sec_foxguard_tree() {
 # scanned; 1 failed. Files it skipped for any reason but an unsupported
 # extension (parse error, too large, still noise) are listed in <out>.skipped.
 sec_foxguard_scan() {
-  local rc f k=0
+  local rc f x k=0
   { mkdir -p "$4" && : > "$4.err"; } || return 1
   while IFS= read -r f; do
     [[ -n "$f" && -f "$3/$f" ]] || continue
@@ -677,7 +678,14 @@ sec_foxguard_scan() {
       rc=0; printf '%s\n' "$f" > "$4/$k.path"
       # shellcheck disable=SC2086
       ( cd "$3/$(dirname "$f")" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "${f##*/}" ) </dev/null >/dev/null 2>"$4.one" || rc=$?
-      if grep -q 'noise path' "$4.one"; then printf 'warning: skipping %s (noise path)\n' "$f" >> "$4.one"; fi
+      # Still noise: the name itself (x.min.js). Scan a copy named <n>.<ext>.
+      if [[ "$rc" -le 1 ]] && grep -q 'noise path' "$4.one"; then
+        rc=0; x="${f##*/}"; x="${x##*.}"
+        { mkdir -p "$4/$k.d" && cat < "$3/$f" > "$4/$k.d/$k.$x"; } || return 1
+        # shellcheck disable=SC2086
+        ( cd "$4/$k.d" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "$k.$x" ) </dev/null >/dev/null 2>"$4.one" || rc=$?
+        if grep -q 'noise path' "$4.one"; then printf 'warning: skipping %s (noise path)\n' "$f" >> "$4.one"; fi
+      fi
     fi
     { grep "" "$4.one" || true; } >> "$4.err"
     { [[ "$rc" -eq 0 || "$rc" -eq 1 ]] && [[ -s "$4/$k.json" ]]; } || return 1
@@ -829,7 +837,8 @@ sec_foxguard_block() (
     fi
     if [[ -s "$d/tip.json.skipped" ]]; then
       sed 's/^/[pre-push] foxguard: /' "$d/tip.json.skipped" >&2
-      sec_foxguard_refuse "$level" "foxguard skipped $(wc -l < "$d/tip.json.skipped" | tr -d ' ') changed file(s)"; exit 1
+      sec_foxguard_refuse "$level" "foxguard skipped $(wc -l < "$d/tip.json.skipped" | tr -d ' ') changed file(s)" \
+        "Fix each file named above (a parse error, or over 1 MB) so foxguard can read it"; exit 1
     fi
     set --; i=0
     while IFS= read -r b; do

@@ -160,7 +160,9 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
   flagged line is new, one that only moved is not. Without a base, every file
   of the tip. Each file is scanned on its own, so hidden paths and the ones
   foxguard skips as noise in a directory scan (`vendor/`, `node_modules/`,
-  `build/`, `dist/`) are read too.
+  `build/`, `dist/`) are read too. A file foxguard calls noise by its name
+  (`app.min.js`) is scanned as a copy under another name and reported under
+  its own. A skipped file is named, with the cause.
   A changed path with a tab or newline refuses the push. Ignore files
   (`.ignore` and the like) are not written to the scanned tree, so a push
   cannot hide its own files. Inline suppressions (`# foxguard: ignore`, the word

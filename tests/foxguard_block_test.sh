@@ -242,6 +242,13 @@ $high_code"
     setup; publish; mkdir -p "$tmp/repo/$(dirname "$p")"; commit "$p" "$high_code"
     expect "a new finding in $p blocks" 1 "$(check "$F")"
   done
+  # foxguard calls a minified name (x.min.js) noise wherever it sits: it is
+  # read under another name, so it neither escapes nor refuses a clean push.
+  setup; publish; mkdir -p "$tmp/repo/static"; commit static/app.min.js 'document.body.innerHTML = location.hash;'
+  expect "a new finding in static/app.min.js blocks" 1 "$(check "$F")"
+  has "under its real name" "static/app.min.js:1"
+  setup; publish; commit lib.min.js "var a = 1;"
+  expect "a clean lib.min.js passes at high" 0 "$(check "$F")"
   # Such a file keeps its real name, so a finding already at the base is matched.
   setup; mkdir -p "$tmp/repo/vendor"; commit vendor/app.py "$high_code"; publish
   commit vendor/app.py "# touched
@@ -287,6 +294,8 @@ def load(x):
     pass'
   expect "a changed file foxguard skips (parse error) blocks at high" 1 "$(check "$F")"
   has "and says which" "skipping broken.py (parse error)"
+  if grep -qF "Install the pinned foxguard" "$tmp/out"; then error "a skip must not advise installing foxguard"; else ok "a skip does not advise installing foxguard"; fi
+  has "it says how to fix a skip" "so foxguard can read it"
   expect "and only warns at off" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
   # A file of no language foxguard reads is not a skip.
   setup; commit notes.txt "plain text"
