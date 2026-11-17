@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # SCRIPT: foxguard_parse_test.sh
-# DESCRIPTION: Fails when foxguard cannot parse a shell or Python file in the repository.
+# DESCRIPTION: Fails when foxguard skips a tracked file for any reason but an unsupported extension.
 # USAGE: ./tests/foxguard_parse_test.sh
 # PARAMETERS: No required parameters. FOXGUARD_REQUIRE=1 turns a missing foxguard
 #             into a failure instead of a skip.
 # EXAMPLE: bash tests/foxguard_parse_test.sh
 # ----------------------------------------------------
-# A diff gate that runs foxguard refuses a changed file foxguard skips with
-# "(parse error)", so every vendored copy of such a file fails that gate.
-# Templates with @PLACEHOLDER@ text (templates/) are not source and are ignored.
+# The pre-push hook and diff gates that run foxguard refuse a changed file
+# foxguard skips (parse error, too large), so such a file cannot be pushed or
+# vendored. Each tracked file is scanned on its own, the way the hook scans a
+# changed file, so hidden paths, templates and fixtures are covered too.
 set -euo pipefail
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
@@ -24,13 +25,40 @@ if ! command -v foxguard >/dev/null 2>&1; then
 fi
 note "using $(foxguard --version 2>&1 | sed -n 1p)"
 
-out="$(cd "$root_dir" && foxguard . 2>&1)" || true
-skipped="$(printf '%s\n' "$out" | grep -oE 'skipping [^ ]+ \(parse error\)' \
-  | sed -E 's/^skipping (.*) \(parse error\)$/\1/' \
-  | grep -E '\.(sh|bash|py)$' | grep -v '^\./templates/' | sort || true)"
+# fg <dir> <file>: foxguard on one file from <dir>; prints its messages.
+# Exit 0 or 1 is a scan (1 = findings); anything else is a failed scan.
+fg() { ( cd "$1" && foxguard --quiet --format json --output /dev/null -- "$2" ) </dev/null 2>&1 >/dev/null; }
+
+tmp="$(mktemp -d)"
+# Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
+skipped=""
+while IFS= read -r -d '' f; do
+  [[ -f "$root_dir/$f" && ! -L "$root_dir/$f" ]] || continue
+  rc=0; out="$(fg "$root_dir" "$f")" || rc=$?
+  # A noise path (vendor/, build/, x.min.js) is dropped without a scan; the
+  # pre-push hook scans it again from its own directory, then as a copy.
+  if [[ $rc -le 1 ]] && grep -q 'noise path' <<<"$out"; then
+    rc=0; out="$(fg "$root_dir/$(dirname "$f")" "${f##*/}")" || rc=$?
+    out="${out//skipping ${f##*/} (/skipping $f (}"
+    if [[ $rc -le 1 ]] && grep -q 'noise path' <<<"$out"; then
+      x="${f##*/}"; x="copy.${x##*.}"
+      cat < "$root_dir/$f" > "$tmp/$x"
+      rc=0; out="$(fg "$tmp" "$x")" || rc=$?
+      out="${out//skipping $x (/skipping $f (}"
+      if grep -q 'noise path' <<<"$out"; then out+=$'\n'"warning: skipping $f (noise path)"; fi
+    fi
+  fi
+  if [[ $rc -gt 1 ]]; then
+    skipped+="$f (foxguard exit $rc)"$'\n'
+  elif reason="$(grep -E '^warning: skipping .* \(.*\)$' <<<"$out" \
+      | grep -v '(unsupported extension)$')"; then
+    skipped+="$reason"$'\n'
+  fi
+done < <(cd "$root_dir" && git ls-files -z)
 if [[ -n "$skipped" ]]; then
-  note "FAIL: foxguard cannot parse these files:" >&2
-  printf '%s\n' "$skipped" | sed 's/^/  /' >&2
+  note "FAIL: foxguard skips these tracked files:" >&2
+  printf '%s' "$skipped" | sed 's/^/  /' >&2
   exit 1
 fi
-note "PASS: foxguard parses every shell and Python file"
+note "PASS: foxguard reads every tracked file it supports"

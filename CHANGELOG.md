@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Fixed
+
+- **foxguard parses `templates/packaging/brew/app.rb`, so a change to it can be pushed.** foxguard 0.14.1 skipped it with "(parse error)" and the pre-push hook refuses a changed file it skips. Lines that are not Ruby until filled in (`class @BREW_FORMULA_CLASS@ < Formula`, the closing `end`, the dependency, install and test lines) now start with the comment marker `#@ `, which `render_brew_formula.sh` and `packaging_init.sh` (for `.rb` templates only) remove before substitution. The rendered formula is byte-identical for the same inputs. Tests: `tests/foxguard_parse_test.sh` now scans every tracked file on its own, templates and hidden paths included, and fails on any skip but an unsupported extension (fails without the fix); `tests/brew_packaging_test.sh` checks both renderers give the same formula. Closes https://github.com/nikolareljin/script-helpers/issues/282.
+
 ## 2026-11-17 — v0.66.0
 
 ### Changed

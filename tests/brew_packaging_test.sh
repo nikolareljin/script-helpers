@@ -63,6 +63,9 @@ EOF
     if grep -qF 'make && make docs' "$repo/debian/rules" &&
        grep -qF 'make && make docs' "$repo/packaging/rpm/myapp.spec" &&
        grep -qF 'desc "Search & replace tool"' "$repo/packaging/brew/myapp.rb" &&
+       [[ "$(sed -n 1p "$repo/packaging/brew/myapp.rb")" == "class Myapp < Formula" ]] &&
+       [[ "$(sed -n '$p' "$repo/packaging/brew/myapp.rb")" == "end" ]] &&
+       ! grep -qF '#@' "$repo/packaging/brew/myapp.rb" &&
        ! grep -rqF '@APP_BUILD_CMD@' "$repo/debian" "$repo/packaging"; then
       note "packaging_init ($impl): & in values rendered literally"
     else
@@ -76,7 +79,8 @@ EOF
   if PATH="$bin:$PATH" bash scripts/render_brew_formula.sh --repo "$repo" --output "$out" >/dev/null 2>&1; then
     if grep -qF 'homepage "https://example.com/?a=1&b=2"' "$out" &&
        grep -qF '"PREFIX=#{prefix}" if true && true' "$out" &&
-       grep -qF "sha256 \"$SHA\"" "$out"; then
+       grep -qF "sha256 \"$SHA\"" "$out" &&
+       cmp -s "$out" "$repo/packaging/brew/myapp.rb"; then
       note "render_brew_formula ($impl): & in values rendered literally"
     else
       error "render_brew_formula ($impl): values mangled: $(cat "$out")"
