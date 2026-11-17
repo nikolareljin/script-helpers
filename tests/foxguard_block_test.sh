@@ -249,6 +249,12 @@ $high_code"
   has "under its real name" "static/app.min.js:1"
   setup; publish; commit lib.min.js "var a = 1;"
   expect "a clean lib.min.js passes at high" 0 "$(check "$F")"
+  # A skipped copy is named by its real path, so the advice to fix it is usable.
+  setup; publish; mkdir -p "$tmp/repo/static"
+  awk 'BEGIN { for (i = 0; i < 90000; i++) print "var a" i " = 1;" }' > "$tmp/repo/static/big.min.js"
+  gc -C "$tmp/repo" add static/big.min.js; gc -C "$tmp/repo" commit -q -m big
+  expect "an oversized big.min.js is refused at high" 1 "$(check "$F")"
+  has "under its real name" "foxguard: warning: skipping static/big.min.js ("
   # Such a file keeps its real name, so a finding already at the base is matched.
   setup; mkdir -p "$tmp/repo/vendor"; commit vendor/app.py "$high_code"; publish
   commit vendor/app.py "# touched

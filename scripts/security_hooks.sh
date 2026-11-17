@@ -683,7 +683,10 @@ sec_foxguard_scan() {
         rc=0; x="${f##*/}"; x="${x##*.}"
         { mkdir -p "$4/$k.d" && cat < "$3/$f" > "$4/$k.d/$k.$x"; } || return 1
         # shellcheck disable=SC2086
-        ( cd "$4/$k.d" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "$k.$x" ) </dev/null >/dev/null 2>"$4.one" || rc=$?
+        ( cd "$4/$k.d" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "$k.$x" ) </dev/null >/dev/null 2>"$4.two" || rc=$?
+        # Name the copy by its real path in foxguard's messages (a skip is advice).
+        C="$k.$x" R="$f" awk '{ p = "skipping " ENVIRON["C"] " ("; i = index($0, p)
+          if (i) $0 = substr($0, 1, i - 1) "skipping " ENVIRON["R"] " (" substr($0, i + length(p)); print }' "$4.two" > "$4.one" || return 1
         if grep -q 'noise path' "$4.one"; then printf 'warning: skipping %s (noise path)\n' "$f" >> "$4.one"; fi
       fi
     fi
