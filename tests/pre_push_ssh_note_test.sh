@@ -12,6 +12,8 @@
 set -uo pipefail
 # The hooks would download a missing gitleaks or foxguard; tests never do.
 export SCRIPT_HELPERS_NO_AUTO_INSTALL=1
+# Not about foxguard (tests/foxguard_block_test.sh is), and CI has none.
+export SCRIPT_HELPERS_FOXGUARD_BLOCK=off
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOOK="$ROOT_DIR/scripts/git-hooks/pre-push"

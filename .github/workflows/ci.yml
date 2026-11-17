@@ -85,6 +85,9 @@ jobs:
           check_rc=0
           bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
           unset CI GITHUB_ACTIONS
+          # The pinned foxguard, SHA-256 checked, so tests/foxguard_block_test.sh
+          # runs its finding cases instead of skipping them.
+          bash scripts/ci_security.sh --install-foxguard
           make test
           PRIVATE_CHECK
           if [[ "$check_rc" -ne 0 ]]; then

@@ -1,7 +1,8 @@
 # Security gates in the git hooks
 
 The shared hooks refuse prohibited content before it leaves the machine.
-Foxguard findings remain advisory, and scanner diagnostics stay local:
+Foxguard blocks new findings at or above its block level (default `high`),
+and scanner diagnostics stay local:
 
 | step | hook | on a hit |
 |---|---|---|
@@ -9,7 +10,7 @@ Foxguard findings remain advisory, and scanner diagnostics stay local:
 | credentials, through gitleaks (`check_sensitive.sh`) | `pre-commit`, `commit-msg`, `pre-push` | block |
 | personal identifiers and PII (`check_sensitive.sh`) | `pre-commit`, `commit-msg`, `pre-push` | block |
 | scanner results in staged blobs, outgoing history, tags and metadata | `pre-commit`, `commit-msg`, `pre-push` | block |
-| foxguard static analysis of the changed files | `pre-push` | warning only |
+| foxguard static analysis of the changed files | `pre-push` | block on a new finding at or above the [block level](#block-levels); warning otherwise |
 
 Order in `pre-push`: deletions-only and nothing-to-send shortcuts (a ref
 already at the remote's commit sends nothing; when git sends no ref lines at
@@ -117,9 +118,62 @@ own suppression. The standalone checker retains inline allowances by default.
 
 foxguard is a static-analysis scanner,
 [0sec-labs/foxguard](https://github.com/0sec-labs/foxguard). The hook runs it on
-the files a push adds or changes. Findings remain advisory, but every diagnostic
-line is captured in an owner-only report outside the checkout. The local hook
-shows that report path; inspect it locally. CI shows no path or scanner output.
+the files a push adds or changes, as they are at the pushed tip. Every
+diagnostic line is captured in an owner-only report outside the checkout. The
+local hook shows that report path; inspect it locally. CI shows no path or
+scanner output.
+
+### Block levels
+
+| `security.foxguardBlock` | A push is refused on a new finding of severity |
+|---|---|
+| `off` | never: findings, a missing foxguard and a failed scan are warnings |
+| `critical` | critical |
+| `high` (default) | high or critical |
+| `medium` | medium, high or critical |
+| `low` | any |
+
+```bash
+git config security.foxguardBlock medium     # in the repository
+SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
+```
+
+- **New** means at the pushed tip and not at the base: the commits next to the
+  push that the remote already has (the remote's old tip for an update; for a
+  new branch, where it leaves the remote's tracking refs). Findings are matched
+  by rule, file and snippet with whitespace collapsed, not by line, so a finding
+  that only moved is not new. A finding below the level, or already at the
+  base, is a `WARNING`. With no base (a push to a bare URL, or tracking refs that
+  do not describe the push target), every finding counts as new.
+- **Precedence**: when both are set, the stricter applies, so the environment
+  can tighten a repository's setting but not weaken it. Neither set: `high`.
+- **A value that is not a level** (`git config security.foxguardBlock nope`)
+  refuses every push; it is never read as `off`. `setup-hooks.sh --status`
+  shows the effective level (`foxguard_block=` with `--porcelain`).
+- **Fail closed**: at any level but `off`, the push is refused when foxguard is
+  missing (install it: `setup-hooks.sh --install-foxguard`), when the scan
+  fails, or when foxguard skips a changed file it should read (a parse error, a
+  file over its 1 MB limit). A file type foxguard has no rules for is not a skip.
+- **Which files**: every file the tip adds or changes against the base,
+  merges and type changes included; a renamed file is compared with its old
+  path. Occurrences are counted per rule, file and snippet: an added copy of a
+  flagged line is new, one that only moved is not. Without a base, every file
+  of the tip. Each file is scanned on its own, so hidden paths and the ones
+  foxguard skips as noise in a directory scan (`vendor/`, `node_modules/`,
+  `build/`, `dist/`) are read too. A file foxguard calls noise by its name
+  (`app.min.js`) is scanned as a copy under another name and reported under
+  its own. A skipped file is named, with the cause.
+  A changed path with a tab or newline refuses the push. Ignore files
+  (`.ignore` and the like) are not written to the scanned tree, so a push
+  cannot hide its own files. Inline suppressions (`# foxguard: ignore`, the word
+  `foxguard` in any case) are defused in every scanned copy, so a push cannot silence a finding it adds; a
+  suppressed finding the base already has is a `WARNING`.
+- **Config**: the foxguard config (`.foxguard.yml` and the other names) is read
+  from the base (the first boundary commit when there are several), never from
+  the pushed commits, so a push cannot disable the rules that judge it. No base, or no config there: none. A push that adds or
+  changes the config gets a `WARNING` that it takes effect once on the remote.
+
+`scripts/foxguard_push_compare.py` does the matching on foxguard's JSON reports.
 
 It is looked up as `FOXGUARD_CMD`, then the pinned binary in
 `~/.cache/script-helpers/foxguard/<version>/`, then `foxguard` on `PATH`.

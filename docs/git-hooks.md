@@ -77,7 +77,7 @@ bash scripts/script-helpers/scripts/setup-hooks.sh
 |---|---|
 | `setup-hooks.sh` | this repository: point `core.hooksPath` at the hooks; hooks that already ran here (another tool's, a team's, `.git/hooks`) are kept and chained after ours |
 | `setup-hooks.sh --global` | every repository on the machine (opt-in); a repository with its own `core.hooksPath` keeps it |
-| `setup-hooks.sh --status` | what is installed here, and the prerequisites (gitleaks, foxguard, owners, the name list, SSH keepalive, lint tools) |
+| `setup-hooks.sh --status` | what is installed here, the foxguard block level, and the prerequisites (gitleaks, foxguard, owners, the name list, SSH keepalive, lint tools) |
 | `setup-hooks.sh --status --porcelain` | the same as one machine-readable line |
 | `setup-hooks.sh --repair` | chain again after another tool replaced `core.hooksPath` (husky does on `npm install`) |
 | `setup-hooks.sh --uninstall` | undo; the previous `core.hooksPath` comes back |
@@ -102,11 +102,12 @@ happen (no binary for the machine, no network, in CI, or with
 | Missing | The push |
 |---|---|
 | gitleaks | `ERROR`: the credential scan cannot run; refused |
-| foxguard | a framed `WARNING` that the static-analysis scan did not run; goes on |
+| foxguard | `ERROR`: the static-analysis scan cannot run; refused. At `security.foxguardBlock=off`, a framed `WARNING`; goes on |
 
 Both print the command that installs the tool.
 
-Foxguard findings remain advisory. Diagnostics are written to a private file
+Foxguard refuses a push that adds a finding at or above its block level
+(default `high`; see [Block levels](security-gates.md#block-levels)). Diagnostics are written to a private file
 outside the checkout. The local hook shows that path for local inspection; CI
 names the failing tool and branch and links
 https://nikolareljin.github.io/leak-lock/ for local remediation. To create a
@@ -128,7 +129,7 @@ push takes longer.
 
 | Group | Checks |
 |---|---|
-| security | private repository names, credentials (gitleaks), personal identifiers and PII; foxguard as warnings ([Security gates](security-gates.md)) |
+| security | private repository names, credentials (gitleaks), personal identifiers and PII; foxguard, blocking new findings at or above its level ([Security gates](security-gates.md)) |
 | hygiene | conflict markers (`<<<<<<<` or `>>>>>>>` at a line start); files over `script-helpers.max-file-mb` (default 5) MB; secret-looking names (`.env`, `*.pem`, `*.key`, `id_rsa`, `*.p12`, `.netrc`, `*.tfstate`, ...); on `release/X.Y.Z`, the CHANGELOG release heading and `VERSION`; in the owners' repositories, commit trailers or `Generated with` lines naming an AI tool; with `script-helpers.ascii-commits`, commit messages in plain ASCII |
 | lint | `bash -n` and `shellcheck -S warning`; `ruff` (the repository's config, else only fatal rules) or a Python syntax parse; the repository's `eslint` when installed in `node_modules`; `gofmt -l -e`; `rustfmt --check` when the repository has a rustfmt config; `actionlint` for workflows; JSON and YAML parse; PowerShell parse |
 
