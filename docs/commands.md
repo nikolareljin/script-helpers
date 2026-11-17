@@ -133,6 +133,10 @@ Usage: source scripts/security_hooks.sh; sec_pre_push <refs-file> <remote-name> 
   Mandatory publication checks cannot be disabled with environment overrides.
   FOXGUARD_CMD                 foxguard command to run (default: the pinned
                                binary in the cache, else foxguard on PATH).
+  SCRIPT_HELPERS_FOXGUARD_BLOCK  foxguard block level: off, critical, high,
+                               medium or low. With git config
+                               security.foxguardBlock also set, the stricter
+                               of the two applies. Neither: high.
 ```
 
 Exit codes:
@@ -231,7 +235,7 @@ Usage: bash scripts/setup-hooks.sh [--claude-repo|--agent-repo <list>|--global|-
                 without the current security checks (unscanned=yes below).
                 Also sets up again a setup whose hooks directory is gone (broken=yes).
                 Nothing to repair: exit 0. Not set up here: exit 1.
-  --status      Show what is installed, and the prerequisites.
+  --status      Show what is installed, the foxguard block level, and the prerequisites.
   --porcelain   With --status, in a repository: one line of tab-separated key=value
                 fields for scripts: mode (chained, direct, none), taken_over (yes,
                 no), core_hooksPath, expected, previous, target, claude_repo (yes,
@@ -241,7 +245,9 @@ Usage: bash scripts/setup-hooks.sh [--claude-repo|--agent-repo <list>|--global|-
                 an older vendored script-helpers or .githooks, so the current
                 security checks do not run; --repair chains them), broken (yes when
                 core.hooksPath names a missing directory, or our setup's has no
-                pre-push, so no push checks run; --repair sets it up again).
+                pre-push, so no push checks run; --repair sets it up again),
+                foxguard_block (the pre-push foxguard block level: off,
+                critical, high, medium, low, or invalid).
                 With --claude, anywhere: claude_user (ok; absent; unknown: no
                 Python to read the settings; broken: the script it runs is
                 missing; stale: it runs a file outside the installed copy, such
@@ -2645,6 +2651,17 @@ Example:
 ```text
 scripts/script-helpers/scripts/docs_site.sh preview --port 8080
 ```
+
+### `scripts/foxguard_push_compare.py`
+
+Split foxguard findings of a pushed tip into new and already present.
+
+```text
+Usage:
+       --tip <tip.json> [--base <base.json> ...]
+```
+
+Exit codes: not in the header; the script has no explicit `exit`.
 
 ### `scripts/gen_command_reference.py`
 
