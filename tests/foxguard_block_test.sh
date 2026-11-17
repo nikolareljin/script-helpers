@@ -246,6 +246,13 @@ def load(x):
     # foxguard :ignore
     return yaml.load(x)"
   expect "a new finding under a foxguard:ignore line still blocks" 1 "$(check "$F")"
+  # Other spellings: foxguard 0.14.1 honours none, so these guard a later one.
+  for marker in "FOXGUARD: ignore" "Foxguard-ignore" "foxguard ignore"; do
+    setup; publish; commit app.py "import yaml
+def load(x):
+    return yaml.load(x)  # $marker"
+    expect "a new finding with '# $marker' still blocks" 1 "$(check "$F")"
+  done
   # One the remote already suppresses is not new: it only warns.
   setup; commit app.py "import yaml
 def load(x):

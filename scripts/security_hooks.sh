@@ -639,8 +639,8 @@ sec_foxguard_refuse() {
 # commit lacks, a symlink and a submodule are left out: only regular files are
 # code foxguard should read. Ignore files (.ignore and the like) are never
 # written: foxguard honours .ignore, so a pushed one could hide the files
-# beside it. Inline suppressions ("foxguard: ignore" in a comment) are
-# defused on every side, so a push cannot silence a finding it adds.
+# beside it. Inline suppressions ("foxguard: ignore" in a comment, any
+# case) are defused on every side, so a push cannot silence a finding it adds.
 sec_foxguard_tree() {
   local c="$1" src dst mode
   mkdir -p "$3" || return 1
@@ -651,7 +651,9 @@ sec_foxguard_tree() {
     mode="$(git ls-tree --full-tree "$c" -- "$src" 2>/dev/null | cut -d' ' -f1)"
     [[ "$mode" == 100644 || "$mode" == 100755 ]] || continue
     mkdir -p "$3/$(dirname "$dst")" && git cat-file blob "$c:$src" > "$3.blob" || return 1
-    LC_ALL=C sed -e 's/foxguard\([[:space:]]*:\)/f0xguard\1/g' "$3.blob" > "$3/$dst" || return 1
+    # Any case and separator: foxguard 0.14.1 honours only "foxguard: ignore",
+    # a later one may accept more.
+    LC_ALL=C sed -e 's/[Ff][Oo][Xx][Gg][Uu][Aa][Rr][Dd]/f0xguard/g' "$3.blob" > "$3/$dst" || return 1
   done < "$2"
 }
 
