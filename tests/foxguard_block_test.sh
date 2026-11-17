@@ -236,6 +236,24 @@ $high_code"
   # A pushed .ignore cannot hide the files next to it.
   setup; publish; commit .ignore '*'; commit app.py "$high_code"
   expect "a pushed .ignore does not hide a finding" 1 "$(check "$F")"
+  # An inline suppression comment in the pushed code cannot hide a new finding.
+  setup; publish; commit app.py "import yaml
+def load(x):
+    return yaml.load(x)  # foxguard: ignore"
+  expect "a new finding with an inline foxguard: ignore still blocks" 1 "$(check "$F")"
+  setup; publish; commit app.py "import yaml
+def load(x):
+    # foxguard :ignore
+    return yaml.load(x)"
+  expect "a new finding under a foxguard:ignore line still blocks" 1 "$(check "$F")"
+  # One the remote already suppresses is not new: it only warns.
+  setup; commit app.py "import yaml
+def load(x):
+    return yaml.load(x)  # foxguard: ignore"; publish; commit app.py "# moved
+import yaml
+def load(x):
+    return yaml.load(x)  # foxguard: ignore"
+  expect "a suppressed finding already on the remote does not block" 0 "$(check "$F")"
   # A path with a tab cannot be scanned safely: refused.
   setup; publish; printf 'x\n' > "$tmp/repo/a$(printf '\t')b.py"; gc -C "$tmp/repo" add -A; gc -C "$tmp/repo" commit -q -m tab
   expect "a changed path with a tab is refused" 1 "$(check "$F")"

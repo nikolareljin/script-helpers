@@ -161,7 +161,9 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
   of the tip.
   A changed path with a tab or newline refuses the push. Ignore files
   (`.ignore` and the like) are not written to the scanned tree, so a push
-  cannot hide its own files.
+  cannot hide its own files. Inline suppressions (`# foxguard: ignore`) are
+  defused in every scanned copy, so a push cannot silence a finding it adds; a
+  suppressed finding the base already has is a `WARNING`.
 - **Config**: the foxguard config (`.foxguard.yml` and the other names) is read
   from the base (the first boundary commit when there are several), never from
   the pushed commits, so a push cannot disable the rules that judge it. No base, or no config there: none. A push that adds or
