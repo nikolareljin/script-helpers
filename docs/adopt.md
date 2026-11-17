@@ -81,7 +81,7 @@ Details: [Git hooks](git-hooks.md).
 | security | private repository names (public repositories), credentials (gitleaks), personal identifiers and PII | refused |
 | hygiene | conflict markers, large or secret-looking files, release CHANGELOG and VERSION, AI trailers in commit messages (repositories you own) | refused |
 | lint | syntax and lint of the changed files, with the tools installed | refused |
-| static analysis | foxguard on the changed files | warning only |
+| static analysis | foxguard on the changed files | a new finding at or above the block level (default `high`): refused; others: warning |
 
 The checks read what the push sends; the repository-name check also reads
 the tracked files. A normal push takes a few seconds.
@@ -98,8 +98,9 @@ bash scripts/script-helpers/scripts/setup-hooks.sh --install-gitleaks --install-
 ```
 
 Without gitleaks a push is refused: the credential scan cannot run. Without
-foxguard the push goes on with a warning. foxguard findings can be written to
-a JSON report:
+the pinned foxguard it is refused too (another version does not count), or
+goes on with a warning at `security.foxguardBlock=off`. foxguard findings can
+be written to a JSON report:
 
 ```bash
 bash scripts/script-helpers/scripts/foxguard_report.sh --base origin/main --output foxguard-report.json
