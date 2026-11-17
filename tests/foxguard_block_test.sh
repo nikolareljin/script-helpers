@@ -208,6 +208,16 @@ $high_code"
   printf '%s\n' "$high_code" > "$tmp/repo/merged.py"; gc -C "$tmp/repo" add merged.py; gc -C "$tmp/repo" commit -q -m merge
   expect "a finding added in a merge commit blocks" 1 "$(check "$F")"
   has "it is named" "BLOCK (foxguard): high merged.py:3"
+  # Two bases: a merge of two remote branches. side.py's finding is on the
+  # remote's side branch, so it is not new, although main never had the file.
+  setup; publish
+  gc -C "$tmp/repo" checkout -q -b side; commit side.py "$high_code"
+  gc -C "$tmp/repo" push -q origin side; git -C "$tmp/repo" fetch -q origin
+  gc -C "$tmp/repo" checkout -q main; commit other.txt "other"; publish
+  gc -C "$tmp/repo" checkout -q -b topic; gc -C "$tmp/repo" merge -q --no-edit side >/dev/null 2>&1
+  printf 'refs/heads/topic %s refs/heads/topic %s\n' "$(git -C "$tmp/repo" rev-parse HEAD)" 0000000000000000000000000000000000000000 > "$tmp/refs"
+  (cd "$tmp/repo" && env "$F" bash -c 'set -euo pipefail; source "$1/scripts/security_hooks.sh" && sec_foxguard_push "$2" origin' _ "$ROOT_DIR" "$tmp/refs") >"$tmp/out" 2>&1
+  expect "a finding one remote branch already has does not block a merge of both" 0 "$?"
   # A symlink replaced by a regular file (a type change).
   setup; ln -s nowhere "$tmp/repo/t.py"; gc -C "$tmp/repo" add t.py; gc -C "$tmp/repo" commit -q -m link; publish
   rm -f "$tmp/repo/t.py"; commit t.py "$high_code"

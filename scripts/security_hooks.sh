@@ -646,7 +646,7 @@ sec_foxguard_tree() {
   while IFS=$'\t' read -r src dst; do
     [[ -n "$src" && -n "$dst" ]] || continue
     case "/$dst/" in */../*|*/./*|//*) return 1 ;; esac
-    case "${dst##*/}" in .ignore|.gitignore|.rgignore|.foxguardignore) continue ;; esac
+    case "${dst##*/}" in .*ignore) continue ;; esac
     mode="$(git ls-tree --full-tree "$c" -- "$src" 2>/dev/null | cut -d' ' -f1)"
     [[ "$mode" == 100644 || "$mode" == 100755 ]] || continue
     mkdir -p "$3/$(dirname "$dst")" && git cat-file blob "$c:$src" > "$3/$dst" || return 1
@@ -723,9 +723,9 @@ sec_foxguard_block() (
   py="$(security_python)" || { sec_foxguard_refuse "$level" "no Python 3 to compare foxguard reports"; exit 1; }
   helper="$_SEC_LIB_DIR/foxguard_push_compare.py"
   [[ -f "$helper" ]] || { sec_foxguard_refuse "$level" "foxguard_push_compare.py is missing"; exit 1; }
-  work="$(mktemp -d "${TMPDIR:-/tmp}/sh-foxguard.XXXXXX")" || { sec_foxguard_refuse "$level" "no temporary directory"; exit 1; }
   # Absolute: the scan runs from inside the tree it writes.
-  work="$(cd "$work" && pwd)" || { sec_foxguard_refuse "$level" "no temporary directory"; exit 1; }
+  tmp_root="$(cd "${TMPDIR:-/tmp}" && pwd)" || { sec_foxguard_refuse "$level" "no temporary directory"; exit 1; }
+  work="$(mktemp -d "$tmp_root/sh-foxguard.XXXXXX")" || { sec_foxguard_refuse "$level" "no temporary directory"; exit 1; }
   owner="${BASHPID-$$}"
   trap 'if [[ ${BASHPID-$$} == "$owner" ]]; then rm -rf -- "$work"; fi' EXIT
   trap 'exit 1' HUP INT TERM
@@ -775,6 +775,14 @@ sec_foxguard_block() (
     [[ -s "$d/files" ]] || continue
     nfiles=$((nfiles + $(wc -l < "$d/files")))
     awk '{ print $0 "\t" $0 }' "$d/files" > "$d/tipmap"
+    # Each base gets every file of the union, under its path there (the old
+    # name when renamed against that base), so no base copy is missing a file.
+    i=0
+    while IFS= read -r b; do
+      i=$((i + 1))
+      awk -F'\t' 'NR == FNR { old[$2] = $1; next } { print (($0 in old) ? old[$0] : $0) "\t" $0 }' \
+        "$d/map$i" "$d/files" > "$d/map$i.all" && mv -f "$d/map$i.all" "$d/map$i"
+    done < "$d/bases"
     # One config for every side, the base's: the push being checked must not
     # bring the config that judges it. No base, or none there: no config.
     printf '{}\n' > "$d/config"; : > "$d/config.base"; : > "$d/config.tip"
