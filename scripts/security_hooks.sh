@@ -780,8 +780,10 @@ sec_foxguard_block() (
     i=0
     while IFS= read -r b; do
       i=$((i + 1))
-      awk -F'\t' 'NR == FNR { old[$2] = $1; next } { print (($0 in old) ? old[$0] : $0) "\t" $0 }' \
-        "$d/map$i" "$d/files" > "$d/map$i.all" && mv -f "$d/map$i.all" "$d/map$i"
+      # FILENAME, not NR == FNR: an empty map would swallow the file list.
+      awk -F'\t' 'FILENAME == ARGV[1] { old[$2] = $1; next } { print (($0 in old) ? old[$0] : $0) "\t" $0 }' \
+        "$d/map$i" "$d/files" > "$d/map$i.all" && mv -f "$d/map$i.all" "$d/map$i" \
+        || { sec_foxguard_refuse "$level" "the base file map could not be built"; exit 1; }
     done < "$d/bases"
     # One config for every side, the base's: the push being checked must not
     # bring the config that judges it. No base, or none there: no config.

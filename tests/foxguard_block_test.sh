@@ -218,6 +218,12 @@ $high_code"
   printf 'refs/heads/topic %s refs/heads/topic %s\n' "$(git -C "$tmp/repo" rev-parse HEAD)" 0000000000000000000000000000000000000000 > "$tmp/refs"
   (cd "$tmp/repo" && env "$F" bash -c 'set -euo pipefail; source "$1/scripts/security_hooks.sh" && sec_foxguard_push "$2" origin' _ "$ROOT_DIR" "$tmp/refs") >"$tmp/out" 2>&1
   expect "a finding one remote branch already has does not block a merge of both" 0 "$?"
+  # The same, with the merge's tree equal to side's: nothing changed against
+  # that base, so its file list starts empty.
+  gc -C "$tmp/repo" checkout -q -B topic2 side; gc -C "$tmp/repo" merge -q --no-edit -s ours main >/dev/null 2>&1
+  printf 'refs/heads/topic2 %s refs/heads/topic2 %s\n' "$(git -C "$tmp/repo" rev-parse HEAD)" 0000000000000000000000000000000000000000 > "$tmp/refs"
+  (cd "$tmp/repo" && env "$F" bash -c 'set -euo pipefail; source "$1/scripts/security_hooks.sh" && sec_foxguard_push "$2" origin' _ "$ROOT_DIR" "$tmp/refs") >"$tmp/out" 2>&1
+  expect "a base with no changed files still holds the files" 0 "$?"
   # A symlink replaced by a regular file (a type change).
   setup; ln -s nowhere "$tmp/repo/t.py"; gc -C "$tmp/repo" add t.py; gc -C "$tmp/repo" commit -q -m link; publish
   rm -f "$tmp/repo/t.py"; commit t.py "$high_code"
