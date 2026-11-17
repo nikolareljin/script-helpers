@@ -157,7 +157,7 @@ def again(y):
     return yaml.load(y)"
   expect "a new finding next to a pre-existing one blocks" 1 "$(check "$F")"
   has "only the new one blocks" "BLOCK (foxguard): high app.py:"
-  grep -c '^\[pre-push\] BLOCK' "$tmp/out" | grep -qx 1 && ok "exactly one block" || error "block count: $(grep -c BLOCK "$tmp/out")"
+  [[ "$(grep -c '^\[pre-push\] BLOCK' "$tmp/out")" == 1 ]] && ok "exactly one block" || error "block count: $(grep -c BLOCK "$tmp/out")"
 
   # A new branch: its base is where it left what the remote has.
   gc -C "$tmp/repo" reset -q --hard origin/main
@@ -169,6 +169,26 @@ $high_code"
   # A bare URL: no tracking refs, so no base: every finding is new.
   (cd "$tmp/repo" && env "$F" bash -c 'source "$1/scripts/security_hooks.sh" && sec_foxguard_push "$2" "$3"' _ "$ROOT_DIR" "$tmp/refs" "$tmp/remote.git") >"$tmp/out" 2>&1
   expect "no remote information: the same finding blocks (fail-safe)" 1 "$?"
+
+  # The config comes from the base, never from the push being checked.
+  quiet_cfg='scan:
+  disable_rules:
+    - py/no-yaml-load'
+  setup; publish; commit .foxguard.yml "$quiet_cfg"; commit app.py "$high_code"
+  expect "a push that adds a config disabling the rule still blocks" 1 "$(check "$F")"
+  has "and warns that the config is not used yet" "takes effect only after it lands on the remote"
+  setup; commit .foxguard.yml "$quiet_cfg"; publish; commit app.py "$high_code"
+  expect "a config the remote already has applies" 0 "$(check "$F")"
+  grep -q "takes effect only after" "$tmp/out" && error "warned about an unchanged config" || ok "no config warning when it is unchanged"
+  commit .foxguard.yml "scan:
+  disable_rules:
+    - py/no-eval"
+  expect "a push that changes that config is checked with the remote's" 0 "$(check "$F")"
+  has "and warns" "takes effect only after it lands on the remote"
+  # No base (a bare URL): no config at all.
+  printf 'refs/heads/main %s refs/heads/main %s\n' "$(git -C "$tmp/repo" rev-parse HEAD)" 0000000000000000000000000000000000000000 > "$tmp/refs"
+  (cd "$tmp/repo" && env "$F" bash -c 'source "$1/scripts/security_hooks.sh" && sec_foxguard_push "$2" "$3"' _ "$ROOT_DIR" "$tmp/refs" "$tmp/remote.git") >"$tmp/out" 2>&1
+  expect "no base: no config, so the finding blocks" 1 "$?"
 
   # A changed file foxguard cannot parse.
   setup; commit broken.py 'def f(:

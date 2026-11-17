@@ -32,7 +32,8 @@ fi
 # Order, in pre-push: private names (block) -> credentials, then personal
 # identifiers and PII, both in check_sensitive.sh (block) -> foxguard (blocks
 # new findings at or above the block level, default high; warns at off). The
-# caller handles the deletions-only shortcut and the tests. Every function returns 0 to continue and 1 to refuse.
+# caller handles the deletions-only shortcut and the tests. Every function
+# returns 0 to continue and 1 to refuse.
 #
 # No "already checked" marker is exported: an environment variable that skips
 # the checks could be set by any parent process. A hook chained after these
@@ -715,13 +716,22 @@ sec_foxguard_block() (
       { git rev-list --boundary "$lsha" --not $excl 2>/dev/null | sed -n -e 's/^-//p' > "$d/all-bases"; } || true
       sed -n 1,8p "$d/all-bases" > "$d/bases"
     fi
-    # One config for every side, the tip's: a config change is not a finding.
-    printf '{}\n' > "$d/config"
+    # One config for every side, the base's: the push being checked must not
+    # bring the config that judges it. No base, or none there: no config.
+    printf '{}\n' > "$d/config"; : > "$d/config.base"; : > "$d/config.tip"
+    cbase="$(sed -n 1p "$d/bases")"
     for name in .foxguard.yml .foxguard.yaml foxguard.yml foxguard.yaml; do
-      if [[ "$(git cat-file -t "$lsha:$name" 2>/dev/null)" == blob ]]; then
-        git cat-file blob "$lsha:$name" > "$d/config"; break
+      if [[ -n "$cbase" && ! -s "$d/config.base" && "$(git cat-file -t "$cbase:$name" 2>/dev/null)" == blob ]]; then
+        printf '%s\n' "$name" > "$d/config.base"; git cat-file blob "$cbase:$name" >> "$d/config.base"
+        git cat-file blob "$cbase:$name" > "$d/config"
+      fi
+      if [[ ! -s "$d/config.tip" && "$(git cat-file -t "$lsha:$name" 2>/dev/null)" == blob ]]; then
+        printf '%s\n' "$name" > "$d/config.tip"; git cat-file blob "$lsha:$name" >> "$d/config.tip"
       fi
     done
+    if ! cmp -s "$d/config.base" "$d/config.tip"; then
+      sec_loud "this push changes the foxguard config; it takes effect only after it lands on the remote. This push is checked with the remote's config."
+    fi
     sec_foxguard_tree "$lsha" "$d/files" "$d/tip" || { sec_foxguard_refuse "$level" "the pushed files could not be read"; exit 1; }
     if ! sec_foxguard_scan "$cmd" "$d/config" "$d/tip" "$d/tip.json"; then
       sed -n 1,3p "$d/tip.json.err" | sed 's/^/[pre-push] foxguard: /' >&2

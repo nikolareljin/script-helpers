@@ -155,6 +155,11 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
   fails, or when foxguard skips a changed file it should read (a parse error, a
   file over its 1 MB limit). A file type foxguard has no rules for is not a skip.
 
+- **Config**: the foxguard config (`.foxguard.yml` and the other names) is read
+  from the base, never from the pushed commits, so a push cannot disable the
+  rules that judge it. No base, or no config there: none. A push that adds or
+  changes the config gets a `WARNING` that it takes effect once on the remote.
+
 `scripts/foxguard_push_compare.py` does the matching on foxguard's JSON reports.
 
 It is looked up as `FOXGUARD_CMD`, then the pinned binary in
