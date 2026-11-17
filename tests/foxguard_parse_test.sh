@@ -15,7 +15,10 @@ set -euo pipefail
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
 note() { echo "[foxguard_parse_test] $*"; }
 
-if ! command -v foxguard >/dev/null 2>&1; then
+# The pinned foxguard from the cache (what ci_security.sh --install-foxguard
+# writes), else one on PATH.
+fox="$(source "$root_dir/lib/foxguard.sh" >/dev/null 2>&1 && foxguard_bin 2>/dev/null || true)"
+if [[ -z "$fox" ]]; then
   if [[ "${FOXGUARD_REQUIRE:-0}" == 1 ]]; then
     note "FAIL: foxguard is not installed and FOXGUARD_REQUIRE=1" >&2
     exit 1
@@ -23,11 +26,11 @@ if ! command -v foxguard >/dev/null 2>&1; then
   note "SKIP: foxguard is not installed; parse check not run"
   exit 0
 fi
-note "using $(foxguard --version 2>&1 | sed -n 1p)"
+note "using $fox ($("$fox" --version 2>&1 | sed -n 1p))"
 
 # fg <dir> <file>: foxguard on one file from <dir>; prints its messages.
 # Exit 0 or 1 is a scan (1 = findings); anything else is a failed scan.
-fg() { ( cd "$1" && foxguard --quiet --format json --output /dev/null -- "$2" ) </dev/null 2>&1 >/dev/null; }
+fg() { ( cd "$1" && "$fox" --quiet --format json --output /dev/null -- "$2" ) </dev/null 2>&1 >/dev/null; }
 
 tmp="$(mktemp -d)"
 # Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
