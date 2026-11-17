@@ -12,7 +12,8 @@
 # Return codes, used by every function in this module:
 #   0  success
 #   1  the operation failed (download, checksum mismatch)
-#   3  not installed, a required tool is missing, or the platform has no binary
+#   3  the pinned version is not installed, a required tool is missing, or the
+#      platform has no binary
 
 # Always sourced: ci_defaults only fills variables that are unset or empty, so a
 # caller's version or checksum overrides are kept and the rest stay pinned.
@@ -86,21 +87,67 @@ foxguard_cache_path() {
     "${XDG_CACHE_HOME:-$HOME/.cache}" "$CI_DEFAULT_FOXGUARD_VERSION" "$name"
 }
 
+# Usage: foxguard_is_pinned <file>
+# foxguard_is_pinned <file>; true when the file's SHA-256 is the one pinned for
+# this machine's release asset. A file that cannot be hashed is not the pin.
+# Returns: 0 it is the pinned binary; 1 it is not; 3 no release binary for this platform, or no SHA-256 tool.
+# Output: nothing.
+foxguard_is_pinned() {
+  local asset want got
+  asset="$(foxguard_asset)" || return 3
+  want="$(foxguard_expected_sha256 "$asset")" || return 3
+  got="$(foxguard_sha256 "$1" 2>/dev/null)" || return 3
+  [[ -n "$want" && "$got" == "$want" ]]
+}
+
+# Usage: foxguard_path_bin
+# foxguard_path_bin; the foxguard on PATH, when it reports the pinned version.
+# Returns: 0 found; 3 none on PATH, or one of another version.
+# Output: stdout the binary path.
+foxguard_path_bin() {
+  local found
+  found="$(command -v foxguard 2>/dev/null)" || return 3
+  [[ "$("$found" --version 2>/dev/null </dev/null)" == "foxguard $CI_DEFAULT_FOXGUARD_VERSION" ]] || return 3
+  printf '%s\n' "$found"
+}
+
 # Usage: foxguard_bin
-# foxguard_bin; the foxguard to run: the pinned binary in the cache, else one on
-# PATH. Returns 3 when there is neither.
-# Returns: 0 found; 3 not in the cache and not on PATH.
+# foxguard_bin; the foxguard to run: the pinned binary in the cache when its
+# SHA-256 matches the pin, else one on PATH that reports the pinned version.
+# A cached binary of another version is never used. foxguard_missing_reason
+# says why there is none.
+# Returns: 0 found; 3 no pinned foxguard in the cache or on PATH.
 # Output: stdout the binary path.
 foxguard_bin() {
   local cached
   cached="$(foxguard_cache_path)"
-  if [[ -x "$cached" ]]; then
+  if [[ -x "$cached" ]] && foxguard_is_pinned "$cached"; then
     printf '%s\n' "$cached"
-  elif command -v foxguard >/dev/null 2>&1; then
-    command -v foxguard
   else
-    return 3
+    foxguard_path_bin
   fi
+}
+
+# Usage: foxguard_missing_reason
+# foxguard_missing_reason; one line saying why foxguard_bin finds no pinned
+# foxguard: a cached binary that does not match the pin or cannot be checked,
+# a foxguard of another version on PATH, or none at all.
+# Returns: always 0.
+# Output: stdout the reason, without a trailing full stop.
+foxguard_missing_reason() {
+  local cached found why="" rc=0
+  cached="$(foxguard_cache_path)"
+  if [[ -x "$cached" ]]; then
+    foxguard_is_pinned "$cached" || rc=$?
+    case "$rc" in
+      1) why="$cached does not match the pinned SHA-256 of foxguard $CI_DEFAULT_FOXGUARD_VERSION" ;;
+      3) why="$cached cannot be checked against the pinned SHA-256 (shasum, sha256sum or openssl is needed)" ;;
+    esac
+  fi
+  if found="$(command -v foxguard 2>/dev/null)" && ! foxguard_path_bin >/dev/null; then
+    why="${why:+$why; }$found is not the pinned foxguard $CI_DEFAULT_FOXGUARD_VERSION"
+  fi
+  printf '%s\n' "${why:-foxguard is not installed}"
 }
 
 # Usage: foxguard_sha256 <file>

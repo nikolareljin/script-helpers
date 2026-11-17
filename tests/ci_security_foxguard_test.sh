@@ -180,20 +180,36 @@ read_local_report
 [[ $RC -eq 0 && "$OUT" == *"stub scan failure"* && "$OUT" == *"could not scan (exit 2)"* ]] \
   && note "scan error, not opted in: message shown, exit 0" || error "failing: rc=$RC out='$OUT'"
 
-# 8. A foxguard that is not the pinned version: a warning, and it still runs.
+# 8. A foxguard on PATH that is not the pinned version is not run: skipped,
+#    naming it and the install command.
 r="$(new_repo version)"
 : > "$FOX_LOG"; RC=0
 OUT="$(cd "$r" && FOX_VERSION=0.13.1 CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker --skip-python --skip-node --skip-gitleaks 2>&1)" || RC=$?
 read_local_report
-[[ $RC -eq 0 && "$OUT" == *"is not the pinned 0.14.1"* && -s "$FOX_LOG" ]] && note "other version: warned, still runs" \
-  || error "version: rc=$RC out='$OUT'"
+[[ $RC -eq 0 && "$OUT" == *"$tmp/bin/foxguard is not the pinned foxguard 0.14.1; skipping the foxguard scan"*"--install-foxguard"* && ! -s "$FOX_LOG" ]] \
+  && note "other version on PATH: not run, skipped with the install command" || error "version: rc=$RC log='$(cat "$FOX_LOG")' out='$OUT'"
+RC=0; (cd "$r" && FOX_VERSION=0.13.1 CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/ci_security.sh" --check-foxguard) || RC=$?
+[[ $RC -eq 3 ]] && note "--check-foxguard with another version: exit 3" || error "check other version: rc=$RC"
 
-# 9. The pinned binary in the cache is preferred over one on PATH.
+# 9. The pinned binary in the cache is preferred over one on PATH, when its
+#    SHA-256 is the pinned one; with another SHA-256 it is not run.
 cache_bin="$XDG_CACHE_HOME/script-helpers/foxguard/0.14.1/foxguard"
 mkdir -p "$(dirname "$cache_bin")"
 sed 's/\${FOX_NAME:-path}/cache/' "$tmp/bin/foxguard" > "$cache_bin"; chmod +x "$cache_bin"
 sec "$r"
-grep -q "^version: cache " "$FOX_LOG" && note "cached pinned binary preferred over PATH" || error "cache: log='$(cat "$FOX_LOG")'"
+grep -q "^version: path " "$FOX_LOG" && ! grep -q "^version: cache " "$FOX_LOG" \
+  && note "cached binary that does not match the pinned SHA-256: not run" || error "cache mismatch: log='$(cat "$FOX_LOG")'"
+sum="$(bash -c 'source "$1/helpers.sh" && shlib_import foxguard && foxguard_sha256 "$2"' _ "$ROOT_DIR" "$cache_bin" 2>/dev/null)"
+if [[ -n "$sum" ]]; then
+  : > "$FOX_LOG"; RC=0
+  OUT="$(cd "$r" && CI="" PATH="$tmp/bin:$PATH" CI_DEFAULT_FOXGUARD_SHA256_LINUX_X86_64="$sum" CI_DEFAULT_FOXGUARD_SHA256_LINUX_AARCH64="$sum" \
+    CI_DEFAULT_FOXGUARD_SHA256_MACOS_X86_64="$sum" CI_DEFAULT_FOXGUARD_SHA256_MACOS_AARCH64="$sum" CI_DEFAULT_FOXGUARD_SHA256_WINDOWS_X86_64="$sum" \
+    bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker --skip-python --skip-node --skip-gitleaks 2>&1)" || RC=$?
+  grep -q "^version: cache " "$FOX_LOG" && ! grep -q "^version: path " "$FOX_LOG" \
+    && note "cached pinned binary preferred over PATH" || error "cache: rc=$RC log='$(cat "$FOX_LOG")'"
+else
+  note "SKIP cached pinned binary: no SHA-256 tool to check it"
+fi
 rm -f "$cache_bin"
 
 # 10. Not installed: skipped with the install command; preflight lists it as SKIP.
@@ -203,7 +219,7 @@ done
 : > "$FOX_LOG"; RC=0
 OUT="$(cd "$r" && CI="" PATH="$tmp/nobin" "$(command -v bash)" "$ROOT_DIR/scripts/ci_security.sh" --no-docker --skip-python --skip-node --skip-gitleaks --fail-on-findings 2>&1)" || RC=$?
 read_local_report
-[[ $RC -eq 0 && "$OUT" == *"foxguard not found; skipping"*"--install-foxguard"* ]] && note "not installed: skipped, says how to install" \
+[[ $RC -eq 0 && "$OUT" == *"foxguard is not installed; skipping the foxguard scan"*"--install-foxguard"* ]] && note "not installed: skipped, says how to install" \
   || error "not installed: rc=$RC out='$OUT'"
 RC=0; (cd "$r" && CI="" PATH="$tmp/nobin" "$(command -v bash)" "$ROOT_DIR/scripts/ci_security.sh" --check-foxguard) || RC=$?
 read_local_report

@@ -279,13 +279,10 @@ run_foxguard() {
   local bin dir top prefix path sub out n config="" rc=0
   local -a args=()
   if ! bin="$(foxguard_bin)"; then
-    skipped "foxguard not found; skipping. Install the pinned version: bash $SCRIPT_DIR/ci_security.sh --install-foxguard"
+    skipped "$(foxguard_missing_reason); skipping the foxguard scan. Install the pinned version: bash $SCRIPT_DIR/ci_security.sh --install-foxguard"
     return 0
   fi
   ran
-  if [[ "$("$bin" --version 2>/dev/null)" != "foxguard $CI_DEFAULT_FOXGUARD_VERSION" ]]; then
-    log_warn "foxguard: $bin is not the pinned $CI_DEFAULT_FOXGUARD_VERSION, so results may differ; bash $SCRIPT_DIR/ci_security.sh --install-foxguard"
-  fi
   dir="$(cd "$WORKDIR" && pwd -P)"
   top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || top="$dir"
   path="$dir"

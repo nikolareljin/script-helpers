@@ -104,7 +104,9 @@ happen (no binary for the machine, no network, in CI, or with
 | gitleaks | `ERROR`: the credential scan cannot run; refused |
 | foxguard | `ERROR`: the static-analysis scan cannot run; refused. At `security.foxguardBlock=off`, a framed `WARNING`; goes on |
 
-Both print the command that installs the tool.
+Both print the command that installs the tool. For foxguard, missing means
+the pinned version is missing: another cached version, or a `foxguard` of
+another version on `PATH`, is not run ([lookup order](security-gates.md)).
 
 Foxguard refuses a push that adds a finding at or above its block level
 (default `high`; see [Block levels](security-gates.md#block-levels)). Diagnostics are written to a private file

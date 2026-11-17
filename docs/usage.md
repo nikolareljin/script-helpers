@@ -481,12 +481,15 @@ answer: the scan always names its config with `--config`.
 |---|---|
 | no foxguard config | the number of findings printed, exit 0 |
 | a foxguard config, findings or a scan error | listed, exit 1 (the pre-push run reports only) |
-| foxguard not installed | skipped; `SKIP  foxguard code scan` in the summary |
-| a foxguard other than the pinned version | a warning; it still runs |
+| the pinned foxguard not installed | skipped; `SKIP  foxguard code scan` in the summary |
+| a foxguard other than the pinned version | not run; preflight installs the pinned one, `ci_security.sh` skips the scan and names it |
 
 `bash scripts/ci_security.sh --install-foxguard` downloads the pinned binary,
 checks it against the SHA-256 pinned beside the version, and caches it under
-`~/.cache/script-helpers/foxguard/`; that copy is used before one on `PATH`.
+`~/.cache/script-helpers/foxguard/<version>/`. That copy is used when its
+SHA-256 is still the pinned one, before a `foxguard` on `PATH`, which is used
+only when it reports the pinned version. A cached binary of another version is
+never run.
 `--skip-foxguard` leaves it out.
 
 ```bash
