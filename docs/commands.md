@@ -247,7 +247,8 @@ Usage: bash scripts/setup-hooks.sh [--claude-repo|--agent-repo <list>|--global|-
                 core.hooksPath names a missing directory, or our setup's has no
                 pre-push, so no push checks run; --repair sets it up again),
                 foxguard_block (the pre-push foxguard block level: off,
-                critical, high, medium, low, or invalid).
+                critical, high, medium, low; invalid; unknown when
+                security_hooks.sh cannot load).
                 With --claude, anywhere: claude_user (ok; absent; unknown: no
                 Python to read the settings; broken: the script it runs is
                 missing; stale: it runs a file outside the installed copy, such
@@ -2661,7 +2662,7 @@ Usage:
        --tip <tip.json> [--base <base.json> ...]
 ```
 
-Exit codes: not in the header; the script has no explicit `exit`.
+Exit codes: not in the header; the script exits with 2.
 
 ### `scripts/gen_command_reference.py`
 

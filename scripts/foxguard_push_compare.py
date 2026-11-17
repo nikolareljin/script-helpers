@@ -8,8 +8,8 @@ when its rule, file and whitespace-normalized snippet occur more often at the
 tip than in every base report, so a finding that only moved lines is not new.
 Prints one tab-separated line per tip finding:
     BLOCK|WARN <severity> <file>:<line> <rule> <why> <description>
-Exit 0: nothing blocks. 1: a new finding at or above --level. 2: a report
-could not be read.
+Exit 0: nothing blocks. 3: a new finding at or above --level. 2: a report
+could not be read, or anything else went wrong (never read as a pass).
 """
 
 import argparse
@@ -28,7 +28,9 @@ def load(path):
     findings = data.get("findings") if isinstance(data, dict) else None
     if not isinstance(findings, list):
         raise ValueError("no findings list")
-    return [f for f in findings if isinstance(f, dict)]
+    if not all(isinstance(f, dict) for f in findings):
+        raise ValueError("a finding is not an object")
+    return findings
 
 
 def norm_file(name):
@@ -66,7 +68,7 @@ def main():
     threshold = RANK[args.level]
     seen = Counter()
     blocked = False
-    tip.sort(key=lambda f: (norm_file(f.get("file")), int(f.get("line") or 0)))
+    tip.sort(key=lambda f: (norm_file(f.get("file")), str(f.get("line") or 0).zfill(12)))
     for finding in tip:
         k = key(finding)
         seen[k] += 1
@@ -85,8 +87,12 @@ def main():
             f"{norm_file(finding.get('file'))}:{finding.get('line', '?')}",
             clean(finding.get("rule_id")), why, clean(finding.get("description")),
         ]))
-    return 1 if blocked else 0
+    return 3 if blocked else 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as err:  # a crash must refuse, not pass
+        print(f"foxguard_push_compare: {err}", file=sys.stderr)
+        sys.exit(2)

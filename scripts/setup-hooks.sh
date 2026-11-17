@@ -67,7 +67,8 @@
 #                 core.hooksPath names a missing directory, or our setup's has no
 #                 pre-push, so no push checks run; --repair sets it up again),
 #                 foxguard_block (the pre-push foxguard block level: off,
-#                 critical, high, medium, low, or invalid).
+#                 critical, high, medium, low; invalid; unknown when
+#                 security_hooks.sh cannot load).
 #                 With --claude, anywhere: claude_user (ok; absent; unknown: no
 #                 Python to read the settings; broken: the script it runs is
 #                 missing; stale: it runs a file outside the installed copy, such
@@ -480,10 +481,12 @@ prereqs() {
 }
 
 # foxguard_block_level: the block level the pre-push foxguard step uses here
-# (security_hooks.sh decides it), or "invalid" when a setting is not a level.
+# (security_hooks.sh decides it); "invalid" when a setting is not a level,
+# "unknown" when security_hooks.sh cannot load.
 foxguard_block_level() {
   # shellcheck source=/dev/null
-  ( source "$src_root/scripts/security_hooks.sh" && sec_foxguard_level 2>/dev/null ) || echo invalid
+  ( source "$src_root/scripts/security_hooks.sh" || { echo unknown; exit 0; }
+    sec_foxguard_level 2>/dev/null || echo invalid )
 }
 
 show_global_status() {

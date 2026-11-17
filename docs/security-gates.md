@@ -154,10 +154,17 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
   missing (install it: `setup-hooks.sh --install-foxguard`), when the scan
   fails, or when foxguard skips a changed file it should read (a parse error, a
   file over its 1 MB limit). A file type foxguard has no rules for is not a skip.
-
+- **Which files**: every file the tip adds or changes against the base,
+  merges and type changes included; a renamed file is compared with its old
+  path. Occurrences are counted per rule, file and snippet: an added copy of a
+  flagged line is new, one that only moved is not. Without a base, every file
+  of the tip.
+  A changed path with a tab or newline refuses the push. Ignore files
+  (`.ignore` and the like) are not written to the scanned tree, so a push
+  cannot hide its own files.
 - **Config**: the foxguard config (`.foxguard.yml` and the other names) is read
-  from the base, never from the pushed commits, so a push cannot disable the
-  rules that judge it. No base, or no config there: none. A push that adds or
+  from the base (the first boundary commit when there are several), never from
+  the pushed commits, so a push cannot disable the rules that judge it. No base, or no config there: none. A push that adds or
   changes the config gets a `WARNING` that it takes effect once on the remote.
 
 `scripts/foxguard_push_compare.py` does the matching on foxguard's JSON reports.

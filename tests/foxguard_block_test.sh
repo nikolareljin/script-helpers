@@ -73,11 +73,12 @@ commit() {  # <file> <content>
 }
 publish() { gc -C "$tmp/repo" push -q origin HEAD:refs/heads/main && git -C "$tmp/repo" fetch -q origin; }
 # check [env...]: the foxguard step for HEAD -> main, against origin's main.
+# Like scripts/git-hooks/pre-push: set -euo pipefail.
 check() {
   local base
   base="$(git -C "$tmp/repo" rev-parse -q --verify refs/remotes/origin/main || echo 0000000000000000000000000000000000000000)"
   printf 'refs/heads/main %s refs/heads/main %s\n' "$(git -C "$tmp/repo" rev-parse HEAD)" "$base" > "$tmp/refs"
-  (cd "$tmp/repo" && env "$@" bash -c 'source "$1/scripts/security_hooks.sh" && sec_foxguard_push "$2" origin' _ "$ROOT_DIR" "$tmp/refs") >"$tmp/out" 2>&1
+  (cd "$tmp/repo" && env "$@" bash -c 'set -euo pipefail; source "$1/scripts/security_hooks.sh" && sec_foxguard_push "$2" origin' _ "$ROOT_DIR" "$tmp/refs") >"$tmp/out" 2>&1
   echo $?
 }
 
@@ -119,6 +120,15 @@ has "with how to install it" "--install-foxguard"
 has "in the local notice style" "Foxguard check failed: foxguard is not installed."
 expect "foxguard missing at off: the push goes on" 0 "$(check PATH="$tmp/nofox" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
 has "with a warning" "the foxguard scan did NOT run"
+# A foxguard whose report the comparison cannot read: refused, never a pass.
+cat > "$tmp/oddfox" <<'EOF'
+#!/usr/bin/env bash
+while [[ $# -gt 0 ]]; do [[ "$1" == --output ]] && out="$2"; shift; done
+printf '{"findings": [42]}\n' > "$out"; exit 1
+EOF
+chmod +x "$tmp/oddfox"
+expect "an unreadable foxguard report is refused" 1 "$(check FOXGUARD_CMD="$tmp/oddfox")"
+has "and says so" "could not be compared"
 printf '#!/usr/bin/env bash\necho boom >&2\nexit 2\n' > "$tmp/brokenfox"; chmod +x "$tmp/brokenfox"
 expect "a failing foxguard at high: refused" 1 "$(check FOXGUARD_CMD="$tmp/brokenfox")"
 has "and says so" "the foxguard scan failed"
@@ -189,6 +199,35 @@ $high_code"
   printf 'refs/heads/main %s refs/heads/main %s\n' "$(git -C "$tmp/repo" rev-parse HEAD)" 0000000000000000000000000000000000000000 > "$tmp/refs"
   (cd "$tmp/repo" && env "$F" bash -c 'source "$1/scripts/security_hooks.sh" && sec_foxguard_push "$2" "$3"' _ "$ROOT_DIR" "$tmp/refs" "$tmp/remote.git") >"$tmp/out" 2>&1
   expect "no base: no config, so the finding blocks" 1 "$?"
+
+  # A merge whose resolution adds a finding neither parent has.
+  setup; publish
+  gc -C "$tmp/repo" checkout -q -b side; commit side.txt "side"
+  gc -C "$tmp/repo" checkout -q main; commit main.txt "main"
+  gc -C "$tmp/repo" merge -q --no-commit side >/dev/null 2>&1
+  printf '%s\n' "$high_code" > "$tmp/repo/merged.py"; gc -C "$tmp/repo" add merged.py; gc -C "$tmp/repo" commit -q -m merge
+  expect "a finding added in a merge commit blocks" 1 "$(check "$F")"
+  has "it is named" "BLOCK (foxguard): high merged.py:3"
+  # A symlink replaced by a regular file (a type change).
+  setup; ln -s nowhere "$tmp/repo/t.py"; gc -C "$tmp/repo" add t.py; gc -C "$tmp/repo" commit -q -m link; publish
+  rm -f "$tmp/repo/t.py"; commit t.py "$high_code"
+  expect "a symlink turned into a file with a finding blocks" 1 "$(check "$F")"
+  # A renamed file keeps its old findings: not new.
+  setup; commit app.py "$high_code"; publish
+  gc -C "$tmp/repo" mv app.py renamed.py; gc -C "$tmp/repo" commit -q -m rename
+  expect "a renamed file's existing finding does not block" 0 "$(check "$F")"
+  has "it is a warning" "WARNING (foxguard): high renamed.py:3 py/no-yaml-load (already in the base)"
+  # A pushed .ignore cannot hide the files next to it.
+  setup; publish; commit .ignore '*'; commit app.py "$high_code"
+  expect "a pushed .ignore does not hide a finding" 1 "$(check "$F")"
+  # A path with a tab cannot be scanned safely: refused.
+  setup; publish; printf 'x\n' > "$tmp/repo/a$(printf '\t')b.py"; gc -C "$tmp/repo" add -A; gc -C "$tmp/repo" commit -q -m tab
+  expect "a changed path with a tab is refused" 1 "$(check "$F")"
+  has "and named" "a path with a tab or newline"
+  # A relative TMPDIR still scans.
+  setup; commit notes.txt "plain"
+  mkdir -p "$tmp/repo/.git/reltmp"
+  expect "a relative TMPDIR works" 0 "$(check "$F" TMPDIR=.git/reltmp)"
 
   # A changed file foxguard cannot parse.
   setup; commit broken.py 'def f(:
