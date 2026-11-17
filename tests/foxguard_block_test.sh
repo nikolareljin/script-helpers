@@ -236,6 +236,18 @@ $high_code"
   # A pushed .ignore cannot hide the files next to it.
   setup; publish; commit .ignore '*'; commit app.py "$high_code"
   expect "a pushed .ignore does not hide a finding" 1 "$(check "$F")"
+  # A directory scan skips hidden paths and the ones foxguard calls noise
+  # (vendor/, node_modules/, build/, dist/): each file must still be read.
+  for p in .hidden.py .tools/app.py vendor/app.py src/node_modules/x/app.py src/vendor/app.py node_modules/app.py build/app.py dist/app.py; do
+    setup; publish; mkdir -p "$tmp/repo/$(dirname "$p")"; commit "$p" "$high_code"
+    expect "a new finding in $p blocks" 1 "$(check "$F")"
+  done
+  # Such a file keeps its real name, so a finding already at the base is matched.
+  setup; mkdir -p "$tmp/repo/vendor"; commit vendor/app.py "$high_code"; publish
+  commit vendor/app.py "# touched
+$high_code"
+  expect "a vendor/ finding already in the base does not block" 0 "$(check "$F")"
+  has "under its real name" "WARNING (foxguard): high vendor/app.py:4 py/no-yaml-load (already in the base)"
   # An inline suppression comment in the pushed code cannot hide a new finding.
   setup; publish; commit app.py "import yaml
 def load(x):
@@ -274,7 +286,7 @@ def load(x):
   setup; commit broken.py 'def f(:
     pass'
   expect "a changed file foxguard skips (parse error) blocks at high" 1 "$(check "$F")"
-  has "and says which" "skipping ./broken.py (parse error)"
+  has "and says which" "skipping broken.py (parse error)"
   expect "and only warns at off" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
   # A file of no language foxguard reads is not a skip.
   setup; commit notes.txt "plain text"

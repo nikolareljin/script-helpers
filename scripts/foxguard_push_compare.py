@@ -3,7 +3,8 @@
 Usage: foxguard_push_compare.py --level <critical|high|medium|low>
        --tip <tip.json> [--base <base.json> ...]
 
-Reads foxguard JSON reports (`foxguard --format json`). A tip finding is new
+Reads foxguard JSON reports (`foxguard --format json`), each a file or a
+directory of them. A tip finding is new
 when its rule, file and whitespace-normalized snippet occur more often at the
 tip than in every base report, so a finding that only moved lines is not new.
 Prints one tab-separated line per tip finding:
@@ -22,8 +23,22 @@ RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}
 
 
 def load(path):
-    # The reports the hook itself wrote into its own temporary directory.
-    with Path(path).open(encoding="utf-8") as handle:
+    # The reports the hook itself wrote into its own temporary directory: one
+    # JSON file, or a directory of them (one per scanned file).
+    path = Path(path)
+    if path.is_dir():
+        found = []
+        for part in sorted(path.glob("*.json")):
+            findings = load(part)
+            # <n>.path: the real name of a file scanned from its own directory.
+            real = part.with_suffix(".path")
+            if real.exists():
+                name = real.read_text(encoding="utf-8").rstrip("\n")
+                for finding in findings:
+                    finding["file"] = name
+            found.extend(findings)
+        return found
+    with path.open(encoding="utf-8") as handle:
         data = json.load(handle)
     findings = data.get("findings") if isinstance(data, dict) else None
     if not isinstance(findings, list):

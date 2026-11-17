@@ -158,7 +158,9 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
   merges and type changes included; a renamed file is compared with its old
   path. Occurrences are counted per rule, file and snippet: an added copy of a
   flagged line is new, one that only moved is not. Without a base, every file
-  of the tip.
+  of the tip. Each file is scanned on its own, so hidden paths and the ones
+  foxguard skips as noise in a directory scan (`vendor/`, `node_modules/`,
+  `build/`, `dist/`) are read too.
   A changed path with a tab or newline refuses the push. Ignore files
   (`.ignore` and the like) are not written to the scanned tree, so a push
   cannot hide its own files. Inline suppressions (`# foxguard: ignore`, the word
