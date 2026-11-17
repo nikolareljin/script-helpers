@@ -16,12 +16,14 @@ import argparse
 import json
 import sys
 from collections import Counter
+from pathlib import Path
 
 RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}
 
 
 def load(path):
-    with open(path, encoding="utf-8") as handle:
+    # The reports the hook itself wrote into its own temporary directory.
+    with Path(path).open(encoding="utf-8") as handle:
         data = json.load(handle)
     findings = data.get("findings") if isinstance(data, dict) else None
     if not isinstance(findings, list):
