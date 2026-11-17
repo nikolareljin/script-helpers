@@ -350,7 +350,7 @@ gitleaks_found() {
 
 foxguard_found() {
   if [[ -n "${FOXGUARD_CMD:-}" ]]; then return 0; fi
-  command -v foxguard >/dev/null 2>&1 && return 0
+  # Only the pinned version counts: the hook runs no other.
   ( # shellcheck source=/dev/null
     source "$src_root/helpers.sh" && shlib_import logging foxguard >/dev/null 2>&1 && foxguard_bin >/dev/null 2>&1 )
 }

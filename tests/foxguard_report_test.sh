@@ -29,7 +29,7 @@ g() { git -c user.email=t@localhost -c user.name=t -c commit.gpgsign=false "$@";
 # and exit 0 whatever it finds. bad.sh has one finding, broken.sh fails.
 cat > "$tmp/bin/foxguard" <<'EOF'
 #!/usr/bin/env bash
-[[ "${1:-}" == --version ]] && { echo "foxguard 9.9.9"; exit 0; }
+[[ "${1:-}" == --version ]] && { echo "foxguard $FOX_PIN"; exit 0; }
 paths=()
 while [[ $# -gt 0 ]]; do case "$1" in -f) shift ;; -q) ;; *) paths+=("$1") ;; esac; shift; done
 [[ ${#paths[@]} -eq 1 ]] || { echo "error: unexpected argument" >&2; exit 2; }
@@ -42,6 +42,9 @@ exit 0
 EOF
 chmod +x "$tmp/bin/foxguard"
 export PATH="$tmp/bin:$PATH"
+# The stub reports the pinned version: a foxguard of another one is not run.
+FOX_PIN="$(source "$root_dir/lib/ci_defaults.sh" && printf '%s' "$CI_DEFAULT_FOXGUARD_VERSION")"
+export FOX_PIN
 
 git init -q "$tmp/r" && cd "$tmp/r" || exit 1
 echo base > base.txt && g add . && g commit -qm base
@@ -51,7 +54,7 @@ g add . && g commit -qm change
 
 rc=0; out="$(bash "$root_dir/scripts/foxguard_report.sh" --base "$base" --output "$tmp/r.json" 2>&1)" || rc=$?
 summary="$("$py" -c 'import json,sys; d=json.load(open(sys.argv[1])); print(len(d["files"]), d["finding_counts"]["total"], d["findings"][0]["file"], d["findings"][0]["severity"], len(d["errors"]), d["version"])' "$tmp/r.json" 2>&1)"
-[[ $rc -eq 1 && "$summary" == "3 1 bad.sh critical 0 foxguard 9.9.9" ]] && ok "every changed file scanned (one per run), the finding kept with its file; exit 1" \
+[[ $rc -eq 1 && "$summary" == "3 1 bad.sh critical 0 foxguard $FOX_PIN" ]] && ok "every changed file scanned (one per run), the finding kept with its file; exit 1" \
   || error "report: rc=$rc summary='$summary' out=$out"
 grep -q '^  "files"' "$tmp/r.json" && ok "the JSON is formatted (indented)" || error "JSON not indented"
 

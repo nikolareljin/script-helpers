@@ -30,7 +30,7 @@ Exit codes:
 1  Findings (written to the file).
 2  Usage or git error, the report could not be written, or a file could not
 be scanned (listed under "errors").
-3  foxguard not installed and not installable here.
+3  The pinned foxguard is not installed and not installable here.
 ```
 
 Example:
@@ -132,7 +132,8 @@ Usage: source scripts/security_hooks.sh; sec_pre_push <refs-file> <remote-name> 
                                otherwise they are looked up in the repository.
   Mandatory publication checks cannot be disabled with environment overrides.
   FOXGUARD_CMD                 foxguard command to run (default: the pinned
-                               binary in the cache, else foxguard on PATH).
+                               version: its binary in the cache, else a
+                               foxguard on PATH that reports that version).
   SCRIPT_HELPERS_FOXGUARD_BLOCK  foxguard block level: off, critical, high,
                                medium or low. With git config
                                security.foxguardBlock also set, the stricter
