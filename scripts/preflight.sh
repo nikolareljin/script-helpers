@@ -743,7 +743,7 @@ check_security() {
       gitleaks_install || log_warn "preflight: gitleaks install failed"
     fi
     if ! foxguard_bin >/dev/null; then
-      log_info "preflight: foxguard is not installed; installing the pinned $CI_DEFAULT_FOXGUARD_VERSION"
+      log_info "preflight: $(foxguard_missing_reason); installing the pinned $CI_DEFAULT_FOXGUARD_VERSION"
       foxguard_install || log_warn "preflight: foxguard install failed"
     fi
   fi
@@ -758,7 +758,7 @@ check_security() {
   fi
   # foxguard runs on the host in both modes; there is no image of it.
   if ! foxguard_bin >/dev/null; then
-    skip_step "foxguard code scan" "foxguard is not installed; bash $scanner --install-foxguard"
+    skip_step "foxguard code scan" "$(foxguard_missing_reason); bash $scanner --install-foxguard"
     have_foxguard=false
   fi
   # The repository-wide part: the secret scan and foxguard. Not run when both are

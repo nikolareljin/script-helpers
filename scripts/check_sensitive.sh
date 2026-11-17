@@ -558,14 +558,24 @@ findings="$tmp/findings"    # label<TAB>what
 : > "$findings"
 
 # ----------------------------------------------------------------- gitleaks
+# gitleaks_bin: GITLEAKS_BIN when set (only it counts), else gitleaks on PATH,
+# else the cached binary of the pinned version. Return 1 when there is none.
 gitleaks_bin() {
-  local c
+  local c v
   if [[ -n "${GITLEAKS_BIN:-}" ]]; then
     [[ -x "$GITLEAKS_BIN" ]] && { printf '%s\n' "$GITLEAKS_BIN"; return 0; }
     return 1
   fi
   command -v gitleaks 2>/dev/null && return 0
-  for c in "${XDG_CACHE_HOME:-${HOME:-}/.cache}"/script-helpers/gitleaks/*/gitleaks "${XDG_CACHE_HOME:-${HOME:-}/.cache}"/script-helpers/gitleaks/*/gitleaks.exe; do
+  # The cache: only the pinned version's directory, where gitleaks_install puts
+  # the release it checked against the pinned SHA-256. Another cached version
+  # is never run. No lib/ci_defaults.sh beside this copy: no pin, so nothing
+  # from the cache.
+  # shellcheck source=/dev/null
+  v="$(source "$SELF_DIR/../lib/ci_defaults.sh" 2>/dev/null && printf '%s' "${CI_DEFAULT_GITLEAKS_VERSION:-}")" || v=""
+  [[ -n "$v" ]] || return 1
+  for c in gitleaks gitleaks.exe; do
+    c="${XDG_CACHE_HOME:-${HOME:-}/.cache}/script-helpers/gitleaks/$v/$c"
     [[ -x "$c" ]] && { printf '%s\n' "$c"; return 0; }
   done
   return 1

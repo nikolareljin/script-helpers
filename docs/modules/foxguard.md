@@ -3,10 +3,11 @@
 Find, install and verify the pinned [foxguard](https://github.com/0sec-labs/foxguard)
 static-analysis scanner that `scripts/ci_security.sh` runs. `npx foxguard` fetches
 the latest version; this module runs the one pinned in `ci_defaults`, and refuses a
-downloaded binary whose SHA-256 does not match the pin.
+downloaded or cached binary whose SHA-256 does not match the pin.
 
-Return codes: `0` success, `1` failed (download, checksum mismatch), `3` not
-installed, a required tool missing, or no release binary for this platform.
+Return codes: `0` success, `1` failed (download, checksum mismatch), `3` the
+pinned version not installed, a required tool missing, or no release binary for
+this platform.
 
 Functions
 ---------
@@ -27,9 +28,23 @@ Functions
 - foxguard_cache_path
   - Purpose: Print where the pinned binary is installed: `${XDG_CACHE_HOME:-~/.cache}/script-helpers/foxguard/<version>/foxguard` (`foxguard.exe` on Windows).
 
+- foxguard_is_pinned file
+  - Purpose: Tell whether the file's SHA-256 is the one pinned for this machine's release asset.
+  - Returns: 0 it is; 1 it is not (also a file that cannot be read); 3 no release binary for this platform, or no SHA-256 tool.
+
+- foxguard_path_bin
+  - Purpose: Print the `foxguard` on `PATH`, when `foxguard --version` reports the pinned version.
+  - Returns: 3 when there is none, or it is another version.
+
 - foxguard_bin
-  - Purpose: Print the foxguard to run: the pinned binary in the cache, else one on `PATH`.
-  - Returns: 3 when there is neither.
+  - Purpose: Print the foxguard to run: the cached binary of the pinned version when `foxguard_is_pinned` accepts it, else `foxguard_path_bin`.
+  - Behavior: A cached binary of another version is never used, nor one whose SHA-256 is not the pinned one, nor a `foxguard` of another version on `PATH`.
+  - Returns: 3 when there is no pinned foxguard.
+  - Used by: `scripts/ci_security.sh`, `scripts/foxguard_report.sh`, `scripts/preflight.sh`, `scripts/setup-hooks.sh` and the pre-push hook (`scripts/security_hooks.sh`).
+
+- foxguard_missing_reason
+  - Purpose: Print one line saying why `foxguard_bin` found none: `<path> does not match the pinned SHA-256 of foxguard <version>`, `<path> cannot be checked against the pinned SHA-256 (...)`, `<path> is not the pinned foxguard <version>`, or `foxguard is not installed`.
+  - Returns: always 0.
 
 - foxguard_sha256 file
   - Purpose: Print the file's SHA-256, with `shasum -a 256`, else `sha256sum`, else `openssl dgst -sha256`.
@@ -42,5 +57,5 @@ Functions
 Dependencies
 ------------
 
-- `curl` or `wget`; `shasum` or `openssl`.
+- `curl` or `wget`; `shasum`, `sha256sum` or `openssl`.
 - `ci_defaults` (sourced when the caller has not imported it) and `logging`.

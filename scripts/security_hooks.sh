@@ -8,7 +8,8 @@
 #                                otherwise they are looked up in the repository.
 #   Mandatory publication checks cannot be disabled with environment overrides.
 #   FOXGUARD_CMD                 foxguard command to run (default: the pinned
-#                                binary in the cache, else foxguard on PATH).
+#                                version: its binary in the cache, else a
+#                                foxguard on PATH that reports that version).
 #   SCRIPT_HELPERS_FOXGUARD_BLOCK  foxguard block level: off, critical, high,
 #                                medium or low. With git config
 #                                security.foxguardBlock also set, the stricter
@@ -434,14 +435,15 @@ sec_gitleaks_present() {
   ( source "$r/helpers.sh" && shlib_import logging foxguard gitleaks >/dev/null 2>&1 && gitleaks_bin >/dev/null 2>&1 )
 }
 
-# sec_offer_install <tool> <what it runs>: install the pinned <tool>
+# sec_offer_install <tool> <what it runs> [<why>]: install the pinned <tool>
 # (downloaded, SHA-256 checked) when sec_may_install allows: 0 = installed.
-# Otherwise, or when the install fails, print how to install it: 1.
+# Otherwise, or when the install fails, print how to install it: 1. <why> is
+# what is wrong now; the default is "<tool> is not installed".
 sec_offer_install() {
   local tool="$1" what="$2" r
   r="$(sec_lib_root 2>/dev/null || true)"
   if [[ -n "$r" ]] && sec_may_install; then
-    echo "[pre-push] $tool is not installed; installing the pinned release to run $what." >&2
+    echo "[pre-push] ${3:-$tool is not installed}; installing the pinned release to run $what." >&2
     # shellcheck source=/dev/null
     if ( source "$r/helpers.sh" && shlib_import logging foxguard gitleaks && "${tool}_install" ) >&2; then
       echo "[pre-push] $tool installed." >&2
@@ -491,16 +493,29 @@ sec_sensitive_push() {
   esac
 }
 
-# foxguard_cmd: the foxguard to run, or return 1.
+# sec_foxguard_cmd: the foxguard to run: FOXGUARD_CMD, else the pinned release
+# as lib/foxguard.sh finds it (the cached binary of the pinned version, checked
+# against the pinned SHA-256, else one on PATH that reports that version).
+# Return 1 when there is none: another cached version is never run, since a
+# different release reads different files and reports different findings.
 sec_foxguard_cmd() {
-  local c
+  local r
   if [[ -n "${FOXGUARD_CMD:-}" ]]; then printf '%s' "$FOXGUARD_CMD"; return 0; fi
-  for c in "${XDG_CACHE_HOME:-${HOME:-}/.cache}"/script-helpers/foxguard/*/foxguard \
-           "${XDG_CACHE_HOME:-${HOME:-}/.cache}"/script-helpers/foxguard/*/foxguard.exe; do
-    [[ -x "$c" ]] && { printf '%s' "$c"; return 0; }
-  done
-  command -v foxguard 2>/dev/null && return 0
-  return 1
+  r="$(sec_lib_root 2>/dev/null)" || return 1
+  # shellcheck source=/dev/null
+  ( source "$r/helpers.sh" >/dev/null 2>&1 && shlib_import logging foxguard >/dev/null 2>&1 && foxguard_bin 2>/dev/null ) || return 1
+}
+
+# sec_foxguard_missing: why sec_foxguard_cmd found none, in one line.
+sec_foxguard_missing() {
+  local r why=""
+  if r="$(sec_lib_root 2>/dev/null)"; then
+    # shellcheck source=/dev/null
+    why="$( source "$r/helpers.sh" >/dev/null 2>&1 && shlib_import logging foxguard >/dev/null 2>&1 && foxguard_missing_reason 2>/dev/null )" || why=""
+  else
+    why="lib/foxguard.sh was not found, so the pinned foxguard version is unknown"
+  fi
+  printf '%s' "${why:-foxguard is not installed}"
 }
 
 # sec_foxguard_platform_ok: foxguard publishes a binary for this machine
@@ -536,8 +551,8 @@ sec_foxguard_warn() {
       sec_loud "the foxguard scan did NOT run: foxguard has no binary for $(uname -s) $(uname -m)."
       return 0
     fi
-    if ! { sec_offer_install foxguard "the static-analysis scan of the changed files" && cmd="$(sec_foxguard_cmd)"; }; then
-      sec_loud "the foxguard scan did NOT run: foxguard is not installed (see above to install it)."
+    if ! { sec_offer_install foxguard "the static-analysis scan of the changed files" "$(sec_foxguard_missing)" && cmd="$(sec_foxguard_cmd)"; }; then
+      sec_loud "the foxguard scan did NOT run: $(sec_foxguard_missing) (see above to install the pinned one)."
       return 0
     fi
   fi
@@ -748,8 +763,8 @@ sec_foxguard_block() (
     if ! sec_foxguard_platform_ok; then
       sec_foxguard_refuse "$level" "foxguard has no binary for $(uname -s) $(uname -m)"; exit 1
     fi
-    if ! { sec_offer_install foxguard "the static-analysis scan of the changed files" && cmd="$(sec_foxguard_cmd)"; }; then
-      sec_foxguard_refuse "$level" "foxguard is not installed"; exit 1
+    if ! { sec_offer_install foxguard "the static-analysis scan of the changed files" "$(sec_foxguard_missing)" && cmd="$(sec_foxguard_cmd)"; }; then
+      sec_foxguard_refuse "$level" "$(sec_foxguard_missing)"; exit 1
     fi
   fi
   py="$(security_python)" || { sec_foxguard_refuse "$level" "no Python 3 to compare foxguard reports"; exit 1; }

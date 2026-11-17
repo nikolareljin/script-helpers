@@ -72,6 +72,9 @@ unchecked commit or push. Repair the missing checker, scanner or input first.
   committed `.gitleaks.toml` is ignored: the default rules always apply. gitleaks is found on `PATH`,
   then in the cache `preflight.sh` installs into
   (`bash scripts/ci_security.sh --install-gitleaks`), or at `GITLEAKS_BIN`.
+  From the cache only the pinned version is run
+  (`~/.cache/script-helpers/gitleaks/<CI_DEFAULT_GITLEAKS_VERSION>/`); another
+  cached version counts as not installed.
 - **Personal terms**: every line of
   `${XDG_CONFIG_HOME:-~/.config}/script-helpers/sensitive-terms.txt`
   (`SENSITIVE_TERMS_FILE` overrides). One term per line, `#` comments, mode
@@ -150,8 +153,8 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
 - **A value that is not a level** (`git config security.foxguardBlock nope`)
   refuses every push; it is never read as `off`. `setup-hooks.sh --status`
   shows the effective level (`foxguard_block=` with `--porcelain`).
-- **Fail closed**: at any level but `off`, the push is refused when foxguard is
-  missing (install it: `setup-hooks.sh --install-foxguard`), when the scan
+- **Fail closed**: at any level but `off`, the push is refused when the pinned
+  foxguard is missing (install it: `setup-hooks.sh --install-foxguard`), when the scan
   fails, or when foxguard skips a changed file it should read (a parse error, a
   file over its 1 MB limit). A file type foxguard has no rules for is not a skip.
 - **Which files**: every file the tip adds or changes against the base,
@@ -175,10 +178,26 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
 
 `scripts/foxguard_push_compare.py` does the matching on foxguard's JSON reports.
 
-It is looked up as `FOXGUARD_CMD`, then the pinned binary in
-`~/.cache/script-helpers/foxguard/<version>/`, then `foxguard` on `PATH`.
-Install the pinned release, checked against the SHA-256 in `lib/ci_defaults.sh`
-(`CI_DEFAULT_FOXGUARD_VERSION`, `CI_DEFAULT_FOXGUARD_SHA256_*`):
+Only the pinned foxguard runs (`CI_DEFAULT_FOXGUARD_VERSION` and
+`CI_DEFAULT_FOXGUARD_SHA256_*` in `lib/ci_defaults.sh`): another release reads
+different files and reports different findings. It is looked up in this order:
+
+| Where | Used when |
+|---|---|
+| `FOXGUARD_CMD` | set; run as given, not checked |
+| `~/.cache/script-helpers/foxguard/<pinned version>/foxguard` | its SHA-256 is the pinned one |
+| `foxguard` on `PATH` | `foxguard --version` reports the pinned version |
+
+Anything else counts as missing: another cached version
+(`foxguard/0.14.0/` next to a `0.14.1` pin), a cached binary with another
+SHA-256, a `foxguard` of another version on `PATH`. The push then installs the
+pinned release (see [the scanners](git-hooks.md#the-scanners-gitleaks-and-foxguard));
+when it cannot, the refusal (at `off`, the warning) names the binary it passed over, for example
+`Foxguard check failed: /usr/local/bin/foxguard is not the pinned foxguard 0.14.1.`
+`ci_security.sh`, `foxguard_report.sh` and `preflight.sh` use the same lookup,
+without `FOXGUARD_CMD`; `setup-hooks.sh --status` reports its result.
+
+Install the pinned release, checked against that SHA-256:
 
 ```bash
 bash scripts/setup-hooks.sh --install-foxguard     # or: scripts/ci_security.sh --install-foxguard

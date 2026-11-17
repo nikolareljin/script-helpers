@@ -1,5 +1,14 @@
 ## Unreleased
 
+### Fixed
+
+- **Only the pinned foxguard runs, and from the cache only the pinned gitleaks.** The pre-push hook (`sec_foxguard_cmd` in `scripts/security_hooks.sh`) took the first `~/.cache/script-helpers/foxguard/*/foxguard`, so with `0.14.0/` and `0.14.1/` cached it scanned with 0.14.0 while the pin was 0.14.1, and refused pushes over shell files only 0.14.0 skips. `check_sensitive.sh` took the first cached gitleaks the same way. Now:
+  - `foxguard_bin` (`lib/foxguard.sh`) returns the cached binary of `CI_DEFAULT_FOXGUARD_VERSION` only when its SHA-256 is the pinned one, else a `foxguard` on `PATH` only when `foxguard --version` reports the pinned version. The hook, `ci_security.sh`, `foxguard_report.sh`, `preflight.sh` and `setup-hooks.sh --status` all use it. `FOXGUARD_CMD` is still run as given.
+  - Another cached version, a cached binary with another SHA-256 and another version on `PATH` count as missing: the pinned release is installed where installs are allowed, otherwise the push is refused at every level but `off`, naming the binary passed over (`foxguard_missing_reason`) and `setup-hooks.sh --install-foxguard`. `ci_security.sh` ran another version with a warning; it now skips the scan and names it.
+  - `check_sensitive.sh` reads a cached gitleaks only from the `CI_DEFAULT_GITLEAKS_VERSION` directory. `GITLEAKS_BIN` and a gitleaks on `PATH` are used as before.
+
+  Test: `tests/scanner_pin_test.sh` (fails without the fix). Closes https://github.com/nikolareljin/script-helpers/issues/281.
+
 ## 2026-11-17 — v0.66.0
 
 ### Changed

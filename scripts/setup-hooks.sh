@@ -350,7 +350,7 @@ gitleaks_found() {
 
 foxguard_found() {
   if [[ -n "${FOXGUARD_CMD:-}" ]]; then return 0; fi
-  command -v foxguard >/dev/null 2>&1 && return 0
+  # Only the pinned version counts: the hook runs no other.
   ( # shellcheck source=/dev/null
     source "$src_root/helpers.sh" && shlib_import logging foxguard >/dev/null 2>&1 && foxguard_bin >/dev/null 2>&1 )
 }
@@ -360,12 +360,13 @@ install_foxguard() {
   ( source "$src_root/helpers.sh" && shlib_import logging foxguard && foxguard_install )
 }
 
-# offer_foxguard: as offer_gitleaks. Without it the push's static-analysis
-# scan does not run (its findings are warnings, so nothing is refused).
+# offer_foxguard: as offer_gitleaks. Without the pinned foxguard the push's
+# static-analysis scan cannot run, and the push is refused unless
+# security.foxguardBlock is off.
 offer_foxguard() {
   local answer=""
   foxguard_found && return 0
-  echo "[setup-hooks] foxguard is missing. Without it the push's static-analysis scan does not run."
+  echo "[setup-hooks] the pinned foxguard is missing. Without it the push's static-analysis scan cannot run, and the push is refused (a warning at security.foxguardBlock=off)."
   if [[ -t 0 && -t 1 ]]; then
     printf '[setup-hooks] Install the pinned foxguard now (download, SHA-256 checked)? [y/N] '
     read -r answer || answer=""
@@ -430,7 +431,7 @@ prereqs() {
   if foxguard_found; then
     echo "  foxguard  ok"
   else
-    echo "  foxguard  WARN: the push's static-analysis scan does not run;"
+    echo "  foxguard  WARN: the pinned version is missing, so the push's static-analysis scan cannot run;"
     echo "            bash $src_root/scripts/setup-hooks.sh --install-foxguard"
   fi
   owners="$(configured_owners)"
