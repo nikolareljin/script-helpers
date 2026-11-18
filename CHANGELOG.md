@@ -1,5 +1,7 @@
 ## Unreleased
 
+## 2026-11-18 — v0.67.0
+
 ### Changed
 
 - **A gitleaks or foxguard on `PATH` runs only at the pinned version or newer.** Any gitleaks on `PATH` was run, also one far older than `CI_DEFAULT_GITLEAKS_VERSION`, so an old distribution package scanned with an older rule set and the push reported clean. A foxguard on `PATH` was used only at exactly `CI_DEFAULT_FOXGUARD_VERSION`, so a newer one was passed over. One rule for both now (`lib/scanner.sh`, with `version_at_least` and `version_same_series` in `lib/version.sh`):
