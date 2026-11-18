@@ -393,6 +393,33 @@ else
   expect "nothing scanned" "" "$(cat "$GL_LOG")"
 fi
 
+# ------------------------------------------------------------- preflight.sh
+# A scanner preflight reports as SKIP is not downloaded and run after all.
+pf() { RC=0; (cd "$tmp/repo" && env "$@" bash "$ROOT_DIR/scripts/preflight.sh" --security-only) >"$tmp/out" 2>&1 || RC=$?; }
+reset
+mkgl "$tmp/onpath/gitleaks" pinned 8.30.1
+mkfox "$tmp/onpath/foxguard" old 0.13.9
+pf PATH="$WITH_PATH" PREFLIGHT_NO_INSTALL=1
+has "preflight, installs off: an older foxguard is a SKIP naming it" "SKIP  foxguard code scan — $tmp/onpath/foxguard is foxguard 0.13.9, older than the minimum $FOX_PIN"
+expect "and nothing was downloaded" "" "$(cat "$CURL_LOG")"
+expect "and the older foxguard never scanned" "" "$(cat "$FOX_LOG")"
+[[ -s "$GL_LOG" ]] && ok "while the pinned gitleaks on PATH scanned" || error "gitleaks did not scan: $(tail -5 "$tmp/out")"
+reset
+mkgl "$tmp/onpath/gitleaks" old 8.18.4
+pf PATH="$WITH_PATH" PREFLIGHT_NO_INSTALL=1
+has "preflight, installs off: an older gitleaks is a SKIP naming it" "SKIP  gitleaks secret scan — $tmp/onpath/gitleaks is gitleaks 8.18.4, older than the minimum $GL_PIN"
+expect "and it never scanned" "" "$(cat "$GL_LOG")"
+if [[ "$can_install" == true ]]; then
+  reset
+  mkgl "$tmp/onpath/gitleaks" old 8.18.4
+  mkfox "$tmp/onpath/foxguard" old 0.13.9
+  pf PATH="$WITH_PATH"
+  has "preflight: an older gitleaks is replaced by the pinned one" "preflight: $tmp/onpath/gitleaks is gitleaks 8.18.4, older than the minimum $GL_PIN; installing the pinned $GL_PIN"
+  has "preflight: an older foxguard is replaced by the pinned one" "preflight: $tmp/onpath/foxguard is foxguard 0.13.9, older than the minimum $FOX_PIN; installing the pinned $FOX_PIN"
+  expect "the installed gitleaks scanned, the older one did not" "installed" "$(sort -u "$GL_LOG")"
+  expect "the installed foxguard scanned, the older one did not" "installed" "$(sort -u "$FOX_LOG")"
+fi
+
 # ------------------------------------------------ the pre-push hook, foxguard
 foxpush() {
   printf 'refs/heads/main %s refs/heads/main %s\n' "$(git -C "$tmp/repo" rev-parse HEAD)" "$(git -C "$tmp/repo" rev-parse HEAD~1)" > "$tmp/refs"

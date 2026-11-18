@@ -45,7 +45,7 @@ done
 source "$src_root/helpers.sh"
 shlib_import logging foxguard
 if ! bin="$(foxguard_bin)"; then
-  if [[ -n "${CI:-}" || "${SCRIPT_HELPERS_NO_AUTO_INSTALL:-}" == 1 ]]; then
+  if ! scanner_may_install; then
     echo "[foxguard_report] $(foxguard_missing_reason) (not installing: CI or SCRIPT_HELPERS_NO_AUTO_INSTALL=1). To install the pinned one see docs/security-gates.md." >&2
     exit 3
   fi

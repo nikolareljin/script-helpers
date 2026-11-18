@@ -325,9 +325,17 @@ function Invoke-ScanStep {
     log_info "preflight: $Label"
     $skipFile = New-TemporaryFile
     $env:PREFLIGHT_SKIP_FILE = $skipFile.FullName
+    # ci_security.sh installs nothing here: a scanner this run reported as SKIP
+    # must not be downloaded and run after all.
+    $savedNoInstall = $env:SCRIPT_HELPERS_NO_AUTO_INSTALL
+    $env:SCRIPT_HELPERS_NO_AUTO_INSTALL = '1'
     $rc = 1
     try { & $BashPath @ScanArgs; $rc = $LASTEXITCODE } catch { $rc = 1 }
-    finally { Remove-Item Env:PREFLIGHT_SKIP_FILE -ErrorAction SilentlyContinue }
+    finally {
+        Remove-Item Env:PREFLIGHT_SKIP_FILE -ErrorAction SilentlyContinue
+        if ($null -eq $savedNoInstall) { Remove-Item Env:SCRIPT_HELPERS_NO_AUTO_INSTALL -ErrorAction SilentlyContinue }
+        else { $env:SCRIPT_HELPERS_NO_AUTO_INSTALL = $savedNoInstall }
+    }
     $reason = Get-Content $skipFile.FullName -TotalCount 1 -ErrorAction SilentlyContinue
     Remove-Item $skipFile.FullName -ErrorAction SilentlyContinue
     if ($rc -eq 0) { $Results.Add("PASS  $Label") }
@@ -370,7 +378,7 @@ function Check-Security {
     # foxguard runs on the host in both modes; ci_security.sh knows where it looks.
     & $bash.Source $script --check-foxguard *> $null
     if ($LASTEXITCODE -ne 0) {
-        Add-Skip 'foxguard code scan' "foxguard is not installed; bash $script --install-foxguard"
+        Add-Skip 'foxguard code scan' "no foxguard at the pinned version or newer; bash $script --install-foxguard"
         $haveFoxguard = $false
     }
     # The repository-wide part: the secret scan and foxguard; see check_security
