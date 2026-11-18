@@ -490,7 +490,7 @@ sec_offer_install() {
 # Exit 2 (could not check: gitleaks missing, commits unreadable) refuses the
 # push: a credential scan that did not run is not a clean one.
 sec_sensitive_push() {
-  local refs="$1" remote="${2:-}" gate rc
+  local refs="$1" remote="${2:-}" gate rc why
   gate="$(sec_find check_sensitive.sh)" || {
     sec_unchecked pre-push "check_sensitive.sh not found; credentials and personal data NOT checked"
     return
@@ -502,8 +502,12 @@ sec_sensitive_push() {
     # Only that path counts: an install elsewhere would not be used.
     echo "[pre-push] ERROR: GITLEAKS_BIN is $GITLEAKS_BIN, which is not an executable; the credential scan cannot run." >&2
   elif ! sec_gitleaks_present; then
-    echo "[pre-push] ERROR: $(sec_gitleaks_missing); the credential scan cannot run." >&2
-    sec_offer_install gitleaks "the credential scan" "$(sec_gitleaks_missing)" || true
+    # An ERROR only when it stays missing: an older gitleaks on PATH that the
+    # pinned release replaces here is not one.
+    why="$(sec_gitleaks_missing)"
+    if ! sec_offer_install gitleaks "the credential scan" "$why"; then
+      echo "[pre-push] ERROR: $why; the credential scan cannot run." >&2
+    fi
   fi
   bash "$gate" --no-inline-allow --push-refs "$refs" --remote "$remote"
   rc=$?

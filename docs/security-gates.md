@@ -226,7 +226,8 @@ pin) and a cached foxguard with another SHA-256.
 
 `check_sensitive.sh`, the pre-push hook, `ci_security.sh`, `foxguard_report.sh`,
 `preflight.sh` and `preflight.ps1` use this lookup (the last four without the
-two overrides); `setup-hooks.sh --status` reports its result.
+two overrides); `setup-hooks.sh --status` reports its result. `preflight.ps1`
+installs nothing: a scanner it cannot use is a `SKIP` with the install command.
 
 Install the pinned releases yourself:
 

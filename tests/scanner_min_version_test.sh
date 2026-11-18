@@ -383,6 +383,7 @@ else
   mkgl "$tmp/onpath/gitleaks" old 8.18.4
   hookpush PATH="$WITH_PATH" SENSITIVE_NO_MACHINE=1
   has "hook: older gitleaks: it says so and installs the pinned one" "[pre-push] $tmp/onpath/gitleaks is gitleaks 8.18.4, older than the minimum $GL_PIN; installing the pinned release to run the credential scan."
+  hasnt "with no ERROR: the scan runs" "ERROR"
   expect "the installed one scanned, the older one did not" "installed" "$(sort -u "$GL_LOG")"
   reset
   mkgl "$tmp/onpath/gitleaks" old 8.18.4
