@@ -769,7 +769,7 @@ sec_foxguard_block() (
   fi
   py="$(security_python)" || { sec_foxguard_refuse "$level" "no Python 3 to compare foxguard reports"; exit 1; }
   helper="$_SEC_LIB_DIR/foxguard_push_compare.py"
-  [[ -f "$helper" ]] || { sec_foxguard_refuse "$level" "foxguard_push_compare.py is missing"; exit 1; }
+  [[ -f "$helper" ]] || { sec_foxguard_refuse "$level" "foxguard_push_compare.py is missing (rerun setup-hooks.sh to refresh the hook copy)"; exit 1; }
   # Absolute: the scan runs from inside the tree it writes.
   tmp_root="$(cd "${TMPDIR:-/tmp}" && pwd)" || { sec_foxguard_refuse "$level" "no temporary directory"; exit 1; }
   work="$(mktemp -d "$tmp_root/sh-foxguard.XXXXXX")" || { sec_foxguard_refuse "$level" "no temporary directory"; exit 1; }
