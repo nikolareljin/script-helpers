@@ -739,7 +739,7 @@ check_security() {
   # PREFLIGHT_NO_INSTALL=1 turns it off; a failed install (offline) is a SKIP.
   if [[ "${PREFLIGHT_NO_INSTALL:-}" != "1" ]]; then
     if [[ "$USE_DOCKER" == "false" ]] && ! gitleaks_bin >/dev/null; then
-      log_info "preflight: gitleaks is not installed; installing the pinned $CI_DEFAULT_GITLEAKS_VERSION"
+      log_info "preflight: $(gitleaks_missing_reason); installing the pinned $CI_DEFAULT_GITLEAKS_VERSION"
       gitleaks_install || log_warn "preflight: gitleaks install failed"
     fi
     if ! foxguard_bin >/dev/null; then
@@ -753,7 +753,7 @@ check_security() {
     log_warn "This is the one check the weekly scheduled sweep exists to backstop. Install gitleaks, or run with --docker."
     # In the summary too: without it, "PASS  security scan" read as if secrets
     # had been scanned.
-    skip_step "gitleaks secret scan" "gitleaks is not installed - bash $scanner --install-gitleaks, $(install_hint gitleaks gitleaks), or run with --docker"
+    skip_step "gitleaks secret scan" "$(gitleaks_missing_reason) - bash $scanner --install-gitleaks, $(install_hint gitleaks gitleaks), or run with --docker"
     have_gitleaks=false
   fi
   # foxguard runs on the host in both modes; there is no image of it.

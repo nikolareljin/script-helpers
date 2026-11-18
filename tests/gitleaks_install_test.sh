@@ -35,6 +35,7 @@ done
 mkdir -p "$tmp/rel"
 cat > "$tmp/rel/gitleaks" <<'EOF'
 #!/usr/bin/env bash
+if [[ "${1:-}" == version ]]; then echo "${FAKE_GL_VERSION:-8.30.1}"; exit 0; fi
 echo "fake gitleaks $*" >> "${GL_LOG:-/dev/null}"
 if git ls-files -z 2>/dev/null | xargs -0 grep -l LEAKME >/dev/null 2>&1; then echo "leaks found: 1"; exit 1; fi
 echo "no leaks found"
@@ -98,10 +99,14 @@ else
   error "mismatch: rc=$rc out='$out' left='$(find "$tmp/cache" -type f 2>/dev/null)'"
 fi
 
-# 4. A gitleaks on PATH wins: nothing is downloaded.
+# 4. A gitleaks on PATH at the pinned version wins: nothing is downloaded. An
+#    older one is not used.
 mkdir -p "$tmp/onpath"; cp "$tmp/rel/gitleaks" "$tmp/onpath/gitleaks"
 got="$(PATH="$tmp/onpath:$tmp/bin" XDG_CACHE_HOME="$tmp/cache" bash -c "source '$ROOT_DIR/lib/logging.sh'; source '$ROOT_DIR/lib/foxguard.sh'; source '$ROOT_DIR/lib/gitleaks.sh'; gitleaks_bin")"
-[[ "$got" == "$tmp/onpath/gitleaks" ]] && note "gitleaks on PATH is used first" || error "PATH: got '$got'"
+[[ "$got" == "$tmp/onpath/gitleaks" ]] && note "gitleaks on PATH at the pinned version is used first" || error "PATH: got '$got'"
+rc=0
+got="$(FAKE_GL_VERSION=8.18.4 PATH="$tmp/onpath:$tmp/bin" XDG_CACHE_HOME="$tmp/cache" bash -c "source '$ROOT_DIR/lib/logging.sh'; source '$ROOT_DIR/lib/foxguard.sh'; source '$ROOT_DIR/lib/gitleaks.sh'; gitleaks_bin")" || rc=$?
+[[ $rc -eq 3 && -z "$got" ]] && note "an older gitleaks on PATH is not used" || error "older on PATH: rc=$rc got '$got'"
 
 # 5. preflight installs a missing gitleaks, and the scan then blocks a secret.
 r="$tmp/repo"; git init -q "$r"

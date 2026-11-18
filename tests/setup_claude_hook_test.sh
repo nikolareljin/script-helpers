@@ -50,7 +50,9 @@ mkdir -p "$HOME" "$CLAUDE_CONFIG_DIR" "$tmp/bin"
 cd "$tmp" || exit 1
 # A stand-in gitleaks that finds nothing: the hook refuses without one, and
 # the scanner itself is not under test here.
-printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/bin/gitleaks"; chmod +x "$tmp/bin/gitleaks"
+# It reports the pinned version: an older gitleaks on PATH is not run.
+gl_pin="$(source "$root_dir/lib/ci_defaults.sh" && printf '%s' "$CI_DEFAULT_GITLEAKS_VERSION")"
+printf '#!/usr/bin/env bash\n[[ "${1:-}" == version ]] && echo "%s"\nexit 0\n' "$gl_pin" > "$tmp/bin/gitleaks"; chmod +x "$tmp/bin/gitleaks"
 # A stand-in claude: the version decides whether onFailure is written.
 fake_claude() { printf '#!/usr/bin/env bash\necho "%s (Claude Code)"\n' "$1" > "$tmp/bin/claude"; chmod +x "$tmp/bin/claude"; }
 fake_claude 2.1.200

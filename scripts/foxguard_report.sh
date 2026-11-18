@@ -53,6 +53,8 @@ if ! bin="$(foxguard_bin)"; then
   foxguard_install >&2 || exit 3
   bin="$(foxguard_bin)" || exit 3
 fi
+warn="$(foxguard_version_warning "$bin")" || warn=""
+[[ -z "$warn" ]] || echo "[foxguard_report] $warn" >&2
 
 if [[ ${#paths[@]} -eq 0 ]]; then
   if [[ -z "$base" ]]; then

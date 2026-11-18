@@ -98,8 +98,9 @@ bash scripts/script-helpers/scripts/setup-hooks.sh --install-gitleaks --install-
 ```
 
 Without gitleaks a push is refused: the credential scan cannot run. Without
-the pinned foxguard it is refused too (another version does not count), or
-goes on with a warning at `security.foxguardBlock=off`. foxguard findings can
+foxguard it is refused too, or goes on with a warning at
+`security.foxguardBlock=off`. One on `PATH` counts when it is the pinned
+version or newer ([Which scanner runs](security-gates.md#which-scanner-runs)). foxguard findings can
 be written to a JSON report:
 
 ```bash

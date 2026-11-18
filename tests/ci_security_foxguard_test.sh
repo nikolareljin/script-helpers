@@ -180,16 +180,17 @@ read_local_report
 [[ $RC -eq 0 && "$OUT" == *"stub scan failure"* && "$OUT" == *"could not scan (exit 2)"* ]] \
   && note "scan error, not opted in: message shown, exit 0" || error "failing: rc=$RC out='$OUT'"
 
-# 8. A foxguard on PATH that is not the pinned version is not run: skipped,
-#    naming it and the install command.
+# 8. A foxguard on PATH older than the pinned version is not run: skipped,
+#    naming it and the install command. Installs are off: with them on, the
+#    pinned release replaces it (tests/scanner_min_version_test.sh).
 r="$(new_repo version)"
 : > "$FOX_LOG"; RC=0
-OUT="$(cd "$r" && FOX_VERSION=0.13.1 CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker --skip-python --skip-node --skip-gitleaks 2>&1)" || RC=$?
+OUT="$(cd "$r" && FOX_VERSION=0.13.1 CI="" SCRIPT_HELPERS_NO_AUTO_INSTALL=1 PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker --skip-python --skip-node --skip-gitleaks 2>&1)" || RC=$?
 read_local_report
-[[ $RC -eq 0 && "$OUT" == *"$tmp/bin/foxguard is not the pinned foxguard 0.14.1; skipping the foxguard scan"*"--install-foxguard"* && ! -s "$FOX_LOG" ]] \
-  && note "other version on PATH: not run, skipped with the install command" || error "version: rc=$RC log='$(cat "$FOX_LOG")' out='$OUT'"
+[[ $RC -eq 0 && "$OUT" == *"$tmp/bin/foxguard is foxguard 0.13.1, older than the minimum 0.14.1; skipping the foxguard scan"*"--install-foxguard"* && ! -s "$FOX_LOG" ]] \
+  && note "older version on PATH: not run, skipped with the install command" || error "version: rc=$RC log='$(cat "$FOX_LOG")' out='$OUT'"
 RC=0; (cd "$r" && FOX_VERSION=0.13.1 CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/ci_security.sh" --check-foxguard) || RC=$?
-[[ $RC -eq 3 ]] && note "--check-foxguard with another version: exit 3" || error "check other version: rc=$RC"
+[[ $RC -eq 3 ]] && note "--check-foxguard with an older version: exit 3" || error "check other version: rc=$RC"
 
 # 9. The pinned binary in the cache is preferred over one on PATH, when its
 #    SHA-256 is the pinned one; with another SHA-256 it is not run.

@@ -34,6 +34,7 @@ This index lists all modules and their functions. See the linked module pages fo
 - [ci_defaults](./modules/ci_defaults.md)
 - [foxguard](./modules/foxguard.md)
 - [gitleaks](./modules/gitleaks.md)
+- [scanner](./modules/scanner.md)
 - [adb](./modules/adb.md)
 - [ios](./modules/ios.md)
 - [serve](./modules/serve.md)

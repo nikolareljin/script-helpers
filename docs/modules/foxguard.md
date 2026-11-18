@@ -33,18 +33,27 @@ Functions
   - Returns: 0 it is; 1 it is not (also a file that cannot be read); 3 no release binary for this platform, or no SHA-256 tool.
 
 - foxguard_path_bin
-  - Purpose: Print the `foxguard` on `PATH`, when `foxguard --version` reports the pinned version.
-  - Returns: 3 when there is none, or it is another version.
+  - Purpose: Print the `foxguard` on `PATH`, when `foxguard --version` reports the pinned version or a newer one.
+  - Returns: 3 when there is none, it is older, or its version is not `X.Y.Z`.
 
 - foxguard_bin
   - Purpose: Print the foxguard to run: the cached binary of the pinned version when `foxguard_is_pinned` accepts it, else `foxguard_path_bin`.
-  - Behavior: A cached binary of another version is never used, nor one whose SHA-256 is not the pinned one, nor a `foxguard` of another version on `PATH`.
-  - Returns: 3 when there is no pinned foxguard.
+  - Behavior: A cached binary of another version is never used, nor one whose SHA-256 is not the pinned one, nor a `foxguard` on `PATH` older than the pin.
+  - Returns: 3 when there is no foxguard to run.
   - Used by: `scripts/ci_security.sh`, `scripts/foxguard_report.sh`, `scripts/preflight.sh`, `scripts/setup-hooks.sh` and the pre-push hook (`scripts/security_hooks.sh`).
 
 - foxguard_missing_reason
-  - Purpose: Print one line saying why `foxguard_bin` found none: `<path> does not match the pinned SHA-256 of foxguard <version>`, `<path> cannot be checked against the pinned SHA-256 (...)`, `<path> is not the pinned foxguard <version>`, or `foxguard is not installed`.
+  - Purpose: Print one line saying why `foxguard_bin` found none: `<path> does not match the pinned SHA-256 of foxguard <version>`, `<path> cannot be checked against the pinned SHA-256 (...)`, `<path> is foxguard <version>, older than the minimum <pin>`, `<path> reports no usable version ('<text>'); the minimum is foxguard <pin>`, or `foxguard is not installed`.
   - Returns: always 0.
+
+- foxguard_version_warning [bin]
+  - Purpose: Print the warning for running `bin` (default: `foxguard_bin`) when it is a `foxguard` on `PATH` in a newer breaking series than the pin (another major, or another minor of a `0.x` pin). Nothing otherwise.
+  - Returns: always 0.
+
+- foxguard_resolve
+  - Purpose: `foxguard_bin`, and when the `foxguard` on `PATH` is older than the pin, install the pinned release into the cache first and print that one.
+  - Behavior: Nothing is installed in CI or with `SCRIPT_HELPERS_NO_AUTO_INSTALL=1`, nor when no `foxguard` is on `PATH` at all. The copy on `PATH` is not touched. Messages go to stderr.
+  - Returns: 3 when there is none and none could be installed.
 
 - foxguard_sha256 file
   - Purpose: Print the file's SHA-256, with `shasum -a 256`, else `sha256sum`, else `openssl dgst -sha256`.

@@ -95,7 +95,9 @@ yourself:
 bash scripts/script-helpers/scripts/setup-hooks.sh --install-gitleaks --install-foxguard
 ```
 
-A push with one missing installs it, then runs the scan. When that cannot
+A push with one missing installs it, then runs the scan. One on `PATH` older
+than the pinned version counts as missing: the pinned release goes into the
+cache and the older copy stays where it is. When that cannot
 happen (no binary for the machine, no network, in CI, or with
 `SCRIPT_HELPERS_NO_AUTO_INSTALL=1`):
 
@@ -104,9 +106,10 @@ happen (no binary for the machine, no network, in CI, or with
 | gitleaks | `ERROR`: the credential scan cannot run; refused |
 | foxguard | `ERROR`: the static-analysis scan cannot run; refused. At `security.foxguardBlock=off`, a framed `WARNING`; goes on |
 
-Both print the command that installs the tool. For foxguard, missing means
-the pinned version is missing: another cached version, or a `foxguard` of
-another version on `PATH`, is not run ([lookup order](security-gates.md)).
+Both print the command that installs the tool, and name an older binary they
+passed over. A newer one on `PATH` is run; one in a newer breaking series
+(gitleaks 9.x for an 8.x pin, foxguard 0.15.x for a 0.14.x pin) with a
+`WARNING` ([lookup order](security-gates.md#which-scanner-runs)).
 
 Foxguard refuses a push that adds a finding at or above its block level
 (default `high`; see [Block levels](security-gates.md#block-levels)). Diagnostics are written to a private file

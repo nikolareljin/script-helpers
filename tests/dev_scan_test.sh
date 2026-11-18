@@ -33,9 +33,14 @@ tmp="$(mktemp -d)"
 # Guarded: a subshell inherits this trap. See tests/run_bounded_test.sh.
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
+# No scanner cache of this machine: a cached foxguard there decided case 5,
+# where the reduced PATH has no SHA-256 tool to check it with.
+export XDG_CACHE_HOME="$tmp/cache"
 mkdir -p "$tmp/bin"
 cat > "$tmp/bin/gitleaks" <<'EOF'
 #!/usr/bin/env bash
+# The pinned version: an older gitleaks on PATH is not run.
+if [[ "${1:-}" == version ]]; then echo "$GL_PIN"; exit 0; fi
 where=""
 [[ "$(git rev-parse --show-toplevel 2>/dev/null)" == "$(pwd -P)" ]] && where="top: "
 echo "${where}gitleaks $*" >> "$GL_LOG"
@@ -56,6 +61,7 @@ echo "no leaks found"
 EOF
 chmod +x "$tmp/bin/gitleaks"
 export GL_LOG="$tmp/gitleaks.log"
+GL_PIN="$(source "$ROOT_DIR/lib/ci_defaults.sh" && printf '%s' "$CI_DEFAULT_GITLEAKS_VERSION")"; export GL_PIN
 
 new_repo() {
   local r="$tmp/$1"

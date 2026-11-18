@@ -41,7 +41,9 @@ mkdir -p "$HOME" "$tmp/bin" "$tmp/plain"
 : > "$GIT_CONFIG_GLOBAL"
 # Out of any repository: git config would otherwise read this checkout.
 cd "$tmp" || exit 1
-printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/bin/gitleaks"; chmod +x "$tmp/bin/gitleaks"
+# It reports the pinned version: an older gitleaks on PATH is not run.
+gl_pin="$(source "$root_dir/lib/ci_defaults.sh" && printf '%s' "$CI_DEFAULT_GITLEAKS_VERSION")"
+printf '#!/usr/bin/env bash\n[[ "${1:-}" == version ]] && echo "%s"\nexit 0\n' "$gl_pin" > "$tmp/bin/gitleaks"; chmod +x "$tmp/bin/gitleaks"
 : > "$tmp/no-machine-ids"; : > "$tmp/no-terms"
 
 list="$tmp/names.tsv"

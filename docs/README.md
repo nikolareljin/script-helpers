@@ -16,7 +16,7 @@ $ port_next_free 8000
 
 Reusable Bash helpers extracted from projects in this workspace. Source the loader, import only the modules you need, and call the functions in your own scripts.
 
-45 Bash modules and 31 PowerShell mirrors. The Bash modules run unchanged on the bash 3.2 macOS ships.
+46 Bash modules and 31 PowerShell mirrors. The Bash modules run unchanged on the bash 3.2 macOS ships.
 
 - [Installation](installation.md)
 - [Adopt script-helpers in a repository](adopt.md): the submodule, hooks, scanners and tests, step by step
@@ -95,7 +95,8 @@ Modules overview
 - ci_stack: disposable database containers for a CI run: start, wait until ready, remove with the volume.
 - docs_site: build, serve, preview and check a repository's documentation site with MkDocs.
 - foxguard: find, install and verify the pinned foxguard scanner that `scripts/ci_security.sh` runs.
-- gitleaks: install the pinned gitleaks secret scanner on a host that has none.
+- gitleaks: find the gitleaks to run, and install the pinned secret scanner on a host that has none or an older one.
+- scanner: which gitleaks or foxguard on `PATH` may run: the pinned version or newer.
 - cloudflare - deploy to Cloudflare with wrangler: credential and account-id resolution, version and deploy-config derivation, a typed confirmation for protected environments, and a smoke test that asserts the deployed version is the one now live. Shares one deploy definition with CI through `CF_DEPLOY_*`.
 
 If you add a new module or function, update [the API index](api.md), the relevant page under `modules/`, and the `nav:` list in `mkdocs.yml`. `make lint-docs` checks the first two; `mkdocs build --strict` checks the third. See AGENTS.md for the process and checklist.

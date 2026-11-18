@@ -352,12 +352,19 @@ function Check-Security {
     if ($SecurityOnly) { $common += '--fail-on-findings'; $suffix = '' }
     $repoArgs = @('--workdir', '.', '--skip-python', '--skip-node')
     $haveGitleaks = $true; $haveFoxguard = $true
-    if (-not $Docker -and -not (Get-Command gitleaks -ErrorAction SilentlyContinue)) {
+    # ci_security.sh knows which gitleaks counts: one on PATH at the pinned
+    # version or newer, or the cached pinned binary. An older one does not.
+    $gitleaksOk = $true
+    if (-not $Docker) {
+        & $bash.Source $script --check-gitleaks *> $null
+        $gitleaksOk = ($LASTEXITCODE -eq 0)
+    }
+    if (-not $gitleaksOk) {
         $repoArgs += '--skip-gitleaks'
         log_warn 'This is the one check the weekly scheduled sweep exists to backstop. Install gitleaks, or use -Docker.'
         # In the summary too: without it, "PASS  security scan" read as if secrets
         # had been scanned.
-        Add-Skip 'gitleaks secret scan' 'gitleaks is not installed - install it, or use -Docker'
+        Add-Skip 'gitleaks secret scan' "no gitleaks at the pinned version or newer - bash $script --install-gitleaks, or use -Docker"
         $haveGitleaks = $false
     }
     # foxguard runs on the host in both modes; ci_security.sh knows where it looks.

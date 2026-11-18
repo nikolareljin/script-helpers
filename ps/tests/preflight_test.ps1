@@ -26,7 +26,9 @@ New-Item -ItemType Directory -Path $bin | Out-Null
 $log = Join-Path $tmp 'audit.log'
 foreach ($t in 'pip-audit', 'safety', 'bandit', 'npm', 'gitleaks') {
     $f = Join-Path $bin $t
-    Set-Content -Path $f -Value "#!/bin/sh`necho `"$t `$(basename `"`$(pwd -P)`") `$*`" >> '$log'`nexit 0" -Encoding ascii
+    # `gitleaks version` answers with a version far above any pin: preflight
+    # passes over a gitleaks on PATH that is older than the pinned one.
+    Set-Content -Path $f -Value "#!/bin/sh`nif [ `"$t `$1`" = 'gitleaks version' ]; then echo 999.0.0; exit 0; fi`necho `"$t `$(basename `"`$(pwd -P)`") `$*`" >> '$log'`nexit 0" -Encoding ascii
     & chmod +x $f
 }
 $savedPath = $env:PATH; $savedCi = $env:CI; $savedCache = $env:XDG_CACHE_HOME

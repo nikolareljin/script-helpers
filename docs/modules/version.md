@@ -22,6 +22,15 @@ Functions
   - Behavior: the top of the git work tree holding the current directory, or the current directory outside git. When that work tree is a script-helpers checkout vendored as a submodule, the superproject is returned instead, so a vendored copy never bumps its own `VERSION`.
   - Returns: 0; prints the absolute directory.
 
+- version_at_least version minimum
+  - Purpose: Tell whether `version` is `minimum` or newer.
+  - Behavior: Both must be exactly `[v]X.Y.Z`. A prerelease (`8.31.0-rc1`), build metadata, a two- or four-part number or any other text is not a version here, so it is never "at least" anything. Needs no other module.
+  - Returns: 0 at least the minimum; 1 older; 3 either one is not `[v]X.Y.Z`.
+
+- version_same_series version_a version_b
+  - Purpose: Tell whether semver promises no breaking change between the two: the same major from `1.0.0` on, the same minor below it (`0.14.1` and `0.14.9`, not `0.15.0`).
+  - Returns: 0 same series; 1 another series; 3 either one is not `[v]X.Y.Z`.
+
 - version_compare version_a version_b
   - Purpose: Compare two versions shaped like `[v]X.Y.Z[-suffix]` using numeric segments.
   - Behavior: Ignores a leading `v`/`V` and anything after the first `-` (e.g., `-rc1`).
