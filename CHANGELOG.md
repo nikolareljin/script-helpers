@@ -1,5 +1,7 @@
 ## Unreleased
 
+## 2026-11-18 — v0.67.0
+
 ### Changed
 
 - **Windows CI runs its long Git Bash steps as parallel jobs.** `windows-security-hooks` (37-39 min of a 40 min limit) and `windows-ollama-endpoint` (up to 36 min) ran every step in sequence. Each long step now has a job of its own (`windows-scan-output`, `windows-hooks-chain`, `windows-security-gate`, `windows-hook-destinations`, `windows-hook-destinations-native`); every step that ran before still runs, unchanged.
