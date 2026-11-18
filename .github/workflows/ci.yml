@@ -111,9 +111,10 @@ jobs:
   # ./dev runs them there: /proc/meminfo from Git Bash, GPU memory from the
   # registry through powershell.exe. Only this test file: the rest of the suite
   # targets Linux and macOS.
+  # Windows jobs are split so each long Git Bash step runs on its own runner:
+  # process spawns are slow there, and one job ran close to its 40-minute limit.
   windows-ollama-endpoint:
     runs-on: windows-latest
-    # scan_output_test.py alone took 18 of 20 minutes before BinaryPolicyTests.
     timeout-minutes: 40
     steps:
       - name: Checkout
@@ -151,6 +152,18 @@ jobs:
             security_notice Security
             exit "$check_rc"
           fi
+      - name: This machine's figures and class (real, not stubbed)
+        shell: bash
+        run: bash scripts/ollama_models.sh class
+
+  windows-scan-output:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-19
+        with:
+          persist-credentials: false
       - name: Refuse reports before commit and transport
         shell: bash
         run: |
@@ -183,9 +196,6 @@ jobs:
             security_notice Security
             exit "$check_rc"
           fi
-      - name: This machine's figures and class (real, not stubbed)
-        shell: bash
-        run: bash scripts/ollama_models.sh class
 
   # The Claude hook and its setup on Windows: Git Bash runs them, as Claude
   # Code does there. setup-hooks.ps1 is the native entry and must find it.
@@ -212,39 +222,6 @@ jobs:
             security_notice Security
             exit "$check_rc"
           fi
-      - name: Per-repository setup keeps earlier hooks, under Git Bash
-        shell: bash
-        run: |
-          umask 077
-          check_rc=0
-          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
-          unset CI GITHUB_ACTIONS
-          bash tests/setup_hooks_chain_test.sh
-          bash tests/hooks_coexistence_test.sh
-          bash tests/setup_agent_hooks_test.sh
-          PRIVATE_CHECK
-          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
-          if [[ "$check_rc" -ne 0 ]]; then
-            source scripts/security_notice.sh
-            security_notice Security
-            exit "$check_rc"
-          fi
-      - name: Gate temp-dir and security gate tests under Git Bash
-        shell: bash
-        run: |
-          umask 077
-          check_rc=0
-          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
-          unset CI GITHUB_ACTIONS
-          bash tests/gate_tempdir_test.sh
-          bash tests/security_gate_test.sh
-          PRIVATE_CHECK
-          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
-          if [[ "$check_rc" -ne 0 ]]; then
-            source scripts/security_notice.sh
-            security_notice Security
-            exit "$check_rc"
-          fi
       # The unit test stubs curl; this checks the pinned SHA-256 against the real release.
       - name: Pinned foxguard downloads, matches its SHA-256 and runs
         shell: bash
@@ -254,46 +231,6 @@ jobs:
           bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
           unset CI GITHUB_ACTIONS
           bash tests/machine/foxguard_release_check.sh
-          PRIVATE_CHECK
-          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
-          if [[ "$check_rc" -ne 0 ]]; then
-            source scripts/security_notice.sh
-            security_notice Security
-            exit "$check_rc"
-          fi
-      - name: Hook destination and latency tests under Git Bash
-        shell: bash
-        run: |
-          umask 077
-          check_rc=0
-          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
-          unset CI GITHUB_ACTIONS
-          bash tests/claude_hook_destinations_test.sh
-          PRIVATE_CHECK
-          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
-          if [[ "$check_rc" -ne 0 ]]; then
-            source scripts/security_notice.sh
-            security_notice Security
-            exit "$check_rc"
-          fi
-      # With native symlinks, so the symlink-out cases run here too.
-      - name: Hook destination tests under Git Bash with native symlinks
-        shell: bash
-        env:
-          MSYS: winsymlinks:nativestrict
-        run: |
-          umask 077
-          check_rc=0
-          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
-          unset CI GITHUB_ACTIONS
-          rc=0
-          bash tests/claude_hook_destinations_test.sh > "$RUNNER_TEMP/hook-native.log" 2>&1 || rc=$?
-          # nativestrict makes ln -s fail rather than copy where symlinks are off.
-          if grep -q 'SKIP: ln -s made a copy' "$RUNNER_TEMP/hook-native.log"; then
-            echo "native symlinks were not made (runner cannot create them); the symlink cases did not run" >&2
-            exit 1
-          fi
-          exit "$rc"
           PRIVATE_CHECK
           rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
           if [[ "$check_rc" -ne 0 ]]; then
@@ -327,6 +264,116 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-hooks.ps1 --install-gitleaks
           powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-hooks.ps1 --doctor
           if ($LASTEXITCODE -ne 0) { exit 1 }
+
+  windows-hooks-chain:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-19
+        with:
+          persist-credentials: false
+      - name: Per-repository setup keeps earlier hooks, under Git Bash
+        shell: bash
+        run: |
+          umask 077
+          check_rc=0
+          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          unset CI GITHUB_ACTIONS
+          bash tests/setup_hooks_chain_test.sh
+          bash tests/hooks_coexistence_test.sh
+          bash tests/setup_agent_hooks_test.sh
+          PRIVATE_CHECK
+          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source scripts/security_notice.sh
+            security_notice Security
+            exit "$check_rc"
+          fi
+
+  windows-security-gate:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-19
+        with:
+          persist-credentials: false
+      - name: Gate temp-dir and security gate tests under Git Bash
+        shell: bash
+        run: |
+          umask 077
+          check_rc=0
+          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          unset CI GITHUB_ACTIONS
+          bash tests/gate_tempdir_test.sh
+          bash tests/security_gate_test.sh
+          PRIVATE_CHECK
+          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source scripts/security_notice.sh
+            security_notice Security
+            exit "$check_rc"
+          fi
+
+  windows-hook-destinations:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-19
+        with:
+          persist-credentials: false
+      - name: Hook destination and latency tests under Git Bash
+        shell: bash
+        run: |
+          umask 077
+          check_rc=0
+          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          unset CI GITHUB_ACTIONS
+          bash tests/claude_hook_destinations_test.sh
+          PRIVATE_CHECK
+          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source scripts/security_notice.sh
+            security_notice Security
+            exit "$check_rc"
+          fi
+
+  windows-hook-destinations-native:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-19
+        with:
+          persist-credentials: false
+      # With native symlinks, so the symlink-out cases run here too.
+      - name: Hook destination tests under Git Bash with native symlinks
+        shell: bash
+        env:
+          MSYS: winsymlinks:nativestrict
+        run: |
+          umask 077
+          check_rc=0
+          bash -e -o pipefail <<'PRIVATE_CHECK' > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          unset CI GITHUB_ACTIONS
+          rc=0
+          bash tests/claude_hook_destinations_test.sh > "$RUNNER_TEMP/hook-native.log" 2>&1 || rc=$?
+          # nativestrict makes ln -s fail rather than copy where symlinks are off.
+          if grep -q 'SKIP: ln -s made a copy' "$RUNNER_TEMP/hook-native.log"; then
+            echo "native symlinks were not made (runner cannot create them); the symlink cases did not run" >&2
+            exit 1
+          fi
+          exit "$rc"
+          PRIVATE_CHECK
+          rm -f "$RUNNER_TEMP/local-checks.log" "$RUNNER_TEMP/hook-native.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source scripts/security_notice.sh
+            security_notice Security
+            exit "$check_rc"
+          fi
+
 
   powershell:
     # The PowerShell companion library was never built or linted here, which is
