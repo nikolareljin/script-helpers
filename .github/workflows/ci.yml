@@ -88,7 +88,8 @@ jobs:
           # The pinned foxguard, SHA-256 checked, so tests/foxguard_block_test.sh
           # runs its finding cases instead of skipping them.
           bash scripts/ci_security.sh --install-foxguard
-          make test
+          # The foxguard tests fail rather than skip if it is not found.
+          FOXGUARD_REQUIRE=1 make test
           PRIVATE_CHECK
           if [[ "$check_rc" -ne 0 ]]; then
             python3 -I - "$RUNNER_TEMP/local-checks.log" <<'TEST_STATUS'
