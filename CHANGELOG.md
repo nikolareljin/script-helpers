@@ -8,6 +8,7 @@
   - `check_sensitive.sh` reads a cached gitleaks only from the `CI_DEFAULT_GITLEAKS_VERSION` directory. `GITLEAKS_BIN` and a gitleaks on `PATH` are used as before.
 
   Test: `tests/scanner_pin_test.sh` (fails without the fix). Closes https://github.com/nikolareljin/script-helpers/issues/281.
+- **Installed hooks carry `foxguard_push_compare.py`.** `stage_common` in `scripts/setup-hooks.sh` left it out of every hook copy (per repository, `--global`, `--claude`, `--agent`), so with foxguard blocking (any level but `off`) the copied pre-push refused every push, clean or not, with "foxguard_push_compare.py is missing". `scripts/global-hooks/dispatch.sh` also skipped hygiene, lint and tests without a word when `push_checks.sh` was missing from the copy; it now refuses the push. Test: `tests/setup_hooks_bundle_test.sh` (fails without the fix) checks every script a copied hook names is in the copy. Closes https://github.com/nikolareljin/script-helpers/issues/285.
 
 ## 2026-11-17 — v0.66.0
 
