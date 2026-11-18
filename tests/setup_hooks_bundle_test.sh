@@ -63,7 +63,7 @@ audit() {
     for n in $names; do
       [[ -f "$copy/scripts/$n" ]] && continue
       case "$message_only$allowed" in *" $n "*) continue ;; esac
-      if grep -v '^[[:space:]]*#' "$f" | grep -q -w -F -- "$n"; then
+      if [[ "$(grep -v '^[[:space:]]*#' "$f" | grep -c -w -F -- "$n")" != 0 ]]; then
         missing="$missing ${f#"$copy/"}->$n"
       fi
     done
