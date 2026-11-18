@@ -1,11 +1,14 @@
 ## Unreleased
 
-## 2026-11-18 — v0.67.0
-
 ### Changed
 
 - **Windows CI runs its long Git Bash steps as parallel jobs.** `windows-security-hooks` (37-39 min of a 40 min limit) and `windows-ollama-endpoint` (up to 36 min) ran every step in sequence. Each long step now has a job of its own (`windows-scan-output`, `windows-hooks-chain`, `windows-security-gate`, `windows-hook-destinations`, `windows-hook-destinations-native`); every step that ran before still runs, unchanged.
 - **`lib/ollama_endpoint.sh` trims settings and reads the models file without starting `sed`, `tr` or `tail`.** Under Git Bash each process costs tens of milliseconds and these ran once per setting or name. The results are the same; `tests/ollama_endpoint_trim_test.sh` compares them with the old commands.
+
+## 2026-11-18 — v0.67.0
+
+### Changed
+
 - **A gitleaks or foxguard on `PATH` runs only at the pinned version or newer.** Any gitleaks on `PATH` was run, also one far older than `CI_DEFAULT_GITLEAKS_VERSION`, so an old distribution package scanned with an older rule set and the push reported clean. A foxguard on `PATH` was used only at exactly `CI_DEFAULT_FOXGUARD_VERSION`, so a newer one was passed over. One rule for both now (`lib/scanner.sh`, with `version_at_least` and `version_same_series` in `lib/version.sh`):
   - Equal or newer in the same series: used. Newer in a breaking series (another major; another minor of a `0.x` pin, such as foxguard 0.15.x for 0.14.1): used, with a `WARNING` naming the found version, the pin and the install command.
   - Older, or a version that is not `[v]X.Y.Z` (prerelease, dev build, no output): not used. The pinned release is installed into `~/.cache/script-helpers/` (SHA-256 checked; the copy on `PATH` is not touched) with a message naming the found version and the minimum, and that one runs. Not in CI, nor with `SCRIPT_HELPERS_NO_AUTO_INSTALL=1` (`PREFLIGHT_NO_INSTALL=1` for preflight); when the install is off or fails, the result is the one for a missing scanner: refused, naming the binary passed over.
