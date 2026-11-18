@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SCRIPT: scanner_pin_test.sh
-# DESCRIPTION: Tests that foxguard and gitleaks are resolved to the pinned version only: never another cached version, never an unpinned foxguard on PATH.
+# DESCRIPTION: Tests that foxguard and gitleaks are resolved to the pinned version or a newer one on PATH: never another cached version, never an older scanner on PATH.
 # USAGE: bash tests/scanner_pin_test.sh
 # PARAMETERS: No required parameters.
 # EXAMPLE: bash tests/scanner_pin_test.sh
@@ -81,10 +81,11 @@ exit 0
 EOF
   chmod +x "$1"
 }
-# mkgl <file> <label>: a gitleaks that logs <label> and finds nothing.
+# mkgl <file> <label> [<version>]: a gitleaks that logs <label> and finds
+# nothing; `gitleaks version` prints <version> (default: the pin).
 mkgl() {
   mkdir -p "$(dirname "$1")"
-  printf '#!/usr/bin/env bash\necho "%s" >> "$GL_LOG"\nexit 0\n' "$2" > "$1"
+  printf '#!/usr/bin/env bash\nif [[ "${1:-}" == version ]]; then echo "%s"; exit 0; fi\necho "%s" >> "$GL_LOG"\nexit 0\n' "${3-$GL_PIN}" "$2" > "$1"
   chmod +x "$1"
 }
 reset() { rm -rf "$cache" "$tmp/onpath"; mkdir -p "$tmp/onpath"; : > "$FOX_LOG"; : > "$GL_LOG"; : > "$tmp/out"; }
@@ -146,21 +147,21 @@ else
   has "with a warning" "the foxguard scan did NOT run: foxguard is not installed"
   expect "and the other version never ran at off" "" "$(cat "$FOX_LOG")"
 
-  # ------------------------------------------- a foxguard on PATH, wrong version
+  # ------------------------------------------- a foxguard on PATH, older version
   reset
   mkfox "$tmp/onpath/foxguard" path-old "$STALE"
   ENVV=(PATH="$WITH_PATH_FOX")
   lib foxguard_bin
-  expect "lib: another version on PATH: none found" 3 "$RC"
+  expect "lib: an older version on PATH: none found" 3 "$RC"
   lib foxguard_missing_reason
-  expect "lib: the reason names it" "$tmp/onpath/foxguard is not the pinned foxguard $PIN" "$OUT"
+  expect "lib: the reason names it" "$tmp/onpath/foxguard is foxguard $STALE, older than the minimum $PIN" "$OUT"
   hook_cmd
-  expect "hook: another version on PATH: none found" "1:" "$RC:$OUT"
+  expect "hook: an older version on PATH: none found" "1:" "$RC:$OUT"
   expect "hook: it is refused at the default level" 1 "$(push PATH="$WITH_PATH_FOX")"
-  has "naming the binary and the pin" "Foxguard check failed: $tmp/onpath/foxguard is not the pinned foxguard $PIN."
+  has "naming the binary and the pin" "Foxguard check failed: $tmp/onpath/foxguard is foxguard $STALE, older than the minimum $PIN."
   expect "and it never scanned" "" "$(cat "$FOX_LOG")"
   expect "hook: at off the push goes on" 0 "$(push PATH="$WITH_PATH_FOX" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
-  has "with a warning" "the foxguard scan did NOT run: $tmp/onpath/foxguard is not the pinned foxguard $PIN"
+  has "with a warning" "the foxguard scan did NOT run: $tmp/onpath/foxguard is foxguard $STALE, older than the minimum $PIN"
   expect "and it never scanned at off" "" "$(cat "$FOX_LOG")"
   (cd "$tmp/repo" && PATH="$WITH_PATH_FOX" bash "$ROOT_DIR/scripts/setup-hooks.sh" --status) >"$tmp/out" 2>&1
   has "setup-hooks.sh --status does not count it" "foxguard  WARN"
@@ -177,6 +178,42 @@ else
   expect "by the PATH copy only" "path-pinned" "$(sort -u "$FOX_LOG")"
   (cd "$tmp/repo" && PATH="$WITH_PATH_FOX" bash "$ROOT_DIR/scripts/setup-hooks.sh" --status) >"$tmp/out" 2>&1
   has "setup-hooks.sh --status counts it" "foxguard  ok"
+
+  # ------------------------------- a foxguard on PATH: the pin is the minimum
+  # <version text> <want: path|none>. Newer versions are built from the pin.
+  IFS=. read -r pmaj pmin ppat <<< "$PIN"
+  NEWER_PATCH="$pmaj.$pmin.$((ppat + 1))"
+  while IFS='|' read -r ver want what; do
+    reset; SHA=(); ENVV=(PATH="$WITH_PATH_FOX")
+    mkfox "$tmp/onpath/foxguard" path "$ver"
+    lib foxguard_bin
+    case "$want" in
+      path) expect "lib: PATH foxguard '$ver' ($what): used" "0:$tmp/onpath/foxguard" "$RC:$OUT"
+            hook_cmd
+            expect "hook: PATH foxguard '$ver' ($what): used" "0:$tmp/onpath/foxguard" "$RC:$OUT" ;;
+      none) expect "lib: PATH foxguard '$ver' ($what): not used" 3 "$RC"
+            hook_cmd
+            expect "hook: PATH foxguard '$ver' ($what): not used" "1:" "$RC:$OUT" ;;
+    esac
+  done <<EOF
+$STALE|none|older
+$PIN|path|equal
+v$PIN|path|equal, v prefix
+$NEWER_PATCH|path|newer patch
+$((pmaj + 1)).0.0|path|newer major
+$NEWER_PATCH-rc1|none|prerelease
+dev build|none|garbage
+|none|no version
+EOF
+  reset; ENVV=(PATH="$WITH_PATH_FOX")
+  mkfox "$tmp/onpath/foxguard" path "dev build"
+  lib foxguard_missing_reason
+  expect "lib: the reason for a version that cannot be read" "$tmp/onpath/foxguard reports no usable version ('dev build'); the minimum is foxguard $PIN" "$OUT"
+  reset
+  mkfox "$tmp/onpath/foxguard" path-newer "$NEWER_PATCH"
+  expect "hook: a newer patch on PATH scans the push" 0 "$(push PATH="$WITH_PATH_FOX")"
+  expect "with the PATH copy" "path-newer" "$(sort -u "$FOX_LOG")"
+  hasnt "and no warning" "WARNING"
 
   # --------------------------------------------------------- FOXGUARD_CMD wins
   reset
@@ -243,10 +280,10 @@ else
     mkfox "$stale" stale "$STALE"
     mkfox "$tmp/onpath/foxguard" path-old "$STALE"
     RC=0; (cd "$tmp/repo" && PATH="$WITH_PATH_FOX" bash "$ROOT_DIR/scripts/ci_security.sh" --check-foxguard) >"$tmp/out" 2>&1 || RC=$?
-    expect "ci_security.sh --check-foxguard: another version is not the pinned one" 3 "$RC"
+    expect "ci_security.sh --check-foxguard: an older version does not count" 3 "$RC"
     RC=0; (cd "$tmp/repo" && PATH="$WITH_PATH_FOX" bash "$ROOT_DIR/scripts/foxguard_report.sh" --output "$tmp/report.json" -- a.sh) >"$tmp/out" 2>&1 || RC=$?
     expect "foxguard_report.sh: another version is not run" 3 "$RC"
-    has "and it names it" "$tmp/onpath/foxguard is not the pinned foxguard $PIN"
+    has "and it names it" "$tmp/onpath/foxguard is foxguard $STALE, older than the minimum $PIN"
     expect "and nothing scanned" "" "$(cat "$FOX_LOG")"
   fi
 fi
@@ -276,7 +313,7 @@ expect "and its binary never ran" "" "$(cat "$GL_LOG")"
 # GITLEAKS_BIN and PATH keep their documented precedence.
 : > "$GL_LOG"; mkgl "$tmp/onpath/gitleaks" onpath
 sens PATH="$tmp/onpath:$tmp/clean"
-expect "gitleaks on PATH comes before the cache" "0:onpath" "$RC:$(sort -u "$GL_LOG")"
+expect "gitleaks on PATH at the pinned version comes before the cache" "0:onpath" "$RC:$(sort -u "$GL_LOG")"
 : > "$GL_LOG"; mkgl "$tmp/owngl" own
 sens PATH="$tmp/onpath:$tmp/clean" GITLEAKS_BIN="$tmp/owngl"
 expect "GITLEAKS_BIN comes before both" "0:own" "$RC:$(sort -u "$GL_LOG")"

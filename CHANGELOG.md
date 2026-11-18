@@ -1,5 +1,18 @@
 ## Unreleased
 
+### Changed
+
+- **A gitleaks or foxguard on `PATH` runs only at the pinned version or newer.** Any gitleaks on `PATH` was run, also one far older than `CI_DEFAULT_GITLEAKS_VERSION`, so an old distribution package scanned with an older rule set and the push reported clean. A foxguard on `PATH` was used only at exactly `CI_DEFAULT_FOXGUARD_VERSION`, so a newer one was passed over. One rule for both now (`lib/scanner.sh`, with `version_at_least` and `version_same_series` in `lib/version.sh`):
+  - Equal or newer in the same series: used. Newer in a breaking series (another major; another minor of a `0.x` pin, such as foxguard 0.15.x for 0.14.1): used, with a `WARNING` naming the found version, the pin and the install command.
+  - Older, or a version that is not `[v]X.Y.Z` (prerelease, dev build, no output): not used. The pinned release is installed into `~/.cache/script-helpers/` (SHA-256 checked; the copy on `PATH` is not touched) with a message naming the found version and the minimum, and that one runs. Not in CI, nor with `SCRIPT_HELPERS_NO_AUTO_INSTALL=1` (`PREFLIGHT_NO_INSTALL=1` for preflight); when the install is off or fails, the result is the one for a missing scanner: refused, naming the binary passed over.
+  - `gitleaks_bin` prefers the cached pinned binary to a newer-major gitleaks on `PATH`, so installing the pinned release ends the warning. New: `gitleaks_missing_reason`, `gitleaks_version_warning`, `gitleaks_resolve`, `foxguard_version_warning`, `foxguard_resolve`, `ci_security.sh --check-gitleaks` (used by `preflight.ps1` instead of `Get-Command gitleaks`).
+  - `preflight.sh` and `preflight.ps1` run `ci_security.sh` with installs off: preflight installs what it may before the scan, and a scanner it reports as `SKIP` is not downloaded and run after all.
+  - `preflight.ps1` installs a missing or older scanner as `preflight.sh` does (`PREFLIGHT_NO_INSTALL=1` turns it off); it only reported a `SKIP` before. `ci_security.sh --check-gitleaks` and `--check-foxguard` print the reason on stderr when they exit 3.
+  - `check_sensitive.sh` reads the lookup from `lib/gitleaks.sh`; a copy with no `lib/` beside it has no pin and refuses instead of running whatever gitleaks is on `PATH`.
+  - `GITLEAKS_BIN` and `FOXGUARD_CMD` stay explicit overrides, run as given at any version; `docs/security-gates.md` ("Which scanner runs") says so.
+
+  Tests: `tests/scanner_min_version_test.sh`, the `PATH` cases in `tests/scanner_pin_test.sh` and case 8 of `ps/tests/preflight_test.ps1` (all fail without the change). Closes https://github.com/nikolareljin/script-helpers/issues/287.
+
 ### Fixed
 
 - **foxguard parses `templates/packaging/brew/app.rb`, so a change to it can be pushed.** foxguard 0.14.1 skipped it with "(parse error)" and the pre-push hook refuses a changed file it skips. Lines that are not Ruby until filled in (`class @BREW_FORMULA_CLASS@ < Formula`, the closing `end`, the dependency, install and test lines) now start with the comment marker `#@ `, which `render_brew_formula.sh` and `packaging_init.sh` (for `.rb` templates only) remove before substitution. The rendered formula is byte-identical for the same inputs. Tests: `tests/foxguard_parse_test.sh` now scans every tracked file on its own, templates and hidden paths included, and fails on any skip but an unsupported extension (fails without the fix), and runs the pinned foxguard (`foxguard_bin`), so CI runs it under `FOXGUARD_REQUIRE=1` instead of skipping; `tests/brew_packaging_test.sh` checks both renderers give the same formula. Closes https://github.com/nikolareljin/script-helpers/issues/282.

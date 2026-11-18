@@ -10,12 +10,14 @@
 set -uo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 case "${1:-}" in -h|--help) sed -n '2,/^# ---/p' "$0"; exit 0 ;; esac
-for tool in git python3 gitleaks ssh-keygen; do
+for tool in git python3 ssh-keygen; do
   command -v "$tool" >/dev/null 2>&1 || { echo "summary: cannot run, missing $tool"; exit 2; }
 done
 scratch="$(mktemp -d)" || exit 2
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$scratch"; fi' EXIT
-GITLEAKS_BIN="$(command -v gitleaks)" || exit 2
+# The gitleaks the checks accept: on PATH at the pinned version or newer, or
+# the cached pinned binary.
+GITLEAKS_BIN="$(source "$root/lib/gitleaks.sh" >/dev/null 2>&1 && gitleaks_bin)" || { echo "summary: cannot run, no gitleaks at the pinned version or newer"; exit 2; }
 export GITLEAKS_BIN
 export XDG_STATE_HOME="$scratch/state"
 unset CI GITHUB_ACTIONS

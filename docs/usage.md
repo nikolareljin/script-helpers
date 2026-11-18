@@ -459,7 +459,9 @@ print findings, do not block, and their summary lines say `(report only)`.
 A local preflight installs a missing gitleaks or foxguard before it scans: the
 pinned release for Linux, macOS or Windows (Git Bash), checked against the SHA-256
 in `lib/ci_defaults.sh`, into `~/.cache/script-helpers/`. No sudo. A gitleaks
-already on `PATH` (brew, apt, scoop) is used instead. `PREFLIGHT_NO_INSTALL=1`
+or foxguard already on `PATH` (brew, apt, scoop) is used instead when it is the
+pinned version or newer; an older one counts as missing and is left in place
+([Which scanner runs](security-gates.md#which-scanner-runs)). `PREFLIGHT_NO_INSTALL=1`
 turns this off. When the install fails (offline), both report
 `SKIP  gitleaks secret scan` instead of implying secrets were scanned. Preflight
 never runs in CI, so CI is unaffected. To install by hand:

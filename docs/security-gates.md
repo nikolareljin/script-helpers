@@ -69,12 +69,8 @@ unchecked commit or push. Repair the missing checker, scanner or input first.
 
 - **Credentials**: gitleaks on the pushed commits (`gitleaks git --log-opts`,
   or `detect` on gitleaks 8.18 and older), the staged changes, or the file. A
-  committed `.gitleaks.toml` is ignored: the default rules always apply. gitleaks is found on `PATH`,
-  then in the cache `preflight.sh` installs into
-  (`bash scripts/ci_security.sh --install-gitleaks`), or at `GITLEAKS_BIN`.
-  From the cache only the pinned version is run
-  (`~/.cache/script-helpers/gitleaks/<CI_DEFAULT_GITLEAKS_VERSION>/`); another
-  cached version counts as not installed.
+  committed `.gitleaks.toml` is ignored: the default rules always apply. Which
+  gitleaks runs: see [Which scanner runs](#which-scanner-runs).
 - **Personal terms**: every line of
   `${XDG_CONFIG_HOME:-~/.config}/script-helpers/sensitive-terms.txt`
   (`SENSITIVE_TERMS_FILE` overrides). One term per line, `#` comments, mode
@@ -178,29 +174,70 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
 
 `scripts/foxguard_push_compare.py` does the matching on foxguard's JSON reports.
 
-Only the pinned foxguard runs (`CI_DEFAULT_FOXGUARD_VERSION` and
-`CI_DEFAULT_FOXGUARD_SHA256_*` in `lib/ci_defaults.sh`): another release reads
-different files and reports different findings. It is looked up in this order:
+Which foxguard runs: see [Which scanner runs](#which-scanner-runs).
 
-| Where | Used when |
+### Which scanner runs
+
+The pins are the minimum: `CI_DEFAULT_GITLEAKS_VERSION`,
+`CI_DEFAULT_FOXGUARD_VERSION` and the `CI_DEFAULT_*_SHA256_*` values in
+`lib/ci_defaults.sh`. An older scanner has an older rule set, finds less, and
+the scan still reports clean, so it is not run. Lookup order:
+
+| gitleaks | Used when |
+|---|---|
+| `GITLEAKS_BIN` | set; run as given, its version is not checked |
+| `gitleaks` on `PATH` | `gitleaks version` reports the pinned version or a newer one of the same major |
+| `~/.cache/script-helpers/gitleaks/<pinned version>/gitleaks` | it exists |
+| `gitleaks` on `PATH` | it reports a newer major; runs with a warning |
+
+| foxguard | Used when |
 |---|---|
 | `FOXGUARD_CMD` | set; run as given, not checked |
 | `~/.cache/script-helpers/foxguard/<pinned version>/foxguard` | its SHA-256 is the pinned one |
-| `foxguard` on `PATH` | `foxguard --version` reports the pinned version |
+| `foxguard` on `PATH` | `foxguard --version` reports the pinned version or a newer one |
 
-Anything else counts as missing: another cached version
-(`foxguard/0.14.0/` next to a `0.14.1` pin), a cached binary with another
-SHA-256, a `foxguard` of another version on `PATH`. The push then installs the
-pinned release (see [the scanners](git-hooks.md#the-scanners-gitleaks-and-foxguard));
-when it cannot, the refusal (at `off`, the warning) names the binary it passed over, for example
-`Foxguard check failed: /usr/local/bin/foxguard is not the pinned foxguard 0.14.1.`
-`ci_security.sh`, `foxguard_report.sh` and `preflight.sh` use the same lookup,
-without `FOXGUARD_CMD`; `setup-hooks.sh --status` reports its result.
+A version on `PATH` is compared as `[v]X.Y.Z` (`lib/scanner.sh`, one rule for
+both tools):
 
-Install the pinned release, checked against that SHA-256:
+| Version on `PATH`, against the pin | Result |
+|---|---|
+| equal (`8.30.1` or `v8.30.1` for a `v8.30.1` pin) | used |
+| newer, same series (`8.44.0`; `0.14.7` for a `0.14.1` pin) | used |
+| newer, breaking series: another major, or another minor of a `0.x` pin (`9.0.0`; `0.15.0`) | used, with a `WARNING` naming the found version, the pin and the install command |
+| older (`8.18.4`; `0.14.0`) | not used |
+| not `[v]X.Y.Z`: a prerelease (`8.31.0-rc1`), a dev build, no output | not used |
+
+`GITLEAKS_BIN` and `FOXGUARD_CMD` are explicit overrides: whatever they name is
+run, at any version, with no warning.
+
+A scanner on `PATH` that is not used is replaced, not repaired: the pinned
+release is downloaded, checked against its SHA-256 and put in
+`~/.cache/script-helpers/`, with a message such as
+`/usr/bin/gitleaks is gitleaks 8.18.4, older than the minimum v8.30.1; installing the pinned gitleaks v8.30.1 into the cache.`
+The copy on `PATH` (brew, apt, scoop) is not touched. Nothing is installed in
+CI or with `SCRIPT_HELPERS_NO_AUTO_INSTALL=1` (`PREFLIGHT_NO_INSTALL=1` for
+preflight), and when the install fails (offline, a download that does not match
+the pin) the result is the one for a missing scanner: the commit or push is
+refused (foxguard at `off`: a warning), naming the binary passed over, for example
+`Foxguard check failed: /usr/local/bin/foxguard is foxguard 0.14.0, older than the minimum 0.14.1.`
+
+Also missing: another cached version (`foxguard/0.14.0/` next to a `0.14.1`
+pin) and a cached foxguard with another SHA-256.
+
+`check_sensitive.sh`, the pre-push hook, `ci_security.sh`, `foxguard_report.sh`,
+`preflight.sh` and `preflight.ps1` use this lookup (the last four without the
+two overrides); `setup-hooks.sh --status` reports its result. `preflight.ps1`
+installs like `preflight.sh` (`ci_security.sh --install-gitleaks` /
+`--install-foxguard`); a scanner still unusable after that is a `SKIP` with the
+install command. `check_sensitive.sh` needs the `lib/` beside it for the pin:
+the hook copies `setup-hooks.sh` stages carry it, and a lone copy of the script
+refuses the credential scan instead of running an unchecked gitleaks (set
+`GITLEAKS_BIN` to run one as given).
+
+Install the pinned releases yourself:
 
 ```bash
-bash scripts/setup-hooks.sh --install-foxguard     # or: scripts/ci_security.sh --install-foxguard
+bash scripts/setup-hooks.sh --install-gitleaks --install-foxguard   # or: scripts/ci_security.sh --install-gitleaks / --install-foxguard
 ```
 
 The library's own code follows one convention where a caller's argument reaches

@@ -425,14 +425,40 @@ sec_may_install() {
   [[ -z "${CI:-}" && "${SCRIPT_HELPERS_NO_AUTO_INSTALL:-}" != 1 ]]
 }
 
-# sec_gitleaks_present: gitleaks where check_sensitive.sh looks for it.
+# sec_gitleaks_present: gitleaks where check_sensitive.sh looks for it:
+# GITLEAKS_BIN (run as given), else what lib/gitleaks.sh accepts: one on PATH
+# at the pinned version or newer, or the cached pinned binary. An older
+# gitleaks on PATH is not present.
 sec_gitleaks_present() {
   local r
   if [[ -n "${GITLEAKS_BIN:-}" ]]; then [[ -x "$GITLEAKS_BIN" ]]; return; fi
-  command -v gitleaks >/dev/null 2>&1 && return 0
   r="$(sec_lib_root)" || return 1
   # shellcheck source=/dev/null
   ( source "$r/helpers.sh" && shlib_import logging foxguard gitleaks >/dev/null 2>&1 && gitleaks_bin >/dev/null 2>&1 )
+}
+
+# sec_gitleaks_missing: why sec_gitleaks_present found none, in one line.
+sec_gitleaks_missing() {
+  local r why=""
+  if r="$(sec_lib_root 2>/dev/null)"; then
+    # shellcheck source=/dev/null
+    why="$( source "$r/helpers.sh" >/dev/null 2>&1 && shlib_import logging foxguard gitleaks >/dev/null 2>&1 && gitleaks_missing_reason 2>/dev/null )" || why=""
+  else
+    why="lib/gitleaks.sh was not found, so the minimum gitleaks version is unknown"
+  fi
+  printf '%s' "${why:-gitleaks is not installed}"
+}
+
+# sec_foxguard_newer_note <cmd>: the warning for a foxguard on PATH in a newer
+# breaking series than the pin, on stderr. Nothing for FOXGUARD_CMD.
+sec_foxguard_newer_note() {
+  local r warn=""
+  [[ -z "${FOXGUARD_CMD:-}" ]] || return 0
+  r="$(sec_lib_root 2>/dev/null)" || return 0
+  # shellcheck source=/dev/null
+  warn="$( source "$r/helpers.sh" >/dev/null 2>&1 && shlib_import logging foxguard >/dev/null 2>&1 && foxguard_version_warning "$1" 2>/dev/null )" || warn=""
+  [[ -z "$warn" ]] || echo "[pre-push] $warn" >&2
+  return 0
 }
 
 # sec_offer_install <tool> <what it runs> [<why>]: install the pinned <tool>
@@ -464,7 +490,7 @@ sec_offer_install() {
 # Exit 2 (could not check: gitleaks missing, commits unreadable) refuses the
 # push: a credential scan that did not run is not a clean one.
 sec_sensitive_push() {
-  local refs="$1" remote="${2:-}" gate rc
+  local refs="$1" remote="${2:-}" gate rc why
   gate="$(sec_find check_sensitive.sh)" || {
     sec_unchecked pre-push "check_sensitive.sh not found; credentials and personal data NOT checked"
     return
@@ -476,8 +502,12 @@ sec_sensitive_push() {
     # Only that path counts: an install elsewhere would not be used.
     echo "[pre-push] ERROR: GITLEAKS_BIN is $GITLEAKS_BIN, which is not an executable; the credential scan cannot run." >&2
   elif ! sec_gitleaks_present; then
-    echo "[pre-push] ERROR: gitleaks is not installed; the credential scan cannot run." >&2
-    sec_offer_install gitleaks "the credential scan" || true
+    # An ERROR only when it stays missing: an older gitleaks on PATH that the
+    # pinned release replaces here is not one.
+    why="$(sec_gitleaks_missing)"
+    if ! sec_offer_install gitleaks "the credential scan" "$why"; then
+      echo "[pre-push] ERROR: $why; the credential scan cannot run." >&2
+    fi
   fi
   bash "$gate" --no-inline-allow --push-refs "$refs" --remote "$remote"
   rc=$?
@@ -495,9 +525,9 @@ sec_sensitive_push() {
 
 # sec_foxguard_cmd: the foxguard to run: FOXGUARD_CMD, else the pinned release
 # as lib/foxguard.sh finds it (the cached binary of the pinned version, checked
-# against the pinned SHA-256, else one on PATH that reports that version).
-# Return 1 when there is none: another cached version is never run, since a
-# different release reads different files and reports different findings.
+# against the pinned SHA-256, else one on PATH that reports that version or a
+# newer one). Return 1 when there is none: another cached version is never run,
+# nor an older foxguard on PATH.
 sec_foxguard_cmd() {
   local r
   if [[ -n "${FOXGUARD_CMD:-}" ]]; then printf '%s' "$FOXGUARD_CMD"; return 0; fi
@@ -556,6 +586,7 @@ sec_foxguard_warn() {
       return 0
     fi
   fi
+  sec_foxguard_newer_note "$cmd"
   # The changed files that exist here, in an array: nothing written to disk.
   local files=()
   while IFS= read -r f; do
@@ -767,6 +798,7 @@ sec_foxguard_block() (
       sec_foxguard_refuse "$level" "$(sec_foxguard_missing)"; exit 1
     fi
   fi
+  sec_foxguard_newer_note "$cmd"
   py="$(security_python)" || { sec_foxguard_refuse "$level" "no Python 3 to compare foxguard reports"; exit 1; }
   helper="$_SEC_LIB_DIR/foxguard_push_compare.py"
   [[ -f "$helper" ]] || { sec_foxguard_refuse "$level" "foxguard_push_compare.py is missing (rerun setup-hooks.sh to refresh the hook copy)"; exit 1; }

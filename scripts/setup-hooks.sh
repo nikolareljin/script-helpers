@@ -341,16 +341,24 @@ stage_common() {
 }
 
 gitleaks_found() {
-  # The order check_sensitive.sh uses: when GITLEAKS_BIN is set, only it counts.
+  # The order check_sensitive.sh uses: when GITLEAKS_BIN is set, only it counts
+  # (run as given). Else one on PATH at the pinned version or newer, or the
+  # cached pinned binary; an older gitleaks on PATH does not count.
   if [[ -n "${GITLEAKS_BIN:-}" ]]; then [[ -x "$GITLEAKS_BIN" ]]; return; fi
-  command -v gitleaks >/dev/null 2>&1 && return 0
   ( # shellcheck source=/dev/null
     source "$src_root/helpers.sh" && shlib_import logging foxguard gitleaks >/dev/null 2>&1 && gitleaks_bin >/dev/null 2>&1 )
 }
 
+# scanner_note <tool> <function>: the output of that lib function for <tool>
+# (<tool>_missing_reason, <tool>_version_warning), or nothing.
+scanner_note() {
+  ( # shellcheck source=/dev/null
+    source "$src_root/helpers.sh" >/dev/null 2>&1 && shlib_import logging foxguard gitleaks >/dev/null 2>&1 && "$1_$2" 2>/dev/null ) || true
+}
+
 foxguard_found() {
   if [[ -n "${FOXGUARD_CMD:-}" ]]; then return 0; fi
-  # Only the pinned version counts: the hook runs no other.
+  # The cached pinned binary, or one on PATH at the pinned version or newer.
   ( # shellcheck source=/dev/null
     source "$src_root/helpers.sh" && shlib_import logging foxguard >/dev/null 2>&1 && foxguard_bin >/dev/null 2>&1 )
 }
@@ -386,7 +394,7 @@ install_gitleaks() {
 offer_gitleaks() {
   local answer=""
   gitleaks_found && return 0
-  echo "[setup-hooks] gitleaks is missing. Without it the hook refuses publishing commands in your repositories."
+  echo "[setup-hooks] $(scanner_note gitleaks missing_reason). Without it the hook refuses publishing commands in your repositories."
   if [[ -t 0 && -t 1 ]]; then
     printf '[setup-hooks] Install the pinned gitleaks now (download, SHA-256 checked)? [y/N] '
     read -r answer || answer=""
@@ -422,16 +430,21 @@ prereqs() {
   else
     echo "  git       MISSING: install git"; missing=$((missing+1))
   fi
+  local note
   if gitleaks_found; then
     echo "  gitleaks  ok"
+    note=""; [[ -n "${GITLEAKS_BIN:-}" ]] || note="$(scanner_note gitleaks version_warning)"
+    [[ -z "$note" ]] || echo "            $note"
   else
-    echo "  gitleaks  MISSING: every command in your repositories is refused until it is installed;"
+    echo "  gitleaks  MISSING: $(scanner_note gitleaks missing_reason); every command in your repositories is refused until the pinned one is installed;"
     echo "            bash $src_root/scripts/setup-hooks.sh --install-gitleaks"
   fi
   if foxguard_found; then
     echo "  foxguard  ok"
+    note=""; [[ -n "${FOXGUARD_CMD:-}" ]] || note="$(scanner_note foxguard version_warning)"
+    [[ -z "$note" ]] || echo "            $note"
   else
-    echo "  foxguard  WARN: the pinned version is missing, so the push's static-analysis scan cannot run;"
+    echo "  foxguard  WARN: $(scanner_note foxguard missing_reason), so the push's static-analysis scan cannot run;"
     echo "            bash $src_root/scripts/setup-hooks.sh --install-foxguard"
   fi
   owners="$(configured_owners)"

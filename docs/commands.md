@@ -823,14 +823,18 @@ Example:
 Run basic security checks (pip-audit/safety/bandit, npm audit, gitleaks, foxguard).
 
 ```text
-Usage: scripts/ci_security.sh [--workdir <path>] [--install] [--skip-python] [--skip-node] [--skip-gitleaks] [--skip-foxguard] [--check-foxguard] [--install-foxguard] [--fail-on-findings]
+Usage: scripts/ci_security.sh [--workdir <path>] [--install] [--skip-python] [--skip-node] [--skip-gitleaks] [--skip-foxguard] [--check-foxguard] [--check-gitleaks] [--install-foxguard] [--fail-on-findings]
   --workdir <path>       Working directory (default: current dir).
   --install              Install required tools into current environment.
   --skip-python          Skip Python dependency checks.
   --skip-node            Skip Node.js audit.
   --skip-gitleaks        Skip gitleaks scan.
   --skip-foxguard        Skip the foxguard static-analysis scan.
-  --check-foxguard       Exit 0 if foxguard is available, 3 if not (for preflight).
+  --check-foxguard       Exit 0 if foxguard is available, 3 if not, with the
+                         reason on stderr (for preflight).
+  --check-gitleaks       Exit 0 if gitleaks is available on the host, 3 if not,
+                         with the reason on stderr (for preflight). One on PATH
+                         older than the pinned version is not available.
   --install-foxguard     Download the pinned foxguard release binary, check its
                          SHA-256 against lib/ci_defaults.sh, cache it, and exit.
   --install-gitleaks     Download the pinned gitleaks release, check its SHA-256
