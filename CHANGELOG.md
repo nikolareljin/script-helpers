@@ -7,10 +7,11 @@
   - Older, or a version that is not `[v]X.Y.Z` (prerelease, dev build, no output): not used. The pinned release is installed into `~/.cache/script-helpers/` (SHA-256 checked; the copy on `PATH` is not touched) with a message naming the found version and the minimum, and that one runs. Not in CI, nor with `SCRIPT_HELPERS_NO_AUTO_INSTALL=1` (`PREFLIGHT_NO_INSTALL=1` for preflight); when the install is off or fails, the result is the one for a missing scanner: refused, naming the binary passed over.
   - `gitleaks_bin` prefers the cached pinned binary to a newer-major gitleaks on `PATH`, so installing the pinned release ends the warning. New: `gitleaks_missing_reason`, `gitleaks_version_warning`, `gitleaks_resolve`, `foxguard_version_warning`, `foxguard_resolve`, `ci_security.sh --check-gitleaks` (used by `preflight.ps1` instead of `Get-Command gitleaks`).
   - `preflight.sh` and `preflight.ps1` run `ci_security.sh` with installs off: preflight installs what it may before the scan, and a scanner it reports as `SKIP` is not downloaded and run after all.
+  - `preflight.ps1` installs a missing or older scanner as `preflight.sh` does (`PREFLIGHT_NO_INSTALL=1` turns it off); it only reported a `SKIP` before. `ci_security.sh --check-gitleaks` and `--check-foxguard` print the reason on stderr when they exit 3.
   - `check_sensitive.sh` reads the lookup from `lib/gitleaks.sh`; a copy with no `lib/` beside it has no pin and refuses instead of running whatever gitleaks is on `PATH`.
   - `GITLEAKS_BIN` and `FOXGUARD_CMD` stay explicit overrides, run as given at any version; `docs/security-gates.md` ("Which scanner runs") says so.
 
-  Tests: `tests/scanner_min_version_test.sh` and the `PATH` cases in `tests/scanner_pin_test.sh` (both fail without the change). Closes https://github.com/nikolareljin/script-helpers/issues/287.
+  Tests: `tests/scanner_min_version_test.sh`, the `PATH` cases in `tests/scanner_pin_test.sh` and case 8 of `ps/tests/preflight_test.ps1` (all fail without the change). Closes https://github.com/nikolareljin/script-helpers/issues/287.
 
 ### Fixed
 

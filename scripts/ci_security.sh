@@ -9,10 +9,11 @@
 #   --skip-node            Skip Node.js audit.
 #   --skip-gitleaks        Skip gitleaks scan.
 #   --skip-foxguard        Skip the foxguard static-analysis scan.
-#   --check-foxguard       Exit 0 if foxguard is available, 3 if not (for preflight).
-#   --check-gitleaks       Exit 0 if gitleaks is available on the host, 3 if not
-#                          (for preflight). One on PATH older than the pinned
-#                          version is not available.
+#   --check-foxguard       Exit 0 if foxguard is available, 3 if not, with the
+#                          reason on stderr (for preflight).
+#   --check-gitleaks       Exit 0 if gitleaks is available on the host, 3 if not,
+#                          with the reason on stderr (for preflight). One on PATH
+#                          older than the pinned version is not available.
 #   --install-foxguard     Download the pinned foxguard release binary, check its
 #                          SHA-256 against lib/ci_defaults.sh, cache it, and exit.
 #   --install-gitleaks     Download the pinned gitleaks release, check its SHA-256
@@ -134,8 +135,8 @@ if [[ -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" ]]; then
   security_notice Security
   exit 1
 fi
-if [[ "$CHECK_FOXGUARD" == "true" ]]; then foxguard_bin >/dev/null && exit 0; exit 3; fi
-if [[ "$CHECK_GITLEAKS" == "true" ]]; then gitleaks_bin >/dev/null && exit 0; exit 3; fi
+if [[ "$CHECK_FOXGUARD" == "true" ]]; then foxguard_bin >/dev/null && exit 0; foxguard_missing_reason >&2; exit 3; fi
+if [[ "$CHECK_GITLEAKS" == "true" ]]; then gitleaks_bin >/dev/null && exit 0; gitleaks_missing_reason >&2; exit 3; fi
 if [[ "$INSTALL_GITLEAKS" == "true" ]]; then gitleaks_install; exit $?; fi
 
 if [[ "$INSTALL_FOXGUARD" == "true" ]]; then

@@ -32,6 +32,9 @@ foreach ($t in 'pip-audit', 'safety', 'bandit', 'npm', 'gitleaks') {
     & chmod +x $f
 }
 $savedPath = $env:PATH; $savedCi = $env:CI; $savedCache = $env:XDG_CACHE_HOME
+$savedNoInstall = $env:PREFLIGHT_NO_INSTALL
+# Nothing is downloaded unless a case asks for it (case 8, with a stub curl).
+$script:noInstall = '1'
 
 # preflight refuses to run under CI=true; the stubs come first on PATH.
 function Invoke-Preflight([string]$repo, [string[]]$argv) {
@@ -39,11 +42,13 @@ function Invoke-Preflight([string]$repo, [string[]]$argv) {
     try {
         $env:CI = ''; $env:PATH = "$bin$([System.IO.Path]::PathSeparator)$savedPath"
         $env:XDG_CACHE_HOME = Join-Path $tmp 'cache'
+        $env:PREFLIGHT_NO_INSTALL = $script:noInstall
         $out = & pwsh -NoProfile -File $preflight @argv 2>&1 | Out-String
         return @{ Out = $out; Rc = $LASTEXITCODE }
     } finally {
         Pop-Location
         $env:PATH = $savedPath; $env:CI = $savedCi; $env:XDG_CACHE_HOME = $savedCache
+        if ($null -eq $savedNoInstall) { Remove-Item Env:PREFLIGHT_NO_INSTALL -ErrorAction SilentlyContinue } else { $env:PREFLIGHT_NO_INSTALL = $savedNoInstall }
     }
 }
 function New-Repo([string]$name) {
@@ -135,6 +140,33 @@ try {
         note 'rust with a failing rustup: SKIP naming the toolchain'
     } else { fail "rust with a failing rustup: rc=$($res.Rc) out=$($res.Out)" }
     Remove-Item (Join-Path $bin 'rustup')
+
+    # 8. As preflight.sh: a gitleaks on PATH older than the pin is replaced by
+    #    the pinned release (a stub curl serves a bad archive, so the install
+    #    fails its checksum and nothing reaches the network); not with
+    #    PREFLIGHT_NO_INSTALL=1.
+    $r = New-Repo 'oldgl'
+    $curlLog = Join-Path $tmp 'curl.log'
+    Set-Content -Path (Join-Path $bin 'gitleaks') -Value "#!/bin/sh`nif [ `"`$1`" = version ]; then echo 1.0.0; fi`nexit 0" -Encoding ascii
+    Set-Content -Path (Join-Path $bin 'curl') -Value "#!/bin/sh`nout=''; url=''`nwhile [ `$# -gt 0 ]; do case `"`$1`" in -o) out=`"`$2`"; shift 2;; -*) shift;; *) url=`"`$1`"; shift;; esac; done`necho `"`$url`" >> '$curlLog'`necho junk > `"`$out`"" -Encoding ascii
+    & chmod +x (Join-Path $bin 'gitleaks') (Join-Path $bin 'curl')
+    try {
+        $script:noInstall = ''
+        $res = Invoke-Preflight $r @('-SecurityOnly')
+        $urls = Get-Content $curlLog -Raw -ErrorAction SilentlyContinue
+        if ($urls -match 'gitleaks/releases/download/' -and $res.Out -match 'older than the minimum') {
+            note 'older gitleaks on PATH: the pinned release is installed'
+        } else { fail "older gitleaks install: urls=$urls out=$($res.Out)" }
+        Remove-Item $curlLog -ErrorAction SilentlyContinue
+        $script:noInstall = '1'
+        $res = Invoke-Preflight $r @('-SecurityOnly')
+        if (-not (Test-Path $curlLog) -and $res.Out -match 'SKIP  gitleaks secret scan') {
+            note 'PREFLIGHT_NO_INSTALL=1: nothing downloaded, SKIP reported'
+        } else { fail "PREFLIGHT_NO_INSTALL: out=$($res.Out)" }
+    } finally {
+        $script:noInstall = '1'
+        Remove-Item (Join-Path $bin 'curl')
+    }
 }
 finally {
     Remove-Item -Recurse -Force $tmp

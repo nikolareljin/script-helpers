@@ -227,7 +227,12 @@ pin) and a cached foxguard with another SHA-256.
 `check_sensitive.sh`, the pre-push hook, `ci_security.sh`, `foxguard_report.sh`,
 `preflight.sh` and `preflight.ps1` use this lookup (the last four without the
 two overrides); `setup-hooks.sh --status` reports its result. `preflight.ps1`
-installs nothing: a scanner it cannot use is a `SKIP` with the install command.
+installs like `preflight.sh` (`ci_security.sh --install-gitleaks` /
+`--install-foxguard`); a scanner still unusable after that is a `SKIP` with the
+install command. `check_sensitive.sh` needs the `lib/` beside it for the pin:
+the hook copies `setup-hooks.sh` stages carry it, and a lone copy of the script
+refuses the credential scan instead of running an unchecked gitleaks (set
+`GITLEAKS_BIN` to run one as given).
 
 Install the pinned releases yourself:
 
