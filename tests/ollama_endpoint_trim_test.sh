@@ -5,8 +5,6 @@
 # PARAMETERS: No required parameters.
 # EXAMPLE: bash tests/ollama_endpoint_trim_test.sh
 # ----------------------------------------------------
-# _oep_trimmed is set by the library functions under test.
-# shellcheck disable=SC2154
 set -uo pipefail
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
@@ -22,6 +20,14 @@ tmp="$(mktemp -d)" || exit 1
 owner=${BASHPID-$$}
 trap 'if [[ ${BASHPID-$$} == "$owner" ]]; then rm -rf "$tmp"; fi' EXIT
 
+# The result goes only to the named variable. Checked first, before any
+# other call could have made the same variable.
+got=""
+before="$(compgen -v | grep -v -x -e BASH_REMATCH -e _ -e before | sort)"
+_ollama_ep_trim got $'  a\n b  '; _ollama_ep_trim got "  a  "; _ollama_ep_squeeze got "a b"
+after="$(compgen -v | grep -v -x -e BASH_REMATCH -e _ -e before | sort)"
+[[ "$before" == "$after" ]] || error "a helper left a variable behind: $(comm -13 <(echo "$before") <(echo "$after") | tr '\n' ' ')"
+
 inputs=(
   "" " " $'\t' "a" " a" "a " "  a b  " $'\ta\t' $'a\r' $'\r a \r' $'\v\fa\f\v'
   "a #b" "a # b # c" "a#b" " #b" "#b" $'a\t#b' $'a \t #b  ' "a  #" "a b#c d #e"
@@ -35,12 +41,12 @@ ref_comment() { printf '%s' "$1" | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$
 
 for v in "${inputs[@]}"; do
   want="$(ref_trim "$v")" || true
-  _ollama_ep_trim "$v"
-  [[ "$_oep_trimmed" == "$want" ]] || error "trim [$(shown "$v")]: expected [$(shown "$want")], got [$(shown "$_oep_trimmed")]"
+  _ollama_ep_trim got "$v"
+  [[ "$got" == "$want" ]] || error "trim [$(shown "$v")]: expected [$(shown "$want")], got [$(shown "$got")]"
 
   want="$(ref_squeeze "$v")" || true
-  _ollama_ep_squeeze "$v"
-  [[ "$_oep_trimmed" == "$want" ]] || error "squeeze [$(shown "$v")]: expected [$(shown "$want")], got [$(shown "$_oep_trimmed")]"
+  _ollama_ep_squeeze got "$v"
+  [[ "$got" == "$want" ]] || error "squeeze [$(shown "$v")]: expected [$(shown "$want")], got [$(shown "$got")]"
 
   # A models-file value: one line, after NAME=. Quoted values keep everything.
   case "$v" in *$'\n'*|*$'\r'*) continue ;; esac
@@ -98,8 +104,8 @@ done
 (
   # shellcheck disable=SC2123 # an empty PATH is the point
   PATH="$tmp/empty"
-  _ollama_ep_trim "  a b  " && [[ "$_oep_trimmed" == "a b" ]] || exit 1
-  _ollama_ep_squeeze $' a\tb\r\n' && [[ "$_oep_trimmed" == "ab" ]] || exit 1
+  _ollama_ep_trim got "  a b  " && [[ "$got" == "a b" ]] || exit 1
+  _ollama_ep_squeeze got $' a\tb\r\n' && [[ "$got" == "ab" ]] || exit 1
 ) || error "trim or squeeze needed an external command"
 
 if [[ "$failures" -ne 0 ]]; then
