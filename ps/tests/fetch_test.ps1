@@ -86,7 +86,7 @@ try {
     foreach ($line in Get-Content (Join-Path (Join-Path (Join-Path $PSScriptRoot '..') '..') 'tests/fixtures/fetch_url_cases.txt')) {
         if (-not $line -or $line.StartsWith('#')) { continue }
         $f = $line.Split('|')
-        $u = $f[0].Replace('\\', [string][char]0).Replace('\t', "`t").Replace('\n', "`n").Replace([string][char]0, '\')
+        $u = $f[0].Replace('\\', [string][char]0).Replace('\t', "`t").Replace('\n', "`n").Replace('\u00ad', [string][char]0xAD).Replace([string][char]0, '\')
         $d = if ($f[2] -eq '=') { $u } else { $f[2] }
         check "shared case $($f[0])" "$($f[1])|$d" "$(fetch_url_host $u)|$(fetch_url_display $u)"
     }

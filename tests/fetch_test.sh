@@ -259,6 +259,8 @@ fi
 # runs the same rows, so bash and PowerShell print the same host and URL.
 while IFS='|' read -r raw want_h want_d; do
   [[ -z "$raw" || "$raw" == \#* ]] && continue
+  # \u00ad by hand: printf %b in bash 3.2 has no \u.
+  raw="${raw//\\u00ad/$'\xc2\xad'}"
   u="$(printf '%b' "$raw")"
   [[ "$want_d" == "=" ]] && want_d="$u"
   got="$(source "$ROOT_DIR/lib/fetch.sh"; fetch_url_host "$u"; printf '|'; fetch_url_display "$u")"

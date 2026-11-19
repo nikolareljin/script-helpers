@@ -19,10 +19,11 @@
 function fetch_url_host {
     param([string]$Url)
     $unknown = '(unknown host)'
-    $i = if ($Url) { $Url.IndexOf('://') } else { -1 }
+    # Ordinal: a culture compare skips a soft hyphen, so 'https<U+00AD>' -eq 'https'.
+    $i = if ($Url) { $Url.IndexOf('://', [StringComparison]::Ordinal) } else { -1 }
     if ($i -lt 1) { return $unknown }
     $scheme = $Url.Substring(0, $i).ToLowerInvariant()
-    if ($scheme -ne 'http' -and $scheme -ne 'https') { return $unknown }
+    if (-not ([string]::Equals($scheme, 'http', [StringComparison]::Ordinal) -or [string]::Equals($scheme, 'https', [StringComparison]::Ordinal))) { return $unknown }
     $rest = $Url.Substring($i + 3)
     $j = $rest.IndexOfAny([char[]]@('/', '?', '#'))
     $h = if ($j -ge 0) { $rest.Substring(0, $j) } else { $rest }
@@ -51,7 +52,7 @@ function fetch_url_display {
     $hidden = '(URL not shown)'
     if (-not $Url -or $Url -cmatch '[^\x21-\x7E]') { return $hidden }
     if ((fetch_url_host $Url) -ceq '(unknown host)') { return $hidden }
-    $rest = $Url.Substring($Url.IndexOf('://') + 3)
+    $rest = $Url.Substring($Url.IndexOf('://', [StringComparison]::Ordinal) + 3)
     $j = $rest.IndexOfAny([char[]]@('/', '?', '#'))
     $auth = if ($j -ge 0) { $rest.Substring(0, $j) } else { $rest }
     if ($auth.Contains('@')) { return $hidden }
