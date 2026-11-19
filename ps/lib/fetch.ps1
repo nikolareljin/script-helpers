@@ -6,6 +6,10 @@
 # the output file, so a partial file is never left for the caller to check or
 # unpack. Callers still verify the checksum.
 #
+# Redirects: PowerShell 7 (.NET) does not follow an https URL to http.
+# Windows PowerShell 5.1 does; the checksum each caller runs on the file is
+# what protects the download there.
+#
 # Requires: logging (log_error; plain error stream without it)
 
 # Usage: fetch_url_host -Url <url>
@@ -41,9 +45,11 @@ function fetch_url_host {
 }
 
 # Usage: fetch_url_display -Url <url>
-# Returns: the URL when it is printable ASCII with no space, fetch_url_host
-#   names its host and its authority has no '@'; else '(URL not shown)'.
-#   Fails closed: user info, another or no scheme, a character that could
+# Returns: scheme, authority and path, with a query shown as '?(not shown)' and
+#   a fragment left out, when the URL is printable ASCII with no space,
+#   fetch_url_host names its host and its authority has no '@'; else
+#   '(URL not shown)'. Fails closed: user info, a query or fragment (a signed
+#   URL carries its token there), another or no scheme, a character that could
 #   forge a log line, or a URL that does not parse is never shown. Same rule
 #   as lib/fetch.sh.
 # Output: none.
@@ -52,15 +58,22 @@ function fetch_url_display {
     $hidden = '(URL not shown)'
     if (-not $Url -or $Url -cmatch '[^\x21-\x7E]') { return $hidden }
     if ((fetch_url_host $Url) -ceq '(unknown host)') { return $hidden }
-    $rest = $Url.Substring($Url.IndexOf('://', [StringComparison]::Ordinal) + 3)
+    $s = $Url.IndexOf('://', [StringComparison]::Ordinal) + 3
+    $rest = $Url.Substring($s)
     $j = $rest.IndexOfAny([char[]]@('/', '?', '#'))
     $auth = if ($j -ge 0) { $rest.Substring(0, $j) } else { $rest }
     if ($auth.Contains('@')) { return $hidden }
-    return $Url
+    $pre = $rest.Substring($auth.Length)
+    $k = $pre.IndexOf('#')
+    if ($k -ge 0) { $pre = $pre.Substring(0, $k) }
+    $q = $pre.IndexOf('?')
+    if ($q -ge 0) { $pre = $pre.Substring(0, $q) + '?(not shown)' }
+    return $Url.Substring(0, $s) + $auth + $pre
 }
 
 # Usage: fetch_to_file -Label <name> -Url <url> -OutFile <path> [-Attempts 3] [-DelaySeconds 2]
-# Downloads <url> to <path>, retrying any error. On failure the file is deleted
+# Downloads <url> to <path>, retrying any error but an HTTP 4xx other than 408
+# and 429. On failure the file is deleted
 # and one error line names the label, the host, the attempts and the last error.
 # Returns: 0 downloaded; 1 every attempt failed; 2 an empty label, URL or path.
 # Output: error line on failure (log_error when logging is loaded).
@@ -93,14 +106,18 @@ function fetch_to_file {
                 # One line: a newline in the text could forge a log line.
                 $last = ($_.Exception.Message -replace '[\x00-\x1F\x7F]+', ' ').Trim()
                 Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+                # A 4xx other than 408 or 429 will not change on a retry; curl --retry stops there too.
+                $code = 0
+                try { $code = [int]$_.Exception.Response.StatusCode } catch { $code = 0 }
+                if ($code -ge 400 -and $code -lt 500 -and $code -ne 408 -and $code -ne 429) { $Attempts = $i; break }
                 if ($i -lt $Attempts -and $DelaySeconds -gt 0) { Start-Sleep -Seconds $DelaySeconds }
             }
         }
     } finally { $ProgressPreference = $prev }
     $shown = fetch_url_display $Url
-    # The exception text can quote the URL; with the URL hidden, it is hidden too.
-    if ($shown -ne $Url) { $last = '(error text not shown with the URL)' }
-    _fetch_err "${Label}: download failed from $(fetch_url_host $Url) after $Attempts attempts: $last; URL $shown"
+    # The exception text can quote the URL; unless all of it is shown, the text is hidden.
+    if ($shown -cne $Url) { $last = '(error text not shown with the URL)' }
+    _fetch_err "${Label}: download failed from $(fetch_url_host $Url) after $Attempts $(if ($Attempts -eq 1) { 'attempt' } else { 'attempts' }): $last; URL $shown"
     return 1
 }
 

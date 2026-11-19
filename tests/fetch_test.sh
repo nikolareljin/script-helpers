@@ -30,7 +30,7 @@ trap 'if [[ ${BASHPID-$$} == "$$" ]]; then [[ -n "$server_pid" ]] && kill "$serv
 mkdir -p "$tmp/bin" "$tmp/stub" "$tmp/u"
 for c in bash sh env dirname basename mktemp head tail rm cat grep sed awk tr \
          find sort mkdir chmod mv cp tar gzip shasum openssl ls wc cut \
-         printf touch sha256sum xargs; do
+         printf touch sha256sum xargs sleep; do
   p="$(command -v "$c" 2>/dev/null)" && [[ "$p" == /* ]] && ln -sf "$p" "$tmp/bin/$c"
 done
 printf '#!/usr/bin/env bash\ncase "$1" in -s) echo Linux;; -m) echo x86_64;; *) echo Linux;; esac\n' > "$tmp/u/uname"
@@ -73,6 +73,7 @@ while [[ \$attempt -le \$retries ]]; do
   n=\$(cat "$tmp/count" 2>/dev/null || echo 0); n=\$((n+1)); echo "\$n" > "$tmp/count"
   if [[ "\${STUB_FAIL_FIRST:-0}" == all || \$n -le \${STUB_FAIL_FIRST:-0} ]]; then
     printf 'partial' > "\$out"
+    [[ -n "\${STUB_SLEEP:-}" ]] && sleep "\$STUB_SLEEP"
     [[ -n "\${STUB_ERR_EACH:-}" ]] && echo "curl: (7) Failed to connect" >&2
     continue
   fi
@@ -225,8 +226,8 @@ ftp://example.com/a|$N
 https://|$N
 https://:@/x|$N
 https://example.com/a@b|https://example.com/a@b
-https://example.com/a?u=x@y|https://example.com/a?u=x@y
-https://example.com#x@y|https://example.com#x@y
+https://example.com/a?u=x@y|https://example.com/a?(not shown)
+https://example.com#x@y|https://example.com
 https://github.com/o/r/releases/download/v1/a|https://github.com/o/r/releases/download/v1/a
 EOF2
 
@@ -281,7 +282,98 @@ n="$(printf '%s\n' "$out" | grep -c 'curl: (7)')"
 [[ $rc -eq 1 && $n -eq 1 ]] && note "curl error text shown once" || error "curl error text count $n: '$out'"
 out="$(PATH="$tmp/stub:$tmp/bin" STUB_FAIL_FIRST=all STUB_ERR_EACH=1 bash -c 'source "$1/lib/fetch.sh"; fetch_to_file t "https://u:pw@example.com/a" "$2/o"' _ "$ROOT_DIR" "$tmp" 2>&1)" || true
 [[ "$out" != *"curl: (7)"* ]] && note "curl error text hidden with the URL" || error "curl text shown with hidden URL: '$out'"
+out="$(PATH="$tmp/stub:$tmp/bin" STUB_FAIL_FIRST=all STUB_ERR_EACH=1 bash -c 'source "$1/lib/fetch.sh"; fetch_to_file t "https://example.com/a?sig=s3cr3t" "$2/o"' _ "$ROOT_DIR" "$tmp" 2>&1)" || true
+[[ "$out" != *"curl: (7)"* && "$out" != *s3cr3t* && "$out" == *"URL https://example.com/a?(not shown)"* ]] \
+  && note "a query is not printed, nor curl's error text with it" || error "query shown: '$out'"
 rm -f "$tmp/count"
+
+# 6h. Argument and guard checks that the cases above do not reach.
+rc=0; bash -c "source '$ROOT_DIR/lib/fetch.sh'; fetch_to_file '' https://example.com/a '$tmp/o'" >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 2 ]] && note "an empty label is refused (2)" || error "empty label: rc=$rc"
+got="$(STUB_VERSION=8a.1 PATH="$tmp/stub:$tmp/bin" bash -c "source '$ROOT_DIR/lib/fetch.sh'; fetch_curl_retry_args" 2>&1 | tr '\n' ' ')"
+[[ "$got" == "--retry 3 --retry-delay 2 " ]] && note "unreadable curl version: no --retry-all-errors, no error" || error "curl 8a.1: '$got'"
+
+# 6i. fetch_to_file itself deletes the partial file, without a caller's help.
+rm -f "$tmp/count" "$tmp/o"
+PATH="$tmp/stub:$tmp/bin" STUB_FAIL_FIRST=all bash -c 'source "$1/lib/fetch.sh"; fetch_to_file t "https://example.com/a" "$2/o"' _ "$ROOT_DIR" "$tmp" >/dev/null 2>&1
+[[ ! -e "$tmp/o" ]] && note "fetch_to_file deletes the partial file" || error "partial file left: $(cat "$tmp/o")"
+
+# 6j. The error goes through log_error when logging is loaded.
+rm -f "$tmp/count"
+out="$(PATH="$tmp/stub:$tmp/bin" STUB_FAIL_FIRST=all bash -c 'log_error() { echo "LOGGED $*" >&2; }; source "$1/lib/fetch.sh"; fetch_to_file t "https://example.com/a" "$2/o"' _ "$ROOT_DIR" "$tmp" 2>&1)"
+[[ "$out" == "LOGGED t: download failed from example.com"* ]] && note "the error goes through log_error" || error "log_error not used: '$out'"
+
+# 6k. FETCH_MAX_TIME: a positive integer is passed to curl; anything else is 300.
+for row in "3600 3600" "abc 300" "0 300" "-5 300" "1e9 300" "99999999 300"; do
+  read -r v want <<<"$row"
+  rm -f "$tmp/count" "$tmp/calls.log"
+  FETCH_MAX_TIME="$v" PATH="$tmp/stub:$tmp/bin" bash -c 'source "$1/lib/fetch.sh"; fetch_to_file t "https://example.com/a" "$2/o"' _ "$ROOT_DIR" "$tmp" >/dev/null 2>&1
+  grep -q -- "--max-time $want " "$tmp/calls.log" && note "FETCH_MAX_TIME=$v: --max-time $want" \
+    || error "FETCH_MAX_TIME=$v: '$(cat "$tmp/calls.log" 2>/dev/null)'"
+done
+
+# 6l. Redirects keep to the scheme: https only for an https URL.
+rm -f "$tmp/count" "$tmp/calls.log"
+PATH="$tmp/stub:$tmp/bin" bash -c 'source "$1/lib/fetch.sh"; fetch_to_file t "HTTPS://example.com/a" "$2/o"; fetch_to_file t "http://example.com/a" "$2/o"' _ "$ROOT_DIR" "$tmp" >/dev/null 2>&1
+if grep -q -- "--proto =https --proto-redir =https -o" "$tmp/calls.log" && grep -q -- "--proto =http,https --proto-redir =http,https -o" "$tmp/calls.log"; then
+  note "curl: --proto and --proto-redir follow the URL's scheme"
+else
+  error "curl proto: '$(cat "$tmp/calls.log" 2>/dev/null)'"
+fi
+got="$(source "$ROOT_DIR/lib/fetch.sh"; fetch_curl_proto_args file:///x; fetch_curl_proto_args https; fetch_curl_proto_args ftp://h/x)"
+[[ -z "$got" ]] && note "curl: no --proto for another scheme" || error "proto for other schemes: '$got'"
+# wget: --https-only for https when it has the option; timeout(1) bounds it.
+mkdir -p "$tmp/wgetproto"
+cat > "$tmp/wgetproto/wget" <<EOF
+#!/usr/bin/env bash
+if [[ "\${1:-}" == --help ]]; then printf '  --https-only  only follow secure HTTPS links\n  --retry-on-http-error=ERRORS\n'; exit 0; fi
+exec "$tmp/stub/wget" "\$@"
+EOF
+printf '#!/usr/bin/env bash\necho "timeout $*" >> "%s/calls.log"\nshift; exec "$@"\n' "$tmp" > "$tmp/wgetproto/timeout"
+chmod +x "$tmp/wgetproto/wget" "$tmp/wgetproto/timeout"
+rm -f "$tmp/count" "$tmp/calls.log"
+FETCH_MAX_TIME=77 PATH="$tmp/wgetproto:$tmp/bin" bash -c 'source "$1/lib/fetch.sh"; fetch_to_file t "https://example.com/a" "$2/o"; fetch_to_file t "http://example.com/a" "$2/o"' _ "$ROOT_DIR" "$tmp" >/dev/null 2>&1
+if [[ "$(grep -c -- '--https-only' "$tmp/calls.log")" == 2 && "$(grep -c -- '--retry-on-http-error=429,500,502,503,504' "$tmp/calls.log")" == 4 && "$(grep -c '^timeout 77 wget' "$tmp/calls.log")" == 2 ]] \
+   && grep -q '^wget .*http://example.com/a' "$tmp/calls.log" && ! grep '^wget .*http://example.com/a' "$tmp/calls.log" | grep -q -- --https-only; then
+  note "wget: retries a 503, --https-only for https only, run under timeout FETCH_MAX_TIME"
+else
+  error "wget proto/timeout: '$(cat "$tmp/calls.log" 2>/dev/null)'"
+fi
+# Without timeout(1) and without --https-only (busybox): plain wget, still works.
+rm -f "$tmp/count" "$tmp/calls.log"
+rc=0; PATH="$tmp/wgetonly:$tmp/bin" bash -c 'source "$1/lib/fetch.sh"; fetch_to_file t "https://example.com/a" "$2/o"' _ "$ROOT_DIR" "$tmp" >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 0 ]] && ! grep -q -- '--https-only\|--retry-on-http-error' "$tmp/calls.log" && note "wget without --https-only or timeout: still downloads" \
+  || error "plain wget: rc=$rc '$(cat "$tmp/calls.log" 2>/dev/null)'"
+got="$(source "$ROOT_DIR/lib/fetch.sh"; fetch_exit_reason wget 124)"
+[[ "$got" == "timed out (FETCH_MAX_TIME)" ]] && note "wget 124: timed out" || error "wget 124: '$got'"
+
+# 6m. INT or TERM during the download deletes the partial file, and the
+# caller's traps are kept: restored afterwards, and run after the cleanup.
+rm -f "$tmp/count" "$tmp/o"
+PATH="$tmp/stub:$tmp/bin" STUB_FAIL_FIRST=1 STUB_SLEEP=2 bash -c 'source "$1/lib/fetch.sh"; fetch_to_file t "https://example.com/a" "$2/o"' _ "$ROOT_DIR" "$tmp" >/dev/null 2>&1 &
+sig_pid=$!
+for _ in $(seq 1 50); do [[ -e "$tmp/o" ]] && break; sleep 0.1; done
+kill -TERM "$sig_pid" 2>/dev/null; rc=0; wait "$sig_pid" || rc=$?
+[[ $rc -eq 143 && ! -e "$tmp/o" ]] && note "TERM: partial file deleted, exit 143" || error "TERM: rc=$rc file=$([[ -e "$tmp/o" ]] && echo left || echo gone)"
+rm -f "$tmp/count" "$tmp/o"
+PATH="$tmp/stub:$tmp/bin" STUB_FAIL_FIRST=1 STUB_SLEEP=2 bash -c 'd="$2"; trap "echo caller-trap >\"\$d/trap.out\"; exit 9" TERM; source "$1/lib/fetch.sh"; fetch_to_file t "https://example.com/a" "$2/o"' _ "$ROOT_DIR" "$tmp" >/dev/null 2>&1 &
+sig_pid=$!
+for _ in $(seq 1 50); do [[ -e "$tmp/o" ]] && break; sleep 0.1; done
+kill -TERM "$sig_pid" 2>/dev/null; rc=0; wait "$sig_pid" || rc=$?
+[[ $rc -eq 9 && ! -e "$tmp/o" && "$(cat "$tmp/trap.out" 2>/dev/null)" == caller-trap ]] \
+  && note "TERM with a caller trap: file deleted, then the caller's trap ran" || error "TERM caller trap: rc=$rc"
+rm -f "$tmp/count" "$tmp/o"
+PATH="$tmp/stub:$tmp/bin" STUB_FAIL_FIRST=1 STUB_SLEEP=2 bash -c 'trap "" TERM; source "$1/lib/fetch.sh"; fetch_to_file t "https://example.com/a" "$2/o"' _ "$ROOT_DIR" "$tmp" >/dev/null 2>&1 &
+sig_pid=$!
+for _ in $(seq 1 50); do [[ -e "$tmp/o" ]] && break; sleep 0.1; done
+kill -TERM "$sig_pid" 2>/dev/null; rc=0; wait "$sig_pid" || rc=$?
+[[ $rc -eq 0 && -s "$tmp/o" && "$(cat "$tmp/o")" != partial ]] && note "TERM ignored by the caller: still ignored, the download completes" \
+  || error "ignored TERM: rc=$rc file=$(cat "$tmp/o" 2>/dev/null || echo gone)"
+rm -f "$tmp/count"
+got="$(PATH="$tmp/stub:$tmp/bin" bash -c 'trap "echo x" INT; trap "" TERM; source "$1/lib/fetch.sh"; fetch_to_file t "https://example.com/a" "$2/o"; trap -p INT TERM' _ "$ROOT_DIR" "$tmp" 2>/dev/null)"
+[[ "$got" == "trap -- 'echo x' SIGINT"$'\n'"trap -- '' SIGTERM" ]] && note "caller traps restored after the download" || error "traps after: '$got'"
+got="$(PATH="$tmp/stub:$tmp/bin" bash -c 'source "$1/lib/fetch.sh"; fetch_to_file t "https://example.com/a" "$2/o"; trap -p INT TERM' _ "$ROOT_DIR" "$tmp" 2>/dev/null)"
+[[ -z "$got" ]] && note "no trap left behind" || error "trap left behind: '$got'"
 
 # 7. The real curl against a local server that answers 503 twice, then 200.
 real_curl="$(command -v curl 2>/dev/null || true)"

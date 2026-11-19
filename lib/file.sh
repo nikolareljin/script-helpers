@@ -103,15 +103,19 @@ download_file() {
     # -sS: silent progress, show errors only. -f: an HTTP error is a failure;
     # without it a 404 page was saved as the download and returned 0.
     # Retried on transient errors; see lib/fetch.sh.
+    # Redirects keep to the URL's scheme (fetch_curl_proto_args).
     if declare -F fetch_curl_retry_args >/dev/null 2>&1; then
-      while IFS= read -r a; do retry+=("$a"); done < <(fetch_curl_retry_args)
+      while IFS= read -r a; do retry+=("$a"); done < <(fetch_curl_retry_args; fetch_curl_proto_args "$url")
     else
       retry=(--retry 3 --retry-delay 2)
     fi
     curl --max-time 3600 -f -sS -L "${retry[@]}" -o "$part" "$url" || rc=$?
   else
-    # -q: quiet output
-    wget -q --timeout=3600 --tries=3 --waitretry=2 -O "$part" "$url" || rc=$?
+    # -q: quiet output. fetch_wget_args: retry a 503, https only for an https URL.
+    if declare -F fetch_wget_args >/dev/null 2>&1; then
+      while IFS= read -r a; do retry+=("$a"); done < <(fetch_wget_args "$url")
+    fi
+    wget -q --timeout=3600 --tries=3 --waitretry=2 ${retry[@]+"${retry[@]}"} -O "$part" "$url" || rc=$?
   fi
   if [[ "$rc" -ne 0 ]]; then
     rm -f -- "$part"

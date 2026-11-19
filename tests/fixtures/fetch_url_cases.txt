@@ -5,7 +5,7 @@
 https://github.com/o/r|github.com|=
 https://user:pw@example.com:8443/a/b|example.com|(URL not shown)
 http://[::1]:8000/x|[::1]|=
-https://example.org?q=1|example.org|=
+https://example.org?q=1|example.org|https://example.org?(not shown)
 HTTPS://Example.COM/a|Example.COM|=
 https://evil.example\\@good.example/|(unknown host)|(URL not shown)
 https://evil.example\\good.example/|(unknown host)|(URL not shown)
@@ -26,3 +26,14 @@ ftp://h.example/a|(unknown host)|(URL not shown)
 https://h.example:99999/a|h.example|=
 https\u00ad://h.example/a|(unknown host)|(URL not shown)
 https:\u00ad//h.example/a|(unknown host)|(URL not shown)
+https://h.example/a?X-Amz-Signature=abc&X-Amz-Credential=k|h.example|https://h.example/a?(not shown)
+https://h.example/a?token=s3cr3t#frag|h.example|https://h.example/a?(not shown)
+https://h.example/a#access_token=s3cr3t|h.example|https://h.example/a
+https://h.example/a#f?x=s3cr3t|h.example|https://h.example/a
+https://h.example?|h.example|https://h.example?(not shown)
+https://h.example#|h.example|https://h.example
+HTTP://H.example/A?b|H.example|HTTP://H.example/A?(not shown)
+https|(unknown host)|(URL not shown)
+https://a@b@c.example/x|c.example|(URL not shown)
+https://h.example:1:2/a|h.example|=
+://h.example/a|(unknown host)|(URL not shown)

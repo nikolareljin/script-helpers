@@ -110,6 +110,15 @@ if grep -qx 'fail rc=8 content=precious left=0' "$tmp/wget.out"; then ok "wget: 
 if grep -qx 'new rc=8 exists=no' "$tmp/wget.out"; then ok "wget: no partial file left for a new download"; else error "wget new failure: $(cat "$tmp/wget.out")"; fi
 if grep -qx 'ok rc=0 content=fresh' "$tmp/wget.out"; then ok "wget: a successful download replaces the file"; else error "wget success: $(cat "$tmp/wget.out")"; fi
 
+# Redirects keep to the URL's scheme: curl gets --proto =https for an https URL.
+(
+  cd "$tmp" || exit 1
+  # shellcheck disable=SC2317
+  curl() { [[ "${1:-}" == --version ]] && { echo "curl 8.5.0"; return 0; }; echo "curl $*"; return 22; }
+  DOWNLOAD_USE_DIALOG=never download_file "https://example.invalid/p.iso" p.iso 2>/dev/null
+) >"$tmp/curl.out" 2>&1
+if grep -q -- '--proto =https --proto-redir =https -o' "$tmp/curl.out"; then ok "curl: https only, redirects included"; else error "curl proto: $(cat "$tmp/curl.out")"; fi
+
 note "verify_checksum"
 # POSIX cksum as the checksum tool: its first field is a number, which reads
 # as a hash the same way, and it exists on every platform this library runs on.

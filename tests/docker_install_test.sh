@@ -107,6 +107,30 @@ else
   error "dry-run produced no planned commands on a host without Docker"
 fi
 
+# 7) the macOS and Windows installer downloads leave no temp dir behind:
+#    after a dry run, after a failed download, and (macOS) after a failed attach.
+tdir="$(mktemp -d)"
+for case in mac-dry mac-fail mac-attach win-fail; do
+  rm -rf "${tdir:?}"/*
+  rc=0
+  (
+    export TMPDIR="$tdir"
+    uname() { echo arm64; }
+    command() { [[ "$1 $2" == "-v brew" || "$1 $2" == "-v choco" ]] && return 1; builtin command "$@"; }
+    log_info() { :; }; log_error() { :; }; log_warn() { :; }
+    _shlib_docker_do_start=false
+    case "$case" in
+      mac-dry)    _shlib_docker_dry_run=true; _shlib_docker_install_mac ;;
+      mac-fail)   _shlib_docker_dry_run=false; fetch_to_file() { : >"$3"; return 1; }; _shlib_docker_install_mac ;;
+      mac-attach) _shlib_docker_dry_run=false; fetch_to_file() { : >"$3"; }; hdiutil() { return 1; }; _shlib_docker_install_mac ;;
+      win-fail)   _shlib_docker_dry_run=false; fetch_to_file() { : >"$3"; return 1; }; _shlib_docker_install_windows_fallback ;;
+    esac
+  ) >/dev/null 2>&1 || rc=$?
+  left="$(find "$tdir" -mindepth 1 | head -n 3)"
+  [[ -z "$left" ]] && note "$case: no temp dir left (rc $rc)" || error "$case: left behind: $left"
+done
+rm -rf "$tdir"
+
 if [[ "$failures" -eq 0 ]]; then
   note "All checks passed."
   exit 0

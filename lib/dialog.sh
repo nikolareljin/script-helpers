@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # Dialog helpers: sizing and input utilities.
 
+# dialog_download_file retries and keeps redirects to the URL's scheme with
+# fetch.sh beside this file.
+if ! declare -F fetch_curl_retry_args >/dev/null 2>&1 && [[ -f "$(dirname "${BASH_SOURCE[0]}")/fetch.sh" ]]; then
+  # shellcheck source=/dev/null
+  source "$(dirname "${BASH_SOURCE[0]}")/fetch.sh"
+fi
+
 # Usage: dialog_init
 # Initialize dialog dimensions based on terminal size.
 # Returns: always 0. Sets and exports DIALOG_WIDTH and DIALOG_HEIGHT (70% of the terminal, at least 60x20).
@@ -297,9 +304,13 @@ _dialog__filename_from_url() {
 # Internal: try to read Content-Length via HEAD; prints bytes or 0 if unknown
 _dialog__fetch_content_length() {
   local url="$1"
-  local cl=0
+  local cl=0 a
+  local -a proto=()
   if command -v curl >/dev/null 2>&1; then
-    cl=$(curl -L -sI "$url" 2>/dev/null | tr -d '\r' | awk -F": *" 'tolower($1)=="content-length"{print $2}' | tail -n1)
+    if declare -F fetch_curl_proto_args >/dev/null 2>&1; then
+      while IFS= read -r a; do proto+=("$a"); done < <(fetch_curl_proto_args "$url")
+    fi
+    cl=$(curl -L -sI ${proto[@]+"${proto[@]}"} "$url" 2>/dev/null | tr -d '\r' | awk -F": *" 'tolower($1)=="content-length"{print $2}' | tail -n1)
   elif command -v wget >/dev/null 2>&1; then
     cl=$(wget --server-response --spider -O /dev/null "$url" 2>&1 | awk -F": *" 'tolower($1)=="content-length"{print $2}' | tail -n1)
   fi
@@ -350,25 +361,24 @@ dialog_download_file() {
   local total_bytes; total_bytes=$(_dialog__fetch_content_length "$url")
 
   # Start the download in background
-  local cmd pid
+  local cmd pid a
   if [[ "$tool" == "curl" ]]; then
     # -sS hides progress meter but shows errors; --fail makes HTTP errors non-zero
     cmd=(curl -L --fail -sS)
-    # Retried on transient errors; see lib/fetch.sh.
-    if ! declare -F fetch_curl_retry_args >/dev/null 2>&1 && [[ -f "$(dirname "${BASH_SOURCE[0]}")/fetch.sh" ]]; then
-      # shellcheck source=/dev/null
-      source "$(dirname "${BASH_SOURCE[0]}")/fetch.sh"
-    fi
-    local a
+    # Retried on transient errors, redirects kept to the URL's scheme; see lib/fetch.sh.
     if declare -F fetch_curl_retry_args >/dev/null 2>&1; then
-      while IFS= read -r a; do cmd+=("$a"); done < <(fetch_curl_retry_args)
+      while IFS= read -r a; do cmd+=("$a"); done < <(fetch_curl_retry_args; fetch_curl_proto_args "$url")
     else
       cmd+=(--retry 3 --retry-delay 2)
     fi
     cmd+=(-o "$tmpfile" "$url")
     "${cmd[@]}" >"$errfile" 2>&1 &
   else
-    cmd=(wget -q --tries=3 --waitretry=2 -O "$tmpfile" "$url")
+    cmd=(wget -q --tries=3 --waitretry=2)
+    if declare -F fetch_wget_args >/dev/null 2>&1; then
+      while IFS= read -r a; do cmd+=("$a"); done < <(fetch_wget_args "$url")
+    fi
+    cmd+=(-O "$tmpfile" "$url")
     "${cmd[@]}" >"$errfile" 2>&1 &
   fi
   pid=$!

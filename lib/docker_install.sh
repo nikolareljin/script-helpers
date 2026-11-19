@@ -438,7 +438,7 @@ _shlib_docker_install_linux() {
 # ---------------------------------------------------------------------------
 
 _shlib_docker_install_mac() {
-  local arch dmg_arch url dmg mnt
+  local arch dmg_arch url dmg mnt dir
   arch="$(uname -m)"
   case "$arch" in
     arm64)  dmg_arch="arm64" ;;
@@ -457,21 +457,26 @@ _shlib_docker_install_mac() {
   else
     log_info "Homebrew not found - downloading Docker Desktop directly ($dmg_arch)."
     url="https://desktop.docker.com/mac/main/${dmg_arch}/Docker.dmg"
-    dmg="$(mktemp -d)/Docker.dmg"
-    FETCH_MAX_TIME=3600 _shlib_docker_run fetch_to_file docker_install "$url" "$dmg" || return 1
+    # The image (about 600 MB) is deleted on every path out.
+    dir="$(mktemp -d)" || return 1
+    dmg="$dir/Docker.dmg"
+    FETCH_MAX_TIME=3600 _shlib_docker_run fetch_to_file docker_install "$url" "$dmg" || { rm -rf -- "$dir"; return 1; }
     if [[ "$_shlib_docker_dry_run" == true ]]; then
       echo "  [dry-run] hdiutil attach / Docker.app install / detach" >&2
     else
-      mnt="$(mktemp -d)"
-      hdiutil attach "$dmg" -mountpoint "$mnt" -nobrowse -quiet || return 1
+      mnt="$(mktemp -d)" || { rm -rf -- "$dir"; return 1; }
+      # rmdir, not rm -rf, for the mount point: it may still be mounted.
+      hdiutil attach "$dmg" -mountpoint "$mnt" -nobrowse -quiet || { rmdir -- "$mnt" 2>/dev/null; rm -rf -- "$dir"; return 1; }
       # Docker's own installer sets up the app bundle and privileged helper.
       _shlib_docker_sudo "$mnt/Docker.app/Contents/MacOS/install" --accept-license || {
         hdiutil detach "$mnt" -quiet || true
+        rmdir -- "$mnt" 2>/dev/null; rm -rf -- "$dir"
         return 1
       }
       hdiutil detach "$mnt" -quiet || true
-      rm -rf -- "$mnt" "$(dirname "$dmg")"
+      rmdir -- "$mnt" 2>/dev/null
     fi
+    rm -rf -- "$dir"
   fi
 
   if [[ "$_shlib_docker_do_start" == true ]]; then
@@ -487,7 +492,7 @@ _shlib_docker_install_mac() {
 # ---------------------------------------------------------------------------
 
 _shlib_docker_install_windows_fallback() {
-  local url exe
+  local url exe dir
   if command -v choco >/dev/null 2>&1; then
     log_info "Installing via Chocolatey."
     _shlib_docker_run choco install docker-desktop -y && return 0
@@ -496,16 +501,20 @@ _shlib_docker_install_windows_fallback() {
 
   log_info "Downloading the official Docker Desktop installer."
   url="https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe"
-  exe="$(mktemp -d)/DockerDesktopInstaller.exe"
+  dir="$(mktemp -d)" || return 1
+  exe="$dir/DockerDesktopInstaller.exe"
   FETCH_MAX_TIME=3600 _shlib_docker_run fetch_to_file docker_install "$url" "$exe" || {
+    rm -rf -- "$dir"
     log_error "Download failed. Install manually: https://docs.docker.com/desktop/install/windows-install/"
     return 1
   }
   log_info "Running the installer silently (several minutes)."
+  # Kept on failure, so it can be run by hand.
   _shlib_docker_run "$exe" install --quiet --accept-license || {
     log_error "Installer failed. Run it interactively: $exe"
     return 1
   }
+  rm -rf -- "$dir"
 }
 
 _shlib_docker_install_windows() {

@@ -9,6 +9,11 @@
 # A failed download deletes the output file, so a partial file is never left
 # for the caller to check or unpack. Callers still verify the checksum.
 #
+# wget also gets --retry-on-http-error=429,500,502,503,504 when it has the
+# option. Redirects keep to the scheme asked for: an https URL is fetched and
+# redirected over https only (curl --proto and --proto-redir, wget
+# --https-only), an http one over http or https.
+#
 # Expected imports by caller: none. log_error is used when logging is loaded,
 # plain stderr otherwise.
 #
@@ -65,22 +70,60 @@ fetch_url_host() {
 }
 
 # Usage: fetch_url_display <url>
-# fetch_url_display <url>; the URL as it may be printed: itself when it is
-# printable ASCII with no space, fetch_url_host names its host and its
-# authority has no "@"; else a placeholder. Fails closed: user info, a
-# missing or other scheme, a character that could forge a log line, or
-# anything that does not parse is never printed.
+# fetch_url_display <url>; the URL as it may be printed: scheme, authority and
+# path, with a query shown as "?(not shown)" and a fragment left out, when the
+# URL is printable ASCII with no space, fetch_url_host names its host and its
+# authority has no "@"; else a placeholder. Fails closed: user info, a query
+# or fragment (a signed URL carries its token there), a missing or other
+# scheme, a character that could forge a log line, or anything that does not
+# parse is never printed.
 # Returns: 0.
-# Output: stdout the URL or "(URL not shown)".
+# Output: stdout the URL, cut as above, or "(URL not shown)".
 fetch_url_display() {
   # C locale: in UTF-8, [:graph:] matches bidi overrides and Unicode spaces.
-  local LC_ALL=C u="${1:-}" auth
-  auth="${u#*://}"; auth="${auth%%[/?#]*}"
-  if [[ "$u" != *[![:graph:]]* && "$auth" != *@* && "$(fetch_url_host "$u")" != "(unknown host)" ]]; then
-    printf '%s\n' "$u"
+  local LC_ALL=C u="${1:-}" rest auth tail pre path
+  rest="${u#*://}"; auth="${rest%%[/?#]*}"
+  if [[ "$u" == *[![:graph:]]* || "$auth" == *@* || "$(fetch_url_host "$u")" == "(unknown host)" ]]; then
+    printf '%s\n' "(URL not shown)"
     return 0
   fi
-  printf '%s\n' "(URL not shown)"
+  tail="${rest:${#auth}}"; pre="${tail%%#*}"; path="${pre%%\?*}"
+  [[ "$pre" == *\?* ]] && path="$path?(not shown)"
+  printf '%s\n' "${u%%://*}://$auth$path"
+}
+
+# Usage: fetch_curl_proto_args <url>
+# fetch_curl_proto_args <url>; the curl options that keep the transfer and its
+# redirects to https for an https URL, to http or https for an http URL.
+# Another scheme (file://, for one) gets none: curl's defaults stay.
+# Returns: 0.
+# Output: stdout the options, one per line, or nothing.
+fetch_curl_proto_args() {
+  local LC_ALL=C s
+  [[ "${1:-}" == *://* ]] || return 0
+  s="$(printf '%s' "${1%%://*}" | tr 'A-Z' 'a-z')"
+  case "$s" in
+    https) printf '%s\n' --proto =https --proto-redir =https ;;
+    http)  printf '%s\n' --proto =http,https --proto-redir =http,https ;;
+  esac
+  return 0
+}
+
+# Usage: fetch_wget_args <url>
+# fetch_wget_args <url>; the wget options this machine's wget accepts:
+# --retry-on-http-error=429,500,502,503,504 (wget 1.19.1 or newer; without it
+# wget does not retry a 503), and --https-only for an https URL (wget 1.17 or
+# newer). busybox wget has neither, and gets nothing.
+# Returns: 0.
+# Output: stdout the options, one per line, or nothing.
+fetch_wget_args() {
+  local LC_ALL=C help
+  help="$(wget --help 2>/dev/null)"
+  [[ "$help" == *--retry-on-http-error* ]] && printf '%s\n' --retry-on-http-error=429,500,502,503,504
+  if [[ "$help" == *--https-only* && "${1:-}" == *://* ]]; then
+    [[ "$(printf '%s' "${1%%://*}" | tr 'A-Z' 'a-z')" == https ]] && printf '%s\n' --https-only
+  fi
+  return 0
 }
 
 # Usage: fetch_exit_reason <curl|wget> <code>
@@ -102,22 +145,27 @@ fetch_exit_reason() {
     wget:4) r="network failure" ;;
     wget:5) r="TLS verification failed" ;;
     wget:8) r="server error response" ;;
+    wget:124) r="timed out (FETCH_MAX_TIME)" ;;
   esac
   printf '%s\n' "${r:-see the $1 documentation for this exit code}"
 }
 
 # Usage: fetch_to_file <label> <url> <output>
 # fetch_to_file <label> <url> <output>; download <url> to <output> with curl
-# (or wget when there is no curl), retrying transient errors. On failure the
-# output file is deleted and one line on stderr names the label, the host, the
-# tool and its exit code. The tool's own last error line follows, once, and only
-# when the URL is shown: it can quote the URL.
+# (or wget when there is no curl), retrying transient errors. On failure, or
+# on INT or TERM during the download, the output file is deleted; one line on
+# stderr names the label, the host, the tool and its exit code. The tool's own
+# last error line follows, once, and only when the whole URL is shown: it can
+# quote the URL.
+# Env: FETCH_MAX_TIME - seconds for the whole download (default 300; anything
+#   but a positive integer means 300). wget gets it through timeout(1) or
+#   gtimeout when one is there.
 # Returns: 0 downloaded; 1 download failed; 2 an empty label, URL or output, a
 #   URL that starts with "-", or output "-"; 3 no curl or wget.
 # Output: stdout nothing; stderr the error line on failure.
 fetch_to_file() {
-  local label="${1:-}" url out tool rc=0 host msg shown err=""
-  local -a retry=()
+  local label="${1:-}" url out tool rc=0 host msg shown err="" max t
+  local -a args=() tmo=()
   if [[ -z "$label" || -z "${2:-}" || -z "${3:-}" || "${2:-}" == -* || "${3:-}" == - ]]; then
     _fetch_err "fetch_to_file: usage: fetch_to_file <label> <url> <output>"
     return 2
@@ -125,19 +173,31 @@ fetch_to_file() {
   # checked above; printf -v marks the validated copies for the scanner
   printf -v url '%s' "$2"
   printf -v out '%s' "$3"
+  max="${FETCH_MAX_TIME:-300}"
+  [[ "$max" =~ ^[1-9][0-9]{0,6}$ ]] || max=300
   if command -v curl >/dev/null 2>&1; then
     tool=curl
-    while IFS= read -r msg; do retry+=("$msg"); done < <(fetch_curl_retry_args)
-    # stderr is kept, not passed through: with retries curl prints one line per
-    # attempt, and the line can quote the URL.
-    err="$(curl -fsSL --connect-timeout 15 --max-time "${FETCH_MAX_TIME:-300}" "${retry[@]}" -o "$out" -- "$url" 2>&1 >/dev/null)" || rc=$?
+    while IFS= read -r msg; do args+=("$msg"); done < <(fetch_curl_retry_args; fetch_curl_proto_args "$url")
   elif command -v wget >/dev/null 2>&1; then
     tool=wget
-    err="$(wget -q -T 60 --tries=3 --waitretry=2 -O "$out" -- "$url" 2>&1 >/dev/null)" || rc=$?
+    while IFS= read -r msg; do args+=("$msg"); done < <(fetch_wget_args "$url")
+    # wget's -T bounds one read, not the download.
+    for t in timeout gtimeout; do
+      command -v "$t" >/dev/null 2>&1 && { tmo=("$t" "$max"); break; }
+    done
   else
     _fetch_err "$label: download failed: curl or wget is needed to download $(fetch_url_display "$url")"
     return 3
   fi
+  _fetch_trap_set "$out"
+  # stderr is kept, not passed through: with retries curl prints one line per
+  # attempt, and the line can quote the URL.
+  if [[ "$tool" == curl ]]; then
+    err="$(curl -fsSL --connect-timeout 15 --max-time "$max" "${args[@]}" -o "$out" -- "$url" 2>&1 >/dev/null)" || rc=$?
+  else
+    err="$(${tmo[@]+"${tmo[@]}"} wget -q -T 60 --tries=3 --waitretry=2 ${args[@]+"${args[@]}"} -O "$out" -- "$url" 2>&1 >/dev/null)" || rc=$?
+  fi
+  _fetch_trap_restore
   if [[ "$rc" -ne 0 ]]; then
     rm -f -- "$out"
     host="$(fetch_url_host "$url")"
@@ -149,6 +209,37 @@ fetch_to_file() {
     fi
     return 1
   fi
+  return 0
+}
+
+# _fetch_trap_set <file>: on INT or TERM, delete <file>, then run the caller's
+# trap for that signal, or exit 130 / 143 when there is none. An ignored
+# signal stays ignored. The caller's traps are saved for _fetch_trap_restore.
+_fetch_trap_set() {
+  local sig code prev
+  _FETCH_PARTIAL="$1"
+  _FETCH_SAVED_TRAPS="$(trap -p INT TERM)"
+  for sig in INT TERM; do
+    [[ "$sig" == INT ]] && code=130 || code=143
+    prev="$(trap -p "$sig")"
+    if [[ -z "$prev" ]]; then
+      trap 'rm -f -- "$_FETCH_PARTIAL"; exit '"$code" "$sig"
+    else
+      prev="$(eval "_fetch_trap_action ${prev}")"
+      # '' means the caller ignores the signal: keep it ignored.
+      [[ -n "$prev" ]] && trap 'rm -f -- "$_FETCH_PARTIAL"; '"$prev" "$sig"
+    fi
+  done
+}
+
+# _fetch_trap_action: prints the action from a "trap -- <action> <sig>" line.
+_fetch_trap_action() { printf '%s' "$3"; }
+
+# _fetch_trap_restore: puts back the caller's INT and TERM traps.
+_fetch_trap_restore() {
+  trap - INT TERM
+  [[ -n "${_FETCH_SAVED_TRAPS:-}" ]] && eval "$_FETCH_SAVED_TRAPS"
+  _FETCH_SAVED_TRAPS=""; _FETCH_PARTIAL=""
   return 0
 }
 

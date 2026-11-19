@@ -220,6 +220,10 @@ if command -v curl >/dev/null 2>&1; then
 else
   ok "(no curl: the download gauge is not run)"
 fi
+# The size probe and the download keep redirects to the URL's scheme.
+# shellcheck disable=SC2317
+got="$(curl() { echo "curl $*" >>"$tmp/probe.log"; }; _dialog__fetch_content_length "https://example.invalid/a"; cat "$tmp/probe.log")"
+check "the size probe asks curl for https only" "1" "$(grep -c -- '--proto =https --proto-redir =https https://example.invalid/a' <<<"$got")"
 # (The model pull gauge draws only when stderr is a terminal: it is in
 # tests/dialog_pty_test.sh.)
 # The stand-in reads its key from stdin, so a prompt that is answered "from

@@ -48,6 +48,24 @@ try {
     function Invoke-WebRequest { param($Uri, $OutFile, [switch]$UseBasicParsing, $ErrorAction) throw "boom`n[ERROR] forged" }
     $rc = fetch_to_file -Label 't' -Url 'https://github.com/o/r' -OutFile $out -DelaySeconds 0
     check 'a multi-line error is logged as one line' '1:1:False' "${rc}:$($script:logged.Count):$($script:logged[0].Contains("`n"))"
+    # An HTTP 404 is not retried; a 503 and a 429 are.
+    foreach ($row in @(@(404, '1:1'), @(503, '1:3'), @(429, '1:3'))) {
+        $script:calls = 0; $script:status = $row[0]
+        function Invoke-WebRequest {
+            param($Uri, $OutFile, [switch]$UseBasicParsing, $ErrorAction)
+            $script:calls++
+            $e = New-Object System.Exception "HTTP $($script:status)"
+            Add-Member -InputObject $e -MemberType NoteProperty -Name Response -Value ([pscustomobject]@{ StatusCode = $script:status })
+            throw $e
+        }
+        $rc = fetch_to_file -Label 't' -Url 'https://h.example/a' -OutFile $out -DelaySeconds 0
+        check "HTTP $($row[0]): attempts" $row[1] "${rc}:$($script:calls)"
+    }
+    # A query can carry a token: neither it nor the exception text (which can quote it) is logged.
+    $script:logged = @()
+    function Invoke-WebRequest { param($Uri, $OutFile, [switch]$UseBasicParsing, $ErrorAction) throw "404 for $Uri" }
+    $rc = fetch_to_file -Label 't' -Url 'https://h.example/a?sig=s3cr3t' -OutFile $out -Attempts 1 -DelaySeconds 0
+    check 'a query is not logged, nor the error text' '1:False:True' "${rc}:$($script:logged[0].Contains('s3cr3t')):$($script:logged[0].EndsWith('URL https://h.example/a?(not shown)'))"
     Remove-Item function:log_error
     function Invoke-WebRequest {
         param($Uri, $OutFile, [switch]$UseBasicParsing, $ErrorAction)
@@ -60,6 +78,7 @@ try {
     }
 
     check 'an empty URL is refused' '2' "$(fetch_to_file -Label 't' -Url '' -OutFile $out 2>$null)"
+    check 'an empty label is refused' '2' "$(fetch_to_file -Label '' -Url 'https://h.example/a' -OutFile $out 2>$null)"
     check 'the host of a URL' 'github.com' (fetch_url_host 'https://github.com/o/r')
     check 'an unparseable URL has no host printed' '(unknown host)' (fetch_url_host 'not a url@secret')
     foreach ($u in @('ftp://u@host.example/x', "https://b$([char]0x202E)ad.example/a", "https://b$([char]0xFC)cher.example/a", "https://h.example$([char]0xA0)x/a")) {
@@ -78,7 +97,7 @@ try {
         @("https://example.com/a`n[ERROR] forged", $n),
         @('https://example.com/a b', $n),
         @('https://example.com/a@b', 'https://example.com/a@b'),
-        @('https://example.com/a?u=x@y', 'https://example.com/a?u=x@y'),
+        @('https://example.com/a?u=x@y', 'https://example.com/a?(not shown)'),
         @('https://github.com/o/r', 'https://github.com/o/r'))) {
         check "display of $(($row[0] -replace '[^\x21-\x7E]', '?'))" $row[1] (fetch_url_display $row[0])
     }
