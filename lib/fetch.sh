@@ -35,11 +35,12 @@ fetch_curl_retry_args() {
 # Usage: fetch_url_host <url>
 # fetch_url_host <url>; the host part of an http or https URL, without user
 # info or port. Fails closed like fetch_url_display: anything else, an empty
-# host, or a host with a space or control character gives "(unknown host)".
+# host, or a host with anything but printable ASCII gives "(unknown host)".
 # Returns: 0.
 # Output: stdout the host.
 fetch_url_host() {
-  local u="${1:-}" h scheme rb="]"
+  # C locale: in UTF-8, [:graph:] matches bidi overrides and Unicode spaces.
+  local LC_ALL=C u="${1:-}" h scheme rb="]"
   scheme="$(printf '%s' "${u%%://*}" | tr 'A-Z' 'a-z')"
   if [[ "$u" != *://* || ( "$scheme" != http && "$scheme" != https ) ]]; then
     printf '%s\n' "(unknown host)"; return 0
@@ -60,13 +61,14 @@ fetch_url_host() {
 # Usage: fetch_url_display <url>
 # fetch_url_display <url>; the URL as it may be printed: itself when it is an
 # absolute http or https URL whose authority (from "://" to the first "/", "?"
-# or "#") has no "@" and which has no space or control character, else a
+# or "#") has no "@" and which is printable ASCII with no space, else a
 # placeholder. Fails closed: user info, a missing or other scheme, a character
 # that could forge a log line, or anything that does not parse is never printed.
 # Returns: 0.
 # Output: stdout the URL or "(URL not shown)".
 fetch_url_display() {
-  local u="${1:-}" scheme rest auth
+  # C locale: in UTF-8, [:graph:] matches bidi overrides and Unicode spaces.
+  local LC_ALL=C u="${1:-}" scheme rest auth
   scheme="$(printf '%s' "${u%%://*}" | tr 'A-Z' 'a-z')"
   if [[ "$u" == *://* && "$u" != *[![:graph:]]* && ( "$scheme" == http || "$scheme" == https ) ]]; then
     rest="${u#*://}"

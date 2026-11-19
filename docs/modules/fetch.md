@@ -42,7 +42,7 @@ Functions
   - Purpose: Print the retry options this machine's `curl` accepts, one per line.
 
 - fetch_url_display url
-  - Purpose: Print the URL when it may be shown: an absolute `http` or `https` URL whose authority (from `://` to the first `/`, `?` or `#`) has no `@`, with no space or control character. Anything else prints `(URL not shown)`, so user info such as `user:token@host` never reaches a log and a URL cannot forge a log line.
+  - Purpose: Print the URL when it may be shown: an absolute `http` or `https` URL whose authority (from `://` to the first `/`, `?` or `#`) has no `@`, printable ASCII with no space. Anything else prints `(URL not shown)`, so user info such as `user:token@host` never reaches a log and a URL cannot forge a log line.
 
 - fetch_url_host url
   - Purpose: Print the host of an `http` or `https` URL, without user info or port; `(unknown host)` for anything else.

@@ -243,6 +243,17 @@ got="$(source "$ROOT_DIR/lib/fetch.sh"; fetch_url_display $'https://example.com/
 [[ "$got" == "$N" ]] && note "URL with a newline not shown" || error "newline URL shown: '$got'"
 got="$(source "$ROOT_DIR/lib/fetch.sh"; fetch_url_display 'https://example.com/a b')"
 [[ "$got" == "$N" ]] && note "URL with a space not shown" || error "space URL shown: '$got'"
+# In a UTF-8 locale [:graph:] matches a bidi override, a no-break space and a
+# zero-width space, so the check must run in the C locale (printable ASCII).
+if locale -a 2>/dev/null | grep -ix 'c\.utf-\?8' >/dev/null; then
+  for u in $'https://example.com/a\xe2\x80\xaeb' $'https://example.com/a\xc2\xa0b' $'https://ex\xe2\x80\x8bample.com/a'; do
+    got="$(export LC_ALL=C.UTF-8; source "$ROOT_DIR/lib/fetch.sh"; fetch_url_display "$u"; fetch_url_host "$u")"
+    [[ "$got" == "$N"$'\n'"example.com" || "$got" == "$N"$'\n'"(unknown host)" ]] \
+      && note "UTF-8 locale: non-ASCII URL not shown" || error "UTF-8 locale shows '$got'"
+  done
+else
+  note "SKIP UTF-8 locale case: no C.UTF-8 locale"
+fi
 
 # 6f. Output "-" is refused: curl would write the asset to stdout, and the
 # failure path would delete a file named "-" in the working directory.
