@@ -14,8 +14,11 @@
 #
 # Requires: logging, os
 
+# fetch.ps1 beside this file; under Import-ScriptHelpers $PSScriptRoot is empty
+# (the module runs from a script block), so the loader's lib directory is used.
 if (-not (Get-Command fetch_to_file -ErrorAction SilentlyContinue)) {
-    . (Join-Path $PSScriptRoot 'fetch.ps1')
+    $_shlibFetchDir = if ($PSScriptRoot) { $PSScriptRoot } else { $_SHLIB_LIB_DIR }
+    if ($_shlibFetchDir) { . (Join-Path $_shlibFetchDir 'fetch.ps1') }
 }
 
 # --- detection -------------------------------------------------------------
