@@ -20,14 +20,17 @@ function fetch_url_host {
 
 # Usage: fetch_url_display -Url <url>
 # Returns: the URL when it is an absolute http or https URL whose authority (from
-#   '://' to the first '/', '?' or '#') has no '@'; else '(URL not shown)'. Fails
-#   closed: user info, another or no scheme, or a URL that does not parse is
-#   never shown. Same rule as lib/fetch.sh.
+#   '://' to the first '/', '?' or '#') has no '@' and it is printable ASCII
+#   with no space; else '(URL not shown)'. Fails closed: user info, another or
+#   no scheme, or a URL that does not parse is never shown. Same rule as lib/fetch.sh.
 # Output: none.
 function fetch_url_display {
     param([string]$Url)
     $hidden = '(URL not shown)'
     if (-not $Url) { return $hidden }
+    # A space or control character could forge a log line; anything outside
+    # printable ASCII is hidden.
+    if ($Url -match '[^\x21-\x7E]') { return $hidden }
     $i = $Url.IndexOf('://')
     if ($i -lt 1) { return $hidden }
     $scheme = $Url.Substring(0, $i).ToLowerInvariant()

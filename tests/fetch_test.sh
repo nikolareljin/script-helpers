@@ -73,6 +73,7 @@ while [[ \$attempt -le \$retries ]]; do
   n=\$(cat "$tmp/count" 2>/dev/null || echo 0); n=\$((n+1)); echo "\$n" > "$tmp/count"
   if [[ "\${STUB_FAIL_FIRST:-0}" == all || \$n -le \${STUB_FAIL_FIRST:-0} ]]; then
     printf 'partial' > "\$out"
+    [[ -n "\${STUB_ERR_EACH:-}" ]] && echo "curl: (7) Failed to connect" >&2
     continue
   fi
   cp "\$src" "\$out"; exit 0
@@ -228,6 +229,35 @@ https://example.com/a?u=x@y|https://example.com/a?u=x@y
 https://example.com#x@y|https://example.com#x@y
 https://github.com/o/r/releases/download/v1/a|https://github.com/o/r/releases/download/v1/a
 EOF2
+
+# 6d. Fail closed on the host too: a string that is not an http(s) URL names
+# no host, so a bare token passed as the URL is never printed.
+for u in "ghp_s3cr3t" "tok:s3cr3t" "file:///etc/passwd" "https://"; do
+  got="$(source "$ROOT_DIR/lib/fetch.sh"; fetch_url_host "$u")"
+  [[ "$got" == "(unknown host)" ]] && note "no host for '$u'" || error "host of '$u': got '$got', want (unknown host)"
+done
+
+# 6e. A URL with a control character or a space is not printed: it could forge
+# a log line.
+got="$(source "$ROOT_DIR/lib/fetch.sh"; fetch_url_display $'https://example.com/a\n[ERROR] forged')"
+[[ "$got" == "$N" ]] && note "URL with a newline not shown" || error "newline URL shown: '$got'"
+got="$(source "$ROOT_DIR/lib/fetch.sh"; fetch_url_display 'https://example.com/a b')"
+[[ "$got" == "$N" ]] && note "URL with a space not shown" || error "space URL shown: '$got'"
+
+# 6f. Output "-" is refused: curl would write the asset to stdout, and the
+# failure path would delete a file named "-" in the working directory.
+rc=0; bash -c "source '$ROOT_DIR/lib/fetch.sh'; fetch_to_file x https://example.com/a -" >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 2 ]] && note "output - is refused (2)" || error "output -: rc=$rc"
+
+# 6g. curl's own error text is printed once, not once per attempt, and not at
+# all when the URL is hidden.
+rc=0
+out="$(PATH="$tmp/stub:$tmp/bin" STUB_FAIL_FIRST=all STUB_ERR_EACH=1 bash -c 'source "$1/lib/fetch.sh"; fetch_to_file t "https://example.com/a" "$2/o"' _ "$ROOT_DIR" "$tmp" 2>&1)" || rc=$?
+n="$(printf '%s\n' "$out" | grep -c 'curl: (7)')"
+[[ $rc -eq 1 && $n -eq 1 ]] && note "curl error text shown once" || error "curl error text count $n: '$out'"
+out="$(PATH="$tmp/stub:$tmp/bin" STUB_FAIL_FIRST=all STUB_ERR_EACH=1 bash -c 'source "$1/lib/fetch.sh"; fetch_to_file t "https://u:pw@example.com/a" "$2/o"' _ "$ROOT_DIR" "$tmp" 2>&1)" || true
+[[ "$out" != *"curl: (7)"* ]] && note "curl error text hidden with the URL" || error "curl text shown with hidden URL: '$out'"
+rm -f "$tmp/count"
 
 # 7. The real curl against a local server that answers 503 twice, then 200.
 real_curl="$(command -v curl 2>/dev/null || true)"

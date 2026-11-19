@@ -33,16 +33,26 @@ fetch_curl_retry_args() {
 }
 
 # Usage: fetch_url_host <url>
-# fetch_url_host <url>; the host part of a URL, without user info or port.
+# fetch_url_host <url>; the host part of an http or https URL, without user
+# info or port. Fails closed like fetch_url_display: anything else, an empty
+# host, or a host with a space or control character gives "(unknown host)".
 # Returns: 0.
 # Output: stdout the host.
 fetch_url_host() {
-  local h="${1#*://}" rb="]"
+  local u="${1:-}" h scheme rb="]"
+  scheme="$(printf '%s' "${u%%://*}" | tr 'A-Z' 'a-z')"
+  if [[ "$u" != *://* || ( "$scheme" != http && "$scheme" != https ) ]]; then
+    printf '%s\n' "(unknown host)"; return 0
+  fi
+  h="${u#*://}"
   h="${h%%/*}"; h="${h%%[?#]*}"; h="${h##*@}"
   if [[ "${h:0:1}" == "[" ]]; then
     h="${h%%"$rb"*}$rb"
   else
     h="${h%%:*}"
+  fi
+  if [[ -z "$h" || "$h" == "$rb" || "$h" == *[![:graph:]]* ]]; then
+    h="(unknown host)"
   fi
   printf '%s\n' "$h"
 }
@@ -50,14 +60,15 @@ fetch_url_host() {
 # Usage: fetch_url_display <url>
 # fetch_url_display <url>; the URL as it may be printed: itself when it is an
 # absolute http or https URL whose authority (from "://" to the first "/", "?"
-# or "#") has no "@", else a placeholder. Fails closed: user info, a missing or
-# other scheme, or anything that does not parse is never printed.
+# or "#") has no "@" and which has no space or control character, else a
+# placeholder. Fails closed: user info, a missing or other scheme, a character
+# that could forge a log line, or anything that does not parse is never printed.
 # Returns: 0.
 # Output: stdout the URL or "(URL not shown)".
 fetch_url_display() {
   local u="${1:-}" scheme rest auth
   scheme="$(printf '%s' "${u%%://*}" | tr 'A-Z' 'a-z')"
-  if [[ "$u" == *://* && ( "$scheme" == http || "$scheme" == https ) ]]; then
+  if [[ "$u" == *://* && "$u" != *[![:graph:]]* && ( "$scheme" == http || "$scheme" == https ) ]]; then
     rest="${u#*://}"
     auth="${rest%%[/?#]*}"
     if [[ -n "$auth" && "$auth" != *@* ]]; then
@@ -95,14 +106,15 @@ fetch_exit_reason() {
 # fetch_to_file <label> <url> <output>; download <url> to <output> with curl
 # (or wget when there is no curl), retrying transient errors. On failure the
 # output file is deleted and one line on stderr names the label, the host, the
-# tool and its exit code.
-# Returns: 0 downloaded; 1 download failed; 2 an empty label, URL or output, or
-#   a URL that starts with "-"; 3 no curl or wget.
+# tool and its exit code. The tool's own last error line follows, once, and only
+# when the URL is shown: it can quote the URL.
+# Returns: 0 downloaded; 1 download failed; 2 an empty label, URL or output, a
+#   URL that starts with "-", or output "-"; 3 no curl or wget.
 # Output: stdout nothing; stderr the error line on failure.
 fetch_to_file() {
-  local label="${1:-}" url out tool rc=0 host msg shown
+  local label="${1:-}" url out tool rc=0 host msg shown err=""
   local -a retry=()
-  if [[ -z "$label" || -z "${2:-}" || -z "${3:-}" || "${2:-}" == -* ]]; then
+  if [[ -z "$label" || -z "${2:-}" || -z "${3:-}" || "${2:-}" == -* || "${3:-}" == - ]]; then
     _fetch_err "fetch_to_file: usage: fetch_to_file <label> <url> <output>"
     return 2
   fi
@@ -112,10 +124,12 @@ fetch_to_file() {
   if command -v curl >/dev/null 2>&1; then
     tool=curl
     while IFS= read -r msg; do retry+=("$msg"); done < <(fetch_curl_retry_args)
-    curl -fsSL --connect-timeout 15 --max-time "${FETCH_MAX_TIME:-300}" "${retry[@]}" -o "$out" -- "$url" || rc=$?
+    # stderr is kept, not passed through: with retries curl prints one line per
+    # attempt, and the line can quote the URL.
+    err="$(curl -fsSL --connect-timeout 15 --max-time "${FETCH_MAX_TIME:-300}" "${retry[@]}" -o "$out" -- "$url" 2>&1 >/dev/null)" || rc=$?
   elif command -v wget >/dev/null 2>&1; then
     tool=wget
-    wget -q -T 60 --tries=3 --waitretry=2 -O "$out" -- "$url" || rc=$?
+    err="$(wget -q -T 60 --tries=3 --waitretry=2 -O "$out" -- "$url" 2>&1 >/dev/null)" || rc=$?
   else
     _fetch_err "$label: download failed: curl or wget is needed to download $(fetch_url_display "$url")"
     return 3
@@ -125,6 +139,10 @@ fetch_to_file() {
     host="$(fetch_url_host "$url")"
     shown="$(fetch_url_display "$url")"
     _fetch_err "$label: download failed from $host: $tool exit $rc ($(fetch_exit_reason "$tool" "$rc")), after retries; URL $shown"
+    if [[ "$shown" == "$url" && -n "$err" ]]; then
+      msg="$(printf '%s\n' "$err" | awk 'NF { l = $0 } END { print l }')"
+      [[ -n "$msg" ]] && printf '  %s\n' "$msg" >&2
+    fi
     return 1
   fi
   return 0

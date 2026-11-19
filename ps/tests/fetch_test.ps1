@@ -54,6 +54,8 @@ try {
         @('ht!tp://x@y', $n),
         @('ftp://example.com/a', $n),
         @('https://', $n),
+        @("https://example.com/a`n[ERROR] forged", $n),
+        @('https://example.com/a b', $n),
         @('https://example.com/a@b', 'https://example.com/a@b'),
         @('https://example.com/a?u=x@y', 'https://example.com/a?u=x@y'),
         @('https://github.com/o/r', 'https://github.com/o/r'))) {
