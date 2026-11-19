@@ -1,0 +1,26 @@
+# Shared cases for fetch_url_host and fetch_url_display, run by
+# tests/fetch_test.sh and ps/tests/fetch_test.ps1: both must agree.
+# Format: input|host|display. "=" as display means the input itself.
+# Escapes in input: \t tab, \n newline, \\ backslash.
+https://github.com/o/r|github.com|=
+https://user:pw@example.com:8443/a/b|example.com|(URL not shown)
+http://[::1]:8000/x|[::1]|=
+https://example.org?q=1|example.org|=
+HTTPS://Example.COM/a|Example.COM|=
+https://evil.example\\@good.example/|(unknown host)|(URL not shown)
+https://evil.example\\good.example/|(unknown host)|(URL not shown)
+https://u%40x@h.example/a|h.example|(URL not shown)
+https://h.example%40x/a|h.example%40x|=
+https://h.example:443/a|h.example|=
+https://:443/a|(unknown host)|(URL not shown)
+https://h.example./a|h.example.|=
+http:/x|(unknown host)|(URL not shown)
+https:///x|(unknown host)|(URL not shown)
+https://|(unknown host)|(URL not shown)
+https://h.example\t/a|(unknown host)|(URL not shown)
+https://h.example/a\tb|h.example|(URL not shown)
+https://u\tx@h.example/a|(unknown host)|(URL not shown)
+https://[::1/a|(unknown host)|(URL not shown)
+https://[]/a|(unknown host)|(URL not shown)
+ftp://h.example/a|(unknown host)|(URL not shown)
+https://h.example:99999/a|h.example|=

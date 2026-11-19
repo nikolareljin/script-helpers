@@ -34,8 +34,10 @@ fetch_curl_retry_args() {
 
 # Usage: fetch_url_host <url>
 # fetch_url_host <url>; the host part of an http or https URL, without user
-# info or port. Fails closed like fetch_url_display: anything else, an empty
-# host, or a host with anything but printable ASCII gives "(unknown host)".
+# info or port. Fails closed: another or no scheme, an authority (from "://"
+# to the first "/", "?" or "#") with anything but printable ASCII or with a
+# backslash, an empty host or an unclosed "[" gives "(unknown host)". Same
+# rule as ps/lib/fetch.ps1; tests/fixtures/fetch_url_cases.txt holds both.
 # Returns: 0.
 # Output: stdout the host.
 fetch_url_host() {
@@ -46,37 +48,37 @@ fetch_url_host() {
     printf '%s\n' "(unknown host)"; return 0
   fi
   h="${u#*://}"
-  h="${h%%/*}"; h="${h%%[?#]*}"; h="${h##*@}"
+  h="${h%%[/?#]*}"
+  # A backslash: curl and browsers read "a\@b" differently, so name neither.
+  if [[ "$h" == *[![:graph:]]* || "$h" == *\\* ]]; then
+    printf '%s\n' "(unknown host)"; return 0
+  fi
+  h="${h##*@}"
   if [[ "${h:0:1}" == "[" ]]; then
-    h="${h%%"$rb"*}$rb"
+    [[ "$h" == *"$rb"* ]] && h="${h%%"$rb"*}$rb" || h=""
+    [[ "$h" == "[$rb" ]] && h=""
   else
     h="${h%%:*}"
   fi
-  if [[ -z "$h" || "$h" == "$rb" || "$h" == *[![:graph:]]* ]]; then
-    h="(unknown host)"
-  fi
+  [[ -n "$h" ]] || h="(unknown host)"
   printf '%s\n' "$h"
 }
 
 # Usage: fetch_url_display <url>
-# fetch_url_display <url>; the URL as it may be printed: itself when it is an
-# absolute http or https URL whose authority (from "://" to the first "/", "?"
-# or "#") has no "@" and which is printable ASCII with no space, else a
-# placeholder. Fails closed: user info, a missing or other scheme, a character
-# that could forge a log line, or anything that does not parse is never printed.
+# fetch_url_display <url>; the URL as it may be printed: itself when it is
+# printable ASCII with no space, fetch_url_host names its host and its
+# authority has no "@"; else a placeholder. Fails closed: user info, a
+# missing or other scheme, a character that could forge a log line, or
+# anything that does not parse is never printed.
 # Returns: 0.
 # Output: stdout the URL or "(URL not shown)".
 fetch_url_display() {
   # C locale: in UTF-8, [:graph:] matches bidi overrides and Unicode spaces.
-  local LC_ALL=C u="${1:-}" scheme rest auth
-  scheme="$(printf '%s' "${u%%://*}" | tr 'A-Z' 'a-z')"
-  if [[ "$u" == *://* && "$u" != *[![:graph:]]* && ( "$scheme" == http || "$scheme" == https ) ]]; then
-    rest="${u#*://}"
-    auth="${rest%%[/?#]*}"
-    if [[ -n "$auth" && "$auth" != *@* ]]; then
-      printf '%s\n' "$u"
-      return 0
-    fi
+  local LC_ALL=C u="${1:-}" auth
+  auth="${u#*://}"; auth="${auth%%[/?#]*}"
+  if [[ "$u" != *[![:graph:]]* && "$auth" != *@* && "$(fetch_url_host "$u")" != "(unknown host)" ]]; then
+    printf '%s\n' "$u"
+    return 0
   fi
   printf '%s\n' "(URL not shown)"
 }

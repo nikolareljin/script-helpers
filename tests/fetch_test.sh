@@ -255,6 +255,17 @@ else
   note "SKIP UTF-8 locale case: no C.UTF-8 locale"
 fi
 
+# 6g. The shared table in tests/fixtures/fetch_url_cases.txt: ps/tests/fetch_test.ps1
+# runs the same rows, so bash and PowerShell print the same host and URL.
+while IFS='|' read -r raw want_h want_d; do
+  [[ -z "$raw" || "$raw" == \#* ]] && continue
+  u="$(printf '%b' "$raw")"
+  [[ "$want_d" == "=" ]] && want_d="$u"
+  got="$(source "$ROOT_DIR/lib/fetch.sh"; fetch_url_host "$u"; printf '|'; fetch_url_display "$u")"
+  [[ "$got" == "$want_h"$'\n|'"$want_d" ]] && note "shared case '$raw'" \
+    || error "shared case '$raw': got '$got', want '$want_h|$want_d'"
+done < "$ROOT_DIR/tests/fixtures/fetch_url_cases.txt"
+
 # 6f. Output "-" is refused: curl would write the asset to stdout, and the
 # failure path would delete a file named "-" in the working directory.
 rc=0; bash -c "source '$ROOT_DIR/lib/fetch.sh'; fetch_to_file x https://example.com/a -" >/dev/null 2>&1 || rc=$?

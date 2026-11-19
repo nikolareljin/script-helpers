@@ -9,9 +9,12 @@
 # Requires: logging (log_error; plain error stream without it)
 
 # Usage: fetch_url_host -Url <url>
-# Returns: the host of an http or https URL (never its user info), else
-#   '(unknown host)'. Fails closed like lib/fetch.sh: another scheme, or an
-#   authority with anything but printable ASCII, gives '(unknown host)'.
+# Returns: the host of an http or https URL, without user info or port, else
+#   '(unknown host)'. Fails closed: another or no scheme, an authority (from
+#   '://' to the first '/', '?' or '#') with anything but printable ASCII or
+#   with a backslash, an empty host or an unclosed '['. Same rule as
+#   lib/fetch.sh; tests/fixtures/fetch_url_cases.txt holds both. Plain string
+#   rules, not [uri]: [uri] lowercases the host and reads 'a\@b' as host 'a'.
 # Output: none.
 function fetch_url_host {
     param([string]$Url)
@@ -20,41 +23,38 @@ function fetch_url_host {
     if ($i -lt 1) { return $unknown }
     $scheme = $Url.Substring(0, $i).ToLowerInvariant()
     if ($scheme -ne 'http' -and $scheme -ne 'https') { return $unknown }
-    # [uri] drops some characters (U+202E) and keeps others (u-umlaut), so the
-    # raw authority is checked: the printed host must be what was passed in.
     $rest = $Url.Substring($i + 3)
     $j = $rest.IndexOfAny([char[]]@('/', '?', '#'))
-    $auth = if ($j -ge 0) { $rest.Substring(0, $j) } else { $rest }
-    if ($auth -cmatch '[^\x21-\x7E]') { return $unknown }
-    $parsed = $null
-    if ([uri]::TryCreate($Url, [UriKind]::Absolute, [ref]$parsed) -and $parsed.Host -and $parsed.Host -cnotmatch '[^\x21-\x7E]') { return $parsed.Host }
-    return $unknown
+    $h = if ($j -ge 0) { $rest.Substring(0, $j) } else { $rest }
+    if ($h -cmatch '[^\x21-\x7E]' -or $h.Contains('\')) { return $unknown }
+    $h = $h.Substring($h.LastIndexOf('@') + 1)
+    if ($h.StartsWith('[')) {
+        $k = $h.IndexOf(']')
+        $h = if ($k -gt 1) { $h.Substring(0, $k + 1) } else { '' }
+    } else {
+        $k = $h.IndexOf(':')
+        if ($k -ge 0) { $h = $h.Substring(0, $k) }
+    }
+    if (-not $h) { return $unknown }
+    return $h
 }
 
 # Usage: fetch_url_display -Url <url>
-# Returns: the URL when it is an absolute http or https URL whose authority (from
-#   '://' to the first '/', '?' or '#') has no '@' and it is printable ASCII
-#   with no space; else '(URL not shown)'. Fails closed: user info, another or
-#   no scheme, or a URL that does not parse is never shown. Same rule as lib/fetch.sh.
+# Returns: the URL when it is printable ASCII with no space, fetch_url_host
+#   names its host and its authority has no '@'; else '(URL not shown)'.
+#   Fails closed: user info, another or no scheme, a character that could
+#   forge a log line, or a URL that does not parse is never shown. Same rule
+#   as lib/fetch.sh.
 # Output: none.
 function fetch_url_display {
     param([string]$Url)
     $hidden = '(URL not shown)'
-    if (-not $Url) { return $hidden }
-    # A space or control character could forge a log line; anything outside
-    # printable ASCII is hidden.
-    if ($Url -match '[^\x21-\x7E]') { return $hidden }
-    $i = $Url.IndexOf('://')
-    if ($i -lt 1) { return $hidden }
-    $scheme = $Url.Substring(0, $i).ToLowerInvariant()
-    if ($scheme -ne 'http' -and $scheme -ne 'https') { return $hidden }
-    $rest = $Url.Substring($i + 3)
+    if (-not $Url -or $Url -cmatch '[^\x21-\x7E]') { return $hidden }
+    if ((fetch_url_host $Url) -ceq '(unknown host)') { return $hidden }
+    $rest = $Url.Substring($Url.IndexOf('://') + 3)
     $j = $rest.IndexOfAny([char[]]@('/', '?', '#'))
     $auth = if ($j -ge 0) { $rest.Substring(0, $j) } else { $rest }
-    if (-not $auth -or $auth.Contains('@')) { return $hidden }
-    $parsed = $null
-    if (-not [uri]::TryCreate($Url, [UriKind]::Absolute, [ref]$parsed)) { return $hidden }
-    if ($parsed.UserInfo) { return $hidden }
+    if ($auth.Contains('@')) { return $hidden }
     return $Url
 }
 
@@ -89,7 +89,8 @@ function fetch_to_file {
                 Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -ErrorAction Stop | Out-Null
                 return 0
             } catch {
-                $last = $_.Exception.Message
+                # One line: a newline in the text could forge a log line.
+                $last = ($_.Exception.Message -replace '[\x00-\x1F\x7F]+', ' ').Trim()
                 Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
                 if ($i -lt $Attempts -and $DelaySeconds -gt 0) { Start-Sleep -Seconds $DelaySeconds }
             }

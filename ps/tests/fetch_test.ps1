@@ -12,7 +12,7 @@ $lib = Join-Path (Join-Path $PSScriptRoot '..') 'lib'
 $script:failures = 0
 function note([string]$m) { Write-Host "[fetch_test.ps1] $m" }
 function check([string]$label, $want, $got) {
-    if ("$want" -eq "$got") { note "  ok  $label" } else { Write-Host "[fetch_test.ps1][ERROR] ${label}: expected [$want], got [$got]"; $script:failures++ }
+    if ("$want" -ceq "$got") { note "  ok  $label" } else { Write-Host "[fetch_test.ps1][ERROR] ${label}: expected [$want], got [$got]"; $script:failures++ }
 }
 
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("fetch-ps-" + [guid]::NewGuid())
@@ -42,6 +42,23 @@ try {
     $rc = fetch_to_file -Label 't' -Url 'https://github.com/o/r/releases/download/v1/a' -OutFile $out -DelaySeconds 0 2>$null
     check 'every attempt fails: 1, three attempts, no partial file left' '1:3:False' "${rc}:$($script:calls):$(Test-Path $out)"
 
+    # An exception text over several lines is printed as one line, so it cannot forge a log line.
+    $script:logged = @()
+    function log_error([string]$m) { $script:logged += $m }
+    function Invoke-WebRequest { param($Uri, $OutFile, [switch]$UseBasicParsing, $ErrorAction) throw "boom`n[ERROR] forged" }
+    $rc = fetch_to_file -Label 't' -Url 'https://github.com/o/r' -OutFile $out -DelaySeconds 0
+    check 'a multi-line error is logged as one line' '1:1:False' "${rc}:$($script:logged.Count):$($script:logged[0].Contains("`n"))"
+    Remove-Item function:log_error
+    function Invoke-WebRequest {
+        param($Uri, $OutFile, [switch]$UseBasicParsing, $ErrorAction)
+        $script:calls++
+        if ($script:failFirst -lt 0 -or $script:calls -le $script:failFirst) {
+            Set-Content -Path $OutFile -Value 'partial'
+            throw 'Unable to connect to the remote server'
+        }
+        Set-Content -Path $OutFile -Value 'asset'
+    }
+
     check 'an empty URL is refused' '2' "$(fetch_to_file -Label 't' -Url '' -OutFile $out 2>$null)"
     check 'the host of a URL' 'github.com' (fetch_url_host 'https://github.com/o/r')
     check 'an unparseable URL has no host printed' '(unknown host)' (fetch_url_host 'not a url@secret')
@@ -64,6 +81,14 @@ try {
         @('https://example.com/a?u=x@y', 'https://example.com/a?u=x@y'),
         @('https://github.com/o/r', 'https://github.com/o/r'))) {
         check "display of $(($row[0] -replace '[^\x21-\x7E]', '?'))" $row[1] (fetch_url_display $row[0])
+    }
+    # Shared with tests/fetch_test.sh: both sides print the same host and URL.
+    foreach ($line in Get-Content (Join-Path (Join-Path (Join-Path $PSScriptRoot '..') '..') 'tests/fixtures/fetch_url_cases.txt')) {
+        if (-not $line -or $line.StartsWith('#')) { continue }
+        $f = $line.Split('|')
+        $u = $f[0].Replace('\\', [string][char]0).Replace('\t', "`t").Replace('\n', "`n").Replace([string][char]0, '\')
+        $d = if ($f[2] -eq '=') { $u } else { $f[2] }
+        check "shared case $($f[0])" "$($f[1])|$d" "$(fetch_url_host $u)|$(fetch_url_display $u)"
     }
 } finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue

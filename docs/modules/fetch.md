@@ -42,10 +42,10 @@ Functions
   - Purpose: Print the retry options this machine's `curl` accepts, one per line.
 
 - fetch_url_display url
-  - Purpose: Print the URL when it may be shown: an absolute `http` or `https` URL whose authority (from `://` to the first `/`, `?` or `#`) has no `@`, printable ASCII with no space. Anything else prints `(URL not shown)`, so user info such as `user:token@host` never reaches a log and a URL cannot forge a log line.
+  - Purpose: Print the URL when it may be shown: an absolute `http` or `https` URL whose authority (from `://` to the first `/`, `?` or `#`) has no `@`, whose host `fetch_url_host` can name, printable ASCII with no space. Anything else prints `(URL not shown)`, so user info such as `user:token@host` never reaches a log and a URL cannot forge a log line.
 
 - fetch_url_host url
-  - Purpose: Print the host of an `http` or `https` URL, without user info or port; `(unknown host)` for anything else.
+  - Purpose: Print the host of an `http` or `https` URL, without user info or port. `(unknown host)` for another scheme, an empty host, an unclosed `[`, or an authority with a backslash or anything but printable ASCII (`https://a\@b/` names neither `a` nor `b`). Bash and PowerShell print the same; the shared cases are in `tests/fixtures/fetch_url_cases.txt`.
 
 - fetch_exit_reason tool code
   - Purpose: Print a short reason for a `curl` or `wget` exit code.
