@@ -45,6 +45,10 @@ try {
     check 'an empty URL is refused' '2' "$(fetch_to_file -Label 't' -Url '' -OutFile $out 2>$null)"
     check 'the host of a URL' 'github.com' (fetch_url_host 'https://github.com/o/r')
     check 'an unparseable URL has no host printed' '(unknown host)' (fetch_url_host 'not a url@secret')
+    foreach ($u in @('ftp://u@host.example/x', "https://b$([char]0x202E)ad.example/a", "https://b$([char]0xFC)cher.example/a", "https://h.example$([char]0xA0)x/a")) {
+        check "no host printed for $(($u -replace '[^\x21-\x7E]', '?'))" '(unknown host)' (fetch_url_host $u)
+    }
+    check 'the host of a URL with a non-ASCII path' 'h.example' (fetch_url_host "https://h.example/b$([char]0xFC)")
     $n = '(URL not shown)'
     foreach ($row in @(
         @('https://user:pass@example.com/a', $n),
@@ -59,7 +63,7 @@ try {
         @('https://example.com/a@b', 'https://example.com/a@b'),
         @('https://example.com/a?u=x@y', 'https://example.com/a?u=x@y'),
         @('https://github.com/o/r', 'https://github.com/o/r'))) {
-        check "display of $($row[0])" $row[1] (fetch_url_display $row[0])
+        check "display of $(($row[0] -replace '[^\x21-\x7E]', '?'))" $row[1] (fetch_url_display $row[0])
     }
 } finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue

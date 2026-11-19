@@ -9,13 +9,26 @@
 # Requires: logging (log_error; plain error stream without it)
 
 # Usage: fetch_url_host -Url <url>
-# Returns: the host of an absolute URL (never its user info), else '(unknown host)'.
+# Returns: the host of an http or https URL (never its user info), else
+#   '(unknown host)'. Fails closed like lib/fetch.sh: another scheme, or an
+#   authority with anything but printable ASCII, gives '(unknown host)'.
 # Output: none.
 function fetch_url_host {
     param([string]$Url)
+    $unknown = '(unknown host)'
+    $i = if ($Url) { $Url.IndexOf('://') } else { -1 }
+    if ($i -lt 1) { return $unknown }
+    $scheme = $Url.Substring(0, $i).ToLowerInvariant()
+    if ($scheme -ne 'http' -and $scheme -ne 'https') { return $unknown }
+    # [uri] drops some characters (U+202E) and keeps others (u-umlaut), so the
+    # raw authority is checked: the printed host must be what was passed in.
+    $rest = $Url.Substring($i + 3)
+    $j = $rest.IndexOfAny([char[]]@('/', '?', '#'))
+    $auth = if ($j -ge 0) { $rest.Substring(0, $j) } else { $rest }
+    if ($auth -cmatch '[^\x21-\x7E]') { return $unknown }
     $parsed = $null
-    if ([uri]::TryCreate($Url, [UriKind]::Absolute, [ref]$parsed) -and $parsed.Host) { return $parsed.Host }
-    return '(unknown host)'
+    if ([uri]::TryCreate($Url, [UriKind]::Absolute, [ref]$parsed) -and $parsed.Host -and $parsed.Host -cnotmatch '[^\x21-\x7E]') { return $parsed.Host }
+    return $unknown
 }
 
 # Usage: fetch_url_display -Url <url>
