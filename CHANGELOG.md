@@ -1,5 +1,10 @@
 ## Unreleased
 
+### Changed
+
+- **Windows CI runs its long Git Bash steps as parallel jobs.** `windows-security-hooks` (37-39 min of a 40 min limit) and `windows-ollama-endpoint` (up to 36 min) ran every step in sequence. Each long step now has a job of its own (`windows-scan-output`, `windows-hooks-chain`, `windows-security-gate`, `windows-hook-destinations`, `windows-hook-destinations-native`); every step that ran before still runs, unchanged.
+- **`lib/ollama_endpoint.sh` trims settings and reads the models file without starting `sed`, `tr` or `tail`.** Under Git Bash each process costs tens of milliseconds and these ran once per setting or name. The results are the same; `tests/ollama_endpoint_trim_test.sh` compares them with the old commands.
+
 ## 2026-11-18 — v0.67.0
 
 ### Changed
