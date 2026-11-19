@@ -478,8 +478,13 @@ dialog_download_file() {
     # Try to show a dialog message with error details unless explicitly suppressed.
     local show_error_dialog="${DIALOG_DOWNLOAD_SHOW_ERROR_DIALOG:-1}"
     if [[ "$show_error_dialog" != "0" && "$show_error_dialog" != "false" && "$show_error_dialog" != "never" ]]; then
+      # The URL only when it carries no user info (fetch_url_display); curl's
+      # error text can quote it, so it goes with it.
+      local shown_url="(URL not shown)"
+      declare -F fetch_url_display >/dev/null 2>&1 && shown_url="$(fetch_url_display "$url")"
+      [[ "$shown_url" == "$url" ]] || err_preview="(not shown with the URL)"
       dialog_run --title "Download Error" \
-        --msgbox "Download failed (exit $rc) for:\n$url\n\nDetails:\n$err_preview" \
+        --msgbox "Download failed (exit $rc) for:\n$shown_url\n\nDetails:\n$err_preview" \
         "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 2>/dev/null || true
     fi
     rm -f -- "$errfile"

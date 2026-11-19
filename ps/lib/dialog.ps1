@@ -68,9 +68,9 @@ function dialog_password {
 # Output: a progress bar; throws when the download fails.
 function dialog_download_file {
     param([string]$Url, [string]$Output, [string]$Title = 'Downloading')
-    Write-Progress -Activity $Title -Status "Downloading $Url"
+    Write-Progress -Activity $Title -Status "Downloading $(fetch_url_display $Url)"
     # Retried; a failure deletes the partial file and says why (fetch.ps1).
     $rc = fetch_to_file -Label 'dialog_download_file' -Url $Url -OutFile $Output
     Write-Progress -Activity $Title -Completed
-    if ($rc -ne 0) { throw "dialog_download_file: download failed: $Url" }
+    if ($rc -ne 0) { throw "dialog_download_file: download failed: $(fetch_url_display $Url)" }
 }

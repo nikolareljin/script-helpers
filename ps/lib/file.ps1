@@ -55,11 +55,11 @@ function download_file {
         if (-not $Output) {
             $Output = [System.IO.Path]::GetFileName(([uri]$Url).LocalPath)
         }
-        Write-Host "[script-helpers] Downloading $Url -> $Output"
+        Write-Host "[script-helpers] Downloading $(fetch_url_display $Url) -> $Output"
         # Retried; a failure deletes the partial file and says why (fetch.ps1).
         return ((fetch_to_file -Label 'download_file' -Url $Url -OutFile $Output) -eq 0)
     } catch {
-        Write-Error "download_file: failed to download '$Url': $_"
+        Write-Error "download_file: failed to download '$(fetch_url_display $Url)'"
         return $false
     }
 }

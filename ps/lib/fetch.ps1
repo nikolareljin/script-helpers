@@ -79,7 +79,10 @@ function fetch_to_file {
             }
         }
     } finally { $ProgressPreference = $prev }
-    _fetch_err "${Label}: download failed from $(fetch_url_host $Url) after $Attempts attempts: $last; URL $(fetch_url_display $Url)"
+    $shown = fetch_url_display $Url
+    # The exception text can quote the URL; with the URL hidden, it is hidden too.
+    if ($shown -ne $Url) { $last = '(error text not shown with the URL)' }
+    _fetch_err "${Label}: download failed from $(fetch_url_host $Url) after $Attempts attempts: $last; URL $shown"
     return 1
 }
 
