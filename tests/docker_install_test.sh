@@ -126,7 +126,7 @@ for case in mac-dry mac-fail mac-attach win-fail; do
       win-fail)   _shlib_docker_dry_run=false; fetch_to_file() { : >"$3"; return 1; }; _shlib_docker_install_windows_fallback ;;
     esac
   ) >/dev/null 2>&1 || rc=$?
-  left="$(find "$tdir" -mindepth 1 | head -n 3)"
+  left="$(find "$tdir" -mindepth 1 | sed -n '1,3p')"
   [[ -z "$left" ]] && note "$case: no temp dir left (rc $rc)" || error "$case: left behind: $left"
 done
 rm -rf "$tdir"

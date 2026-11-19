@@ -335,8 +335,8 @@ rm -f "$tmp/count" "$tmp/calls.log"
 FETCH_MAX_TIME=77 PATH="$tmp/wgetproto:$tmp/bin" bash -c 'source "$1/lib/fetch.sh"; fetch_to_file t "https://example.com/a" "$2/o"; fetch_to_file t "http://example.com/a" "$2/o"' _ "$ROOT_DIR" "$tmp" >/dev/null 2>&1
 if [[ "$(grep -c -- '--retry-on-http-error=429,500,502,503,504' "$tmp/calls.log")" == 4 && "$(grep -c '^timeout 77 wget' "$tmp/calls.log")" == 2 ]] \
    && ! grep -q -- '--https-only' "$tmp/calls.log" \
-   && grep '^wget .*https://example.com/a' "$tmp/calls.log" | grep -q -- '--max-redirect=0' \
-   && ! grep '^wget .*http://example.com/a' "$tmp/calls.log" | grep -q -- '--max-redirect=0'; then
+   && grep -q -- '--max-redirect=0' <<<"$(grep '^wget .*https://example.com/a' "$tmp/calls.log")" \
+   && ! grep -q -- '--max-redirect=0' <<<"$(grep '^wget .*http://example.com/a' "$tmp/calls.log")"; then
   note "wget: retries a 503, follows https redirects itself, runs under timeout FETCH_MAX_TIME"
 else
   error "wget options: '$(cat "$tmp/calls.log" 2>/dev/null)'"
