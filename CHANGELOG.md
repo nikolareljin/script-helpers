@@ -1,5 +1,10 @@
 ## Unreleased
 
+### Changed
+
+- **Windows CI runs its long Git Bash steps as parallel jobs.** `windows-security-hooks` (37-39 min of a 40 min limit) and `windows-ollama-endpoint` (up to 36 min) ran every step in sequence. Each long step now has a job of its own (`windows-scan-output`, `windows-hooks-chain`, `windows-security-gate`, `windows-hook-destinations`, `windows-hook-destinations-native`); every step that ran before still runs, unchanged.
+- **`lib/ollama_endpoint.sh` trims settings and reads the models file without starting `sed`, `tr` or `tail`.** Under Git Bash each process costs tens of milliseconds and these ran once per setting or name. The results are the same; `tests/ollama_endpoint_trim_test.sh` compares them with the old commands.
+
 ### Fixed
 
 - **Release downloads retry transient errors, and a failed one says why.** `gitleaks_install`, `foxguard_install`, `ollama_install`, the Docker key and Docker Desktop downloads, `download_file` and `dialog_download_file` tried once, so one network error failed the install (`install-publication-hooks.sh --ci` on a fresh runner). They now go through the new `lib/fetch.sh` (`fetch_to_file`): `curl --retry 3 --retry-delay 2`, plus `--retry-all-errors` on curl 7.71 or newer; `wget --tries=3 --waitretry=2`. A failure deletes the partial file and prints the host, the tool, its exit code and a reason, for example `gitleaks: download failed from github.com: curl exit 7 (could not connect)`. The checksum still runs on the file that arrives. PowerShell: `ps/lib/fetch.ps1`, 3 attempts, used by `ollama_install.ps1`, `docker_install.ps1`, `download_file` and `dialog_download_file`. Tests: `tests/fetch_test.sh` (fails without the fix). Closes https://github.com/nikolareljin/script-helpers/issues/291.
