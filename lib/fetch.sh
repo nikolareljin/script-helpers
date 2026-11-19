@@ -160,7 +160,8 @@ fetch_wget_follow() {
     loc="$(printf '%s\n' "$err" | awk '/^  HTTP\// { l = "" } /^  [Ll]ocation: / { l = $2 } END { print l }' | tr -d '\r')"
     [[ "$rc" -eq 0 ]] && return 0
     if [[ -z "$loc" ]]; then
-      printf '%s\n' "$err" | grep -v '^  ' >&2
+      # || true: grep finds nothing when every line is a header (set -e callers).
+      printf '%s\n' "$err" | grep -v '^  ' >&2 || true
       return "$rc"
     fi
     rm -f -- "$out"

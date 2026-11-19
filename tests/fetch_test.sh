@@ -400,6 +400,11 @@ el=$(( SECONDS - t0 ))
   && note "wget: one FETCH_MAX_TIME deadline across redirects (${el}s)" \
   || error "deadline: rc=$rc ${el}s out='$out' calls='$(cat "$tmp/calls.log")'"
 rm -f "$tmp/wgetredir/timeout"
+# Under set -e, a failure whose wget output is all headers still returns wget's code.
+mkdir -p "$tmp/wgethdr"
+printf '#!/usr/bin/env bash\nprintf "  HTTP/1.1 500 Oops\\n" >&2\nexit 8\n' > "$tmp/wgethdr/wget"; chmod +x "$tmp/wgethdr/wget"
+rc=0; PATH="$tmp/wgethdr:$tmp/bin" bash -c 'set -eo pipefail; source "$1/lib/fetch.sh"; fetch_wget_follow "https://example.com/a" "$2/o" & wait $! || echo "rc=$?"' _ "$ROOT_DIR" "$tmp" >"$tmp/hdr.out" 2>&1 || rc=$?
+[[ "$(cat "$tmp/hdr.out")" == "rc=8" ]] && note "set -e: wget's code kept when its output is all headers" || error "set -e headers: '$(cat "$tmp/hdr.out")' rc=$rc"
 # download_file and dialog_download_file go through the same follower.
 rm -f "$tmp/count" "$tmp/calls.log" "$tmp/d.bin"
 rc=0; PATH="$tmp/wgetredir:$tmp/bin" REDIR_1=http://evil.example/x DOWNLOAD_USE_DIALOG=never bash -c 'source "$1/lib/logging.sh"; source "$1/lib/file.sh"; download_file "https://example.com/a" "$2/d.bin"' _ "$ROOT_DIR" "$tmp" >/dev/null 2>&1 || rc=$?
