@@ -14,6 +14,10 @@
 # Administrator rights. Nothing runs without an explicit confirmation unless
 # the caller passes --yes.
 
+# Downloads go through fetch_to_file: retried, and a failure says why.
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/fetch.sh"
+
 # ---------------------------------------------------------------------------
 # Detection
 # ---------------------------------------------------------------------------
@@ -130,7 +134,7 @@ _shlib_docker_fetch_key() {
   dir="$(mktemp -d "${TMPDIR:-/tmp}/shlib-docker-key.XXXXXX")" || return 1
   chmod 700 "$dir" || { rm -rf -- "$dir"; return 1; }
   mkdir -m 700 "$dir/gnupg" || { rm -rf -- "$dir"; return 1; }
-  if ! curl -fsSL "$url" -o "$dir/key" || [[ ! -s "$dir/key" ]]; then
+  if ! fetch_to_file docker_install "$url" "$dir/key" || [[ ! -s "$dir/key" ]]; then
     log_error "Could not download Docker's signing key from $url."
     rm -rf -- "$dir"
     return 1
@@ -454,10 +458,7 @@ _shlib_docker_install_mac() {
     log_info "Homebrew not found - downloading Docker Desktop directly ($dmg_arch)."
     url="https://desktop.docker.com/mac/main/${dmg_arch}/Docker.dmg"
     dmg="$(mktemp -d)/Docker.dmg"
-    _shlib_docker_run curl -fsSL --retry 3 -o "$dmg" "$url" || {
-      log_error "Download failed: $url"
-      return 1
-    }
+    FETCH_MAX_TIME=3600 _shlib_docker_run fetch_to_file docker_install "$url" "$dmg" || return 1
     if [[ "$_shlib_docker_dry_run" == true ]]; then
       echo "  [dry-run] hdiutil attach / Docker.app install / detach" >&2
     else
@@ -496,7 +497,7 @@ _shlib_docker_install_windows_fallback() {
   log_info "Downloading the official Docker Desktop installer."
   url="https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe"
   exe="$(mktemp -d)/DockerDesktopInstaller.exe"
-  _shlib_docker_run curl -fsSL --retry 3 -o "$exe" "$url" || {
+  FETCH_MAX_TIME=3600 _shlib_docker_run fetch_to_file docker_install "$url" "$exe" || {
     log_error "Download failed. Install manually: https://docs.docker.com/desktop/install/windows-install/"
     return 1
   }

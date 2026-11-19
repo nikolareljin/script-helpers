@@ -353,10 +353,22 @@ dialog_download_file() {
   local cmd pid
   if [[ "$tool" == "curl" ]]; then
     # -sS hides progress meter but shows errors; --fail makes HTTP errors non-zero
-    cmd=(curl -L --fail -sS -o "$tmpfile" "$url")
+    cmd=(curl -L --fail -sS)
+    # Retried on transient errors; see lib/fetch.sh.
+    if ! declare -F fetch_curl_retry_args >/dev/null 2>&1 && [[ -f "$(dirname "${BASH_SOURCE[0]}")/fetch.sh" ]]; then
+      # shellcheck source=/dev/null
+      source "$(dirname "${BASH_SOURCE[0]}")/fetch.sh"
+    fi
+    local a
+    if declare -F fetch_curl_retry_args >/dev/null 2>&1; then
+      while IFS= read -r a; do cmd+=("$a"); done < <(fetch_curl_retry_args)
+    else
+      cmd+=(--retry 3 --retry-delay 2)
+    fi
+    cmd+=(-o "$tmpfile" "$url")
     "${cmd[@]}" >"$errfile" 2>&1 &
   else
-    cmd=(wget -q -O "$tmpfile" "$url")
+    cmd=(wget -q --tries=3 --waitretry=2 -O "$tmpfile" "$url")
     "${cmd[@]}" >"$errfile" 2>&1 &
   fi
   pid=$!

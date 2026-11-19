@@ -97,6 +97,7 @@ mkfox "$tmp/rel/foxguard" installed "$FOX_PIN"
 printf 'not the release\n' > "$tmp/rel/wrong"
 cat > "$tmp/stub/curl" <<EOF
 #!/usr/bin/env bash
+[[ "\${1:-}" == --version ]] && { echo "curl 8.5.0"; exit 0; }
 out=""; url=""
 while [[ \$# -gt 0 ]]; do case "\$1" in -o) out="\$2"; shift 2;; -*) shift;; *) url="\$1"; shift;; esac; done
 echo "\$url" >> "\$CURL_LOG"

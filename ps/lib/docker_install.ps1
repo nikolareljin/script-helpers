@@ -14,6 +14,10 @@
 #
 # Requires: logging, os
 
+if (-not (Get-Command fetch_to_file -ErrorAction SilentlyContinue)) {
+    . (Join-Path $PSScriptRoot 'fetch.ps1')
+}
+
 # --- detection -------------------------------------------------------------
 
 # Usage: docker_cli_installed
@@ -172,14 +176,8 @@ function _Shlib_Docker_InstallWindowsFallback {
         return $true
     }
 
-    try {
-        # Explicit TLS 1.2 for Windows PowerShell 5.1, which does not negotiate
-        # it by default and otherwise fails the download outright.
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        $ProgressPreference = 'SilentlyContinue'   # the progress bar makes this ~10x slower
-        Invoke-WebRequest -Uri $url -OutFile $exe -UseBasicParsing
-    } catch {
-        log_error "Download failed: $($_.Exception.Message)"
+    # Retried, TLS 1.2 on Windows PowerShell 5.1; see fetch.ps1.
+    if ((fetch_to_file -Label 'docker_install' -Url $url -OutFile $exe) -ne 0) {
         log_error "Install manually: https://docs.docker.com/desktop/install/windows-install/"
         return $false
     }

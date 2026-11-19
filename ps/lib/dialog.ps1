@@ -4,6 +4,10 @@
 # These functions provide equivalent interactive prompts using Read-Host
 # and Write-Host, matching the Bash API surface as closely as possible.
 
+if (-not (Get-Command fetch_to_file -ErrorAction SilentlyContinue)) {
+    . (Join-Path $PSScriptRoot 'fetch.ps1')
+}
+
 # Usage: dialog_input [-Title <t>] [-Prompt <p>] [-Default <value>]
 # Returns: the typed value, or Default when the reply is empty.
 # Output: host the title and prompt.
@@ -62,8 +66,8 @@ function dialog_password {
 function dialog_download_file {
     param([string]$Url, [string]$Output, [string]$Title = 'Downloading')
     Write-Progress -Activity $Title -Status "Downloading $Url"
-    $iwrArgs = @{ Uri = $Url; OutFile = $Output }
-    if ($PSVersionTable.PSVersion.Major -lt 6) { $iwrArgs['UseBasicParsing'] = $true }
-    Invoke-WebRequest @iwrArgs | Out-Null
+    # Retried; a failure deletes the partial file and says why (fetch.ps1).
+    $rc = fetch_to_file -Label 'dialog_download_file' -Url $Url -OutFile $Output
     Write-Progress -Activity $Title -Completed
+    if ($rc -ne 0) { throw "dialog_download_file: download failed: $Url" }
 }

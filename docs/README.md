@@ -16,7 +16,7 @@ $ port_next_free 8000
 
 Reusable Bash helpers extracted from projects in this workspace. Source the loader, import only the modules you need, and call the functions in your own scripts.
 
-46 Bash modules and 31 PowerShell mirrors. The Bash modules run unchanged on the bash 3.2 macOS ships.
+47 Bash modules and 32 PowerShell mirrors. The Bash modules run unchanged on the bash 3.2 macOS ships.
 
 - [Installation](installation.md)
 - [Adopt script-helpers in a repository](adopt.md): the submodule, hooks, scanners and tests, step by step
@@ -94,6 +94,7 @@ Modules overview
 - hub - corpus-hub setup for capture clients: local-vs-remote dialog, probe, API-key check, symlink-safe `.env` writing, bootstrap through the hub's own scripts, and an update offer.
 - ci_stack: disposable database containers for a CI run: start, wait until ready, remove with the volume.
 - docs_site: build, serve, preview and check a repository's documentation site with MkDocs.
+- fetch: download a release asset with retries; a failure deletes the partial file and names the host and the exit code; Bash + PowerShell.
 - foxguard: find, install and verify the pinned foxguard scanner that `scripts/ci_security.sh` runs.
 - gitleaks: find the gitleaks to run, and install the pinned secret scanner on a host that has none or an older one.
 - scanner: which gitleaks or foxguard on `PATH` may run: the pinned version or newer.
