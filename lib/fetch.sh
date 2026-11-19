@@ -11,8 +11,9 @@
 #
 # wget also gets --retry-on-http-error=429,500,502,503,504 when it has the
 # option. Redirects keep to the scheme asked for: an https URL is fetched and
-# redirected over https only (curl --proto and --proto-redir, wget
-# --https-only), an http one over http or https.
+# redirected over https only, an http one over http or https. curl does this
+# with --proto and --proto-redir. wget's --https-only works only in recursive
+# mode, so for an https URL fetch_wget_follow follows the redirects itself.
 #
 # Expected imports by caller: none. log_error is used when logging is loaded,
 # plain stderr otherwise.
@@ -109,21 +110,48 @@ fetch_curl_proto_args() {
   return 0
 }
 
-# Usage: fetch_wget_args <url>
-# fetch_wget_args <url>; the wget options this machine's wget accepts:
-# --retry-on-http-error=429,500,502,503,504 (wget 1.19.1 or newer; without it
-# wget does not retry a 503), and --https-only for an https URL (wget 1.17 or
-# newer). busybox wget has neither, and gets nothing.
+# Usage: fetch_wget_args
+# fetch_wget_args; --retry-on-http-error=429,500,502,503,504 when this
+# machine's wget has it (wget 1.19.1 or newer; without it wget does not retry
+# a 503). busybox wget gets nothing.
 # Returns: 0.
-# Output: stdout the options, one per line, or nothing.
+# Output: stdout the option, or nothing.
 fetch_wget_args() {
-  local LC_ALL=C help
-  help="$(wget --help 2>/dev/null)"
-  [[ "$help" == *--retry-on-http-error* ]] && printf '%s\n' --retry-on-http-error=429,500,502,503,504
-  if [[ "$help" == *--https-only* && "${1:-}" == *://* ]]; then
-    [[ "$(printf '%s' "${1%%://*}" | tr 'A-Z' 'a-z')" == https ]] && printf '%s\n' --https-only
-  fi
+  [[ "$(wget --help 2>/dev/null)" == *--retry-on-http-error* ]] && printf '%s\n' --retry-on-http-error=429,500,502,503,504
   return 0
+}
+
+# Usage: fetch_wget_follow <url> <output> [wget option...]
+# fetch_wget_follow <url> <output> [wget option...]; wget <url> to <output>
+# with --max-redirect=0, following each redirect itself: only to an https URL
+# or a path on the same host, at most 5. wget's --https-only does not apply to
+# a single download, so this is what keeps an https download off http.
+# FETCH_WGET_PREFIX (an array, such as "timeout 300") runs before each wget.
+# Returns: wget's exit code; 1 a redirect refused or more than 5.
+# Output: stderr on failure, wget's messages without the response headers
+#   (they can quote the URL); nothing on success.
+fetch_wget_follow() {
+  local u="${1:-}" out="${2:-}" hop=0 rc err loc rest
+  shift 2
+  while :; do
+    rc=0
+    err="$(${FETCH_WGET_PREFIX[@]+"${FETCH_WGET_PREFIX[@]}"} wget -S --no-verbose --max-redirect=0 "$@" -O "$out" -- "$u" 2>&1 >/dev/null)" || rc=$?
+    loc="$(printf '%s\n' "$err" | awk '/^  HTTP\// { l = "" } /^  [Ll]ocation: / { l = $2 } END { print l }' | tr -d '\r')"
+    [[ "$rc" -eq 0 ]] && return 0
+    if [[ -z "$loc" ]]; then
+      printf '%s\n' "$err" | grep -v '^  ' >&2
+      return "$rc"
+    fi
+    rm -f -- "$out"
+    case "$loc" in
+      [Hh][Tt][Tt][Pp][Ss]://*) ;;
+      /*) rest="${u#*://}"; loc="${u%%://*}://${rest%%[/?#]*}$loc" ;;
+      *) printf '%s\n' "wget: redirect to a URL that is not https refused" >&2; return 1 ;;
+    esac
+    hop=$((hop + 1))
+    if [[ "$hop" -gt 5 ]]; then printf '%s\n' "wget: more than 5 redirects" >&2; return 1; fi
+    u="$loc"
+  done
 }
 
 # Usage: fetch_exit_reason <curl|wget> <code>
@@ -158,14 +186,14 @@ fetch_exit_reason() {
 # last error line follows, once, and only when the whole URL is shown: it can
 # quote the URL.
 # Env: FETCH_MAX_TIME - seconds for the whole download (default 300; anything
-#   but a positive integer means 300). wget gets it through timeout(1) or
-#   gtimeout when one is there.
+#   but a whole number from 1 to 9999999 means 300). wget gets it through
+#   timeout(1) or gtimeout when one is there, for each request.
 # Returns: 0 downloaded; 1 download failed; 2 an empty label, URL or output, a
 #   URL that starts with "-", or output "-"; 3 no curl or wget.
 # Output: stdout nothing; stderr the error line on failure.
 fetch_to_file() {
   local label="${1:-}" url out tool rc=0 host msg shown err="" max t
-  local -a args=() tmo=()
+  local -a args=()
   if [[ -z "$label" || -z "${2:-}" || -z "${3:-}" || "${2:-}" == -* || "${3:-}" == - ]]; then
     _fetch_err "fetch_to_file: usage: fetch_to_file <label> <url> <output>"
     return 2
@@ -180,10 +208,11 @@ fetch_to_file() {
     while IFS= read -r msg; do args+=("$msg"); done < <(fetch_curl_retry_args; fetch_curl_proto_args "$url")
   elif command -v wget >/dev/null 2>&1; then
     tool=wget
-    while IFS= read -r msg; do args+=("$msg"); done < <(fetch_wget_args "$url")
-    # wget's -T bounds one read, not the download.
+    while IFS= read -r msg; do args+=("$msg"); done < <(fetch_wget_args)
+    # wget's -T bounds one read, not the download; this bounds each request.
+    local -a FETCH_WGET_PREFIX=()
     for t in timeout gtimeout; do
-      command -v "$t" >/dev/null 2>&1 && { tmo=("$t" "$max"); break; }
+      command -v "$t" >/dev/null 2>&1 && { FETCH_WGET_PREFIX=("$t" "$max"); break; }
     done
   else
     _fetch_err "$label: download failed: curl or wget is needed to download $(fetch_url_display "$url")"
@@ -195,7 +224,12 @@ fetch_to_file() {
   if [[ "$tool" == curl ]]; then
     err="$(curl -fsSL --connect-timeout 15 --max-time "$max" "${args[@]}" -o "$out" -- "$url" 2>&1 >/dev/null)" || rc=$?
   else
-    err="$(${tmo[@]+"${tmo[@]}"} wget -q -T 60 --tries=3 --waitretry=2 ${args[@]+"${args[@]}"} -O "$out" -- "$url" 2>&1 >/dev/null)" || rc=$?
+    # https: redirects followed by hand, to https only.
+    if [[ "$(printf '%s' "${url%%://*}" | tr 'A-Z' 'a-z')" == https ]]; then
+      err="$(fetch_wget_follow "$url" "$out" -T 60 --tries=3 --waitretry=2 ${args[@]+"${args[@]}"} 2>&1)" || rc=$?
+    else
+      err="$(${FETCH_WGET_PREFIX[@]+"${FETCH_WGET_PREFIX[@]}"} wget -q -T 60 --tries=3 --waitretry=2 ${args[@]+"${args[@]}"} -O "$out" -- "$url" 2>&1 >/dev/null)" || rc=$?
+    fi
   fi
   _fetch_trap_restore
   if [[ "$rc" -ne 0 ]]; then

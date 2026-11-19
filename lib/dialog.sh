@@ -374,11 +374,16 @@ dialog_download_file() {
     cmd+=(-o "$tmpfile" "$url")
     "${cmd[@]}" >"$errfile" 2>&1 &
   else
-    cmd=(wget -q --tries=3 --waitretry=2)
+    local -a wopt=(--tries=3 --waitretry=2)
     if declare -F fetch_wget_args >/dev/null 2>&1; then
-      while IFS= read -r a; do cmd+=("$a"); done < <(fetch_wget_args "$url")
+      while IFS= read -r a; do wopt+=("$a"); done < <(fetch_wget_args)
     fi
-    cmd+=(-O "$tmpfile" "$url")
+    # An https URL: redirects followed to https only (fetch_wget_follow).
+    if [[ "$url" == [Hh][Tt][Tt][Pp][Ss]://* ]] && declare -F fetch_wget_follow >/dev/null 2>&1; then
+      cmd=(fetch_wget_follow "$url" "$tmpfile" "${wopt[@]}")
+    else
+      cmd=(wget -q "${wopt[@]}" -O "$tmpfile" "$url")
+    fi
     "${cmd[@]}" >"$errfile" 2>&1 &
   fi
   pid=$!

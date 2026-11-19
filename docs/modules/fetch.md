@@ -13,8 +13,11 @@ redirect options.
   or newer). Without it wget does not retry a 503. `FETCH_MAX_TIME` bounds the
   whole download through `timeout` (or `gtimeout`) when one is installed.
 - Redirects keep to the URL's scheme: an `https` URL is fetched and redirected
-  over `https` only (`curl --proto =https --proto-redir =https`, `wget
-  --https-only`), an `http` URL over `http` or `https`.
+  over `https` only, an `http` URL over `http` or `https`. `curl` does this with
+  `--proto` and `--proto-redir`. `wget --https-only` covers recursive mode only,
+  so for an `https` URL `fetch_wget_follow` runs `wget --max-redirect=0` and
+  follows each redirect itself: to an `https` URL or a path on the same host,
+  at most 5.
 - A failed download deletes the output file, and so does an INT or TERM during
   the download: a partial file is never left for the caller. The caller's own
   INT and TERM traps are kept and run after the cleanup; an ignored signal stays
@@ -56,8 +59,12 @@ Functions
 - fetch_curl_proto_args url
   - Purpose: Print `--proto =https --proto-redir =https` for an `https` URL, `--proto =http,https --proto-redir =http,https` for an `http` URL, nothing for another scheme.
 
-- fetch_wget_args url
-  - Purpose: Print the `wget` options this machine's `wget` accepts: `--retry-on-http-error=429,500,502,503,504`, and `--https-only` for an `https` URL. busybox `wget` gets nothing.
+- fetch_wget_args
+  - Purpose: Print `--retry-on-http-error=429,500,502,503,504` when this machine's `wget` has it. busybox `wget` gets nothing.
+
+- fetch_wget_follow url output [wget option...]
+  - Purpose: `wget` `url` to `output` with `--max-redirect=0`, following each redirect itself: only to an `https` URL or a path on the same host, at most 5.
+  - Returns: `wget`'s exit code; 1 when a redirect is refused or there are more than 5.
 
 - fetch_url_display url
   - Purpose: Print the URL when it may be shown: an absolute `http` or `https` URL whose authority (from `://` to the first `/`, `?` or `#`) has no `@`, whose host `fetch_url_host` can name, printable ASCII with no space. It prints scheme, authority and path; a query becomes `?(not shown)` and a fragment is left out (`https://h/a?X-Amz-Signature=...#t` prints `https://h/a?(not shown)`). Anything else prints `(URL not shown)`, so user info such as `user:token@host` never reaches a log and a URL cannot forge a log line.

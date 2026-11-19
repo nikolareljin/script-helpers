@@ -322,7 +322,7 @@ else
 fi
 got="$(source "$ROOT_DIR/lib/fetch.sh"; fetch_curl_proto_args file:///x; fetch_curl_proto_args https; fetch_curl_proto_args ftp://h/x)"
 [[ -z "$got" ]] && note "curl: no --proto for another scheme" || error "proto for other schemes: '$got'"
-# wget: --https-only for https when it has the option; timeout(1) bounds it.
+# wget: --retry-on-http-error when it has the option; timeout(1) bounds each request.
 mkdir -p "$tmp/wgetproto"
 cat > "$tmp/wgetproto/wget" <<EOF
 #!/usr/bin/env bash
@@ -333,17 +333,65 @@ printf '#!/usr/bin/env bash\necho "timeout $*" >> "%s/calls.log"\nshift; exec "$
 chmod +x "$tmp/wgetproto/wget" "$tmp/wgetproto/timeout"
 rm -f "$tmp/count" "$tmp/calls.log"
 FETCH_MAX_TIME=77 PATH="$tmp/wgetproto:$tmp/bin" bash -c 'source "$1/lib/fetch.sh"; fetch_to_file t "https://example.com/a" "$2/o"; fetch_to_file t "http://example.com/a" "$2/o"' _ "$ROOT_DIR" "$tmp" >/dev/null 2>&1
-if [[ "$(grep -c -- '--https-only' "$tmp/calls.log")" == 2 && "$(grep -c -- '--retry-on-http-error=429,500,502,503,504' "$tmp/calls.log")" == 4 && "$(grep -c '^timeout 77 wget' "$tmp/calls.log")" == 2 ]] \
-   && grep -q '^wget .*http://example.com/a' "$tmp/calls.log" && ! grep '^wget .*http://example.com/a' "$tmp/calls.log" | grep -q -- --https-only; then
-  note "wget: retries a 503, --https-only for https only, run under timeout FETCH_MAX_TIME"
+if [[ "$(grep -c -- '--retry-on-http-error=429,500,502,503,504' "$tmp/calls.log")" == 4 && "$(grep -c '^timeout 77 wget' "$tmp/calls.log")" == 2 ]] \
+   && ! grep -q -- '--https-only' "$tmp/calls.log" \
+   && grep '^wget .*https://example.com/a' "$tmp/calls.log" | grep -q -- '--max-redirect=0' \
+   && ! grep '^wget .*http://example.com/a' "$tmp/calls.log" | grep -q -- '--max-redirect=0'; then
+  note "wget: retries a 503, follows https redirects itself, runs under timeout FETCH_MAX_TIME"
 else
-  error "wget proto/timeout: '$(cat "$tmp/calls.log" 2>/dev/null)'"
+  error "wget options: '$(cat "$tmp/calls.log" 2>/dev/null)'"
 fi
-# Without timeout(1) and without --https-only (busybox): plain wget, still works.
+# Without timeout(1) or --retry-on-http-error (busybox): plain wget, still works.
 rm -f "$tmp/count" "$tmp/calls.log"
 rc=0; PATH="$tmp/wgetonly:$tmp/bin" bash -c 'source "$1/lib/fetch.sh"; fetch_to_file t "https://example.com/a" "$2/o"' _ "$ROOT_DIR" "$tmp" >/dev/null 2>&1 || rc=$?
-[[ $rc -eq 0 ]] && ! grep -q -- '--https-only\|--retry-on-http-error' "$tmp/calls.log" && note "wget without --https-only or timeout: still downloads" \
+[[ $rc -eq 0 ]] && ! grep -q -- '--retry-on-http-error' "$tmp/calls.log" && note "wget without --retry-on-http-error or timeout: still downloads" \
   || error "plain wget: rc=$rc '$(cat "$tmp/calls.log" 2>/dev/null)'"
+
+# 6n. wget and an https URL: a redirect to http is refused (wget's --https-only
+# covers recursive mode only), one to https or to a path is followed, at most 5.
+# The stub answers 302 with the Location in REDIR_<n> for its nth call, and
+# follows it, as real wget does, unless given --max-redirect=0.
+mkdir -p "$tmp/wgetredir"
+cat > "$tmp/wgetredir/wget" <<EOF
+#!/usr/bin/env bash
+[[ "\${1:-}" == --help ]] && exit 0
+echo "wget \$*" >> "$tmp/calls.log"
+out=""; url=""; nofollow=""
+while [[ \$# -gt 0 ]]; do case "\$1" in -O) out="\$2"; shift 2 ;; --) url="\$2"; shift 2 ;; --max-redirect=0) nofollow=1; shift ;; *) shift ;; esac; done
+n=\$(cat "$tmp/count" 2>/dev/null || echo 0); n=\$((n+1)); echo "\$n" > "$tmp/count"
+loc="\$(eval "printf '%s' \"\\\${REDIR_\$n:-\\\${REDIR_ALL:-}}\"")"
+# Real wget follows a redirect to any http(s) URL unless told not to.
+if [[ -n "\$loc" && -z "\$nofollow" ]]; then echo "FOLLOWED \$loc" >> "$tmp/calls.log"; printf 'asset' > "\$out"; exit 0; fi
+if [[ -n "\$loc" ]]; then
+  : > "\$out"
+  printf '  HTTP/1.1 302 Found\r\n  Location: %s\r\n0 redirections exceeded.\n' "\$loc" >&2
+  exit 8
+fi
+printf 'asset' > "\$out"
+EOF
+chmod +x "$tmp/wgetredir/wget"
+wr() { rm -f "$tmp/count" "$tmp/calls.log" "$tmp/o"; rc=0; out="$(PATH="$tmp/wgetredir:$tmp/bin" "$@" bash -c 'source "$1/lib/fetch.sh"; fetch_to_file t "https://example.com/a" "$2/o"' _ "$ROOT_DIR" "$tmp" 2>&1)" || rc=$?; }
+wr env REDIR_1=http://evil.example/x
+[[ $rc -eq 1 && ! -e "$tmp/o" && "$(grep -c '^wget' "$tmp/calls.log")" == 1 && "$out" == *"not https refused"* ]] \
+  && note "wget: an https -> http redirect is refused, nothing left" || error "https->http: rc=$rc out='$out' calls='$(cat "$tmp/calls.log")'"
+wr env REDIR_1=HTTPS://cdn.example/b
+[[ $rc -eq 0 && "$(cat "$tmp/o")" == asset ]] && grep -q -- '-- HTTPS://cdn.example/b' "$tmp/calls.log" \
+  && note "wget: an https -> https redirect is followed" || error "https->https: rc=$rc out='$out' calls='$(cat "$tmp/calls.log")'"
+wr env REDIR_1=/c?d
+[[ $rc -eq 0 ]] && grep -q -- '-- https://example.com/c?d' "$tmp/calls.log" \
+  && note "wget: a redirect to a path stays on the host" || error "path redirect: rc=$rc calls='$(cat "$tmp/calls.log")'"
+wr env REDIR_1=https://cdn.example/b REDIR_2=http://evil.example/x
+[[ $rc -eq 1 && "$(grep -c '^wget' "$tmp/calls.log")" == 2 ]] && note "wget: a second hop to http is refused too" || error "second hop: rc=$rc"
+wr env REDIR_1=evil.example/x
+[[ $rc -eq 1 ]] && note "wget: a relative redirect that is not a path is refused" || error "relative: rc=$rc"
+wr env REDIR_ALL=https://example.com/loop
+[[ $rc -eq 1 && "$(grep -c '^wget' "$tmp/calls.log")" == 6 && "$out" == *"more than 5 redirects"* ]] \
+  && note "wget: at most 5 redirects" || error "loop: rc=$rc calls=$(grep -c '^wget' "$tmp/calls.log") out='$out'"
+# download_file and dialog_download_file go through the same follower.
+rm -f "$tmp/count" "$tmp/calls.log" "$tmp/d.bin"
+rc=0; PATH="$tmp/wgetredir:$tmp/bin" REDIR_1=http://evil.example/x DOWNLOAD_USE_DIALOG=never bash -c 'source "$1/lib/logging.sh"; source "$1/lib/file.sh"; download_file "https://example.com/a" "$2/d.bin"' _ "$ROOT_DIR" "$tmp" >/dev/null 2>&1 || rc=$?
+[[ $rc -ne 0 && ! -e "$tmp/d.bin" && "$(grep -c '^wget' "$tmp/calls.log")" == 1 ]] && ! grep -q FOLLOWED "$tmp/calls.log" \
+  && note "download_file (wget): an https -> http redirect is refused" || error "download_file redirect: rc=$rc calls='$(cat "$tmp/calls.log")'"
 got="$(source "$ROOT_DIR/lib/fetch.sh"; fetch_exit_reason wget 124)"
 [[ "$got" == "timed out (FETCH_MAX_TIME)" ]] && note "wget 124: timed out" || error "wget 124: '$got'"
 

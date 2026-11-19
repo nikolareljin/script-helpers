@@ -111,11 +111,18 @@ download_file() {
     fi
     curl --max-time 3600 -f -sS -L "${retry[@]}" -o "$part" "$url" || rc=$?
   else
-    # -q: quiet output. fetch_wget_args: retry a 503, https only for an https URL.
+    # fetch_wget_args: retry a 503. For an https URL, fetch_wget_follow follows
+    # redirects to https only (wget --https-only does not cover one file).
     if declare -F fetch_wget_args >/dev/null 2>&1; then
-      while IFS= read -r a; do retry+=("$a"); done < <(fetch_wget_args "$url")
+      while IFS= read -r a; do retry+=("$a"); done < <(fetch_wget_args)
     fi
-    wget -q --timeout=3600 --tries=3 --waitretry=2 ${retry[@]+"${retry[@]}"} -O "$part" "$url" || rc=$?
+    if [[ "$url" == [Hh][Tt][Tt][Pp][Ss]://* ]] && declare -F fetch_wget_follow >/dev/null 2>&1; then
+      # stderr dropped, as wget -q below: wget's messages can quote the URL.
+      fetch_wget_follow "$url" "$part" --timeout=3600 --tries=3 --waitretry=2 ${retry[@]+"${retry[@]}"} 2>/dev/null || rc=$?
+    else
+      # -q: quiet output
+      wget -q --timeout=3600 --tries=3 --waitretry=2 ${retry[@]+"${retry[@]}"} -O "$part" "$url" || rc=$?
+    fi
   fi
   if [[ "$rc" -ne 0 ]]; then
     rm -f -- "$part"
