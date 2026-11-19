@@ -53,7 +53,10 @@ function fetch_to_file {
             }
         }
     } finally { $ProgressPreference = $prev }
-    _fetch_err "${Label}: download failed from $(fetch_url_host $Url) after $Attempts attempts: $last; URL $Url"
+    # A URL with user info (user:token@host) is not printed; the host is.
+    $shown = $Url
+    try { if (([uri]$Url).UserInfo) { $shown = '(not shown: it has user info)' } } catch { }
+    _fetch_err "${Label}: download failed from $(fetch_url_host $Url) after $Attempts attempts: $last; URL $shown"
     return 1
 }
 

@@ -79,7 +79,7 @@ fetch_exit_reason() {
 #   a URL that starts with "-"; 3 no curl or wget.
 # Output: stdout nothing; stderr the error line on failure.
 fetch_to_file() {
-  local label="${1:-}" url out tool rc=0 host msg
+  local label="${1:-}" url out tool rc=0 host msg shown a
   local -a retry=()
   if [[ -z "$label" || -z "${2:-}" || -z "${3:-}" || "${2:-}" == -* ]]; then
     _fetch_err "fetch_to_file: usage: fetch_to_file <label> <url> <output>"
@@ -102,7 +102,11 @@ fetch_to_file() {
   if [[ "$rc" -ne 0 ]]; then
     rm -f -- "$out"
     host="$(fetch_url_host "$url")"
-    _fetch_err "$label: download failed from $host: $tool exit $rc ($(fetch_exit_reason "$tool" "$rc")), after retries; URL $url"
+    shown="$url"
+    # A URL with user info (user:token@host) is not printed; the host is.
+    a="${url#*://}"; a="${a%%/*}"
+    [[ "$a" != *@* ]] || shown="(not shown: it has user info)"
+    _fetch_err "$label: download failed from $host: $tool exit $rc ($(fetch_exit_reason "$tool" "$rc")), after retries; URL $shown"
     return 1
   fi
   return 0

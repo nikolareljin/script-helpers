@@ -200,6 +200,15 @@ for row in "https://user:pw@example.com:8443/a/b example.com" "http://[::1]:8000
   [[ "$got" == "$want" ]] && note "host of $u: $want" || error "host of $u: got '$got', want $want"
 done
 
+# 6b. A URL with user info: the host is named, the credentials are not printed.
+rc=0
+out="$(PATH="$tmp/stub:$tmp/bin" STUB_FAIL_FIRST=all bash -c 'source "$1/lib/fetch.sh"; fetch_to_file t "https://user:s3cr3t@example.com/a" "$2/o"' _ "$ROOT_DIR" "$tmp" 2>&1)" || rc=$?
+if [[ $rc -eq 1 && "$out" == *"from example.com"* && "$out" != *s3cr3t* ]]; then
+  note "user info in the URL is not printed"
+else
+  error "user info: rc=$rc out='$out'"
+fi
+
 # 7. The real curl against a local server that answers 503 twice, then 200.
 real_curl="$(command -v curl 2>/dev/null || true)"
 if [[ -n "$real_curl" ]] && command -v python3 >/dev/null 2>&1; then
