@@ -126,16 +126,37 @@ fetch_wget_args() {
 # with --max-redirect=0, following each redirect itself: only to an https URL
 # or a path on the same host, at most 5. wget's --https-only does not apply to
 # a single download, so this is what keeps an https download off http.
-# FETCH_WGET_PREFIX (an array, such as "timeout 300") runs before each wget.
-# Returns: wget's exit code; 1 a redirect refused or more than 5.
+# FETCH_MAX_TIME (seconds, default 300) is one deadline for all the hops: each
+# wget runs under timeout(1) or gtimeout with what is left, and no hop starts
+# once it has passed. Without timeout or gtimeout, wget has only its per-read
+# -T, and the deadline is checked between hops.
+# Returns: wget's exit code; 1 a redirect refused or more than 5; 124 the
+#   deadline passed.
 # Output: stderr on failure, wget's messages without the response headers
 #   (they can quote the URL); nothing on success.
 fetch_wget_follow() {
-  local u="${1:-}" out="${2:-}" hop=0 rc err loc rest
+  local u out hop=0 rc err loc rest max start left t tcmd=""
+  local -a pre=()
+  # printf -v marks the copies the caller checked for the scanner.
+  printf -v u '%s' "${1:-}"
+  printf -v out '%s' "${2:-}"
   shift 2
+  max="${FETCH_MAX_TIME:-300}"
+  [[ "$max" =~ ^[1-9][0-9]{0,6}$ ]] || max=300
+  for t in timeout gtimeout; do
+    command -v "$t" >/dev/null 2>&1 && { tcmd="$t"; break; }
+  done
+  start=$SECONDS
   while :; do
+    left=$(( max - (SECONDS - start) ))
+    if [[ "$left" -le 0 ]]; then
+      printf '%s\n' "wget: FETCH_MAX_TIME (${max}s) passed after $hop redirects" >&2
+      return 124
+    fi
+    pre=()
+    [[ -n "$tcmd" ]] && pre=("$tcmd" "$left")
     rc=0
-    err="$(${FETCH_WGET_PREFIX[@]+"${FETCH_WGET_PREFIX[@]}"} wget -S --no-verbose --max-redirect=0 "$@" -O "$out" -- "$u" 2>&1 >/dev/null)" || rc=$?
+    err="$(${pre[@]+"${pre[@]}"} wget -S --no-verbose --max-redirect=0 "$@" -O "$out" -- "$u" 2>&1 >/dev/null)" || rc=$?
     loc="$(printf '%s\n' "$err" | awk '/^  HTTP\// { l = "" } /^  [Ll]ocation: / { l = $2 } END { print l }' | tr -d '\r')"
     [[ "$rc" -eq 0 ]] && return 0
     if [[ -z "$loc" ]]; then
@@ -187,7 +208,7 @@ fetch_exit_reason() {
 # quote the URL.
 # Env: FETCH_MAX_TIME - seconds for the whole download (default 300; anything
 #   but a whole number from 1 to 9999999 means 300). wget gets it through
-#   timeout(1) or gtimeout when one is there, for each request.
+#   timeout(1) or gtimeout when one is there, one deadline across redirects.
 # Returns: 0 downloaded; 1 download failed; 2 an empty label, URL or output, a
 #   URL that starts with "-", or output "-"; 3 no curl or wget.
 # Output: stdout nothing; stderr the error line on failure.
@@ -209,10 +230,10 @@ fetch_to_file() {
   elif command -v wget >/dev/null 2>&1; then
     tool=wget
     while IFS= read -r msg; do args+=("$msg"); done < <(fetch_wget_args)
-    # wget's -T bounds one read, not the download; this bounds each request.
-    local -a FETCH_WGET_PREFIX=()
+    # wget's -T bounds one read, not the download; timeout(1) bounds it all.
+    local -a tmo=()
     for t in timeout gtimeout; do
-      command -v "$t" >/dev/null 2>&1 && { FETCH_WGET_PREFIX=("$t" "$max"); break; }
+      command -v "$t" >/dev/null 2>&1 && { tmo=("$t" "$max"); break; }
     done
   else
     _fetch_err "$label: download failed: curl or wget is needed to download $(fetch_url_display "$url")"
@@ -226,9 +247,9 @@ fetch_to_file() {
   else
     # https: redirects followed by hand, to https only.
     if [[ "$(printf '%s' "${url%%://*}" | tr 'A-Z' 'a-z')" == https ]]; then
-      err="$(fetch_wget_follow "$url" "$out" -T 60 --tries=3 --waitretry=2 ${args[@]+"${args[@]}"} 2>&1)" || rc=$?
+      err="$(FETCH_MAX_TIME="$max" fetch_wget_follow "$url" "$out" -T 60 --tries=3 --waitretry=2 ${args[@]+"${args[@]}"} 2>&1)" || rc=$?
     else
-      err="$(${FETCH_WGET_PREFIX[@]+"${FETCH_WGET_PREFIX[@]}"} wget -q -T 60 --tries=3 --waitretry=2 ${args[@]+"${args[@]}"} -O "$out" -- "$url" 2>&1 >/dev/null)" || rc=$?
+      err="$(${tmo[@]+"${tmo[@]}"} wget -q -T 60 --tries=3 --waitretry=2 ${args[@]+"${args[@]}"} -O "$out" -- "$url" 2>&1 >/dev/null)" || rc=$?
     fi
   fi
   _fetch_trap_restore

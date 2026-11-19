@@ -17,7 +17,9 @@ redirect options.
   `--proto` and `--proto-redir`. `wget --https-only` covers recursive mode only,
   so for an `https` URL `fetch_wget_follow` runs `wget --max-redirect=0` and
   follows each redirect itself: to an `https` URL or a path on the same host,
-  at most 5.
+  at most 5. `FETCH_MAX_TIME` is one deadline for all the hops (exit 124 when it
+  passes); without `timeout` or `gtimeout`, `wget` has only its per-read `-T`
+  and the deadline is checked between hops.
 - A failed download deletes the output file, and so does an INT or TERM during
   the download: a partial file is never left for the caller. The caller's own
   INT and TERM traps are kept and run after the cleanup; an ignored signal stays
@@ -64,7 +66,8 @@ Functions
 
 - fetch_wget_follow url output [wget option...]
   - Purpose: `wget` `url` to `output` with `--max-redirect=0`, following each redirect itself: only to an `https` URL or a path on the same host, at most 5.
-  - Returns: `wget`'s exit code; 1 when a redirect is refused or there are more than 5.
+  - Env: `FETCH_MAX_TIME` - one deadline in seconds for all the hops (default `300`).
+  - Returns: `wget`'s exit code; 1 when a redirect is refused or there are more than 5; 124 when the deadline passes.
 
 - fetch_url_display url
   - Purpose: Print the URL when it may be shown: an absolute `http` or `https` URL whose authority (from `://` to the first `/`, `?` or `#`) has no `@`, whose host `fetch_url_host` can name, printable ASCII with no space. It prints scheme, authority and path; a query becomes `?(not shown)` and a fragment is left out (`https://h/a?X-Amz-Signature=...#t` prints `https://h/a?(not shown)`). Anything else prints `(URL not shown)`, so user info such as `user:token@host` never reaches a log and a URL cannot forge a log line.

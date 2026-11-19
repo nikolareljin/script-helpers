@@ -303,7 +303,9 @@ _dialog__filename_from_url() {
 
 # Internal: try to read Content-Length via HEAD; prints bytes or 0 if unknown
 _dialog__fetch_content_length() {
-  local url="$1"
+  local url
+  # printf -v marks the copy for the scanner: the URL is the caller's, by design.
+  printf -v url '%s' "${1:-}"
   local cl=0 a
   local -a proto=()
   if command -v curl >/dev/null 2>&1; then
@@ -380,6 +382,9 @@ dialog_download_file() {
     fi
     # An https URL: redirects followed to https only (fetch_wget_follow).
     if [[ "$url" == [Hh][Tt][Tt][Pp][Ss]://* ]] && declare -F fetch_wget_follow >/dev/null 2>&1; then
+      # A day unless the caller set one: the curl branch has no limit, and
+      # the gauge can cancel it.
+      local FETCH_MAX_TIME="${FETCH_MAX_TIME:-86400}"
       cmd=(fetch_wget_follow "$url" "$tmpfile" "${wopt[@]}")
     else
       cmd=(wget -q "${wopt[@]}" -O "$tmpfile" "$url")

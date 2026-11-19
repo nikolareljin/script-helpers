@@ -118,7 +118,7 @@ download_file() {
     fi
     if [[ "$url" == [Hh][Tt][Tt][Pp][Ss]://* ]] && declare -F fetch_wget_follow >/dev/null 2>&1; then
       # stderr dropped, as wget -q below: wget's messages can quote the URL.
-      fetch_wget_follow "$url" "$part" --timeout=3600 --tries=3 --waitretry=2 ${retry[@]+"${retry[@]}"} 2>/dev/null || rc=$?
+      FETCH_MAX_TIME=3600 fetch_wget_follow "$url" "$part" --timeout=3600 --tries=3 --waitretry=2 ${retry[@]+"${retry[@]}"} 2>/dev/null || rc=$?
     else
       # -q: quiet output
       wget -q --timeout=3600 --tries=3 --waitretry=2 ${retry[@]+"${retry[@]}"} -O "$part" "$url" || rc=$?

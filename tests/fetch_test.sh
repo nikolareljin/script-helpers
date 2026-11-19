@@ -362,6 +362,7 @@ n=\$(cat "$tmp/count" 2>/dev/null || echo 0); n=\$((n+1)); echo "\$n" > "$tmp/co
 loc="\$(eval "printf '%s' \"\\\${REDIR_\$n:-\\\${REDIR_ALL:-}}\"")"
 # Real wget follows a redirect to any http(s) URL unless told not to.
 if [[ -n "\$loc" && -z "\$nofollow" ]]; then echo "FOLLOWED \$loc" >> "$tmp/calls.log"; printf 'asset' > "\$out"; exit 0; fi
+[[ -n "\${STUB_SLEEP:-}" ]] && sleep "\$STUB_SLEEP"
 if [[ -n "\$loc" ]]; then
   : > "\$out"
   printf '  HTTP/1.1 302 Found\r\n  Location: %s\r\n0 redirections exceeded.\n' "\$loc" >&2
@@ -387,6 +388,18 @@ wr env REDIR_1=evil.example/x
 wr env REDIR_ALL=https://example.com/loop
 [[ $rc -eq 1 && "$(grep -c '^wget' "$tmp/calls.log")" == 6 && "$out" == *"more than 5 redirects"* ]] \
   && note "wget: at most 5 redirects" || error "loop: rc=$rc calls=$(grep -c '^wget' "$tmp/calls.log") out='$out'"
+# One deadline for all the hops: FETCH_MAX_TIME=3 with hops of 1 s each stops
+# with 124 before the fifth redirect, and each timeout gets what is left.
+printf '#!/usr/bin/env bash\necho "timeout $*" >> "%s/calls.log"\nshift; exec "$@"\n' "$tmp" > "$tmp/wgetredir/timeout"
+chmod +x "$tmp/wgetredir/timeout"
+t0=$SECONDS
+wr env FETCH_MAX_TIME=3 STUB_SLEEP=1 REDIR_ALL=https://example.com/loop
+el=$(( SECONDS - t0 ))
+[[ $rc -eq 1 && "$out" == *"wget exit 124"* && $el -le 5 && "$(grep -c '^wget' "$tmp/calls.log")" -lt 6 ]] && grep -q '^timeout 3 wget' "$tmp/calls.log" \
+  && ! grep -q '^timeout [4-9]' "$tmp/calls.log" && grep -q '^timeout [12] wget' "$tmp/calls.log" \
+  && note "wget: one FETCH_MAX_TIME deadline across redirects (${el}s)" \
+  || error "deadline: rc=$rc ${el}s out='$out' calls='$(cat "$tmp/calls.log")'"
+rm -f "$tmp/wgetredir/timeout"
 # download_file and dialog_download_file go through the same follower.
 rm -f "$tmp/count" "$tmp/calls.log" "$tmp/d.bin"
 rc=0; PATH="$tmp/wgetredir:$tmp/bin" REDIR_1=http://evil.example/x DOWNLOAD_USE_DIALOG=never bash -c 'source "$1/lib/logging.sh"; source "$1/lib/file.sh"; download_file "https://example.com/a" "$2/d.bin"' _ "$ROOT_DIR" "$tmp" >/dev/null 2>&1 || rc=$?
