@@ -16,8 +16,8 @@ redirect options.
   over `https` only, an `http` URL over `http` or `https`. `curl` does this with
   `--proto` and `--proto-redir`. `wget --https-only` covers recursive mode only,
   so for an `https` URL `fetch_wget_follow` runs `wget --max-redirect=0` and
-  follows each redirect itself: to an `https` URL or a path on the same host,
-  at most 5. `FETCH_MAX_TIME` is one deadline for all the hops (exit 124 when it
+  follows each redirect itself: to an `https` URL on any host, or a relative
+  reference (`/x`, `x`, `//host/x`) resolved over `https`, at most 5. `FETCH_MAX_TIME` is one deadline for all the hops (exit 124 when it
   passes); without `timeout` or `gtimeout`, `wget` has only its per-read `-T`
   and the deadline is checked between hops.
 - A failed download deletes the output file, and so does an INT or TERM during
@@ -65,7 +65,7 @@ Functions
   - Purpose: Print `--retry-on-http-error=429,500,502,503,504` when this machine's `wget` has it. busybox `wget` gets nothing.
 
 - fetch_wget_follow url output [wget option...]
-  - Purpose: `wget` `url` to `output` with `--max-redirect=0`, following each redirect itself: only to an `https` URL or a path on the same host, at most 5.
+  - Purpose: `wget` `url` to `output` with `--max-redirect=0`, following each redirect itself: only to an `https` URL (any host) or a relative reference such as `/x`, `x` or `//host/x`, resolved over https, at most 5. Another scheme is refused.
   - Env: `FETCH_MAX_TIME` - one deadline in seconds for all the hops (default `300`).
   - Returns: `wget`'s exit code; 1 when a redirect is refused or there are more than 5; 124 when the deadline passes.
 

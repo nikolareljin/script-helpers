@@ -124,7 +124,7 @@ fetch_wget_args() {
 # Usage: fetch_wget_follow <url> <output> [wget option...]
 # fetch_wget_follow <url> <output> [wget option...]; wget <url> to <output>
 # with --max-redirect=0, following each redirect itself: only to an https URL
-# or a path on the same host, at most 5. wget's --https-only does not apply to
+# (any host) or a relative reference, resolved on the same host, at most 5. wget's --https-only does not apply to
 # a single download, so this is what keeps an https download off http.
 # FETCH_MAX_TIME (seconds, default 300) is one deadline for all the hops: each
 # wget runs under timeout(1) or gtimeout with what is left, and no hop starts
@@ -135,7 +135,7 @@ fetch_wget_args() {
 # Output: stderr on failure, wget's messages without the response headers
 #   (they can quote the URL); nothing on success.
 fetch_wget_follow() {
-  local u out hop=0 rc err loc rest max start left t tcmd=""
+  local u out hop=0 rc err loc rest auth path max start left t tcmd=""
   local -a pre=()
   # printf -v marks the copies the caller checked for the scanner.
   printf -v u '%s' "${1:-}"
@@ -157,7 +157,7 @@ fetch_wget_follow() {
     [[ -n "$tcmd" ]] && pre=("$tcmd" "$left")
     rc=0
     err="$(${pre[@]+"${pre[@]}"} wget -S --no-verbose --max-redirect=0 "$@" -O "$out" -- "$u" 2>&1 >/dev/null)" || rc=$?
-    loc="$(printf '%s\n' "$err" | awk '/^  HTTP\// { l = "" } /^  [Ll]ocation: / { l = $2 } END { print l }' | tr -d '\r')"
+    loc="$(printf '%s\n' "$err" | awk '/^  HTTP\// { l = "" } /^  / && tolower($1) == "location:" { l = $2 } END { print l }' | tr -d '\r')"
     [[ "$rc" -eq 0 ]] && return 0
     if [[ -z "$loc" ]]; then
       # || true: grep finds nothing when every line is a header (set -e callers).
@@ -165,10 +165,15 @@ fetch_wget_follow() {
       return "$rc"
     fi
     rm -f -- "$out"
+    # Relative references as RFC 3986 reads them; u is always https here.
+    rest="${u#*://}"; auth="${rest%%[/?#]*}"; path="${rest:${#auth}}"; path="${path%%[?#]*}"
     case "$loc" in
       [Hh][Tt][Tt][Pp][Ss]://*) ;;
-      /*) rest="${u#*://}"; loc="${u%%://*}://${rest%%[/?#]*}$loc" ;;
-      *) printf '%s\n' "wget: redirect to a URL that is not https refused" >&2; return 1 ;;
+      //*) loc="https:$loc" ;;
+      /*) loc="https://$auth$loc" ;;
+      [?#]*) loc="https://$auth$path$loc" ;;
+      *:*) printf '%s\n' "wget: redirect to a URL that is not https refused" >&2; return 1 ;;
+      *) loc="https://$auth${path%/*}/$loc" ;;
     esac
     hop=$((hop + 1))
     if [[ "$hop" -gt 5 ]]; then printf '%s\n' "wget: more than 5 redirects" >&2; return 1; fi

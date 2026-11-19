@@ -383,11 +383,24 @@ wr env REDIR_1=/c?d
   && note "wget: a redirect to a path stays on the host" || error "path redirect: rc=$rc calls='$(cat "$tmp/calls.log")'"
 wr env REDIR_1=https://cdn.example/b REDIR_2=http://evil.example/x
 [[ $rc -eq 1 && "$(grep -c '^wget' "$tmp/calls.log")" == 2 ]] && note "wget: a second hop to http is refused too" || error "second hop: rc=$rc"
-wr env REDIR_1=evil.example/x
-[[ $rc -eq 1 ]] && note "wget: a relative redirect that is not a path is refused" || error "relative: rc=$rc"
+wr env REDIR_1=//cdn.example/b
+[[ $rc -eq 0 ]] && grep -q -- '-- https://cdn.example/b$' "$tmp/calls.log" \
+  && note "wget: a protocol-relative redirect keeps https" || error "protocol-relative: rc=$rc calls='$(cat "$tmp/calls.log")'"
+rm -f "$tmp/count" "$tmp/calls.log" "$tmp/o"; rc=0
+out="$(PATH="$tmp/wgetredir:$tmp/bin" REDIR_1=c.tgz bash -c 'source "$1/lib/fetch.sh"; fetch_to_file t "https://example.com/d/a?x=1#f" "$2/o"' _ "$ROOT_DIR" "$tmp" 2>&1)" || rc=$?
+[[ $rc -eq 0 ]] && grep -q -- '-- https://example.com/d/c.tgz$' "$tmp/calls.log" \
+  && note "wget: a relative redirect resolves against the directory" || error "relative: rc=$rc calls='$(cat "$tmp/calls.log")'"
+wr env REDIR_1=HTTP://evil.example/x
+[[ $rc -eq 1 && "$out" == *"not https refused"* ]] && note "wget: an uppercase HTTP:// redirect is refused" || error "HTTP upper: rc=$rc out='$out'"
+wr env REDIR_1=javascript:x
+[[ $rc -eq 1 && "$out" == *"not https refused"* ]] && note "wget: a redirect to another scheme is refused" || error "other scheme: rc=$rc out='$out'"
 wr env REDIR_ALL=https://example.com/loop
 [[ $rc -eq 1 && "$(grep -c '^wget' "$tmp/calls.log")" == 6 && "$out" == *"more than 5 redirects"* ]] \
   && note "wget: at most 5 redirects" || error "loop: rc=$rc calls=$(grep -c '^wget' "$tmp/calls.log") out='$out'"
+sed 's/  Location: /  LOCATION: /' "$tmp/wgetredir/wget" > "$tmp/wgetredir/wget.up" && cp "$tmp/wgetredir/wget" "$tmp/wgetredir/wget.orig" && mv "$tmp/wgetredir/wget.up" "$tmp/wgetredir/wget" && chmod +x "$tmp/wgetredir/wget"
+wr env REDIR_1=https://cdn.example/b
+[[ $rc -eq 0 ]] && grep -q -- '-- https://cdn.example/b' "$tmp/calls.log" && note "wget: a LOCATION header in capitals is followed" || error "LOCATION: rc=$rc out='$out'"
+mv "$tmp/wgetredir/wget.orig" "$tmp/wgetredir/wget"
 # One deadline for all the hops: FETCH_MAX_TIME=3 with hops of 1 s each stops
 # with 124 before the fifth redirect, and each timeout gets what is left.
 printf '#!/usr/bin/env bash\necho "timeout $*" >> "%s/calls.log"\nshift; exec "$@"\n' "$tmp" > "$tmp/wgetredir/timeout"
