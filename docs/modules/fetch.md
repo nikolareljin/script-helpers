@@ -20,7 +20,7 @@ Return codes: `0` downloaded, `1` the download failed, `2` bad arguments, `3`
 no `curl` or `wget`.
 
 PowerShell: `ps/lib/fetch.ps1` has `fetch_to_file -Label -Url -OutFile` and
-`fetch_url_host -Url`. `Invoke-WebRequest` has no retry option in Windows
+`fetch_url_host -Url` and `fetch_url_display -Url`. `Invoke-WebRequest` has no retry option in Windows
 PowerShell 5.1, so it is a loop: 3 attempts, 2 seconds apart, the file deleted
 after each failed one.
 
@@ -35,6 +35,9 @@ Functions
 
 - fetch_curl_retry_args
   - Purpose: Print the retry options this machine's `curl` accepts, one per line.
+
+- fetch_url_display url
+  - Purpose: Print the URL when it may be shown: an absolute `http` or `https` URL whose authority (from `://` to the first `/`, `?` or `#`) has no `@`. Anything else prints `(URL not shown)`, so user info such as `user:token@host` never reaches a log.
 
 - fetch_url_host url
   - Purpose: Print the host of a URL, without user info or port.

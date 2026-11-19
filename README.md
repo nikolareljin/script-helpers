@@ -60,7 +60,7 @@ PowerShell modules (mirrors each Bash lib/*.sh):
 | `logging.ps1`    | `print_info`, `print_error`, `print_success`, `print_warning`, `log_info`, `log_warn`, `log_error`, `log_debug`, `print_color` |
 | `os.ps1`         | `get_os`, `is_wsl`, `is_admin`, `run_with_optional_sudo` |
 | `env.ps1`        | `load_env`, `require_env`, `get_project_root`, `resolve_env_value` |
-| `fetch.ps1`      | `fetch_to_file`, `fetch_url_host` - retried `Invoke-WebRequest` |
+| `fetch.ps1`      | `fetch_to_file`, `fetch_url_host`, `fetch_url_display` - retried `Invoke-WebRequest` |
 | `file.ps1`       | `file_exists`, `directory_exists`, `create_directory`, `download_file`, `verify_checksum`, `command_exists` |
 | `deps.ps1`       | `install_package`, `install_dependencies`, `require_command` - uses `winget` > `choco` > `scoop` |
 | `version.ps1`    | `version_bump`, `version_compare` |

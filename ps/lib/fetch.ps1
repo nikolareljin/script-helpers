@@ -9,11 +9,37 @@
 # Requires: logging (log_error; plain error stream without it)
 
 # Usage: fetch_url_host -Url <url>
-# Returns: the host part of the URL, or the URL itself when it does not parse.
+# Returns: the host of an absolute URL (never its user info), else '(unknown host)'.
 # Output: none.
 function fetch_url_host {
     param([string]$Url)
-    try { return ([uri]$Url).Host } catch { return $Url }
+    $parsed = $null
+    if ([uri]::TryCreate($Url, [UriKind]::Absolute, [ref]$parsed) -and $parsed.Host) { return $parsed.Host }
+    return '(unknown host)'
+}
+
+# Usage: fetch_url_display -Url <url>
+# Returns: the URL when it is an absolute http or https URL whose authority (from
+#   '://' to the first '/', '?' or '#') has no '@'; else '(URL not shown)'. Fails
+#   closed: user info, another or no scheme, or a URL that does not parse is
+#   never shown. Same rule as lib/fetch.sh.
+# Output: none.
+function fetch_url_display {
+    param([string]$Url)
+    $hidden = '(URL not shown)'
+    if (-not $Url) { return $hidden }
+    $i = $Url.IndexOf('://')
+    if ($i -lt 1) { return $hidden }
+    $scheme = $Url.Substring(0, $i).ToLowerInvariant()
+    if ($scheme -ne 'http' -and $scheme -ne 'https') { return $hidden }
+    $rest = $Url.Substring($i + 3)
+    $j = $rest.IndexOfAny([char[]]@('/', '?', '#'))
+    $auth = if ($j -ge 0) { $rest.Substring(0, $j) } else { $rest }
+    if (-not $auth -or $auth.Contains('@')) { return $hidden }
+    $parsed = $null
+    if (-not [uri]::TryCreate($Url, [UriKind]::Absolute, [ref]$parsed)) { return $hidden }
+    if ($parsed.UserInfo) { return $hidden }
+    return $Url
 }
 
 # Usage: fetch_to_file -Label <name> -Url <url> -OutFile <path> [-Attempts 3] [-DelaySeconds 2]
@@ -53,10 +79,7 @@ function fetch_to_file {
             }
         }
     } finally { $ProgressPreference = $prev }
-    # A URL with user info (user:token@host) is not printed; the host is.
-    $shown = $Url
-    try { if (([uri]$Url).UserInfo) { $shown = '(not shown: it has user info)' } } catch { }
-    _fetch_err "${Label}: download failed from $(fetch_url_host $Url) after $Attempts attempts: $last; URL $shown"
+    _fetch_err "${Label}: download failed from $(fetch_url_host $Url) after $Attempts attempts: $last; URL $(fetch_url_display $Url)"
     return 1
 }
 

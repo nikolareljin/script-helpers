@@ -47,6 +47,27 @@ fetch_url_host() {
   printf '%s\n' "$h"
 }
 
+# Usage: fetch_url_display <url>
+# fetch_url_display <url>; the URL as it may be printed: itself when it is an
+# absolute http or https URL whose authority (from "://" to the first "/", "?"
+# or "#") has no "@", else a placeholder. Fails closed: user info, a missing or
+# other scheme, or anything that does not parse is never printed.
+# Returns: 0.
+# Output: stdout the URL or "(URL not shown)".
+fetch_url_display() {
+  local u="${1:-}" scheme rest auth
+  scheme="$(printf '%s' "${u%%://*}" | tr 'A-Z' 'a-z')"
+  if [[ "$u" == *://* && ( "$scheme" == http || "$scheme" == https ) ]]; then
+    rest="${u#*://}"
+    auth="${rest%%[/?#]*}"
+    if [[ -n "$auth" && "$auth" != *@* ]]; then
+      printf '%s\n' "$u"
+      return 0
+    fi
+  fi
+  printf '%s\n' "(URL not shown)"
+}
+
 # Usage: fetch_exit_reason <curl|wget> <code>
 # fetch_exit_reason <curl|wget> <code>; a short reason for a curl or wget exit code.
 # Returns: 0.
@@ -79,7 +100,7 @@ fetch_exit_reason() {
 #   a URL that starts with "-"; 3 no curl or wget.
 # Output: stdout nothing; stderr the error line on failure.
 fetch_to_file() {
-  local label="${1:-}" url out tool rc=0 host msg shown a
+  local label="${1:-}" url out tool rc=0 host msg shown
   local -a retry=()
   if [[ -z "$label" || -z "${2:-}" || -z "${3:-}" || "${2:-}" == -* ]]; then
     _fetch_err "fetch_to_file: usage: fetch_to_file <label> <url> <output>"
@@ -96,16 +117,13 @@ fetch_to_file() {
     tool=wget
     wget -q -T 60 --tries=3 --waitretry=2 -O "$out" -- "$url" || rc=$?
   else
-    _fetch_err "$label: download failed: curl or wget is needed to download $url"
+    _fetch_err "$label: download failed: curl or wget is needed to download $(fetch_url_display "$url")"
     return 3
   fi
   if [[ "$rc" -ne 0 ]]; then
     rm -f -- "$out"
     host="$(fetch_url_host "$url")"
-    shown="$url"
-    # A URL with user info (user:token@host) is not printed; the host is.
-    a="${url#*://}"; a="${a%%/*}"
-    [[ "$a" != *@* ]] || shown="(not shown: it has user info)"
+    shown="$(fetch_url_display "$url")"
     _fetch_err "$label: download failed from $host: $tool exit $rc ($(fetch_exit_reason "$tool" "$rc")), after retries; URL $shown"
     return 1
   fi

@@ -209,6 +209,26 @@ else
   error "user info: rc=$rc out='$out'"
 fi
 
+# 6c. Which URLs are printed: only absolute http(s) with no "@" in the authority.
+N="(URL not shown)"
+while IFS='|' read -r u want; do
+  got="$(source "$ROOT_DIR/lib/fetch.sh"; fetch_url_display "$u")"
+  [[ "$got" == "$want" ]] && note "display of '$u': $want" || error "display of '$u': got '$got', want '$want'"
+done <<EOF2
+https://user:pass@example.com/a|$N
+https://token@example.com/a|$N
+HTTPS://tok@Example.com|$N
+user:pass@example.com/a|$N
+example.com/a|$N
+ftp://example.com/a|$N
+https://|$N
+https://:@/x|$N
+https://example.com/a@b|https://example.com/a@b
+https://example.com/a?u=x@y|https://example.com/a?u=x@y
+https://example.com#x@y|https://example.com#x@y
+https://github.com/o/r/releases/download/v1/a|https://github.com/o/r/releases/download/v1/a
+EOF2
+
 # 7. The real curl against a local server that answers 503 twice, then 200.
 real_curl="$(command -v curl 2>/dev/null || true)"
 if [[ -n "$real_curl" ]] && command -v python3 >/dev/null 2>&1; then

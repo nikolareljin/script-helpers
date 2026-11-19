@@ -44,6 +44,21 @@ try {
 
     check 'an empty URL is refused' '2' "$(fetch_to_file -Label 't' -Url '' -OutFile $out 2>$null)"
     check 'the host of a URL' 'github.com' (fetch_url_host 'https://github.com/o/r')
+    check 'an unparseable URL has no host printed' '(unknown host)' (fetch_url_host 'not a url@secret')
+    $n = '(URL not shown)'
+    foreach ($row in @(
+        @('https://user:pass@example.com/a', $n),
+        @('https://token@example.com/a', $n),
+        @('HTTPS://tok@Example.com', $n),
+        @('user:pass@example.com/a', $n),
+        @('ht!tp://x@y', $n),
+        @('ftp://example.com/a', $n),
+        @('https://', $n),
+        @('https://example.com/a@b', 'https://example.com/a@b'),
+        @('https://example.com/a?u=x@y', 'https://example.com/a?u=x@y'),
+        @('https://github.com/o/r', 'https://github.com/o/r'))) {
+        check "display of $($row[0])" $row[1] (fetch_url_display $row[0])
+    }
 } finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 }
