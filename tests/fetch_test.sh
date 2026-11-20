@@ -365,7 +365,8 @@ if [[ -n "\$loc" && -z "\$nofollow" ]]; then echo "FOLLOWED \$loc" >> "$tmp/call
 [[ -n "\${STUB_SLEEP:-}" ]] && sleep "\$STUB_SLEEP"
 if [[ -n "\$loc" ]]; then
   : > "\$out"
-  printf '  HTTP/1.1 302 Found\r\n  Location: %s\r\n0 redirections exceeded.\n' "\$loc" >&2
+  # LOC_FMT: the Location line as the server sent it (wget -S prints it verbatim).
+  printf "  HTTP/1.1 302 Found\\r\\n  \${LOC_FMT:-Location: %s}\\r\\n0 redirections exceeded.\\n" "\$loc" >&2
   exit 8
 fi
 printf 'asset' > "\$out"
@@ -409,6 +410,13 @@ out="$(PATH="$tmp/wgetredir:$tmp/bin" REDIR_1='#f' bash -c 'source "$1/lib/fetch
 wr env REDIR_1='c d.tgz'
 [[ $rc -eq 0 ]] && grep -q -- '-- https://example.com/c d.tgz$' "$tmp/calls.log" \
   && note "wget: a Location with a space is kept whole" || error "space redirect: rc=$rc calls='$(cat "$tmp/calls.log")'"
+# Whitespace around the value is not part of it (RFC 9110 5.5), and real wget
+# follows "Location:/b", "Location:<tab>/b" and trailing blanks the same way.
+for f in 'Location:%s' $'Location:\t%s' 'Location:   %s   ' $'Location: %s\t'; do
+  wr env REDIR_1=/c.tgz LOC_FMT="$f"
+  [[ $rc -eq 0 ]] && grep -q -- '-- https://example.com/c.tgz$' "$tmp/calls.log" \
+    && note "wget: Location line $(printf '%q' "$f") is followed" || error "Location format $(printf '%q' "$f"): rc=$rc out='$out' calls='$(cat "$tmp/calls.log")'"
+done
 wr env REDIR_ALL=https://example.com/loop
 [[ $rc -eq 1 && "$(grep -c '^wget' "$tmp/calls.log")" == 6 && "$out" == *"more than 5 redirects"* ]] \
   && note "wget: at most 5 redirects" || error "loop: rc=$rc calls=$(grep -c '^wget' "$tmp/calls.log") out='$out'"

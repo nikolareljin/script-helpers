@@ -157,7 +157,8 @@ fetch_wget_follow() {
     [[ -n "$tcmd" ]] && pre=("$tcmd" "$left")
     rc=0
     err="$(${pre[@]+"${pre[@]}"} wget -S --no-verbose --max-redirect=0 "$@" -O "$out" -- "$u" 2>&1 >/dev/null)" || rc=$?
-    loc="$(printf '%s\n' "$err" | awk '/^  HTTP\// { l = "" } /^  / && tolower($1) == "location:" { l = $0; sub(/^ *[^ ]+ */, "", l) } END { print l }' | tr -d '\r')"
+    # The value after "Location:", spaces and tabs around it dropped (RFC 9110 5.5).
+    loc="$(printf '%s\n' "$err" | tr -d '\r' | awk '/^  HTTP\// { l = "" } /^  [Ll][Oo][Cc][Aa][Tt][Ii][Oo][Nn]:/ { l = substr($0, 12); sub(/^[ \t]+/, "", l); sub(/[ \t]+$/, "", l) } END { print l }')"
     [[ "$rc" -eq 0 ]] && return 0
     if [[ -z "$loc" ]]; then
       # || true: grep finds nothing when every line is a header (set -e callers).
