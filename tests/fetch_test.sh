@@ -417,6 +417,19 @@ for f in 'Location:%s' $'Location:\t%s' 'Location:   %s   ' $'Location: %s\t'; d
   [[ $rc -eq 0 ]] && grep -q -- '-- https://example.com/c.tgz$' "$tmp/calls.log" \
     && note "wget: Location line $(printf '%q' "$f") is followed" || error "Location format $(printf '%q' "$f"): rc=$rc out='$out' calls='$(cat "$tmp/calls.log")'"
 done
+# Only a header named exactly Location counts, its value is kept whole past
+# any ':', and of several responses in one wget -S output the last one wins.
+for f in 'Location: %s\r\n  X-Location: /x' 'Location: %s\r\n  Location-Foo: /x' \
+  'Location: /first\r\n  HTTP/1.1 301 Moved\r\n  Location: %s'; do
+  wr env REDIR_1='https://cdn.example:8443/b?t=a:b' LOC_FMT="$f"
+  [[ $rc -eq 0 ]] && grep -q -- '-- https://cdn.example:8443/b?t=a:b$' "$tmp/calls.log" \
+    && note "wget: Location from $(printf '%q' "$f") is the right one" || error "Location pick $(printf '%q' "$f"): rc=$rc out='$out' calls='$(cat "$tmp/calls.log")'"
+done
+for f in 'X-Location: %s' 'Location-Foo: %s' 'Location: %s\r\n  HTTP/1.1 404 Not Found'; do
+  wr env REDIR_1=/c.tgz LOC_FMT="$f"
+  [[ $rc -eq 1 && "$(grep -c '^wget' "$tmp/calls.log")" == 1 && "$out" != *refused* ]] \
+    && note "wget: no redirect from $(printf '%q' "$f")" || error "no Location $(printf '%q' "$f"): rc=$rc out='$out' calls='$(cat "$tmp/calls.log")'"
+done
 wr env REDIR_ALL=https://example.com/loop
 [[ $rc -eq 1 && "$(grep -c '^wget' "$tmp/calls.log")" == 6 && "$out" == *"more than 5 redirects"* ]] \
   && note "wget: at most 5 redirects" || error "loop: rc=$rc calls=$(grep -c '^wget' "$tmp/calls.log") out='$out'"
