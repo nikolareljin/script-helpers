@@ -65,6 +65,21 @@ _deps_node_manual() {
   print_error "Node.js $1 or newer was not installed. Install it by hand: https://nodejs.org/en/download (or the nodejs package of your distribution), then run this again." >&2
 }
 
+# _deps_node_restore <dir>: put NodeSource's keyring and source list back to
+# what <dir>/old holds (the files before this run), or remove them when there
+# were none.
+_deps_node_restore() {
+  local f dest
+  for f in keyrings/nodesource.gpg sources.list.d/nodesource.list; do
+    dest="/etc/apt/$f"
+    if [[ -f "$1/old/${f##*/}" ]]; then
+      run_with_optional_sudo true install -m 0644 "$1/old/${f##*/}" "$dest" || true
+    else
+      run_with_optional_sudo true rm -f -- "$dest" || true
+    fi
+  done
+}
+
 # Usage: _deps_install_node_linux <major>
 # Node.js <major> or newer on a Debian or Ubuntu host. Nothing is run when the
 # node on PATH is already new enough. The distribution's nodejs is installed
@@ -72,11 +87,11 @@ _deps_node_manual() {
 # its key is fetched to a temp file and used only when it is exactly
 # CI_DEFAULT_NODESOURCE_APT_FPR (fetch_verified_gpg_key). No remote script is
 # run. A key that does not match writes nothing under /etc/apt, and a failed
-# apt-get update removes the key and source list again.
+# apt-get update puts the key and source list back as they were.
 # Returns: 0 node is <major> or newer; 1 otherwise (stderr says what to do); 2 bad argument.
 # Output: stdout [Info] progress and what apt prints; stderr errors.
 _deps_install_node_linux() {
-  local want="${1:-}" cand arch dir
+  local want="${1:-}" cand arch dir f
   if [[ ! "$want" =~ ^[1-9][0-9]{0,3}$ ]]; then
     print_error "_deps_install_node_linux: usage: _deps_install_node_linux <major>" >&2
     return 2
@@ -122,24 +137,34 @@ _deps_install_node_linux() {
   fi
   printf '%s\n' "deb [arch=$arch signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${want}.x nodistro main" \
     >"$dir/nodesource.list"
+  # A host that ran NodeSource's setup script before may have these files
+  # already. They are kept, so a failure below puts them back.
+  mkdir -m 700 "$dir/old" || { rm -rf -- "$dir"; return 1; }
+  for f in keyrings/nodesource.gpg sources.list.d/nodesource.list; do
+    if run_with_optional_sudo true test -f "/etc/apt/$f" \
+       && ! run_with_optional_sudo true cat "/etc/apt/$f" >"$dir/old/${f##*/}"; then
+      rm -rf -- "$dir"; print_error "Could not read /etc/apt/$f. Nothing was written." >&2; return 1
+    fi
+  done
   if ! run_with_optional_sudo true install -m 0755 -d /etc/apt/keyrings \
      || ! run_with_optional_sudo true install -m 0644 "$dir/nodesource.gpg" /etc/apt/keyrings/nodesource.gpg \
      || ! run_with_optional_sudo true install -m 0644 "$dir/nodesource.list" /etc/apt/sources.list.d/nodesource.list; then
-    run_with_optional_sudo true rm -f -- /etc/apt/keyrings/nodesource.gpg /etc/apt/sources.list.d/nodesource.list
+    _deps_node_restore "$dir"
     rm -rf -- "$dir"
     print_error "Could not write NodeSource's key and source list under /etc/apt." >&2
     _deps_node_manual "$want"
     return 1
   fi
-  rm -rf -- "$dir"
   # A source list apt cannot read breaks every later apt run, so it is taken
-  # back out when the update fails.
+  # back out when the update fails, and the files it replaced are put back.
   if ! run_with_optional_sudo true apt-get update; then
-    run_with_optional_sudo true rm -f -- /etc/apt/keyrings/nodesource.gpg /etc/apt/sources.list.d/nodesource.list
-    print_error "apt-get update failed with NodeSource's repository added; the key and source list were removed again." >&2
+    _deps_node_restore "$dir"
+    rm -rf -- "$dir"
+    print_error "apt-get update failed with NodeSource's repository added; the key and source list were put back as they were." >&2
     _deps_node_manual "$want"
     return 1
   fi
+  rm -rf -- "$dir"
   if run_with_optional_sudo true apt-get install -y nodejs \
      && [[ "$(_deps_node_major)" -ge "$want" ]]; then
     return 0

@@ -208,6 +208,13 @@ run_case() {
   # $1 name, $2 expected: ok|refuse. Env: STUB_*; NODE_BEFORE = starting version.
   local name="$1" want="$2" rc=0
   rm -rf -- "$fake"; mkdir -p "$fake/etc/apt/sources.list.d"; : >"$STUB_LOG"
+  # SEED_OLD=1: the files an earlier run of NodeSource's setup script left.
+  if [[ -n "${SEED_OLD:-}" ]]; then
+    mkdir -p "$fake/etc/apt/keyrings"
+    printf 'old key\n' >"$fake/etc/apt/keyrings/nodesource.gpg"
+    printf 'deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main\n' \
+      >"$fake/etc/apt/sources.list.d/nodesource.list"
+  fi
   if [[ -n "${NODE_BEFORE:-}" ]]; then printf '%s\n' "$NODE_BEFORE" >"$NODE_VER_FILE"; else rm -f -- "$NODE_VER_FILE"; fi
   case_out="$(_deps_install_node_linux 24 2>&1)" || rc=$?
   if [[ "$want" == ok ]]; then
@@ -280,6 +287,14 @@ STUB_SUDO_FAIL="sources.list.d/nodesource.list" run_case "source list not writab
 STUB_APT_UPDATE=fail run_case "apt-get update fails" refuse
 [[ -z "$(wrote_etc)" ]] || error "apt-get update fails: left $(wrote_etc)"
 ! grep -q "^apt-get install" "$STUB_LOG" || error "apt-get update fails: nodejs installed anyway"
+# Files from an earlier NodeSource setup are put back, not deleted.
+SEED_OLD=1 STUB_APT_UPDATE=fail run_case "apt-get update fails, earlier NodeSource files" refuse
+[[ "$(cat "$fake/etc/apt/keyrings/nodesource.gpg" 2>/dev/null)" == "old key" ]] \
+  || error "earlier NodeSource files: keyring not restored"
+grep -q "node_20.x" "$fake/etc/apt/sources.list.d/nodesource.list" 2>/dev/null \
+  || error "earlier NodeSource files: source list not restored"
+SEED_OLD=1 run_case "earlier NodeSource files, update ok" ok
+cmp -s "$fake/etc/apt/keyrings/nodesource.gpg" "$work/good" || error "earlier NodeSource files: keyring not replaced"
 
 # No apt-get on PATH (another distribution): the instruction, nothing run.
 mkdir -p "$work/noapt"
