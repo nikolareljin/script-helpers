@@ -164,7 +164,7 @@ ban "md5sum/sha256sum are GNU" \
     '(^|[^[:alnum:]_])(md5sum|sha256sum)([^[:alnum:]_]|$)' \
     "lib/file.sh" \
     "lib/foxguard.sh" "lib/gitleaks.sh" "lib/ollama_install.sh" \
-    "scripts/gen_brew_formula.sh" "tests/gitleaks_install_test.sh"
+    "scripts/gen_brew_formula.sh" "tests/gitleaks_install_test.sh" "tests/fetch_test.sh"
     # lib/file.sh: verify_checksum's default; guarded by command_exists and
     # tracked as a follow-up, not reachable from ./dev. The others: a fallback
     # after shasum, which macOS always has, for a minimal Linux (Alpine, slim

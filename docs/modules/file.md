@@ -20,6 +20,7 @@ Functions
   - Behavior:
     - If `dialog` is installed and `DOWNLOAD_USE_DIALOG` is not `false`/`0`/`never`, automatically uses `dialog::dialog_download_file` for a progress gauge.
     - Falls back silently to `curl` or `wget` with minimal output. `curl` runs with `-f`, so an HTTP error (404, 500, ...) is a failure rather than an error page saved as the file.
+    - Transient errors are retried: `curl` with the options from `fetch_curl_retry_args` (see [fetch](fetch.md)), `wget` with `--tries=3 --waitretry=2` and the options from `fetch_wget_args`. Redirects keep to the URL's scheme (`fetch_curl_proto_args`; `fetch_wget_follow` for an `https` URL with `wget`).
     - The download goes to a temporary file beside the destination (`output.XXXXXX`) and is moved into place only on success, with the mode the umask gives a new file. On failure the temporary file is removed: no partial or error-page file is left at the destination, and a file that was already there is left untouched.
   - Returns: 0 on success; the downloader's non-zero status on failure; 1 when neither `curl` nor `wget` is installed or the temporary file cannot be created.
   - Args:
