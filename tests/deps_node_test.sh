@@ -107,6 +107,8 @@ EOF
 cat >"$stubs/sudo" <<'EOF'
 #!/usr/bin/env bash
 echo "sudo $*" >>"$STUB_LOG"
+# STUB_SUDO_FAIL: a path fragment; a command naming it fails.
+[[ -n "${STUB_SUDO_FAIL:-}" && "$*" == *"$STUB_SUDO_FAIL"* && "$1" != rm ]] && exit 1
 args=()
 for a in "$@"; do
   case "$a" in
@@ -120,6 +122,7 @@ EOF
 cat >"$stubs/apt-get" <<'EOF'
 #!/usr/bin/env bash
 echo "apt-get $*" >>"$STUB_LOG"
+[[ "$1" == update && "${STUB_APT_UPDATE:-ok}" == fail ]] && exit 100
 if [[ "$*" == "install -y nodejs" && -n "${STUB_NODE_AFTER:-}" ]]; then
   printf '%s\n' "$STUB_NODE_AFTER" >"$NODE_VER_FILE"
 fi
@@ -270,6 +273,22 @@ STUB_CAND="2:26.1.0-1" run_case "distribution candidate with an epoch" ok
 
 # apt ran but node is still old: 1, with the instruction.
 STUB_NODE_AFTER="v18.19.1" run_case "apt left an old node" refuse
+
+
+# /etc/apt cannot be written, or apt cannot read the new list: nothing is left.
+STUB_SUDO_FAIL="sources.list.d/nodesource.list" run_case "source list not writable" refuse; refused_clean "source list not writable"
+STUB_APT_UPDATE=fail run_case "apt-get update fails" refuse
+[[ -z "$(wrote_etc)" ]] || error "apt-get update fails: left $(wrote_etc)"
+! grep -q "^apt-get install" "$STUB_LOG" || error "apt-get update fails: nodejs installed anyway"
+
+# No apt-get on PATH (another distribution): the instruction, nothing run.
+mkdir -p "$work/noapt"
+# shellcheck disable=SC2016
+printf '#!%s\n[[ -s "$NODE_VER_FILE" ]] || exit 127\n' "$BASH" >"$work/noapt/node"; chmod +x "$work/noapt/node"
+rm -f -- "$NODE_VER_FILE"; : >"$STUB_LOG"; rc=0
+out="$(PATH="$work/noapt" _deps_install_node_linux 24 2>&1)" || rc=$?
+[[ "$rc" == 1 && "$out" == *"Install it by hand"* && ! -s "$STUB_LOG" ]] || error "no apt-get: rc $rc, log '$(cat "$STUB_LOG")': $out"
+note "no apt-get: rc $rc (refuse)"
 
 # A fingerprint that is not 40 upper-case hex digits is a usage error.
 rc=0; fetch_verified_gpg_key t https://example.com/k "abc" "$work/k.asc" 2>/dev/null || rc=$?

@@ -71,7 +71,8 @@ _deps_node_manual() {
 # when apt offers <major> or newer. Else NodeSource's apt repository is added:
 # its key is fetched to a temp file and used only when it is exactly
 # CI_DEFAULT_NODESOURCE_APT_FPR (fetch_verified_gpg_key). No remote script is
-# run. A key that does not match writes nothing under /etc/apt.
+# run. A key that does not match writes nothing under /etc/apt, and a failed
+# apt-get update removes the key and source list again.
 # Returns: 0 node is <major> or newer; 1 otherwise (stderr says what to do); 2 bad argument.
 # Output: stdout [Info] progress and what apt prints; stderr errors.
 _deps_install_node_linux() {
@@ -131,8 +132,15 @@ _deps_install_node_linux() {
     return 1
   fi
   rm -rf -- "$dir"
-  if run_with_optional_sudo true apt-get update \
-     && run_with_optional_sudo true apt-get install -y nodejs \
+  # A source list apt cannot read breaks every later apt run, so it is taken
+  # back out when the update fails.
+  if ! run_with_optional_sudo true apt-get update; then
+    run_with_optional_sudo true rm -f -- /etc/apt/keyrings/nodesource.gpg /etc/apt/sources.list.d/nodesource.list
+    print_error "apt-get update failed with NodeSource's repository added; the key and source list were removed again." >&2
+    _deps_node_manual "$want"
+    return 1
+  fi
+  if run_with_optional_sudo true apt-get install -y nodejs \
      && [[ "$(_deps_node_major)" -ge "$want" ]]; then
     return 0
   fi
