@@ -135,7 +135,7 @@ fetch_wget_args() {
 # Output: stderr on failure, wget's messages without the response headers
 #   (they can quote the URL); nothing on success.
 fetch_wget_follow() {
-  local u out hop=0 rc err loc rest auth path max start left t tcmd=""
+  local u out hop=0 rc err loc rest auth path first max start left t tcmd=""
   local -a pre=()
   # printf -v marks the copies the caller checked for the scanner.
   printf -v u '%s' "${1:-}"
@@ -167,13 +167,15 @@ fetch_wget_follow() {
     rm -f -- "$out"
     # Relative references as RFC 3986 reads them; u is always https here.
     rest="${u#*://}"; auth="${rest%%[/?#]*}"; path="${rest:${#auth}}"; path="${path%%[?#]*}"
+    # A ':' before the first "/", "?" or "#" names a scheme; one after does not.
+    first="${loc%%[/?#]*}"
     case "$loc" in
       [Hh][Tt][Tt][Pp][Ss]://*) ;;
       //*) loc="https:$loc" ;;
       /*) loc="https://$auth$loc" ;;
       [?#]*) loc="https://$auth$path$loc" ;;
-      *:*) printf '%s\n' "wget: redirect to a URL that is not https refused" >&2; return 1 ;;
-      *) loc="https://$auth${path%/*}/$loc" ;;
+      *) [[ "$first" != *:* ]] || { printf '%s\n' "wget: redirect to a URL that is not https refused" >&2; return 1; }
+         loc="https://$auth${path%/*}/$loc" ;;
     esac
     hop=$((hop + 1))
     if [[ "$hop" -gt 5 ]]; then printf '%s\n' "wget: more than 5 redirects" >&2; return 1; fi

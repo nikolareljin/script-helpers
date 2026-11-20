@@ -394,6 +394,12 @@ wr env REDIR_1=HTTP://evil.example/x
 [[ $rc -eq 1 && "$out" == *"not https refused"* ]] && note "wget: an uppercase HTTP:// redirect is refused" || error "HTTP upper: rc=$rc out='$out'"
 wr env REDIR_1=javascript:x
 [[ $rc -eq 1 && "$out" == *"not https refused"* ]] && note "wget: a redirect to another scheme is refused" || error "other scheme: rc=$rc out='$out'"
+# A ':' after the first "/", "?" or "#" is not a scheme (RFC 3986 4.2).
+for r in 'c.tgz?t=1:2' 'b/x:y' 'c#x:y'; do
+  wr env REDIR_1="$r"
+  [[ $rc -eq 0 ]] && grep -q -- "-- https://example.com/$r\$" "$tmp/calls.log" \
+    && note "wget: relative redirect $r is followed" || error "colon relative $r: rc=$rc out='$out'"
+done
 wr env REDIR_ALL=https://example.com/loop
 [[ $rc -eq 1 && "$(grep -c '^wget' "$tmp/calls.log")" == 6 && "$out" == *"more than 5 redirects"* ]] \
   && note "wget: at most 5 redirects" || error "loop: rc=$rc calls=$(grep -c '^wget' "$tmp/calls.log") out='$out'"
