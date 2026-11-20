@@ -63,6 +63,11 @@ Functions
   - Behavior: A mismatch deletes the download and returns 1; nothing is installed.
   - Used by: `scripts/ci_security.sh --install-foxguard`.
 
+Environment
+-----------
+
+- `FOXGUARD_CMD`: a foxguard command the hooks and `check_sensitive.sh` run as given, at any version; see [Which scanner runs](../security-gates.md#which-scanner-runs).
+
 Dependencies
 ------------
 

@@ -27,9 +27,11 @@ Rules for a check here:
 | Rust resolver | `bash tests/machine/rust_resolver_check.sh` | `pwsh -NoProfile -File ps/tests/machine/rust_resolver_check.ps1` | the installed rustup and cargo, no toolchain changes: `rust_toolchain_ci_uses` for stable and `RUST_TOOLCHAIN`, a different cargo earlier on PATH, `ErrorActionPreference = 'Stop'` (PowerShell), preflight `--quick --skip-security` on a throwaway cargo project | Linux x86_64, 2026-10-18; Windows, macOS: not yet |
 | Model select | `bash tests/machine/model_select_check.sh` | none (no PowerShell `ollama_models`) | `ollama_models.sh class` tier, `select general` against the Ollama on 127.0.0.1:11434 with `OLLAMA_PULL_MISSING=0`, the no-terminal order, nothing pulled or removed | Linux x86_64, 2026-10-19; macOS: not yet |
 | foxguard install | `bash tests/machine/foxguard_release_check.sh` | the same, under Git Bash | the pinned release, downloaded through `foxguard_install` into a throwaway cache; SHA-256 checked, `--version` equals the pin; no scan | Linux x86_64, 2026-10-21; CI runs it on Linux, macOS and Windows |
+| NodeSource apt key | `bash tests/machine/node_key_check.sh` | none (`ps/lib/deps.ps1` installs no Node.js) | the key NodeSource serves, through `fetch_verified_gpg_key`: it is the pinned fingerprint, another fingerprint is refused, and the pinned `node_<major>.x` `InRelease` is signed by it; nothing installed, no apt, nothing under `/etc/apt` | Linux x86_64, 2026-11-20; macOS: not yet |
 
 Entry scripts for the same feature: `scripts/install_ollama.sh --check`,
-`ps/scripts/install_ollama.ps1 -Check`; `scripts/ci_security.sh --install-foxguard`.
+`ps/scripts/install_ollama.ps1 -Check`; `scripts/ci_security.sh --install-foxguard`;
+`scripts/install_ollama_model.sh -i` (Node.js, through `install_dependencies_ai_runner`).
 
 When you run a check on a machine, add the OS and date to the last column in the pull
 request that next touches the feature.

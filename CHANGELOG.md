@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Fixed
+
+- **`install_dependencies_ai_runner` no longer pipes a remote script to a root shell.** `lib/deps.sh` ran `curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -`. Node.js `CI_DEFAULT_NODE_APT_MAJOR` (24) now comes from the distribution's `nodejs` when apt offers that major, else from NodeSource's apt repository: the key is fetched to a temp file and used only when it holds exactly one primary key with the fingerprint `CI_DEFAULT_NODESOURCE_APT_FPR` (checked in a throwaway `GNUPGHOME`), then written to `/etc/apt/keyrings/nodesource.gpg` with a `signed-by=` source list. A key that does not match returns 1, prints how to install by hand and writes nothing. macOS installs and links `node@24`. A missing `node` no longer prints a bash `integer expression expected` error. The key rule is the new `fetch_verified_gpg_key` in `lib/fetch.sh`, which `docker_install` now calls too. `scripts/ci_wp_phpunit.sh` reads the upstream WordPress version through `fetch_to_file` and parses the file, not a pipe; `check_sensitive.sh --refresh-public-ip` passes `--proto =https --proto-redir =https --retry 3 --retry-delay 2`. Docs: `docs/modules/ci_defaults.md` lists the gitleaks SHA-256 pins and `CI_DEFAULT_BASH32_*`. Tests: `tests/deps_node_test.sh`, `tests/check_sensitive_public_ip_test.sh` and the lookup cases in `tests/ci_wp_phpunit_test.sh` (all fail without the fix). Closes https://github.com/nikolareljin/script-helpers/issues/293.
+
 ## 2026-11-20 — v0.67.1
 
 ### Changed
