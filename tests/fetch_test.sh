@@ -400,6 +400,15 @@ for r in 'c.tgz?t=1:2' 'b/x:y' 'c#x:y'; do
   [[ $rc -eq 0 ]] && grep -q -- "-- https://example.com/$r\$" "$tmp/calls.log" \
     && note "wget: relative redirect $r is followed" || error "colon relative $r: rc=$rc out='$out'"
 done
+# A fragment-only redirect keeps the query, and a Location with a space is
+# kept whole: both as real wget resolves them.
+rm -f "$tmp/count" "$tmp/calls.log" "$tmp/o"; rc=0
+out="$(PATH="$tmp/wgetredir:$tmp/bin" REDIR_1='#f' bash -c 'source "$1/lib/fetch.sh"; fetch_to_file t "https://example.com/d/a?x=1" "$2/o"' _ "$ROOT_DIR" "$tmp" 2>&1)" || rc=$?
+[[ $rc -eq 0 ]] && grep -q -- '-- https://example.com/d/a?x=1#f$' "$tmp/calls.log" \
+  && note "wget: a fragment-only redirect keeps the query" || error "fragment redirect: rc=$rc calls='$(cat "$tmp/calls.log")'"
+wr env REDIR_1='c d.tgz'
+[[ $rc -eq 0 ]] && grep -q -- '-- https://example.com/c d.tgz$' "$tmp/calls.log" \
+  && note "wget: a Location with a space is kept whole" || error "space redirect: rc=$rc calls='$(cat "$tmp/calls.log")'"
 wr env REDIR_ALL=https://example.com/loop
 [[ $rc -eq 1 && "$(grep -c '^wget' "$tmp/calls.log")" == 6 && "$out" == *"more than 5 redirects"* ]] \
   && note "wget: at most 5 redirects" || error "loop: rc=$rc calls=$(grep -c '^wget' "$tmp/calls.log") out='$out'"
