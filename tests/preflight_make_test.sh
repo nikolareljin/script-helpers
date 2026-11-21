@@ -65,13 +65,12 @@ fx="$tmp/gorepo"; out="$(run_list)"
 if [[ "$out" == "go	." ]]; then note "go.mod plus Makefile: go only, as before"
 else error "go.mod plus Makefile: got [$out], want [go	.]"; fi
 
-# A nested project does not hide the root Makefile.
+# Any detected project wins, nested too: the Makefile may already call into
+# it, and adding make would run those tests twice.
 mkfile "$tmp/mixed" "test:" "@true"; mkdir -p "$tmp/mixed/tool"; : > "$tmp/mixed/tool/go.mod"
 fx="$tmp/mixed"; out="$(run_list)"
-case $'\n'"$out"$'\n' in
-  *$'\n'"make	."$'\n'*) note "nested go module: root make stack kept" ;;
-  *) error "nested go module dropped the root make stack: [$out]" ;;
-esac
+if [[ "$out" == "go	tool" ]]; then note "nested go module plus root Makefile: go only, as before"
+else error "nested go module plus Makefile: got [$out], want [go	tool]"; fi
 
 # --- running ------------------------------------------------------------------
 fx="$tmp/shell"; run_quick; rc=$?

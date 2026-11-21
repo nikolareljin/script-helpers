@@ -288,7 +288,7 @@ _preflight__has_make_test() {
 }
 
 detect_stacks() {
-  local marker dir pair
+  local marker dir
   local -a pairs=() flutter_dirs=()
 
   _preflight__detect_git
@@ -341,14 +341,12 @@ detect_stacks() {
     pairs+=("ios	$pdir_ios")
   done < <(find . -maxdepth 4 -type f -name Podfile 2>/dev/null | sort)
 
-  # make: a Makefile with a `test` target at the root, for a repository with
-  # no other stack there (a shell library). A project runner at the root wins,
-  # so a Go or Node repository that also has a Makefile is checked as before.
-  local mk has_root=0
-  for pair in "${pairs[@]+"${pairs[@]}"}"; do
-    [[ "${pair#*	}" == "." ]] && { has_root=1; break; }
-  done
-  if [[ "$has_root" -eq 0 ]]; then
+  # make: a Makefile with a `test` target at the root, only when no other
+  # stack was found anywhere (a shell library). Any project runner wins, so a
+  # repository that already had a stack is checked exactly as before, and a
+  # Makefile that calls into android/ or tool/ does not run those tests twice.
+  local mk
+  if [[ ${#pairs[@]} -eq 0 ]]; then
     mk="$(_preflight__makefile "$PROJECT_DIR")"
     [[ -n "$mk" ]] && _preflight__has_make_test "$mk" && pairs+=("make	.")
   fi
@@ -361,7 +359,7 @@ detect_stacks() {
   #  * A same-stack project nested inside another. A Cargo workspace member, or
   #    a package inside an npm workspace, is built by its root - checking both
   #    runs the same tests twice.
-  local stack pdir other odir ostack skip
+  local pair stack pdir other odir ostack skip
   local -a seen=() kept=()
   for pair in "${pairs[@]+"${pairs[@]}"}"; do
     case " ${seen[*]-} " in *" $pair "*) continue ;; esac
