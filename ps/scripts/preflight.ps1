@@ -83,13 +83,14 @@ function Get-Makefile([string]$Dir) {
 
 # Does <makefile> define a `test` target? Same rule as preflight.sh
 # _preflight__has_make_test: a rule line naming it ("test:", "lint test:",
-# "test::"), not an assignment ("test := x", "test ::= x").
+# "test::"), not an assignment ("test := x", "test ::= x"). Case-sensitive,
+# as make is: "TEST:" is not it.
 function Test-MakeTestTarget([string]$Path) {
     foreach ($line in (Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue)) {
-        if ($line -notmatch '^[^\t#][^:=]*:([^=]|$)') { continue }
+        if ($line -cnotmatch '^[^\t#][^:=]*:([^=]|$)') { continue }
         $c = $line.IndexOf(':')
-        if ($line.Substring($c) -match '^:+=') { continue }
-        if (($line.Substring(0, $c) -split '[ \t]+') -contains 'test') { return $true }
+        if ($line.Substring($c) -cmatch '^:+=') { continue }
+        if (($line.Substring(0, $c) -csplit '[ \t]+') -ccontains 'test') { return $true }
     }
     return $false
 }

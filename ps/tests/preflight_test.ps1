@@ -191,6 +191,12 @@ try {
         if ($res.Rc -eq 3) { note "'test :=' and '::=' are not a test target" }
         else { fail "make assignment: rc=$($res.Rc) out=$($res.Out)" }
 
+        # Target names are case-sensitive, as in make and preflight.sh: TEST is not test.
+        Set-Content -Path (Join-Path $r 'Makefile') -Value "TEST:`n`t@true" -Encoding ascii
+        $res = Invoke-Preflight $r @('-List')
+        if ($res.Rc -eq 3) { note "'TEST:' is not a test target" }
+        else { fail "make case: rc=$($res.Rc) out=$($res.Out)" }
+
         # Another stack wins: the Makefile is not run as well.
         Set-Content -Path (Join-Path $r 'Makefile') -Value "test:`n`t@true" -Encoding ascii
         Set-Content -Path (Join-Path $r 'package.json') -Value '{"name":"w","version":"1.0.0"}'
