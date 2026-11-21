@@ -276,11 +276,14 @@ _preflight__makefile() {
 }
 
 # Does <makefile> define a `test` target? A rule line that names it, alone or
-# with other targets ("test test-bash32:"), not a variable such as "test := x".
+# with other targets ("test test-bash32:"), or "test::"; not an assignment
+# such as "test := x", "test ::= x" or "test :::= x".
 _preflight__has_make_test() {
   awk '
     /^[^\t#][^:=]*:([^=]|$)/ {
-      n = split(substr($0, 1, index($0, ":") - 1), t, /[ \t]+/)
+      c = index($0, ":")
+      if (substr($0, c) ~ /^:+=/) next
+      n = split(substr($0, 1, c - 1), t, /[ \t]+/)
       for (i = 1; i <= n; i++) if (t[i] == "test") found = 1
     }
     END { exit found ? 0 : 1 }

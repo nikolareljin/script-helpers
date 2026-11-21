@@ -167,6 +167,43 @@ try {
         $script:noInstall = '1'
         Remove-Item (Join-Path $bin 'curl')
     }
+
+    # 9. As preflight.sh: a repo with only a Makefile that has a test target is
+    #    the make stack, and `make test` runs. Without it, -List exited 3.
+    if (Get-Command make -ErrorAction SilentlyContinue) {
+        $r = New-Repo 'shelllib'
+        Set-Content -Path (Join-Path $r 'Makefile') -Value "lint test:`n`t@echo ran > ran.txt" -Encoding ascii
+        $res = Invoke-Preflight $r @('-List')
+        if ($res.Rc -eq 0 -and $res.Out.Trim() -eq "make`t.") { note 'Makefile-only repo: make stack' }
+        else { fail "make -List: rc=$($res.Rc) out=$($res.Out)" }
+        $res = Invoke-Preflight $r @('-Quick', '-SkipSecurity')
+        if ($res.Rc -eq 0 -and $res.Out -match 'PASS  make test' -and (Test-Path (Join-Path $r 'ran.txt'))) { note 'make stack: make test runs and passes' }
+        else { fail "make run: rc=$($res.Rc) out=$($res.Out)" }
+
+        Set-Content -Path (Join-Path $r 'Makefile') -Value "test:`n`t@exit 1" -Encoding ascii
+        $res = Invoke-Preflight $r @('-Quick', '-SkipSecurity')
+        if ($res.Rc -eq 1 -and $res.Out -match 'FAIL  make test') { note 'make stack: a failing make test fails preflight' }
+        else { fail "make failing: rc=$($res.Rc) out=$($res.Out)" }
+
+        # Assignments are not a test target.
+        Set-Content -Path (Join-Path $r 'Makefile') -Value "test := x`nother ::= y`ntest-all:`n`t@true" -Encoding ascii
+        $res = Invoke-Preflight $r @('-List')
+        if ($res.Rc -eq 3) { note "'test :=' and '::=' are not a test target" }
+        else { fail "make assignment: rc=$($res.Rc) out=$($res.Out)" }
+
+        # Another stack wins: the Makefile is not run as well.
+        Set-Content -Path (Join-Path $r 'Makefile') -Value "test:`n`t@true" -Encoding ascii
+        Set-Content -Path (Join-Path $r 'package.json') -Value '{"name":"w","version":"1.0.0"}'
+        $res = Invoke-Preflight $r @('-List')
+        if ($res.Rc -eq 0 -and $res.Out -match "node`t\." -and $res.Out -notmatch 'make') { note 'make is not detected next to another stack' }
+        else { fail "make beside node: rc=$($res.Rc) out=$($res.Out)" }
+
+        # .preflight may name it, and -Stack accepts it.
+        Set-Content -Path (Join-Path $r '.preflight') -Value 'make .'
+        $res = Invoke-Preflight $r @('-List', '-Stack', 'make')
+        if ($res.Rc -eq 0 -and $res.Out.Trim() -eq "make`t.") { note '.preflight and -Stack accept make' }
+        else { fail "make .preflight: rc=$($res.Rc) out=$($res.Out)" }
+    } else { note 'SKIP: make not installed, make stack cases not run' }
 }
 finally {
     Remove-Item -Recurse -Force $tmp

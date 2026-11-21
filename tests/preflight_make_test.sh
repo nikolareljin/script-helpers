@@ -49,6 +49,16 @@ fx="$tmp/lower"; out="$(run_list)"
 if [[ "$out" == "make	." ]]; then note "lower-case makefile: make stack"
 else error "lower-case makefile: got [$out]"; fi
 
+mkdir -p "$tmp/posixvar"; printf 'test ::= x\nother :::= y\nbuild:\n\t@true\n' > "$tmp/posixvar/Makefile"
+fx="$tmp/posixvar"; out="$(run_list)"; rc=$?
+if [[ "$rc" -eq 3 ]]; then note "'test ::=' and ':::=' assignments are not a test target"
+else error "'test ::=' read as a test target: rc=$rc, got [$out]"; fi
+
+mkdir -p "$tmp/dcolon"; printf 'test::\n\t@true\n' > "$tmp/dcolon/Makefile"
+fx="$tmp/dcolon"; out="$(run_list)"
+if [[ "$out" == "make	." ]]; then note "double-colon 'test::' rule: make stack"
+else error "double-colon test rule: got [$out]"; fi
+
 mkfile "$tmp/notest" "build:" "@true"
 fx="$tmp/notest"; out="$(run_list)"; rc=$?
 if [[ "$rc" -eq 3 ]]; then note "Makefile without a test target: no stack (exit 3)"

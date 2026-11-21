@@ -1175,6 +1175,7 @@ Any other detected project, at the root or nested, wins over the Makefile, so
 such a repository is checked exactly as before. `--stack make` and a `make .` line
 in `.preflight` select it explicitly. `make` has no container runner, so
 `--docker` runs it on the host; without `make` installed the step is a `SKIP`.
+`ps/scripts/preflight.ps1` detects and runs it by the same rules (`-Stack make`).
 
 ```bash
 bash scripts/preflight.sh --list   # prints: make<TAB>.
