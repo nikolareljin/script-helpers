@@ -204,6 +204,11 @@ try {
         if ($res.Rc -eq 0 -and $res.Out -match "node`t\." -and $res.Out -notmatch 'make') { note 'make is not detected next to another stack' }
         else { fail "make beside node: rc=$($res.Rc) out=$($res.Out)" }
 
+        # -Stack make selects the root Makefile beside another stack, as docs/usage.md says.
+        $res = Invoke-Preflight $r @('-Quick', '-SkipSecurity', '-Stack', 'make')
+        if ($res.Rc -eq 0 -and $res.Out -match 'PASS  make test' -and $res.Out -notmatch 'node') { note '-Stack make beside node selects make' }
+        else { fail "-Stack make beside node: rc=$($res.Rc) out=$($res.Out)" }
+
         # .preflight may name it, and -Stack accepts it.
         Set-Content -Path (Join-Path $r '.preflight') -Value 'make .'
         $res = Invoke-Preflight $r @('-List', '-Stack', 'make')

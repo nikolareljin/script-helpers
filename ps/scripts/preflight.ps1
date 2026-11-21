@@ -145,8 +145,9 @@ function Get-DetectedStacks {
         return $true
     })
     # make: a root Makefile with a `test` target, only when no other stack was
-    # found (a shell library); see detect_stacks in preflight.sh.
-    if ($found.Count -eq 0) {
+    # found (a shell library) or -Stack make asks; see detect_stacks in preflight.sh.
+    # -Stack make asks for it beside another stack, as preflight.sh does.
+    if ($found.Count -eq 0 -or $Stack -contains 'make') {
         $mk = Get-Makefile $ProjectDir
         if ($mk -and (Test-MakeTestTarget $mk)) { $found = @([PSCustomObject]@{ Stack = 'make'; Dir = '.' }) }
     }

@@ -96,6 +96,20 @@ out="$(CI="" bash "$PF" --dir "$tmp/shell" --stack make --list 2>&1)"; rc=$?
 if [[ "$rc" -eq 0 ]]; then note "--stack make is accepted"
 else error "--stack make: rc=$rc: $out"; fi
 
+# --stack make selects the root Makefile even when another stack is detected,
+# as docs/usage.md says; plain detection still prefers the other stack.
+mkfile "$tmp/both" "test:" "@true"
+printf '{"name":"x"}\n' > "$tmp/both/package.json"
+out="$(CI="" bash "$PF" --dir "$tmp/both" --stack make --list 2>&1)"; rc=$?
+if [[ "$rc" -eq 0 && "$out" == *"make	."* ]]; then note "--stack make beside node selects make"
+else error "--stack make beside node: rc=$rc, got [$out]"; fi
+out="$(CI="" bash "$PF" --dir "$tmp/both" --stack make --skip-security 2>&1)"; rc=$?
+if [[ "$rc" -eq 0 && "$out" == *"PASS  make test"* && "$out" != *"node"*" test"* ]]; then note "--stack make beside node runs make test only"
+else error "--stack make beside node run: rc=$rc: $out"; fi
+fx="$tmp/both"; out="$(run_list)"
+if [[ "$out" == "node	." ]]; then note "detection beside node: node only"
+else error "detection beside node: got [$out]"; fi
+
 printf 'make .\n' > "$tmp/notest/.preflight"
 fx="$tmp/notest"; out="$(run_list)"; rc=$?
 if [[ "$rc" -eq 0 && "$out" == "make	." ]]; then note ".preflight may name the make stack"

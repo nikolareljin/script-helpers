@@ -348,8 +348,9 @@ detect_stacks() {
   # stack was found anywhere (a shell library). Any project runner wins, so a
   # repository that already had a stack is checked exactly as before, and a
   # Makefile that calls into android/ or tool/ does not run those tests twice.
+  # --stack make asks for it explicitly, beside any other stack.
   local mk
-  if [[ ${#pairs[@]} -eq 0 ]]; then
+  if [[ ${#pairs[@]} -eq 0 || " ${WANTED_STACKS[*]-} " == *" make "* ]]; then
     mk="$(_preflight__makefile "$PROJECT_DIR")"
     [[ -n "$mk" ]] && _preflight__has_make_test "$mk" && pairs+=("make	.")
   fi
