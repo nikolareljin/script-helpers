@@ -1168,9 +1168,8 @@ passed "ios build", which is a claim about a build that never happened.
 
 A repository with a `Makefile` (or `makefile`, `GNUmakefile`) at its root that
 defines a `test` target, and no other stack anywhere, is a `make` stack:
-`preflight` runs `make -C <root> test`. A shell library has no other marker, so
-without it `preflight` exited 3 ("no stack detected") and the pre-push hook ran
-nothing from it.
+`preflight` runs `make -C <root> test`. This is how a shell library, which has
+no other marker, gets a stack instead of exit 3 ("no stack detected").
 
 Any other detected project, at the root or nested, wins over the Makefile, so
 such a repository is checked exactly as before. `--stack make` and a `make .` line
