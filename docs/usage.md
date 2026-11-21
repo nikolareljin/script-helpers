@@ -1164,6 +1164,22 @@ of what the iOS step does - and `--quick` is defined as skipping builds. The
 old behaviour ran `ci_ios.sh` with every step disabled and still reported a
 passed "ios build", which is a claim about a build that never happened.
 
+### The `make` preflight stack
+
+A repository with a `Makefile` (or `makefile`, `GNUmakefile`) at its root that
+defines a `test` target, and no other stack anywhere, is a `make` stack:
+`preflight` runs `make -C <root> test`. This is how a shell library, which has
+no other marker, gets a stack instead of exit 3 ("no stack detected").
+
+Any other detected project, at the root or nested, wins over the Makefile, so
+such a repository is checked exactly as before. `--stack make` and a `make .` line
+in `.preflight` select it explicitly. `make` has no container runner, so
+`--docker` runs it on the host; without `make` installed the step is a `SKIP`.
+
+```bash
+bash scripts/preflight.sh --list   # prints: make<TAB>.
+```
+
 ### When a check cannot run
 
 The Go, Node and Python runners exit 3 when they find nothing they can check,

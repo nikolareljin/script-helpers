@@ -95,7 +95,11 @@ set -e
 note "record_stop is safe to call when idle"
 
 # 7) with no device at all, capture reports 3 rather than producing an empty file
-if screencap_available 2>/dev/null; then
+# The real capture needs working hardware, so it runs only on request:
+# SCREENCAP_TEST_REAL=1. A phone left plugged in must not fail the suite.
+if screencap_available 2>/dev/null && [[ "${SCREENCAP_TEST_REAL:-}" != "1" ]]; then
+  note "a device or simulator is attached; set SCREENCAP_TEST_REAL=1 to run a real capture"
+elif screencap_available 2>/dev/null; then
   note "a device or simulator is attached — running a real capture"
   out="$(SCREENCAP_DIR="$tmp" screencap_shot 2>/dev/null)"
   if [[ -n "$out" && -s "$out" ]]; then
