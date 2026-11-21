@@ -356,14 +356,24 @@ PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version 7.1.4 --wp-pin
 # 12. "latest" and a minor come from the pins file, not upstream. curl is
 #     stubbed as upstream offering a release the file does not have, so a
 #     lookup there would pick 9.9.9 and then be refused as unpinned.
+#     The stub answers only into the -o file, as fetch_to_file asks: an
+#     answer piped from curl into python3 would leave it empty.
 cat > "$tmp/bin/curl" <<'EOF'
 #!/usr/bin/env bash
-case "$*" in
-  *version-check*) printf '{"offers":[{"current":"9.9.9"}]}\n' ;;
-  *tags*)          printf '[{"name":"9.9.9"},{"name":"7.1.9"},{"name":"7.1.4"}]\n' ;;
+printf '%s\n' "$*" >> "$STUB_CURL_ARGV"
+[[ "$1" == --version ]] && { echo "curl 8.5.0 (stub)"; exit 0; }
+out=""; all="$*"
+while [[ $# -gt 0 ]]; do [[ "$1" == -o ]] && out="$2"; shift; done
+[[ -n "$out" ]] || exit 23
+latest="${STUB_LATEST:-}"
+[[ -n "$latest" ]] || latest='{"offers":[{"current":"9.9.9"}]}'
+case "$all" in
+  *version-check*) printf '%s\n' "$latest" > "$out" ;;
+  *tags*)          printf '[{"name":"9.9.9"},{"name":"7.1.9"},{"name":"7.1.4"}]\n' > "$out" ;;
   *)               exit 22 ;;
 esac
 EOF
+export STUB_CURL_ARGV="$tmp/curlargv"; : > "$STUB_CURL_ARGV"
 chmod +x "$tmp/bin/curl"
 newest_pinned="$(grep -v '^#' "$pins" | cut -f1 | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)"
 printf '%s\n' "$(awk -F'\t' -v t="$newest_pinned" '!/^#/ && $1 == t { print $2 }' "$pins")" > "$tmp/fake_sha"
@@ -396,6 +406,13 @@ if [[ "$rc" == 0 ]] && grep -q "comes from upstream" "$tmp/out" && grep -q -- '-
 else
   error "unpinned minor allowed: rc=$rc git='$(cat "$tmp/gitargv")': $(tail -2 "$tmp/out")"
 fi
+# The upstream lookup is https only, also across redirects, and retried.
+n="$(grep -- '/tags?per_page=100' "$STUB_CURL_ARGV" | grep -- '--proto =https --proto-redir =https' | grep -c -- '--retry 3 --retry-delay 2' || true)"
+if [[ "$n" -ge 1 ]]; then
+  note "the upstream tag lookup passes --proto =https and --retry"
+else
+  error "upstream lookup argv: $(grep -v -- '--version' "$STUB_CURL_ARGV")"
+fi
 : > "$tmp/gitargv"
 PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version 7.1-beta >"$tmp/out" 2>&1; rc=$?
 [[ "$rc" == 2 && ! -s "$tmp/gitargv" ]] && note "a --wp-version that is not X.Y.Z, X.Y or latest exits 2" \
@@ -403,10 +420,8 @@ PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version 7.1-beta >"$tm
 
 # An upstream answer that is not X.Y.Z is not handed to git as a ref: an empty
 # pins file sends "latest" upstream, and the stub answers with a pre-release.
-cat > "$tmp/bin/curl" <<'EOF'
-#!/usr/bin/env bash
-printf '{"offers":[{"current":"7.2-RC1"}]}\n'
-EOF
+export STUB_LATEST='{"offers":[{"current":"7.2-RC1"}]}'
+: > "$STUB_CURL_ARGV"
 printf '# tag\tcommit\n' > "$tmp/empty_pins.tsv"
 : > "$tmp/gitargv"
 PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version latest --wp-pins "$tmp/empty_pins.tsv" --allow-unpinned-wp true >"$tmp/out" 2>&1; rc=$?
@@ -414,6 +429,21 @@ if [[ "$rc" == 1 ]] && grep -q "is not a release tag" "$tmp/out" && [[ ! -s "$tm
   note "an upstream answer that is not X.Y.Z exits 1 before any clone"
 else
   error "non-release tag: rc=$rc git='$(cat "$tmp/gitargv")': $(tail -2 "$tmp/out")"
+fi
+n="$(grep -- 'version-check' "$STUB_CURL_ARGV" | grep -- '--proto =https --proto-redir =https' | grep -c -- '--retry 3 --retry-delay 2' || true)"
+if [[ "$n" -ge 1 ]]; then
+  note "the upstream latest lookup passes --proto =https and --retry"
+else
+  error "latest lookup argv: $(grep -v -- '--version' "$STUB_CURL_ARGV")"
+fi
+# A failed lookup stops the run: nothing is parsed, nothing is cloned.
+printf '#!/usr/bin/env bash\n[[ "$1" == --version ]] && { echo "curl 8.5.0 (stub)"; exit 0; }\nexit 22\n' > "$tmp/bin/curl"
+: > "$tmp/gitargv"
+PATH="$tmp/bin:$PATH" bash "$SCRIPT" "${wp_args[@]}" --wp-version latest --wp-pins "$tmp/empty_pins.tsv" --allow-unpinned-wp true >"$tmp/out" 2>&1; rc=$?
+if [[ "$rc" != 0 ]] && grep -q "download failed from api.wordpress.org" "$tmp/out" && [[ ! -s "$tmp/gitargv" ]]; then
+  note "a failed upstream lookup exits $rc before any clone, naming the host"
+else
+  error "failed lookup: rc=$rc git='$(cat "$tmp/gitargv")': $(tail -3 "$tmp/out")"
 fi
 rm -f -- "$tmp/bin/curl"
 

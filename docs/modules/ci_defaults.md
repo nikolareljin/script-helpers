@@ -9,6 +9,10 @@ All values can be overridden by setting the variable before invoking a script. O
 ### Node.js
 - `CI_DEFAULT_NODE_VERSION` (default: `24-bookworm`)
 - `CI_DEFAULT_NODE_IMAGE` (default: `node`)
+- `CI_DEFAULT_NODE_APT_MAJOR` (default: `24`)
+- `CI_DEFAULT_NODESOURCE_APT_FPR` (default: `6F71F525282841EEDAF851B42F59B5F99B1BE0B4`)
+
+The last two are not a Docker image: they are the Node.js major the [deps module](./deps.md) installs on a host, and the fingerprint NodeSource's apt repository key must have before it is used. Bump the major only after checking that `node_<major>.x` is signed by that key.
 
 ### Python
 - `CI_DEFAULT_PYTHON_VERSION` (default: `3.12-slim`)
@@ -26,9 +30,18 @@ All values can be overridden by setting the variable before invoking a script. O
 - `CI_DEFAULT_GO_VERSION` (default: `1.22`)
 - `CI_DEFAULT_GO_IMAGE` (default: `golang`)
 
+### Legacy bash (macOS compatibility gate)
+- `CI_DEFAULT_BASH32_VERSION` (default: `3.2`)
+- `CI_DEFAULT_BASH32_IMAGE` (default: `bash`)
+
+The image `make test-bash32` and `scripts/local_test_bash32.sh` run the suite in; see [bash compatibility](../bash-compatibility.md).
+
 ### Gitleaks
 - `CI_DEFAULT_GITLEAKS_VERSION` (default: `v8.30.1`)
 - `CI_DEFAULT_GITLEAKS_IMAGE` (default: `zricethezav/gitleaks`)
+- `CI_DEFAULT_GITLEAKS_SHA256_LINUX_X64`, `..._LINUX_ARM64`, `..._DARWIN_X64`, `..._DARWIN_ARM64`, `..._WINDOWS_X64`
+
+The SHA-256 of each release archive `lib/gitleaks.sh` installs on a host without gitleaks; an archive that does not match is refused. Bump the version and every checksum together, from the release's `gitleaks_<version>_checksums.txt`.
 
 ### foxguard
 - `CI_DEFAULT_FOXGUARD_VERSION` (default: `0.14.1`)

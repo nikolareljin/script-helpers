@@ -81,7 +81,7 @@ unchecked commit or push. Repair the missing checker, scanner or input first.
   default gateways, MAC addresses, the hostname and FQDN, the home directory.
   Loopback and Docker, bridge, veth and virbr interfaces are skipped. The
   public IP is checked only when cached:
-  `scripts/check_sensitive.sh --refresh-public-ip` fetches it once. A push makes
+  `scripts/check_sensitive.sh --refresh-public-ip` fetches it once (https only, 3 retries). A push makes
   no network call.
 - **PII**: email addresses, phone numbers, US social security numbers, payment
   card numbers (Luhn-checked, known test numbers pass).
@@ -239,6 +239,12 @@ Install the pinned releases yourself:
 ```bash
 bash scripts/setup-hooks.sh --install-gitleaks --install-foxguard   # or: scripts/ci_security.sh --install-gitleaks / --install-foxguard
 ```
+
+No download is piped into a shell: an installer reads a file `fetch_to_file`
+wrote, after its SHA-256 or (for an apt or rpm repository key,
+`fetch_verified_gpg_key`) its fingerprint matched the pin.
+`tests/deps_node_test.sh` fails on a `curl ... | bash` line in `lib/`,
+`scripts/`, `templates/` or `bin/`.
 
 The library's own code follows one convention where a caller's argument reaches
 `curl`, `eval`, `rm`, `mv`, `source` or a path: check the value first, then copy

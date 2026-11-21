@@ -1,8 +1,9 @@
 # fetch
 
 Download one release asset to a file, with retries and a clear error. The
-scanner installs (`gitleaks`, `foxguard`), `ollama_install` and `docker_install`
-download through `fetch_to_file`. `download_file` and `dialog_download_file` keep
+scanner installs (`gitleaks`, `foxguard`), `ollama_install`, `docker_install`,
+the Node.js step of `deps` and `scripts/ci_wp_phpunit.sh` download through
+`fetch_to_file`. A repository signing key goes through `fetch_verified_gpg_key`. `download_file` and `dialog_download_file` keep
 their own `curl`/`wget` calls and return codes, with the same retry and
 redirect options.
 
@@ -54,6 +55,14 @@ Functions
   - Behavior: On failure, deletes `output` and prints the label, the host, the tool, its exit code and a short reason.
   - Env: `FETCH_MAX_TIME` - seconds for the download (`curl --max-time`; `wget` under `timeout`). Default `300`; anything but a whole number from 1 to 9999999 means `300`.
   - Returns: 0 downloaded; 1 failed; 2 an empty argument, a URL that starts with `-`, or output `-`; 3 no `curl` or `wget`.
+
+- fetch_verified_gpg_key label url fingerprint output
+  - Purpose: Download an OpenPGP key and write it to `output` only when it is the pinned one.
+  - Behavior: The key is fetched with `fetch_to_file` and imported into a throwaway `GNUPGHOME`. It is accepted when the file holds exactly one primary key whose fingerprint is `fingerprint` (40 hex digits, upper case). `output` gets the armored key as `gpg` exports it, not the download. On any failure `output` is not written. The temp directory is always removed.
+  - Returns: 0 verified and written; 1 no `gpg`, the download failed, or the key is not the pinned one; 2 an empty argument, an output that starts with `-`, or a fingerprint that is not 40 upper-case hex digits.
+  - Dependencies: `gpg`; `curl` or `wget`.
+  - Used by: `docker_install` (Docker's apt and rpm keys) and `deps` (NodeSource's apt key).
+  - Example: `fetch_verified_gpg_key deps https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key "$CI_DEFAULT_NODESOURCE_APT_FPR" "$dir/key.asc"`
 
 - fetch_curl_retry_args
   - Purpose: Print the retry options this machine's `curl` accepts, one per line.

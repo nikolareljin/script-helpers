@@ -2797,7 +2797,7 @@ Wrapper to install Ollama CLI, prepare the model index from webfarmer/ollama-get
 ```text
 Usage: ./install_ollama_model.sh [-h] [-i] [-D] [-r <repo_dir>] [-e <env_file>] [-R] [-n]
 -i                : install Ollama CLI
--D                : install common dependencies (dialog, curl, jq, python3, pip3, nodejs, git, xclip)
+-D                : install common dependencies (dialog, curl, jq, python3, pip3, nodejs, git, xclip); one that fails is a warning
 -r <repo_dir>     : models repo directory (default: ./ollama-get-models in current directory)
 -e <env_file>     : env file to persist model and size (default: ./.env)
 -R                : run the selected model in background after pulling
