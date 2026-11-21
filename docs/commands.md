@@ -2664,7 +2664,7 @@ Split foxguard findings of a pushed tip into new and already present.
 
 ```text
 Usage:
-       --tip <tip.json> [--base <base.json> ...]
+       --tip <tip.json> [--base <base.json> ...] [--base-unscanned <list> ...]
 ```
 
 Exit codes: not in the header; the script exits with 2.
