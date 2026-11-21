@@ -1,12 +1,16 @@
 """Split foxguard findings of a pushed tip into new and already present.
 
 Usage: foxguard_push_compare.py --level <critical|high|medium|low>
-       --tip <tip.json> [--base <base.json> ...]
+       --tip <tip.json> [--base <base.json> ...] [--base-unscanned <list> ...]
 
 Reads foxguard JSON reports (`foxguard --format json`), each a file or a
 directory of them. A tip finding is new
 when its rule, file and whitespace-normalized snippet occur more often at the
 tip than in every base report, so a finding that only moved lines is not new.
+--base-unscanned names the files a base scan skipped, as foxguard printed
+them ("warning: skipping <file> (<reason>)"). That base cannot say what was
+already there, so every tip finding in such a file is a warning: the copy on
+the remote was never scanned, and once the push lands it is compared as usual.
 Prints one tab-separated line per tip finding:
     BLOCK|WARN <severity> <file>:<line> <rule> <why> <description>
 Exit 0: nothing blocks. 3: a new finding at or above --level. 2: a report
@@ -15,11 +19,13 @@ could not be read, or anything else went wrong (never read as a pass).
 
 import argparse
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
 
 RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+SKIPPED = re.compile(r"^warning: skipping (.+) \(([^()]*)\)$")
 
 
 def load(path):
@@ -48,6 +54,21 @@ def load(path):
     return findings
 
 
+def load_unscanned(path):
+    # The <out>.skipped list sec_foxguard_scan wrote for a base: file -> reason.
+    unscanned = {}
+    with Path(path).open(encoding="utf-8") as handle:
+        for line in handle:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+            match = SKIPPED.match(line)
+            if not match:
+                raise ValueError(f"unexpected skip line: {line}")
+            unscanned.setdefault(norm_file(match.group(1)), clean(match.group(2)))
+    return unscanned
+
+
 def norm_file(name):
     name = str(name or "").replace("\\", "/")
     while name.startswith("./"):
@@ -69,10 +90,15 @@ def main():
     parser.add_argument("--level", required=True, choices=sorted(RANK))
     parser.add_argument("--tip", required=True)
     parser.add_argument("--base", action="append", default=[])
+    parser.add_argument("--base-unscanned", action="append", default=[])
     args = parser.parse_args()
     try:
         tip = load(args.tip)
         bases = [Counter(key(f) for f in load(path)) for path in args.base]
+        unscanned = {}
+        for path in args.base_unscanned:
+            for name, reason in load_unscanned(path).items():
+                unscanned.setdefault(name, reason)
     except (OSError, ValueError) as err:
         print(f"foxguard report unreadable: {err}", file=sys.stderr)
         return 2
@@ -92,6 +118,8 @@ def main():
         rank = RANK.get(severity, RANK["critical"])
         if seen[k] <= known[k]:
             verdict, why = "WARN", "already in the base"
+        elif k[1] in unscanned:
+            verdict, why = "WARN", f"the base copy could not be scanned ({unscanned[k[1]]})"
         elif rank >= threshold:
             verdict, why = "BLOCK", "new"
             blocked = True

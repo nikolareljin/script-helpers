@@ -897,6 +897,12 @@ sec_foxguard_block() (
       sec_foxguard_tree "$b" "$d/map$i" "$d/base$i" || continue
       if sec_foxguard_scan "$cmd" "$d/config" "$d/base$i" "$d/base$i.json" "$d/files"; then
         set -- "$@" --base "$d/base$i.json"
+        # A base copy foxguard could not read cannot say what was already
+        # there: its findings at the tip are warnings, once.
+        if [[ -s "$d/base$i.json.skipped" ]]; then
+          sed 's/^/[pre-push] foxguard: base: /' "$d/base$i.json.skipped" >&2
+          set -- "$@" --base-unscanned "$d/base$i.json.skipped"
+        fi
       else
         echo "[pre-push] foxguard: the scan of base ${b:0:12} failed; its findings count as new." >&2
       fi
@@ -925,7 +931,7 @@ sec_foxguard_block() (
     exit 1
   fi
   if [[ "$warned" -gt 0 ]]; then
-    sec_loud "foxguard: $warned finding(s) below $level or already in the base, in $nfiles changed file(s) (above). They do not block the push."
+    sec_loud "foxguard: $warned finding(s) below $level, already in the base, or in a file the base could not scan, in $nfiles changed file(s) (above). They do not block the push."
   fi
   exit 0
 )
