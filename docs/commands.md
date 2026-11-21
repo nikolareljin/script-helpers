@@ -936,7 +936,8 @@ Usage: bash scripts/preflight.sh [--quick] [--stack <name>] [--docker] [--skip-s
                     is all it does.
                     This is what the pre-push hook uses.
   --stack <name>    Check one stack only, instead of every stack detected.
-                    Repeatable. One of: flutter gradle node python go rust php.
+                    Repeatable. One of: flutter gradle ios node python go rust
+                    php make.
   --docker          Reproduce CI in containers via the ci_*.sh runners, using
                     the images pinned in lib/ci_defaults.sh. Slower and closer
                     to CI. The default runs on the host, which is what makes
