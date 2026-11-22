@@ -8,7 +8,7 @@ set -uo pipefail
 export PREFLIGHT_NO_INSTALL=1
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT_DIR"
+cd "$ROOT_DIR" || exit 1
 
 failures=0
 note()  { echo "[preflight_test] $*"; }

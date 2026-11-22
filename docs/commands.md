@@ -2853,7 +2853,7 @@ Run ShellCheck over every tracked shell file and fail on a finding.
 Usage: bash scripts/lint_shell.sh [--list]
   --list      Print the files that would be checked and exit.
   -h, --help  Show help.
-  SHELLCHECK_SEVERITY  Minimum severity that fails (error|warning|info|style). Default: error.
+  SHELLCHECK_SEVERITY  Minimum severity that fails (error|warning|info|style). Default: warning.
 ```
 
 Exit codes:
@@ -2868,7 +2868,7 @@ not installed.
 Example:
 
 ```text
-SHELLCHECK_SEVERITY=warning bash scripts/lint_shell.sh
+SHELLCHECK_SEVERITY=info bash scripts/lint_shell.sh
 ```
 
 ### `scripts/local_security_report.py`

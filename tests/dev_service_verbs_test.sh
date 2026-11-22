@@ -70,7 +70,7 @@ done
 check "a service shim says it is kept, not that it will be removed" 1 "$(grep -c '^# Service shim. Use ./dev start -- kept' "$repo/start")"
 out="$(bash scripts/install_dev_cli.sh --repo "$repo" --shims service --no-hooks 2>&1)"; rc=$?
 check "installing again over its own service shims: 0" 0 "$rc"
-check "recognises them as its own (no warning, no backup)" "0:0" "$(printf '%s' "$out" | grep -c 'not a shim we wrote'):$(ls "$repo" | grep -c 'pre-dev-cli')"
+check "recognises them as its own (no warning, no backup)" "0:0" "$(printf '%s' "$out" | grep -c 'not a shim we wrote'):$(find "$repo" -maxdepth 1 -name '*pre-dev-cli*' | wc -l | tr -d ' ')"
 
 out="$(run "$repo" ./dev start)"; rc=$?
 check "./dev start starts the service and waits until it is ready" 0 "$rc"

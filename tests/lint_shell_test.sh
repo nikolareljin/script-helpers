@@ -25,9 +25,15 @@ if [[ -n "$swallowed" ]]; then
 fi
 grep -q 'make lint-shell' .github/workflows/ci.yml || error "ci.yml does not run 'make lint-shell'"
 
+# The bash 3.2 image and the macOS runner have no shellcheck. ci.yml installs
+# it and runs `make lint-shell`, which exits 2 without it, so the gate holds.
 if ! command -v shellcheck >/dev/null 2>&1; then
-  echo "[lint_shell_test][ERROR] shellcheck is not installed; cannot run the behaviour checks" >&2
-  exit 1
+  if [[ "$failures" -gt 0 ]]; then
+    echo "[lint_shell_test] FAILED: $failures check(s)" >&2
+    exit 1
+  fi
+  note "shellcheck not installed: skipping the behaviour checks (not a failure)"
+  exit 0
 fi
 
 tmp="$(mktemp -d)"
@@ -68,11 +74,27 @@ git -C "$repo" add -A
 run_list
 if grep -qx -e 'bin/py' -e 'bin/notsh' "$tmp/out"; then error "non-shell file listed: $(cat "$tmp/out")"; else note "non-shell files skipped"; fi
 
-# 6) Warnings pass at the default severity and fail at SHELLCHECK_SEVERITY=warning.
+# 5b) Shebang variants a shell file is written with are all listed: env with
+# flags, CRLF line ends, dash and ksh (ShellCheck dialects), a space in the name.
+printf '#!/usr/bin/env bash -e\necho x\n' > "$repo/bin/envflag"
+printf '#!/bin/bash\r\necho x\r\n' > "$repo/bin/crlf"
+printf '#!/bin/dash\necho x\n' > "$repo/bin/dashy"
+printf '#!/bin/ksh\necho x\n' > "$repo/bin/kshy"
+printf '#!/bin/sh\necho x\n' > "$repo/bin/with space"
+printf '#!/usr/bin/env zsh\necho x\n' > "$repo/bin/zshy"
+git -C "$repo" add -A
+run_list
+for f in bin/envflag bin/crlf bin/dashy bin/kshy "bin/with space"; do
+  grep -qxF "$f" "$tmp/out" || error "$f is not listed: $(cat "$tmp/out")"
+done
+grep -qx 'bin/zshy' "$tmp/out" && error "zsh file listed; ShellCheck does not support zsh"
+git -C "$repo" rm -q -f bin/envflag bin/crlf bin/dashy bin/kshy "bin/with space" bin/zshy
+
+# 6) Warnings fail at the default severity and pass at SHELLCHECK_SEVERITY=error.
 printf '#!/usr/bin/env bash\nunused=1\n' > "$repo/warn.sh"
 git -C "$repo" add -A
-if run_lint; then note "warning passes at default severity"; else error "warning failed at default severity"; fi
-if SHELLCHECK_SEVERITY=warning run_lint; then error "warning passed at severity warning"; else note "warning fails at severity warning"; fi
+if run_lint; then error "warning passed at default severity"; else note "warning fails at default severity"; fi
+if SHELLCHECK_SEVERITY=error run_lint; then note "warning passes at severity error"; else error "warning failed at severity error"; fi
 
 # 7) An unknown severity is refused, not ignored.
 rc=0; SHELLCHECK_SEVERITY=bogus run_lint || rc=$?

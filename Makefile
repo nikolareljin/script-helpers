@@ -13,7 +13,7 @@ help:
 	@echo "  make examples RUN_NETWORK=1   # Include download example (network)"
 	@echo "  make examples RUN_INTERACTIVE=1  # Include interactive dialog example"
 	@echo "  make lint-docs                # Verify docs cover modules and functions"
-	@echo "  make lint-shell               # ShellCheck every tracked shell file; fails on a finding (SHELLCHECK_SEVERITY, default error)"
+	@echo "  make lint-shell               # ShellCheck every tracked shell file; fails on a finding (SHELLCHECK_SEVERITY, default warning)"
 	@echo "  make lint-workflows           # Refuse disallowed actions, persisted checkout tokens, secrets: inherit"
 	@echo "  make test                     # Run tests under tests/"
 	@echo "  make test-bash32              # Run tests under bash 3.2 (macOS's shell)"

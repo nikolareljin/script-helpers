@@ -5,13 +5,13 @@
 # PARAMETERS:
 #   --list      Print the files that would be checked and exit.
 #   -h, --help  Show help.
-#   SHELLCHECK_SEVERITY  Minimum severity that fails (error|warning|info|style). Default: error.
+#   SHELLCHECK_SEVERITY  Minimum severity that fails (error|warning|info|style). Default: warning.
 # EXIT_CODES:
 #   0  No finding at or above the severity.
 #   1  ShellCheck reported a finding.
 #   2  Bad argument or SHELLCHECK_SEVERITY, not a git work tree, or shellcheck
 #      not installed.
-# EXAMPLE: SHELLCHECK_SEVERITY=warning bash scripts/lint_shell.sh
+# EXAMPLE: SHELLCHECK_SEVERITY=info bash scripts/lint_shell.sh
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -29,14 +29,14 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   exit 2
 fi
 
-severity="${SHELLCHECK_SEVERITY:-error}"
+severity="${SHELLCHECK_SEVERITY:-warning}"
 case "$severity" in
   error|warning|info|style) ;;
   *) echo "lint_shell: SHELLCHECK_SEVERITY must be error, warning, info or style (got '$severity')" >&2; exit 2 ;;
 esac
 
 # Tracked *.sh files, plus tracked files without the suffix whose first line
-# is a sh/bash shebang (git hooks, bin/ tools, the dev shim template).
+# is a sh, bash, dash or ksh shebang (git hooks, bin/ tools, the dev shim template).
 files=()
 while IFS= read -r -d '' f; do
   [[ -f "$f" ]] || continue
@@ -46,7 +46,7 @@ while IFS= read -r -d '' f; do
   fi
   first=""
   IFS= read -r first < "$f" || true
-  if [[ "$first" =~ ^#!.*(/|[[:space:]])(ba)?sh([[:space:]]|$) ]]; then
+  if [[ "$first" =~ ^#!.*(/|[[:space:]])(ba|da|k)?sh([[:space:]]|$) ]]; then
     files+=("$f")
   fi
 done < <(git ls-files -z)
