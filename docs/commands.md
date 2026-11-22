@@ -2861,7 +2861,8 @@ Exit codes:
 ```text
 0  No finding at or above the severity.
 1  ShellCheck reported a finding.
-2  Bad SHELLCHECK_SEVERITY or shellcheck not installed.
+2  Bad argument or SHELLCHECK_SEVERITY, not a git work tree, or shellcheck
+not installed.
 ```
 
 Example:

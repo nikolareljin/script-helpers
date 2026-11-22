@@ -9,12 +9,25 @@
 # EXIT_CODES:
 #   0  No finding at or above the severity.
 #   1  ShellCheck reported a finding.
-#   2  Bad SHELLCHECK_SEVERITY or shellcheck not installed.
+#   2  Bad argument or SHELLCHECK_SEVERITY, not a git work tree, or shellcheck
+#      not installed.
 # EXAMPLE: SHELLCHECK_SEVERITY=warning bash scripts/lint_shell.sh
 # ----------------------------------------------------
 set -euo pipefail
 
 case "${1:-}" in -h|--help) sed -n '2,/^set -/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;; esac
+
+case "${1:-}" in
+  ""|--list) ;;
+  *) echo "lint_shell: unknown argument '$1' (see --help)" >&2; exit 2 ;;
+esac
+
+# A failed `git ls-files` inside the process substitution below would look
+# like an empty tree and pass, so check for a work tree first.
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "lint_shell: not inside a git work tree." >&2
+  exit 2
+fi
 
 severity="${SHELLCHECK_SEVERITY:-error}"
 case "$severity" in

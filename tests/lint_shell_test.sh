@@ -78,6 +78,13 @@ if SHELLCHECK_SEVERITY=warning run_lint; then error "warning passed at severity 
 rc=0; SHELLCHECK_SEVERITY=bogus run_lint || rc=$?
 [[ "$rc" -eq 2 ]] || error "bogus severity returned $rc, want 2"
 
+# 8) An unknown argument and a directory outside git are refused, not passed.
+rc=0; ( cd "$repo" && bash "$lint" --lst ) >"$tmp/out" 2>&1 || rc=$?
+[[ "$rc" -eq 2 ]] || error "unknown argument returned $rc, want 2"
+mkdir -p "$tmp/nogit"
+rc=0; ( cd "$tmp/nogit" && GIT_CEILING_DIRECTORIES="$tmp" bash "$lint" ) >"$tmp/out" 2>&1 || rc=$?
+[[ "$rc" -eq 2 ]] || error "outside a work tree returned $rc, want 2"
+
 if [[ "$failures" -gt 0 ]]; then
   echo "[lint_shell_test] FAILED: $failures check(s)" >&2
   exit 1
