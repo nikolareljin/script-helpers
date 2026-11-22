@@ -19,7 +19,8 @@ lint="$root_dir/scripts/lint_shell.sh"
 
 # 1) CI calls the gate and does not swallow its exit code.
 # (`shellcheck --version ... || true` only prints the version and is allowed.)
-if grep -E 'shellcheck.*\|\|[[:space:]]*true' .github/workflows/ci.yml | grep -qv -- '--version'; then
+swallowed="$(grep -E 'shellcheck.*\|\|[[:space:]]*true' .github/workflows/ci.yml | grep -v -- '--version' || true)"
+if [[ -n "$swallowed" ]]; then
   error "ci.yml still runs shellcheck with '|| true'"
 fi
 grep -q 'make lint-shell' .github/workflows/ci.yml || error "ci.yml does not run 'make lint-shell'"
@@ -30,7 +31,7 @@ if ! command -v shellcheck >/dev/null 2>&1; then
 fi
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 repo="$tmp/repo"
 mkdir -p "$repo/bin"
 git -C "$repo" init -q

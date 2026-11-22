@@ -3,11 +3,18 @@
 # DESCRIPTION: Run ShellCheck over every tracked shell file and fail on a finding.
 # USAGE: bash scripts/lint_shell.sh [--list]
 # PARAMETERS:
-#   --list   Print the files that would be checked and exit.
+#   --list      Print the files that would be checked and exit.
+#   -h, --help  Show help.
 #   SHELLCHECK_SEVERITY  Minimum severity that fails (error|warning|info|style). Default: error.
+# EXIT_CODES:
+#   0  No finding at or above the severity.
+#   1  ShellCheck reported a finding.
+#   2  Bad SHELLCHECK_SEVERITY or shellcheck not installed.
 # EXAMPLE: SHELLCHECK_SEVERITY=warning bash scripts/lint_shell.sh
 # ----------------------------------------------------
 set -euo pipefail
+
+case "${1:-}" in -h|--help) sed -n '2,/^set -/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;; esac
 
 severity="${SHELLCHECK_SEVERITY:-error}"
 case "$severity" in

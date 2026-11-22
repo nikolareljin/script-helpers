@@ -2845,6 +2845,31 @@ Example:
   bash scripts/lint_docs.sh
 ```
 
+### `scripts/lint_shell.sh`
+
+Run ShellCheck over every tracked shell file and fail on a finding.
+
+```text
+Usage: bash scripts/lint_shell.sh [--list]
+  --list      Print the files that would be checked and exit.
+  -h, --help  Show help.
+  SHELLCHECK_SEVERITY  Minimum severity that fails (error|warning|info|style). Default: error.
+```
+
+Exit codes:
+
+```text
+0  No finding at or above the severity.
+1  ShellCheck reported a finding.
+2  Bad SHELLCHECK_SEVERITY or shellcheck not installed.
+```
+
+Example:
+
+```text
+SHELLCHECK_SEVERITY=warning bash scripts/lint_shell.sh
+```
+
 ### `scripts/local_security_report.py`
 
 Allocate a private diagnostics file outside any Git worktree.
