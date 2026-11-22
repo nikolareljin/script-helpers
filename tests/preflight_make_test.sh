@@ -101,8 +101,12 @@ else error "--stack make: rc=$rc: $out"; fi
 mkfile "$tmp/both" "test:" "@true"
 printf '{"name":"x"}\n' > "$tmp/both/package.json"
 out="$(CI="" bash "$PF" --dir "$tmp/both" --stack make --list 2>&1)"; rc=$?
-if [[ "$rc" -eq 0 && "$out" == *"make	."* ]]; then note "--stack make beside node selects make"
+# --list prints what --stack selects, as preflight.ps1 -List does: make only.
+if [[ "$rc" -eq 0 && "$out" == "make	." ]]; then note "--stack make beside node selects make"
 else error "--stack make beside node: rc=$rc, got [$out]"; fi
+out="$(CI="" bash "$PF" --dir "$tmp/both" --stack make --stack node --list 2>&1)"; rc=$?
+if [[ "$rc" -eq 0 && "$out" == $'node\t.\nmake\t.' ]]; then note "--stack make --stack node lists both once"
+else error "--stack make --stack node: rc=$rc, got [$out]"; fi
 out="$(CI="" bash "$PF" --dir "$tmp/both" --stack make --skip-security 2>&1)"; rc=$?
 if [[ "$rc" -eq 0 && "$out" == *"PASS  make test"* && "$out" != *"node"*" test"* ]]; then note "--stack make beside node runs make test only"
 else error "--stack make beside node run: rc=$rc: $out"; fi

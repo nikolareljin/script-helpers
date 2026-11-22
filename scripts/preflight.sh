@@ -19,7 +19,7 @@
 #   --skip-security   Skip the secret / dependency scan.
 #   --security-only   Run only the secret / dependency scan (`./dev scan`). No
 #                     stack is needed.
-#   --list            Print the stacks detected and exit without running them.
+#   --list            Print the stacks that would run (after --stack) and exit.
 #   --dir <path>      Project directory (default: the repository root).
 #   -h, --help        Show this help message.
 #
@@ -466,7 +466,8 @@ if [[ "$LIST_ONLY" == "true" ]]; then
     echo "No stack detected in $PROJECT_DIR"
     exit 3
   fi
-  printf '%s\n' "${DETECTED[@]+"${DETECTED[@]}"}"
+  # PAIRS, not DETECTED: --list shows what --stack selects, as preflight.ps1 -List does.
+  printf '%s\n' "${PAIRS[@]+"${PAIRS[@]}"}"
   exit 0
 fi
 

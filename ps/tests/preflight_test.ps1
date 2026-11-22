@@ -209,6 +209,18 @@ try {
         if ($res.Rc -eq 0 -and $res.Out -match 'PASS  make test' -and $res.Out -notmatch 'node') { note '-Stack make beside node selects make' }
         else { fail "-Stack make beside node: rc=$($res.Rc) out=$($res.Out)" }
 
+        # -Stack make,node lists both, each once, as preflight.sh --stack make --stack node.
+        # -File passes 'make,node' as one string, so call it in-process for the array.
+        Push-Location $r
+        try {
+            $env:CI = ''
+            $out = & pwsh -NoProfile -Command "& '$preflight' -List -Stack make,node; exit `$LASTEXITCODE" 2>&1 | Out-String
+            $res = @{ Out = $out; Rc = $LASTEXITCODE }
+        } finally { Pop-Location }
+        $lines = @($res.Out.Trim() -split "`r?`n")
+        if ($res.Rc -eq 0 -and $lines.Count -eq 2 -and $res.Out -match "node`t\." -and $res.Out -match "make`t\.") { note '-Stack make,node lists both once' }
+        else { fail "-Stack make,node: rc=$($res.Rc) out=$($res.Out)" }
+
         # .preflight may name it, and -Stack accepts it.
         Set-Content -Path (Join-Path $r '.preflight') -Value 'make .'
         $res = Invoke-Preflight $r @('-List', '-Stack', 'make')
