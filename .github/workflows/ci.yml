@@ -18,6 +18,7 @@ concurrency:
 jobs:
   lint-and-examples:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-19
@@ -41,12 +42,7 @@ jobs:
       - name: Lint shell scripts (ShellCheck)
         run: |
           set -euo pipefail
-          files=$(git ls-files '*.sh' || true)
-          if [[ -n "$files" ]]; then
-            echo "$files" | xargs shellcheck || true
-          else
-            echo "No shell scripts found."
-          fi
+          make lint-shell
 
       - name: Lint documentation coverage
         run: |
@@ -380,6 +376,7 @@ jobs:
     # how ps/scripts/tag_release.ps1 shipped with a syntax error that made it
     # impossible to load. Parsing every file catches that class of bug.
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-19
