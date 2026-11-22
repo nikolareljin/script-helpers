@@ -30,7 +30,8 @@ git config script-helpers.push-tests off     # back to no tests on push
 
 `quick` runs `scripts/run_repo_tests.sh` after the other push checks: the
 `preflight.sh --quick` from the vendored script-helpers when it has one (the
-checks the repository's CI runs), otherwise the stack's quick
+checks the repository's CI runs; a root `Makefile` with a `test` target is the
+`make` stack there), otherwise the stack's quick
 test runner (PHP, Node, Python, Go, Gradle, Rust, Flutter), `make test`, bats
 or `tests/*_test.sh`. The push then takes as long as those tests.
 

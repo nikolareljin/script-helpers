@@ -118,13 +118,23 @@ test-bash32:
 # the hook, and the push was refused.
 # What is unset: the names `git rev-parse --local-env-vars` prints, plus the
 # six a hook always gets, written out in case git is missing.
+# Every test file runs, even after one fails; the failed ones are listed at
+# the end and the target exits 1. Stopping at the first failure hid every
+# file sorted after it.
 test:
 	@unset $$(git rev-parse --local-env-vars 2>/dev/null) GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_OBJECT_DIRECTORY; \
+	ran=0; nfail=0; failed=""; \
 	for f in tests/*_test.sh; do \
 	  [[ -f "$$f" ]] || continue; \
+	  ran=$$((ran + 1)); \
 	  printf '\n--- Running: %s ---\n' "$$f"; \
-	  bash "$$f" || exit 1; \
-	done
+	  bash "$$f" || { nfail=$$((nfail + 1)); failed="$${failed}  $$f"$$'\n'; }; \
+	done; \
+	if [[ "$$nfail" -gt 0 ]]; then \
+	  printf '\nFAILED: %s of %s test file(s):\n%s' "$$nfail" "$$ran" "$$failed"; \
+	  exit 1; \
+	fi; \
+	printf '\nAll %s test file(s) passed.\n' "$$ran"
 
 install-git-hooks:
 	@mkdir -p .git/hooks
