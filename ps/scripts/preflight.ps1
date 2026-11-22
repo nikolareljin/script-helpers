@@ -7,7 +7,7 @@
 #   -Docker        Run supported checks in Docker.
 #   -SkipSecurity  Skip security checks.
 #   -SecurityOnly  Run only security checks.
-#   -List          Print detected stacks without running them.
+#   -List          Print the stacks that would run (after -Stack) and exit.
 #   -Dir <path>    Project directory (default: repository root or current directory).
 #   -Help          Show this help message.
 # EXIT_CODES:
@@ -179,15 +179,6 @@ $configuredStacks = @(Get-ConfiguredStacks | Where-Object { $_ })
 $IsConfigured = $configuredStacks.Count -gt 0
 $detected = if ($IsConfigured) { $configuredStacks } else { @(Get-DetectedStacks) }
 
-if ($List) {
-    if (-not $detected -or @($detected).Count -eq 0) {
-        Write-Host "No stack detected in $ProjectDir"
-        exit 3
-    }
-    $detected | ForEach-Object { Write-Output "$($_.Stack)`t$($_.Dir)" }
-    exit 0
-}
-
 # -Stack filters the detected pairs rather than replacing them, so the directory
 # a stack lives in is still discovered rather than assumed to be root.
 # @(...) around the whole if: an if-expression unrolls an empty array to $null,
@@ -197,6 +188,20 @@ $pairs = @(if ($Stack.Count -gt 0) {
 } else {
     $detected
 })
+
+# -List prints what -Stack selects, as preflight.sh --list does.
+if ($List) {
+    if (-not $detected -or @($detected).Count -eq 0) {
+        Write-Host "No stack detected in $ProjectDir"
+        exit 3
+    }
+    if ($pairs.Count -eq 0) {
+        log_error "preflight: -Stack $($Stack -join ' ') requested, but none was detected in $ProjectDir"
+        exit 3
+    }
+    $pairs | ForEach-Object { Write-Output "$($_.Stack)`t$($_.Dir)" }
+    exit 0
+}
 
 if ($SkipSecurity -and $SecurityOnly) {
     log_error 'preflight: -SkipSecurity and -SecurityOnly cannot be combined'

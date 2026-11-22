@@ -221,11 +221,28 @@ try {
         if ($res.Rc -eq 0 -and $lines.Count -eq 2 -and $res.Out -match "node`t\." -and $res.Out -match "make`t\.") { note '-Stack make,node lists both once' }
         else { fail "-Stack make,node: rc=$($res.Rc) out=$($res.Out)" }
 
+        # -List prints what -Stack selects, as preflight.sh --list does: only
+        # make here, not node beside it.
+        $res = Invoke-Preflight $r @('-List', '-Stack', 'make')
+        if ($res.Rc -eq 0 -and $res.Out.Trim() -eq "make`t.") { note '-List -Stack make prints make only' }
+        else { fail "-List -Stack make beside node: rc=$($res.Rc) out=$($res.Out)" }
+
+        # A -Stack that matches nothing exits 3 under -List too.
+        $res = Invoke-Preflight $r @('-List', '-Stack', 'go')
+        if ($res.Rc -eq 3) { note '-List -Stack go with no go project exits 3' }
+        else { fail "-List -Stack go: rc=$($res.Rc) out=$($res.Out)" }
+
         # .preflight may name it, and -Stack accepts it.
         Set-Content -Path (Join-Path $r '.preflight') -Value 'make .'
         $res = Invoke-Preflight $r @('-List', '-Stack', 'make')
         if ($res.Rc -eq 0 -and $res.Out.Trim() -eq "make`t.") { note '.preflight and -Stack accept make' }
         else { fail "make .preflight: rc=$($res.Rc) out=$($res.Out)" }
+
+        # With .preflight, -List -Stack node prints only its node line.
+        Set-Content -Path (Join-Path $r '.preflight') -Value "node .`nmake ."
+        $res = Invoke-Preflight $r @('-List', '-Stack', 'node')
+        if ($res.Rc -eq 0 -and $res.Out.Trim() -eq "node`t.") { note '.preflight: -List -Stack node filters' }
+        else { fail ".preflight -List -Stack node: rc=$($res.Rc) out=$($res.Out)" }
     } else { note 'SKIP: make not installed, make stack cases not run' }
 }
 finally {

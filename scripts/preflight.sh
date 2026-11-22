@@ -466,7 +466,7 @@ if [[ "$LIST_ONLY" == "true" ]]; then
     echo "No stack detected in $PROJECT_DIR"
     exit 3
   fi
-  # PAIRS, not DETECTED: --list shows what --stack selects, as preflight.ps1 -List does.
+  # PAIRS, not DETECTED: --list shows what --stack selects; preflight.ps1 -List does the same.
   printf '%s\n' "${PAIRS[@]+"${PAIRS[@]}"}"
   exit 0
 fi

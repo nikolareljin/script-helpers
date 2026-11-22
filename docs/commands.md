@@ -1165,7 +1165,7 @@ Usage: pwsh -File ps\scripts\preflight.ps1 [-Quick] [-Stack <name>] [-Docker] [-
   -Docker        Run supported checks in Docker.
   -SkipSecurity  Skip security checks.
   -SecurityOnly  Run only security checks.
-  -List          Print detected stacks without running them.
+  -List          Print the stacks that would run (after -Stack) and exit.
   -Dir <path>    Project directory (default: repository root or current directory).
   -Help          Show this help message.
 ```
