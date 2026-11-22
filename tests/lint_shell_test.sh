@@ -37,7 +37,8 @@ git -C "$repo" init -q
 git -C "$repo" config user.name test
 git -C "$repo" config user.email test@example.invalid
 
-run_lint() { ( cd "$repo" && bash "$lint" "$@" ) >"$tmp/out" 2>&1; }
+run_lint() { ( cd "$repo" && bash "$lint" ) >"$tmp/out" 2>&1; }
+run_list() { ( cd "$repo" && bash "$lint" --list ) >"$tmp/out" 2>&1; }
 
 # 2) A clean tree passes.
 printf '#!/usr/bin/env bash\necho "ok"\n' > "$repo/good.sh"
@@ -53,7 +54,7 @@ git -C "$repo" rm -q -f bad.sh
 # 4) A shell file without the .sh suffix is checked too (hooks, bin/).
 printf '#!/bin/sh\nif true; then\n  echo x\n' > "$repo/bin/tool"
 git -C "$repo" add -A
-run_lint --list
+run_list
 grep -qx 'bin/tool' "$tmp/out" || error "bin/tool (sh shebang, no suffix) is not listed"
 if run_lint; then error "error in bin/tool did not fail"; else note "error in suffixless shell file fails"; fi
 git -C "$repo" rm -q -f bin/tool
@@ -63,7 +64,7 @@ mkdir -p "$repo/bin"
 printf '#!/usr/bin/env python3\nprint(1)\n' > "$repo/bin/py"
 printf '#!/usr/bin/env bashful\n' > "$repo/bin/notsh"
 git -C "$repo" add -A
-run_lint --list
+run_list
 if grep -qx -e 'bin/py' -e 'bin/notsh' "$tmp/out"; then error "non-shell file listed: $(cat "$tmp/out")"; else note "non-shell files skipped"; fi
 
 # 6) Warnings pass at the default severity and fail at SHELLCHECK_SEVERITY=warning.
