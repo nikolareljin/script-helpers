@@ -55,8 +55,9 @@ _TRAP_STACK_CODES=(0 129 130 143)
 
 # Usage: trap_stack_push [--run <function>] <path>
 # trap_stack_push [--run <function>] <path>; register a file or directory
-# for removal on EXIT, HUP, INT and TERM, until trap_stack_pop takes it off. A relative path is
-# registered as it resolves now, so a later cd does not change what is removed.
+# for removal on EXIT, HUP, INT and TERM, until trap_stack_pop takes it off.
+# A relative path is registered as it resolves now, so a later cd does not
+# change what is removed.
 # With --run, "<function> <path>" is called instead of rm -rf.
 # Returns: 0 registered; 2 an empty path, "/", or --run without a function.
 # Output: stderr the usage line on a bad argument.
