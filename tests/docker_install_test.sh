@@ -131,6 +131,53 @@ for case in mac-dry mac-fail mac-attach win-fail; do
 done
 rm -rf "$tdir"
 
+# 8) the dmg mount point: detached before it is removed, on a failed install
+#    and on TERM; never removed while still mounted. hdiutil is a stub that
+#    logs each call and whether the mount dir still existed at that moment.
+tdir="$(mktemp -d)"
+for case in mac-install-fail mac-term mac-stuck; do
+  rm -rf "${tdir:?}"/*; mkdir "$tdir/t"; : >"$tdir/log"
+  rc=0
+  (
+    export TMPDIR="$tdir/t"
+    uname() { echo arm64; }
+    command() { [[ "$1 $2" == "-v brew" ]] && return 1; builtin command "$@"; }
+    log_info() { :; }; log_error() { :; }; log_warn() { :; }
+    _shlib_docker_do_start=false; _shlib_docker_dry_run=false
+    fetch_to_file() { : >"$3"; }
+    hdiutil() {
+      local m="${4:-}"; [[ "$1" == detach ]] && m="$2"
+      if [[ -d "$m" ]]; then echo "$1 ${3:-} present" >>"$tdir/log"; else echo "$1 ${3:-} gone" >>"$tdir/log"; fi
+      [[ "$1" == detach && "$case" == mac-stuck ]] && return 1
+      return 0
+    }
+    _shlib_docker_is_mounted() { [[ "$case" == mac-stuck ]]; }
+    case "$case" in
+      mac-term) _shlib_docker_sudo() { sh -c 'kill -TERM $PPID'; sleep 1; return 1; } ;;
+      *)        _shlib_docker_sudo() { return 1; } ;;
+    esac
+    _shlib_docker_install_mac
+  ) >/dev/null 2>&1 || rc=$?
+  log="$(tr '\n' ';' <"$tdir/log")"
+  left="$(find "$tdir/t" -mindepth 1 -maxdepth 1)"
+  case "$case" in
+    mac-stuck)
+      if [[ "$log" == "attach -mountpoint present;detach -quiet present;detach -force present;" && -n "$left" && -z "$(find "$tdir/t" -name Docker.dmg)" ]]; then
+        note "$case: mount dir kept while detach fails (log: $log)"
+      else
+        error "$case: expected the mount dir kept and only it; log: $log; left: $left"
+      fi ;;
+    *)
+      if [[ "$log" == "attach -mountpoint present;detach -quiet present;" && -z "$left" ]]; then
+        note "$case: detached, then removed (rc $rc)"
+      else
+        error "$case: expected detach before removal and nothing left; log: $log; left: $left; rc $rc"
+      fi
+      if [[ "$case" == mac-term && "$rc" -ne 143 ]]; then error "$case: exit $rc, expected 143"; fi ;;
+  esac
+done
+rm -rf "$tdir"
+
 if [[ "$failures" -eq 0 ]]; then
   note "All checks passed."
   exit 0

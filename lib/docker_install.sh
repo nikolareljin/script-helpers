@@ -104,6 +104,34 @@ SHLIB_DOCKER_RPM_FPR="060A61C51B558A7F742B77AAC52FEB6B621E9F35"
 # caller removes it with trap_stack_pop.
 _shlib_docker_key_dir=""
 
+# Usage: _shlib_docker_unmount <mount-dir>
+# The trap stack's cleanup for a dmg mount point: hdiutil detach (quiet, then
+# -force), then rmdir the directory. A directory still mounted after both
+# is never removed: rm -rf there would delete files on the image.
+# Returns: 0 removed; 1 still mounted, left in place.
+_shlib_docker_unmount() {
+  local mnt="$1"
+  [[ -d "$mnt" ]] || return 0
+  if ! hdiutil detach "$mnt" -quiet >/dev/null 2>&1 \
+    && ! hdiutil detach "$mnt" -force -quiet >/dev/null 2>&1 \
+    && _shlib_docker_is_mounted "$mnt"; then
+    echo "[WARN] docker_install: $mnt is still mounted; not removed." >&2
+    return 1
+  fi
+  # rmdir, not rm -rf: an empty mount point is all that should be left.
+  rmdir -- "$mnt"
+}
+
+# Usage: _shlib_docker_is_mounted <dir>; 0 when <dir> is a mount point (it is
+# on another device than its parent). GNU stat first: BSD stat -f is a
+# different option on Linux.
+_shlib_docker_is_mounted() {
+  local a b
+  a="$(stat -c %d "$1" 2>/dev/null || stat -f %d "$1" 2>/dev/null)" || return 1
+  b="$(stat -c %d "$1/.." 2>/dev/null || stat -f %d "$1/.." 2>/dev/null)" || return 1
+  [[ -n "$a" && "$a" != "$b" ]]
+}
+
 _shlib_docker_run() {
   if [[ "$_shlib_docker_dry_run" == true ]]; then
     echo "  [dry-run] $*" >&2
@@ -446,17 +474,15 @@ _shlib_docker_install_mac() {
       echo "  [dry-run] hdiutil attach / Docker.app install / detach" >&2
     else
       mnt="$(mktemp -d)" || { trap_stack_pop; return 1; }
-      # rmdir, not rm -rf, for the mount point: it may still be mounted. For
-      # the same reason it is not on the trap stack.
-      hdiutil attach "$dmg" -mountpoint "$mnt" -nobrowse -quiet || { rmdir -- "$mnt" 2>/dev/null; trap_stack_pop; return 1; }
+      # Detached, then removed, on every path out, also on an interrupt.
+      trap_stack_push --run _shlib_docker_unmount "$mnt"
+      hdiutil attach "$dmg" -mountpoint "$mnt" -nobrowse -quiet || { trap_stack_pop; trap_stack_pop; return 1; }
       # Docker's own installer sets up the app bundle and privileged helper.
       _shlib_docker_sudo "$mnt/Docker.app/Contents/MacOS/install" --accept-license || {
-        hdiutil detach "$mnt" -quiet || true
-        rmdir -- "$mnt" 2>/dev/null; trap_stack_pop
+        trap_stack_pop; trap_stack_pop
         return 1
       }
-      hdiutil detach "$mnt" -quiet || true
-      rmdir -- "$mnt" 2>/dev/null
+      trap_stack_pop
     fi
     trap_stack_pop
   fi

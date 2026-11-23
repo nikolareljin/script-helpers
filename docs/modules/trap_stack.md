@@ -23,6 +23,11 @@ trap_stack_pop            # removes $work
 - The caller's traps are put back when the last path is popped. A trap the
   caller sets while a path is registered is kept: the next push chains onto it,
   and a pop does not replace it.
+- Each path is removed once: the `EXIT` trap that follows a signal's exit does
+  not remove it again.
+- `trap_stack_push --run <function> <path>` calls `<function> <path>` instead
+  of `rm -rf`, on pop and in the traps. `docker_install` uses it for the macOS
+  dmg mount point: detach first, and never remove a directory still mounted.
 - Works under `set -euo pipefail` and on bash 3.2.
 - Push and pop in the same shell. A path pushed inside `$( ... )` or `( ... )`
   belongs to that subshell and is removed when it exits, unless it is popped
@@ -40,12 +45,12 @@ The library's own temp directories are registered this way: `fetch_to_file`
 Functions
 ---------
 
-- trap_stack_push path
+- trap_stack_push [--run function] path
   - Purpose: Register a file or directory for removal on `EXIT`, `HUP`, `INT` and `TERM`.
-  - Behavior: A relative path is registered as it resolves at the push; a later `cd` does not change what is removed.
-  - Returns: 0 registered; 2 an empty path or `/`.
+  - Behavior: A relative path is registered as it resolves at the push; a later `cd` does not change what is removed. With `--run`, `function path` is called instead of `rm -rf`.
+  - Returns: 0 registered; 2 an empty path, `/`, or `--run` without a function.
 
 - trap_stack_pop [--keep]
-  - Purpose: Take the newest registered path off the stack and remove it (`rm -rf`). With `--keep` the path is left in place.
+  - Purpose: Take the newest registered path off the stack and remove it (`rm -rf`, or the `--run` function). With `--keep` the path is left in place.
   - Behavior: Popping the last path puts the caller's traps back.
   - Returns: 0, also with nothing registered in this shell.

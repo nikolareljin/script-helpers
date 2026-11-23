@@ -7,6 +7,10 @@
 #   ...                      # may call other functions that push and pop
 #   trap_stack_pop           # removes $dir, takes it off the stack
 #
+# trap_stack_push --run <function> <path> registers <function> instead of
+# rm -rf: pop and the traps call "<function> <path>". Use it for a path that
+# needs more than rm, such as a mount point that must be detached first.
+#
 # While anything is registered, EXIT, HUP, INT and TERM remove every
 # registered path, newest first. A trap the caller already had for one of
 # them is kept and runs after the removal; with none, HUP, INT and TERM exit
@@ -35,6 +39,7 @@
 if [[ -z "${_TRAP_STACK_DEPTH:-}" ]]; then
   _TRAP_STACK_DEPTH=0
   _TRAP_STACK_PATHS=()
+  _TRAP_STACK_RUNS=()    # per path: the --run function, "" for rm -rf
   _TRAP_STACK_OWNER=""   # _trap_stack_self of the shell the stack belongs to
   _TRAP_STACK_SELF=""
   _TRAP_STACK_STALE=0    # 1: trap -p may list the parent's traps (see the header)
@@ -48,16 +53,22 @@ fi
 _TRAP_STACK_SIGS=(EXIT HUP INT TERM)
 _TRAP_STACK_CODES=(0 129 130 143)
 
-# Usage: trap_stack_push <path>
-# trap_stack_push <path>; register a file or directory for removal on EXIT,
-# HUP, INT and TERM, until trap_stack_pop takes it off. A relative path is
+# Usage: trap_stack_push [--run <function>] <path>
+# trap_stack_push [--run <function>] <path>; register a file or directory
+# for removal on EXIT, HUP, INT and TERM, until trap_stack_pop takes it off. A relative path is
 # registered as it resolves now, so a later cd does not change what is removed.
-# Returns: 0 registered; 2 an empty path or "/".
+# With --run, "<function> <path>" is called instead of rm -rf.
+# Returns: 0 registered; 2 an empty path, "/", or --run without a function.
 # Output: stderr the usage line on a bad argument.
 trap_stack_push() {
-  local path="${1:-}"
+  local run="" path
+  if [[ "${1:-}" == --run ]]; then
+    run="${2:-}"
+    [[ -n "$run" ]] && shift 2 || set --
+  fi
+  path="${1:-}"
   if [[ -z "$path" || "$path" == / ]]; then
-    printf '[ERROR] trap_stack_push: usage: trap_stack_push <path>\n' >&2
+    printf '[ERROR] trap_stack_push: usage: trap_stack_push [--run <function>] <path>\n' >&2
     return 2
   fi
   # [A-Za-z]:* is an absolute path on Windows (Git Bash).
@@ -68,6 +79,7 @@ trap_stack_push() {
     _TRAP_STACK_OWNER="$_TRAP_STACK_SELF"
     _TRAP_STACK_DEPTH=0
     _TRAP_STACK_PATHS=()
+    _TRAP_STACK_RUNS=()
     _TRAP_STACK_SET=(0 0 0 0)
     _TRAP_STACK_OURS=("" "" "" "")
     _TRAP_STACK_SAVED=("" "" "" "")
@@ -83,6 +95,7 @@ trap_stack_push() {
     fi
   fi
   _TRAP_STACK_PATHS[_TRAP_STACK_DEPTH]="$path"
+  _TRAP_STACK_RUNS[_TRAP_STACK_DEPTH]="$run"
   _TRAP_STACK_DEPTH=$((_TRAP_STACK_DEPTH + 1))
   _trap_stack_install
   return 0
@@ -93,17 +106,20 @@ trap_stack_push() {
 # remove it (rm -rf). With --keep the path is left in place. Popping the last
 # path puts the caller's traps back.
 # Returns: 0, also with nothing registered in this shell.
-# Output: stderr what rm prints when the removal fails.
+# Output: stderr what rm (or the --run function) prints when the removal fails.
 trap_stack_pop() {
-  local keep=0 path
+  local keep=0 path run
   [[ "${1:-}" == --keep ]] && keep=1
   _trap_stack_self
   [[ "$_TRAP_STACK_SELF" == "$_TRAP_STACK_OWNER" ]] || return 0
   [[ "$_TRAP_STACK_DEPTH" -gt 0 ]] || return 0
   _TRAP_STACK_DEPTH=$((_TRAP_STACK_DEPTH - 1))
   path="${_TRAP_STACK_PATHS[_TRAP_STACK_DEPTH]}"
-  unset "_TRAP_STACK_PATHS[$_TRAP_STACK_DEPTH]"
-  if [[ "$keep" -eq 0 && -n "$path" ]]; then rm -rf -- "$path" || :; fi
+  run="${_TRAP_STACK_RUNS[_TRAP_STACK_DEPTH]:-}"
+  unset "_TRAP_STACK_PATHS[$_TRAP_STACK_DEPTH]" "_TRAP_STACK_RUNS[$_TRAP_STACK_DEPTH]"
+  if [[ "$keep" -eq 0 && -n "$path" ]]; then
+    if [[ -n "$run" ]]; then "$run" "$path" || :; else rm -rf -- "$path" || :; fi
+  fi
   if [[ "$_TRAP_STACK_DEPTH" -eq 0 ]]; then _trap_stack_restore; fi
   return 0
 }
@@ -176,8 +192,8 @@ _trap_stack_restore() {
 }
 
 # _trap_stack_fire <status>: remove every registered path, newest first, and
-# return <status>. The paths stay registered: a caller's trap that does not
-# exit returns to code that still pops them.
+# return <status>. Each is removed once: its entry stays on the stack, empty,
+# so a caller's trap that does not exit returns to code that still pops it.
 _trap_stack_fire() {
   local rc="${1:-0}" i
   _trap_stack_self
@@ -189,7 +205,14 @@ _trap_stack_fire() {
     i="$_TRAP_STACK_DEPTH"
     while [[ "$i" -gt 0 ]]; do
       i=$((i - 1))
-      [[ -z "${_TRAP_STACK_PATHS[i]:-}" ]] || rm -rf -- "${_TRAP_STACK_PATHS[i]}" 2>/dev/null || :
+      [[ -n "${_TRAP_STACK_PATHS[i]:-}" ]] || continue
+      if [[ -n "${_TRAP_STACK_RUNS[i]:-}" ]]; then
+        "${_TRAP_STACK_RUNS[i]}" "${_TRAP_STACK_PATHS[i]}" || :
+      else
+        rm -rf -- "${_TRAP_STACK_PATHS[i]}" 2>/dev/null || :
+      fi
+      # Done: the EXIT trap that follows a signal's exit does not run it again.
+      _TRAP_STACK_PATHS[i]=""
     done
   fi
   return "$rc"

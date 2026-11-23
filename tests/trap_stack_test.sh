@@ -313,6 +313,38 @@ for script in gpg_key deps_node gitleaks; do
   done
 done
 
+# ---------------------------------------------------------------- --run
+# A path pushed with --run is handed to that function, on pop and on a signal,
+# instead of rm -rf; the newer paths are removed before it.
+cat >"$work/run.sh" <<'EOF'
+set -euo pipefail
+source "$ROOT_DIR/lib/trap_stack.sh"
+source "$WORK/hold.sh"
+undo() { echo "undo $1 $([[ -e "$WORK/d2" ]] && echo d2-there || echo d2-gone)" >>"$WORK/trap.out"; rm -rf -- "$1"; }
+mkdir "$WORK/d1"; trap_stack_push --run undo "$WORK/d1"
+mkdir "$WORK/d2"; trap_stack_push "$WORK/d2"
+if [[ "${1:-}" == pop ]]; then trap_stack_pop; trap_stack_pop; exit 0; fi
+hold
+EOF
+for mode in INT pop; do
+  reset
+  if [[ "$mode" == pop ]]; then
+    rc=0; bash "$work/run.sh" pop >/dev/null 2>&1 || rc=$?; want=0
+  else
+    start bash "$work/run.sh"
+    wait_for "$work/ready" || error "--run $mode: the script never got ready: $(cat "$work/err" 2>/dev/null)"
+    finish "$mode"; want="$(sig_code "$mode")"
+  fi
+  got="$(cat "$work/trap.out" 2>/dev/null)"
+  if [[ "$rc" -eq "$want" && "$got" == "undo $work/d1 d2-gone" && "$(left)" == " none" ]]; then
+    note "--run, $mode: the function got the path after the newer one was removed, exit $rc"
+  else
+    error "--run $mode: rc=$rc (want $want), trap.out: '$got', left:$(left)"
+  fi
+done
+rc=0; bash -c 'source "$1"; trap_stack_push --run' _ "$LIB" 2>/dev/null || rc=$?
+if [[ "$rc" -eq 2 ]]; then note "--run without a function or path: exit 2"; else error "--run without arguments: rc=$rc, want 2"; fi
+
 if [[ "$failures" -gt 0 ]]; then
   note "FAILED: $failures"
   exit 1

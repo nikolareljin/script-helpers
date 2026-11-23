@@ -129,6 +129,31 @@ rc="$(run --doctor)"
   && grep -q 'ok .*--no-verify.*exit 2' "$tmp/out" && grep -q 'ok .*must pass.*exit 0' "$tmp/out" \
   && ok "--doctor: all four probes behave, with timings" || error "--doctor: rc=$rc $(cat "$tmp/out")"
 grep -q 'zzqsecretbox' "$tmp/out" && error "--doctor printed the private name it probed with"
+# A copy of setup-hooks.sh with no lib/ beside it gets plain trap_stack_push
+# and trap_stack_pop. The copy runs without "command not found", and the two
+# fallback functions, taken from the script, push and pop like the library.
+mkdir -p "$tmp/alone/scripts"
+cp -- "$SETUP" "$tmp/alone/scripts/setup-hooks.sh"
+rc=0; bash "$tmp/alone/scripts/setup-hooks.sh" --status >"$tmp/out" 2>&1 || rc=$?
+grep -q 'trap_stack' "$tmp/out" && error "copy without lib/: $(grep trap_stack "$tmp/out")" \
+  || ok "copy without lib/: --status runs (rc $rc), no trap_stack error"
+sed -n '/^if \[\[ -f "\$src_root\/lib\/trap_stack.sh" \]\]; then$/,/^fi$/p' "$SETUP" \
+  | sed '1,/^else$/d;$d' >"$tmp/fallback.sh"
+mkdir -p "$tmp/fb/a" "$tmp/fb/b"
+out="$(
+  set -u
+  # shellcheck source=/dev/null
+  source "$tmp/fallback.sh"
+  trap_stack_pop; echo "empty:$?"
+  trap_stack_push "$tmp/fb/a"; trap_stack_push "$tmp/fb/b"
+  trap_stack_pop; [[ -e "$tmp/fb/b" ]] && echo b-kept || echo b-gone
+  [[ -e "$tmp/fb/a" ]] && echo a-there
+  trap_stack_pop --keep; [[ -e "$tmp/fb/a" ]] && echo a-kept
+  trap_stack_pop; echo "empty:$?"
+)"
+[[ -s "$tmp/fallback.sh" && "$(tr '\n' ' ' <<<"$out")" == "empty:0 b-gone a-there a-kept empty:0 " ]] \
+  && ok "fallback push/pop without lib/: newest first, --keep kept, empty pop is 0" \
+  || error "fallback push/pop: '$out' (fallback: $(wc -l <"$tmp/fallback.sh") lines)"
 # Without gitleaks every command in scope is refused as "could not check":
 # the harmless probe fails and the hook's reason is shown.
 rc="$(GITLEAKS_BIN="$tmp/no-gitleaks" run --doctor)"
