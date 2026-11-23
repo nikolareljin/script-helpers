@@ -42,7 +42,7 @@ trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 # Builds a minimal repository the linter will accept, and prints its path.
 # $1 is a label so each case gets its own tree.
 make_fixture() {
-  local name="$1" root="$tmp/$1"
+  local root="$tmp/$1"
   mkdir -p "$root/scripts" "$root/lib" "$root/docs/modules"
   cp "$ROOT_DIR/scripts/lint_docs.sh" "$root/scripts/lint_docs.sh"
 

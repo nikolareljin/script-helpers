@@ -33,6 +33,14 @@ CI runs the suite on macOS under `/bin/bash` for every change touching shell
 code. See `docs/usage.md` for the iOS verbs (`./dev deploy ios`) and the
 preflight `ios` stack.
 
+ShellCheck gates every tracked shell file: `*.sh`, plus files with a `sh`, `bash`,
+`dash` or `ksh` shebang such as `scripts/git-hooks/*` and `bin/*`. A finding fails CI.
+
+```bash
+make lint-shell                            # scripts/lint_shell.sh, fails on a warning or error
+SHELLCHECK_SEVERITY=info make lint-shell      # stricter local run
+```
+
 Windows / PowerShell support
 -----------------------------
 

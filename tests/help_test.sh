@@ -7,10 +7,12 @@
 # lib/help.sh used to return its result through a bash 4.3 nameref, so every
 # --help path in this library was dead on the bash 3.2 that macOS ships. It now
 # writes "<prefix>_<field>" variables instead; these tests pin that contract.
+# get_script_metadata assigns the <prefix>_* variables read below by name.
+# shellcheck disable=SC2154
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT_DIR"
+cd "$ROOT_DIR" || exit 1
 # shellcheck source=/dev/null
 source ./helpers.sh
 shlib_import logging help

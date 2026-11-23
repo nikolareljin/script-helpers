@@ -120,6 +120,7 @@ rm -rf "$marks"; mkdir -p "$marks"
   # Read by _deploy_ios through dynamic scope, not by anything lexically here.
   # shellcheck disable=SC2034
   DEV_RELEASE=true
+  # shellcheck disable=SC2034
   DEV_DEVICE=""
   IOS_EXPORT_OPTIONS_PLIST="ExportOptions.plist"   # relative to the repo root
   _deploy_ios
