@@ -115,6 +115,8 @@ for case in mac-dry mac-fail mac-attach win-fail; do
   rc=0
   (
     export TMPDIR="$tdir"
+    # macOS mktemp -d without a template ignores TMPDIR.
+    mktemp() { builtin command mktemp -d "$TMPDIR/tmp.XXXXXX"; }
     uname() { echo arm64; }
     command() { [[ "$1 $2" == "-v brew" || "$1 $2" == "-v choco" ]] && return 1; builtin command "$@"; }
     log_info() { :; }; log_error() { :; }; log_warn() { :; }
@@ -140,6 +142,7 @@ for case in mac-install-fail mac-term mac-stuck; do
   rc=0
   (
     export TMPDIR="$tdir/t"
+    mktemp() { builtin command mktemp -d "$TMPDIR/tmp.XXXXXX"; }
     uname() { echo arm64; }
     command() { [[ "$1 $2" == "-v brew" ]] && return 1; builtin command "$@"; }
     log_info() { :; }; log_error() { :; }; log_warn() { :; }
