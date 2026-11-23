@@ -40,18 +40,43 @@ error() { echo "[ci_docker_shell_test][ERROR] $*" >&2; failures=$((failures+1));
 # A `bash -lc` outside them is the host path, where a login shell is correct:
 # it is what picks up a user's nvm or asdf setup.
 # ---------------------------------------------------------------------------
-static_hits=0
-for script in scripts/ci_*.sh; do
-  while IFS='|' read -r lineno text; do
-    [[ -z "$lineno" ]] && continue
-    error "$script:$lineno hands a login shell to docker: $text"
-    static_hits=$((static_hits+1))
-  done < <(awk '
-    # A comment is prose, not a call site. ci_go.sh documents the bug by
-    # quoting the broken command, and that must not fail this test.
+# Prints `lineno|text` for each login shell handed to docker in file $1.
+#
+# A login shell is any flag form that sets login mode: -lc, -cl, -lic, -l -c,
+# --login -c, -o pipefail -lc. Options are read up to the first word that is not
+# an option, so `sh -c 'ls -l'` is not a hit: `'ls` ends the options.
+scan_login_shells() {
+  awk '
+    # 1 if a bash or sh on this line is started with a login flag.
+    function login_hit(s,    rest, n, i, t, toks, skip) {
+      # bash or sh as a whole word, bare or quoted: /bin/sh and "sh" count,
+      # zsh and fish-sh do not. \047 is a single quote.
+      while (match(s, /(^|[^[:alnum:]_.-])(bash|sh)["\047]?([[:space:]]|$)/)) {
+        rest = substr(s, RSTART + RLENGTH)
+        s = rest
+        n = split(rest, toks, /[[:space:]]+/)
+        skip = 0
+        for (i = 1; i <= n; i++) {
+          t = toks[i]
+          gsub(/["\047]/, "", t)
+          sub(/[);]+$/, "", t)
+          if (t == "") continue
+          if (skip) { skip = 0; continue }
+          if (t == "--login") return 1
+          if (t == "--") break
+          if (t ~ /^--[[:alnum:]-]+$/) continue
+          if (t ~ /^[-+][oO]$/) { skip = 1; continue }
+          if (t ~ /^[-+][[:alpha:]]+$/) { if (t ~ /^-.*l/) return 1; continue }
+          break
+        }
+      }
+      return 0
+    }
     {
       line = $0
       sub(/^[[:space:]]*/, "", line)
+      # A comment is prose, not a call site. ci_go.sh documents the bug by
+      # quoting the broken command, and that must not fail this test.
       if (line ~ /^#/) { cont = 0; next }
 
       # Any DOCKER-ish token, not just DOCKER_CMD. A helper assembling its
@@ -60,15 +85,59 @@ for script in scripts/ci_*.sh; do
       # docker_compose and `docker compose` too: ci_wp_plugin_check.sh and
       # ci_pimcore_bundle_check.sh hand their shells to `docker_compose run|exec`.
       docker_ctx = ($0 ~ /docker run/ || $0 ~ /DOCKER/ || $0 ~ /docker(_compose|[[:space:]]+compose|[[:space:]]+exec)/)
-      if (docker_ctx || cont) {
-        # bash or sh as a whole word, bare or quoted: /bin/sh and "sh" count,
-        # zsh and fish-sh do not. \047 is a single quote.
-        if ($0 ~ /(^|[^[:alnum:]_.-])(bash|sh)["\047]?[[:space:]]+["\047]?-lc/) print NR "|" line
-      }
-      # A trailing backslash carries docker context onto the next line.
-      cont = (docker_ctx || cont) && ($0 ~ /\\[[:space:]]*$/)
+      if (docker_ctx && line ~ /\([[:space:]]*$/) in_array = 1
+      if ((docker_ctx || cont || in_array) && login_hit($0)) print NR "|" line
+      # A trailing backslash carries docker context onto the next line, and
+      # so does an array literal opened on a docker line, until its `)`.
+      cont = (docker_ctx || cont || in_array) && ($0 ~ /\\[[:space:]]*$/)
+      if (in_array && line ~ /^\)/) in_array = 0
     }
-  ' "$script")
+  ' "$1"
+}
+
+# The scanner itself, on samples: each must be caught or passed as labelled.
+# Without this a scanner that matches nothing reports OK on every helper.
+sample_dir="$(mktemp -d)"
+check_sample() {
+  local want="$1" text="$2" got
+  printf '%b\n' "$text" > "$sample_dir/sample.sh"
+  if [[ -n "$(scan_login_shells "$sample_dir/sample.sh")" ]]; then got=hit; else got=pass; fi
+  if [[ "$got" != "$want" ]]; then
+    error "scanner: expected $want, got $got for: $text"
+  fi
+}
+check_sample hit  'docker run --rm img bash -lc "go version"'
+check_sample hit  'docker run --rm img sh -l -c "go version"'
+check_sample hit  'docker run --rm img bash -l -c "go version"'
+check_sample hit  'docker run --rm img bash --login -c "go version"'
+check_sample hit  'docker run --rm img bash -cl "go version"'
+check_sample hit  'docker run --rm img bash -lic "go version"'
+check_sample hit  'docker run --rm img bash -c -l "go version"'
+check_sample hit  'docker run --rm img bash -o pipefail -lc "go version"'
+check_sample hit  'docker run --rm img "bash" "-l" "-c" "go version"'
+check_sample hit  'docker run --rm img /bin/sh -lc "go version"'
+check_sample hit  'DOCKER_CMD+=("$IMAGE" bash -l)'
+check_sample hit  'docker_compose exec -T php sh --login -c "$cmd"'
+check_sample hit  'docker run --rm \\\\\n  -v x:y \\\\\n  img \\\\\n  sh -l -c "cmd"'
+check_sample hit  'DOCKER_ARGS=(\n  docker run --rm img\n  bash -lc\n)'
+check_sample pass 'docker run --rm img bash -c "go version"'
+check_sample pass 'docker run --rm img sh -c "ls -l"'
+check_sample pass "docker run --rm img sh -c 'ls -l /tmp'"
+check_sample pass 'docker run --rm img bash -c -- -l'
+check_sample pass 'docker run --rm img bash -o pipefail -c "ls -la"'
+check_sample pass 'docker run --rm img zsh -lc "x"'
+check_sample pass 'bash -lc "$HOST_CMD"'
+check_sample pass 'DOCKER_ARGS=(\n  docker run --rm img\n)\nbash -lc "$HOST_CMD"'
+check_sample pass '# docker run --rm img bash -lc "x"'
+rm -rf "$sample_dir"
+
+static_hits=0
+for script in scripts/ci_*.sh; do
+  while IFS='|' read -r lineno text; do
+    [[ -z "$lineno" ]] && continue
+    error "$script:$lineno hands a login shell to docker: $text"
+    static_hits=$((static_hits+1))
+  done < <(scan_login_shells "$script")
 done
 if [[ $static_hits -eq 0 ]]; then
   note "no helper hands a login shell to docker ($(ls scripts/ci_*.sh | wc -l) scripts read)"
