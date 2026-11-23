@@ -28,13 +28,15 @@ note()  { echo "[ci_docker_shell_test] $*"; }
 error() { echo "[ci_docker_shell_test][ERROR] $*" >&2; failures=$((failures+1)); }
 
 # ---------------------------------------------------------------------------
-# 1. Static: no `bash -lc` anywhere a docker command is being assembled.
+# 1. Static: no `bash -lc` or `sh -lc` anywhere a docker command is being
+#    assembled. `sh -lc` sources /etc/profile the same way.
 #
 # The three shapes that occur, all of which were real:
 #   DOCKER_CMD+=("$IMAGE" bash -lc)
 #   docker run ... "$IMAGE" bash -lc "cmd"
 #   docker run ... "$IMAGE" \
 #     bash -lc "cmd"
+#   docker_compose ... run|exec ... "$service" sh -lc "cmd"
 # A `bash -lc` outside them is the host path, where a login shell is correct:
 # it is what picks up a user's nvm or asdf setup.
 # ---------------------------------------------------------------------------
@@ -55,9 +57,13 @@ for script in scripts/ci_*.sh; do
       # Any DOCKER-ish token, not just DOCKER_CMD. A helper assembling its
       # argv under another array name (DOCKER_RUN, DOCKER_ARGS) evaded this
       # check entirely and the test still reported OK.
-      docker_ctx = ($0 ~ /docker run/ || $0 ~ /DOCKER/)
+      # docker_compose and `docker compose` too: ci_wp_plugin_check.sh and
+      # ci_pimcore_bundle_check.sh hand their shells to `docker_compose run|exec`.
+      docker_ctx = ($0 ~ /docker run/ || $0 ~ /DOCKER/ || $0 ~ /docker(_compose|[[:space:]]+compose|[[:space:]]+exec)/)
       if (docker_ctx || cont) {
-        if ($0 ~ /bash[[:space:]]+-lc/) print NR "|" line
+        # bash or sh as a whole word, bare or quoted: /bin/sh and "sh" count,
+        # zsh and fish-sh do not. \047 is a single quote.
+        if ($0 ~ /(^|[^[:alnum:]_.-])(bash|sh)["\047]?[[:space:]]+["\047]?-lc/) print NR "|" line
       }
       # A trailing backslash carries docker context onto the next line.
       cont = (docker_ctx || cont) && ($0 ~ /\\[[:space:]]*$/)
