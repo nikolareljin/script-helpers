@@ -78,15 +78,20 @@ scan_login_shells() {
     }
     # $0 without quoted strings, backslash escapes and a trailing comment, so
     # parens in `sh -c "echo ("` or `# (note` do not move the array depth.
+    # q is the open quote: \047 single, " double, $ for $'...', where a
+    # backslash escapes the next character. # starts a comment only at the
+    # start of a word: `(# x`, not `${#a[@]}` or `foo#bar`.
     function code_only(s,    out, i, c, q, n) {
       out = ""; q = ""; n = length(s)
       for (i = 1; i <= n; i++) {
         c = substr(s, i, 1)
         if (q == "\047") { if (c == "\047") q = ""; continue }
         if (c == "\\") { i++; continue }
+        if (q == "$") { if (c == "\047") q = ""; continue }
         if (q == "\"") { if (c == "\"") q = ""; continue }
+        if (c == "$" && substr(s, i + 1, 1) == "\047") { q = "$"; i++; continue }
         if (c == "\047" || c == "\"") { q = c; continue }
-        if (c == "#" && (i == 1 || substr(s, i - 1, 1) ~ /[[:space:]]/)) break
+        if (c == "#" && (i == 1 || substr(s, i - 1, 1) ~ /[[:space:]();|&<>]/)) break
         out = out c
       }
       return out
@@ -165,6 +170,9 @@ check_sample pass 'docker run --rm img  # see (notes\nbash -lc "$HOST_CMD"'
 check_sample hit  'DOCKER_ARGS=(\n  docker run img sh -c "echo )"\n  bash -lc\n)'
 check_sample hit  'DOCKER_ARGS=( # )\n  img bash -lc\n)'
 check_sample hit  'DOCKER_ARGS=(\n  img "\\")"\n  bash -lc\n)'
+check_sample pass 'DOCKER_ARGS=(#(note\n  img)\nbash -lc "$HOST_CMD"'
+check_sample pass "DOCKER_ARGS=(img \$'a\\\\'(')\nbash -lc \"\$HOST_CMD\""
+check_sample hit  'DOCKER_ARGS=(img "${#a[@]}" foo#bar\n  bash -lc\n)'
 rm -rf "$sample_dir"
 
 static_hits=0
