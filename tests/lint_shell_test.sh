@@ -105,6 +105,8 @@ rc=0; ( cd "$repo" && bash "$lint" --lst ) >"$tmp/out" 2>&1 || rc=$?
 [[ "$rc" -eq 2 ]] || error "unknown argument returned $rc, want 2"
 rc=0; ( cd "$repo" && bash "$lint" --list extra ) >"$tmp/out" 2>&1 || rc=$?
 [[ "$rc" -eq 2 ]] || error "extra argument returned $rc, want 2"
+rc=0; ( cd "$repo" && bash "$lint" --help extra ) >"$tmp/out" 2>&1 || rc=$?
+[[ "$rc" -eq 2 ]] || error "extra argument after --help returned $rc, want 2"
 
 # 9) Run from a subdirectory, the whole tree is still checked.
 ( cd "$repo/bin" && bash "$lint" --list ) >"$tmp/out" 2>&1 || true
