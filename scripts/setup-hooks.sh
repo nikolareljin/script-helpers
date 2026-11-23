@@ -187,8 +187,21 @@ fi
 
 src_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"    # this script-helpers copy
 # trap_stack_push/pop: a stage or probe directory is removed on an interrupt too.
-# shellcheck source=/dev/null
-source "$src_root/lib/trap_stack.sh"
+# A copy of this script with no lib/ beside it (it then only points a
+# repository at the library) gets the same two calls without the traps.
+if [[ -f "$src_root/lib/trap_stack.sh" ]]; then
+  # shellcheck source=/dev/null
+  source "$src_root/lib/trap_stack.sh"
+else
+  _setup_hooks_paths=()
+  trap_stack_push() { _setup_hooks_paths+=("$1"); }
+  trap_stack_pop() {
+    local n=${#_setup_hooks_paths[@]}
+    [[ "$n" -gt 0 ]] || return 0
+    [[ "${1:-}" == --keep || -z "${_setup_hooks_paths[n-1]}" ]] || rm -rf -- "${_setup_hooks_paths[n-1]}"
+    unset "_setup_hooks_paths[$((n-1))]"
+  }
+fi
 
 ON_WINDOWS=false
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) ON_WINDOWS=true ;; esac
