@@ -88,13 +88,18 @@ scan_login_shells() {
       # check entirely and the test still reported OK.
       # docker_compose and `docker compose` too: ci_wp_plugin_check.sh and
       # ci_pimcore_bundle_check.sh hand their shells to `docker_compose run|exec`.
-      docker_ctx = ($0 ~ /docker run/ || $0 ~ /DOCKER/ || $0 ~ /docker(_compose|[[:space:]]+compose|[[:space:]]+exec)/)
-      if (docker_ctx && line ~ /\([[:space:]]*$/) in_array = 1
-      if ((docker_ctx || cont || in_array) && login_hit($0)) print NR "|" line
+      docker_ctx = ($0 ~ /docker run/ || $0 ~ /DOCKER/ || $0 ~ /docker(_compose|[[:space:]]+compose|[[:space:]]+exec|[[:space:]]+container[[:space:]]+(run|exec))/)
+      if ((docker_ctx || cont || depth > 0) && login_hit($0)) print NR "|" line
       # A trailing backslash carries docker context onto the next line, and
-      # so does an array literal opened on a docker line, until its `)`.
-      cont = (docker_ctx || cont || in_array) && ($0 ~ /\\[[:space:]]*$/)
-      if (in_array && line ~ /^\)/) in_array = 0
+      # so does an array literal opened on a docker line, until the `)` that
+      # balances it. Counting parens closes `a=(\n x)` and keeps `$(pwd)`
+      # inside the array from closing it early.
+      cont = (docker_ctx || cont || depth > 0) && ($0 ~ /\\[[:space:]]*$/)
+      if (docker_ctx || depth > 0) {
+        p = $0
+        depth += gsub(/\(/, "", p) - gsub(/\)/, "", p)
+        if (depth < 0) depth = 0
+      }
     }
   ' "$1"
 }
@@ -125,6 +130,11 @@ check_sample hit  'DOCKER_CMD+=("$IMAGE" bash -l)'
 check_sample hit  'docker_compose exec -T php sh --login -c "$cmd"'
 check_sample hit  'docker run --rm \\\\\n  -v x:y \\\\\n  img \\\\\n  sh -l -c "cmd"'
 check_sample hit  'DOCKER_ARGS=(\n  docker run --rm img\n  bash -lc\n)'
+check_sample hit  'DOCKER_ARGS=(docker run --rm\n  img bash -lc\n)'
+check_sample hit  'DOCKER_ARGS=(\n  docker run -v "$(pwd):/w"\n  img bash -lc\n)'
+check_sample hit  'docker container run --rm img bash -lc "x"'
+check_sample pass 'DOCKER_ARGS=(\n  docker run --rm img)\nbash -lc "$HOST_CMD"'
+check_sample pass 'out=$(docker run --rm img bash -c "x")\nbash -lc "$HOST_CMD"'
 check_sample pass 'docker run --rm img bash -c "go version"'
 check_sample pass 'docker run --rm img sh -c "ls -l"'
 check_sample pass "docker run --rm img sh -c 'ls -l /tmp'"
