@@ -156,17 +156,22 @@ else
   error "ignored TERM: rc=$rc left:$(left) out='$(cat "$work/trap.out" 2>/dev/null)'"
 fi
 
+# run <code>: the code as a script of its own, with the module loaded.
+run() {
+  printf '%s\n' 'set -euo pipefail' 'source "$ROOT_DIR/lib/trap_stack.sh"' "$1" >"$work/case.sh"
+  bash "$work/case.sh" 2>&1
+}
+
 # EXIT: an exit inside the nested function, and a set -e failure, remove both
 # directories; the caller's EXIT trap sees the real status.
 for how in "exit 7" "false"; do
   [[ "$how" == false ]] && want=1 || want=7
   reset
   rc=0
-  bash -c 'set -euo pipefail; source "$ROOT_DIR/lib/trap_stack.sh"
-    trap '\''echo "exit=$?" >"$WORK/exit.out"'\'' EXIT
+  HOW="$how" run 'trap '\''echo "exit=$?" >"$WORK/exit.out"'\'' EXIT
     mkdir "$WORK/d1"; trap_stack_push "$WORK/d1"
-    f() { mkdir "$WORK/d2"; trap_stack_push "$WORK/d2"; '"$how"'; trap_stack_pop; }
-    f; trap_stack_pop' >/dev/null 2>&1 || rc=$?
+    f() { mkdir "$WORK/d2"; trap_stack_push "$WORK/d2"; $HOW; trap_stack_pop; }
+    f; trap_stack_pop' >/dev/null || rc=$?
   if [[ "$rc" -eq "$want" && "$(left)" == " none" && "$(cat "$work/exit.out" 2>/dev/null)" == "exit=$want" ]]; then
     note "EXIT after '$how': both directories removed, the caller's EXIT trap saw $want"
   else
@@ -175,13 +180,10 @@ for how in "exit 7" "false"; do
 done
 # The same with no trap of the caller's.
 reset; rc=0
-bash -c 'set -euo pipefail; source "$ROOT_DIR/lib/trap_stack.sh"
-  mkdir "$WORK/d1"; trap_stack_push "$WORK/d1"; mkdir "$WORK/d2"; trap_stack_push "$WORK/d2"; exit 5' >/dev/null 2>&1 || rc=$?
+run 'mkdir "$WORK/d1"; trap_stack_push "$WORK/d1"; mkdir "$WORK/d2"; trap_stack_push "$WORK/d2"; exit 5' >/dev/null || rc=$?
 [[ "$rc" -eq 5 && "$(left)" == " none" ]] && note "EXIT with no caller trap: removed, exit 5" || error "EXIT no caller trap: rc=$rc left:$(left)"
 
 # ---------------------------------------------------------------- traps put back
-run() { bash -c 'set -euo pipefail; source "$ROOT_DIR/lib/trap_stack.sh"; '"$1" 2>&1; }
-
 got="$(run 'trap "echo x" INT; trap "" TERM; trap "echo bye >/dev/null" EXIT
   trap_stack_push "$WORK/d1"; trap_stack_push "$WORK/d2"; trap_stack_pop; trap_stack_pop
   trap -p EXIT HUP INT TERM')"
