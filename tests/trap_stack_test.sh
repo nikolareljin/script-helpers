@@ -259,7 +259,8 @@ fi
 # ---------------------------------------------------------------- the library's own temp dirs
 # fetch_verified_gpg_key makes a directory and calls fetch_to_file, which
 # registers the partial file: two registrations, one inside the other.
-# _deps_install_node_linux adds a third around both.
+# _deps_install_node_linux adds a third around both. gitleaks_install makes
+# its directory in the cache.
 stubs="$work/stubs"; mkdir -p "$stubs" "$work/tmp"
 # curl: writes a partial file, then waits to be released and fails.
 cat >"$stubs/curl" <<'EOF'
@@ -289,11 +290,18 @@ source "$ROOT_DIR/helpers.sh"
 shlib_import logging os deps
 _deps_install_node_linux 24
 EOF
-tmp_left() { find "$work/tmp" -mindepth 1 2>/dev/null | sed "s|^$work/tmp/||" | tr '\n' ' '; }
-for script in gpg_key deps_node; do
+cat >"$work/gitleaks.sh" <<'EOF'
+set -euo pipefail
+source "$ROOT_DIR/helpers.sh"
+shlib_import logging foxguard gitleaks
+gitleaks_install
+EOF
+# What is left under TMPDIR, the cache's own directories aside.
+tmp_left() { find "$work/tmp" -mindepth 1 2>/dev/null | sed "s|^$work/tmp/||" | grep -v -E '^cache(/script-helpers(/gitleaks(/[^/]*)?)?)?$' | tr '\n' ' '; }
+for script in gpg_key deps_node gitleaks; do
   for sig in INT TERM; do
     reset; rm -rf -- "$work/tmp"; mkdir -p "$work/tmp"
-    PATH="$stubs:$PATH" TMPDIR="$work/tmp" start bash "$work/$script.sh"
+    PATH="$stubs:$PATH" TMPDIR="$work/tmp" XDG_CACHE_HOME="$work/tmp/cache" start bash "$work/$script.sh"
     wait_for "$work/ready" || error "$script $sig: the download never started: $(cat "$work/err" 2>/dev/null)"
     [[ -n "$(tmp_left)" ]] || error "$script $sig: no temp directory to remove; the case tests nothing"
     finish "$sig"
