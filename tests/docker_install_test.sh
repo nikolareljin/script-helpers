@@ -107,7 +107,7 @@ else
   error "dry-run produced no planned commands on a host without Docker"
 fi
 
-# 7) the macOS and Windows installer downloads leave no temp dir behind:
+# 9) the macOS and Windows installer downloads leave no temp dir behind:
 #    after a dry run, after a failed download, and (macOS) after a failed attach.
 tdir="$(mktemp -d)"
 for case in mac-dry mac-fail mac-attach win-fail; do
@@ -131,9 +131,9 @@ for case in mac-dry mac-fail mac-attach win-fail; do
 done
 rm -rf "$tdir"
 
-# 8) the dmg mount point: detached before it is removed, on a failed install
-#    and on TERM; never removed while still mounted. hdiutil is a stub that
-#    logs each call and whether the mount dir still existed at that moment.
+# 10) the dmg mount point: detached before it is removed, on a failed install
+#     and on TERM; never removed while still mounted. hdiutil is a stub that
+#     logs each call and whether the mount dir still existed at that moment.
 tdir="$(mktemp -d)"
 for case in mac-install-fail mac-term mac-stuck; do
   rm -rf "${tdir:?}"/*; mkdir "$tdir/t"; : >"$tdir/log"
