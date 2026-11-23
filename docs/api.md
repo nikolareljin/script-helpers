@@ -26,6 +26,7 @@ This index lists all modules and their functions. See the linked module pages fo
 - [clipboard](./modules/clipboard.md)
 - [ci_stack](./modules/ci_stack.md)
 - [traps](./modules/traps.md)
+- [trap_stack](./modules/trap_stack.md)
 - [ollama](./modules/ollama.md)
 - [ollama_endpoint](./modules/ollama_endpoint.md)
 - [ollama_install](./modules/ollama_install.md)

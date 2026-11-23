@@ -16,7 +16,7 @@ $ port_next_free 8000
 
 Reusable Bash helpers extracted from projects in this workspace. Source the loader, import only the modules you need, and call the functions in your own scripts.
 
-47 Bash modules and 32 PowerShell mirrors. The Bash modules run unchanged on the bash 3.2 macOS ships.
+48 Bash modules and 32 PowerShell mirrors. The Bash modules run unchanged on the bash 3.2 macOS ships.
 
 - [Installation](installation.md)
 - [Adopt script-helpers in a repository](adopt.md): the submodule, hooks, scanners and tests, step by step
@@ -73,6 +73,7 @@ Modules overview
 - hosts - /etc/hosts helpers.
 - clipboard - copy text to clipboard (Linux/macOS).
 - traps - simple EXIT/INT/TERM traps with error reporting.
+- trap_stack: temp files and directories removed on exit or interrupt, registered from nested functions.
 - ollama - install CLI, prepare models index, select/pull/run models.
 - ollama_endpoint: which models a project needs, what an Ollama has, and a disk and memory check before anything is pulled.
 - ollama_install: Ollama itself, from the pinned release checked against its SHA-256 (Homebrew on macOS).

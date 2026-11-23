@@ -21,10 +21,12 @@ redirect options.
   reference (`/x`, `x`, `//host/x`) resolved over `https`, at most 5. `FETCH_MAX_TIME` is one deadline for all the hops (exit 124 when it
   passes); without `timeout` or `gtimeout`, `wget` has only its per-read `-T`
   and the deadline is checked between hops.
-- A failed download deletes the output file, and so does an INT or TERM during
-  the download: a partial file is never left for the caller. The caller's own
-  INT and TERM traps are kept and run after the cleanup; an ignored signal stays
-  ignored. Callers still check the SHA-256 of the file they get.
+- A failed download deletes the output file, and so does an exit, HUP, INT or
+  TERM during the download: a partial file is never left for the caller. The
+  temp directory of `fetch_verified_gpg_key` goes the same way. The caller's own
+  traps are kept and run after the cleanup; an ignored signal stays ignored
+  (see [trap_stack](./trap_stack.md)). Callers still check the SHA-256 of the
+  file they get.
 
 A failure prints one line on stderr, for example:
 
