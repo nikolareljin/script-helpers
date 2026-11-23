@@ -76,6 +76,21 @@ scan_login_shells() {
       }
       return 0
     }
+    # $0 without quoted strings, backslash escapes and a trailing comment, so
+    # parens in `sh -c "echo ("` or `# (note` do not move the array depth.
+    function code_only(s,    out, i, c, q, n) {
+      out = ""; q = ""; n = length(s)
+      for (i = 1; i <= n; i++) {
+        c = substr(s, i, 1)
+        if (q == "\047") { if (c == "\047") q = ""; continue }
+        if (c == "\\") { i++; continue }
+        if (q == "\"") { if (c == "\"") q = ""; continue }
+        if (c == "\047" || c == "\"") { q = c; continue }
+        if (c == "#" && (i == 1 || substr(s, i - 1, 1) ~ /[[:space:]]/)) break
+        out = out c
+      }
+      return out
+    }
     {
       line = $0
       sub(/^[[:space:]]*/, "", line)
@@ -96,7 +111,7 @@ scan_login_shells() {
       # inside the array from closing it early.
       cont = (docker_ctx || cont || depth > 0) && ($0 ~ /\\[[:space:]]*$/)
       if (docker_ctx || depth > 0) {
-        p = $0
+        p = code_only($0)
         depth += gsub(/\(/, "", p) - gsub(/\)/, "", p)
         if (depth < 0) depth = 0
       }
@@ -144,6 +159,12 @@ check_sample pass 'docker run --rm img zsh -lc "x"'
 check_sample pass 'bash -lc "$HOST_CMD"'
 check_sample pass 'DOCKER_ARGS=(\n  docker run --rm img\n)\nbash -lc "$HOST_CMD"'
 check_sample pass '# docker run --rm img bash -lc "x"'
+check_sample pass 'docker run --rm img sh -c "echo ("\nbash -lc "$HOST_CMD"'
+check_sample pass "docker run --rm img sh -c 'echo ('\nbash -lc \"\$HOST_CMD\""
+check_sample pass 'docker run --rm img  # see (notes\nbash -lc "$HOST_CMD"'
+check_sample hit  'DOCKER_ARGS=(\n  docker run img sh -c "echo )"\n  bash -lc\n)'
+check_sample hit  'DOCKER_ARGS=( # )\n  img bash -lc\n)'
+check_sample hit  'DOCKER_ARGS=(\n  img "\\")"\n  bash -lc\n)'
 rm -rf "$sample_dir"
 
 static_hits=0
