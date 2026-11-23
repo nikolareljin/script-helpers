@@ -65,8 +65,12 @@ scan_login_shells() {
           if (t == "--login") return 1
           if (t == "--") break
           if (t ~ /^--[[:alnum:]-]+$/) continue
-          if (t ~ /^[-+][oO]$/) { skip = 1; continue }
-          if (t ~ /^[-+][[:alpha:]]+$/) { if (t ~ /^-.*l/) return 1; continue }
+          if (t ~ /^[-+][[:alpha:]]+$/) {
+            if (t ~ /^-.*l/) return 1
+            # -o and -O take an argument, also at the end of a cluster: -eo pipefail.
+            if (t ~ /[oO]$/) skip = 1
+            continue
+          }
           break
         }
       }
@@ -114,6 +118,7 @@ check_sample hit  'docker run --rm img bash -cl "go version"'
 check_sample hit  'docker run --rm img bash -lic "go version"'
 check_sample hit  'docker run --rm img bash -c -l "go version"'
 check_sample hit  'docker run --rm img bash -o pipefail -lc "go version"'
+check_sample hit  'docker run --rm img bash -eo pipefail -lc "go version"'
 check_sample hit  'docker run --rm img "bash" "-l" "-c" "go version"'
 check_sample hit  'docker run --rm img /bin/sh -lc "go version"'
 check_sample hit  'DOCKER_CMD+=("$IMAGE" bash -l)'
