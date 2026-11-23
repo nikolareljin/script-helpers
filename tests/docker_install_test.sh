@@ -152,8 +152,10 @@ for case in mac-install-fail mac-term mac-stuck; do
       return 0
     }
     _shlib_docker_is_mounted() { [[ "$case" == mac-stuck ]]; }
+    # "$BASH" -c, not sh -c: /bin/sh on macOS is a stub that starts another
+    # shell, whose $PPID need not be this subshell. bash 3.2 has no BASHPID.
     case "$case" in
-      mac-term) _shlib_docker_sudo() { sh -c 'kill -TERM $PPID'; sleep 1; return 1; } ;;
+      mac-term) _shlib_docker_sudo() { "$BASH" -c 'kill -TERM $PPID'; sleep 1; return 1; } ;;
       *)        _shlib_docker_sudo() { return 1; } ;;
     esac
     _shlib_docker_install_mac
