@@ -103,6 +103,13 @@ rc=0; SHELLCHECK_SEVERITY=bogus run_lint || rc=$?
 # 8) An unknown argument and a directory outside git are refused, not passed.
 rc=0; ( cd "$repo" && bash "$lint" --lst ) >"$tmp/out" 2>&1 || rc=$?
 [[ "$rc" -eq 2 ]] || error "unknown argument returned $rc, want 2"
+rc=0; ( cd "$repo" && bash "$lint" --list extra ) >"$tmp/out" 2>&1 || rc=$?
+[[ "$rc" -eq 2 ]] || error "extra argument returned $rc, want 2"
+
+# 9) Run from a subdirectory, the whole tree is still checked.
+( cd "$repo/bin" && bash "$lint" --list ) >"$tmp/out" 2>&1 || true
+grep -qx 'warn.sh' "$tmp/out" || error "run from bin/ did not list top-level warn.sh: $(cat "$tmp/out")"
+
 mkdir -p "$tmp/nogit"
 rc=0; ( cd "$tmp/nogit" && GIT_CEILING_DIRECTORIES="$tmp" bash "$lint" ) >"$tmp/out" 2>&1 || rc=$?
 [[ "$rc" -eq 2 ]] || error "outside a work tree returned $rc, want 2"

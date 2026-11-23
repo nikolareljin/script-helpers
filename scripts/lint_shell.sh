@@ -17,6 +17,9 @@ set -euo pipefail
 
 case "${1:-}" in -h|--help) sed -n '2,/^set -/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;; esac
 
+if [[ $# -gt 1 ]]; then
+  echo "lint_shell: expected at most one argument, got $# (see --help)" >&2; exit 2
+fi
 case "${1:-}" in
   ""|--list) ;;
   *) echo "lint_shell: unknown argument '$1' (see --help)" >&2; exit 2 ;;
@@ -28,6 +31,8 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "lint_shell: not inside a git work tree." >&2
   exit 2
 fi
+# git ls-files lists only the current directory, so run from the top level.
+cd "$(git rev-parse --show-toplevel)"
 
 severity="${SHELLCHECK_SEVERITY:-warning}"
 case "$severity" in
