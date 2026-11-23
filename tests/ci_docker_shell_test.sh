@@ -18,6 +18,11 @@
 # audit grepped for the DOCKER_CMD array shape and missed them. The dynamic one
 # runs each helper against a docker stand-in and reads the argv, because a
 # helper can build its argument list in a way no grep predicts.
+#
+# Static limits, left to the dynamic check: a login shell appended to an array
+# whose name is not DOCKER-ish on a later line (`CMD=(docker run img)` then
+# `CMD+=(bash -lc x)`), a command built in a variable, and a heredoc inside a
+# docker array literal (its parens and quotes are counted as code).
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
