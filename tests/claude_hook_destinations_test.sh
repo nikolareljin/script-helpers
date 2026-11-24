@@ -373,27 +373,50 @@ else
   error "refusal output: rc=$rc stdout=$(cat "$tmp/stdout")"
 fi
 
-# Latency: a hit against 5,000 names. A timeout lets the command run, so the
-# hook has to be well inside its 60 s; the old per-name grep took 14 s.
-big="$tmp/big.tsv"
-{ printf '# generated: 2026-10-11 source: test\n'; printf '# visibility\tnamespace\tname\tcode\tflags\n'
-  awk 'BEGIN { for (i = 1; i <= 5000; i++) printf "private\texample\tzzqfixture%04d\tR-%04d\t\n", i, i }'; } > "$big"
-now_ms() { "$PY" -c 'import time; print(int(time.time() * 1000))'; }
-t0="$(now_ms)"
-hook 2 "a hit against 5,000 names is refused" "$pub" "gh pr create --body 'see zzqfixture4999'" "$big"
-t1="$(now_ms)"
-ms=$((t1 - t0))
-# Git Bash on Windows forks slowly (about 2 s for this hit on a CI runner,
-# 0.25 s on Linux), so its bound is wider; both are far inside the timeout.
-limit=2000
-case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) limit=5000 ;; esac
-[[ "$ms" -lt "$limit" ]] && ok "the hit took $ms ms (< $limit)" || error "the hit took $ms ms, want < $limit"
-# Out of scope is decided before any scan: it must stay cheap on every call.
-t0="$(now_ms)"
-hook 0 "out of scope, against 5,000 names" "$other" "gh pr create --body 'see zzqfixture4999'" "$big"
-t1="$(now_ms)"
-ms=$((t1 - t0))
-[[ "$ms" -lt "$limit" ]] && ok "out of scope took $ms ms (< $limit)" || error "out of scope took $ms ms, want < $limit"
+# Cost: a hit against 5,000 names. A timeout lets the command run, so the hook
+# has to be well inside its 60 s; the old per-name grep took 14 s. The cost is
+# counted, not timed, so CPU load cannot fail it: every shell command the hook
+# and its child scripts run is traced, and the count must not grow with the
+# list. A per-name loop adds thousands of commands for 5,000 names.
+big="$tmp/big.tsv"; small="$tmp/small.tsv"
+gen_list() {
+  printf '# generated: 2026-10-11 source: test\n'; printf '# visibility\tnamespace\tname\tcode\tflags\n'
+  awk -v n="$1" 'BEGIN { for (i = 1; i <= n; i++) printf "private\texample\tzzqfixture%04d\tR-%04d\t\n", 5000 - n + i, i }'
+}
+gen_list 5000 > "$big"; gen_list 10 > "$small"
+# trace_lines <cwd> <command> <names list>: shell commands run, trace in $tmp/trace
+trace_lines() {
+  "$PY" -c 'import json,sys; print(json.dumps({"tool_name":"Bash","cwd":sys.argv[2],"tool_input":{"command":sys.argv[1]}}))' "$2" "$1" > "$tmp/payload"
+  ( cd "$1" && PATH="$tmp/bin:$PATH" PRIVATE_NAMES_FILE="$3" SENSITIVE_MACHINE_IDS_FILE="$tmp/no-machine-ids" \
+      SENSITIVE_TERMS_FILE="$tmp/no-terms" \
+      env BASH_XTRACEFD=9 SHELLOPTS=xtrace PS4="+ " bash "$HOOK" < "$tmp/payload" > /dev/null 2>&1 9> "$tmp/trace" )
+  wc -l < "$tmp/trace" | tr -d ' '
+}
+hit="gh pr create --body 'see zzqfixture4999'"
+hook 2 "a hit against 5,000 names is refused" "$pub" "$hit" "$big"
+hook 0 "out of scope, against 5,000 names" "$other" "$hit" "$big"
+# BASH_XTRACEFD needs bash 4.1; an older bash traces to the hook's stderr.
+env BASH_XTRACEFD=9 SHELLOPTS=xtrace bash -c : 9> "$tmp/trace" 2>/dev/null
+if [[ ! -s "$tmp/trace" ]]; then
+  note "SKIP: command counts need bash >= 4.1 (BASH_XTRACEFD)"
+else
+  hit_small="$(trace_lines "$pub" "$hit" "$small")"
+  hit_big="$(trace_lines "$pub" "$hit" "$big")"
+  if [[ "$hit_small" -gt 0 && "$hit_big" == "$hit_small" ]]; then
+    ok "the hit runs $hit_big shell commands against 5,000 names and 10"
+  else
+    error "the hit runs $hit_big shell commands against 5,000 names, $hit_small against 10: the scan loops per name"
+  fi
+  # Out of scope is decided before any scan: it must stay cheap on every call.
+  oos_small="$(trace_lines "$other" "$hit" "$small")"
+  oos_big="$(trace_lines "$other" "$hit" "$big")"
+  if [[ "$oos_small" -gt 0 && "$oos_big" == "$oos_small" ]] \
+     && ! grep -qE '^[+]+ (private_name_candidate |[^=]*check_private_names[.]sh)' "$tmp/trace"; then
+    ok "out of scope exits before the name list is read ($oos_big shell commands)"
+  else
+    error "out of scope ran $oos_big shell commands against 5,000 names, $oos_small against 10, or reached the name scan"
+  fi
+fi
 
 if [[ $failures -gt 0 ]]; then
   note "$failures failure(s)"
