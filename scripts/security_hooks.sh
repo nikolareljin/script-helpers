@@ -14,6 +14,10 @@
 #                                medium or low. With git config
 #                                security.foxguardBlock also set, the stricter
 #                                of the two applies. Neither: high.
+#   SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE  1: a finding in a file the
+#                                base copy of could not be scanned warns
+#                                instead of blocking, for this push only.
+#                                Any other value: it blocks.
 # EXIT_CODES:
 #   Sourced: no output, no exit. Each sec_* function returns 0 to let the
 #   commit or push continue and 1 to refuse; sec_find returns 127 when a
@@ -808,7 +812,7 @@ sec_foxguard_block() (
   owner="${BASHPID-$$}"
   trap 'if [[ ${BASHPID-$$} == "$owner" ]]; then rm -rf -- "$work"; fi' EXIT
   trap 'exit 1' HUP INT TERM
-  n=0; blocked=0; warned=0; nfiles=0
+  n=0; blocked=0; warned=0; unscanned_block=0; nfiles=0
   while read -r lref lsha rref rsha; do
     [[ -n "${lsha:-}" ]] || continue
     [[ "$lsha" =~ ^0+$ ]] && continue
@@ -898,7 +902,7 @@ sec_foxguard_block() (
       if sec_foxguard_scan "$cmd" "$d/config" "$d/base$i" "$d/base$i.json" "$d/files"; then
         set -- "$@" --base "$d/base$i.json"
         # A base copy foxguard could not read cannot say what was already
-        # there: its findings at the tip are warnings, once.
+        # there: its findings at the tip block, unless the operator opts in.
         if [[ -s "$d/base$i.json.skipped" ]]; then
           sed 's/^/[pre-push] foxguard: base: /' "$d/base$i.json.skipped" >&2
           set -- "$@" --base-unscanned "$d/base$i.json.skipped"
@@ -908,6 +912,7 @@ sec_foxguard_block() (
       fi
     done < "$d/bases"
     # Exit 3 is a block; 0 nothing blocks; anything else (a crash too) refuses.
+    if [[ "${SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE:-}" == 1 ]]; then set -- "$@" --allow-unscanned; fi
     rc=0
     "$py" -I "$helper" --level "$level" --tip "$d/tip.json" ${@+"$@"} < /dev/null > "$d/verdict" || rc=$?
     case "$rc" in 0|3) ;; *) sec_foxguard_refuse "$level" "the foxguard reports could not be compared"; exit 1 ;; esac
@@ -917,6 +922,7 @@ sec_foxguard_block() (
     while IFS=$'\t' read -r verdict sev loc rule why desc; do
       if [[ "$verdict" == BLOCK ]]; then
         blocked=$((blocked + 1))
+        case "$why" in "the base copy could not be scanned"*) unscanned_block=$((unscanned_block + 1)) ;; esac
         printf '[pre-push] BLOCK (foxguard): %s %s %s (%s): %s\n' "$sev" "$loc" "$rule" "$why" "$desc" >&2
       else
         warned=$((warned + 1))
@@ -927,11 +933,14 @@ sec_foxguard_block() (
   if [[ "$blocked" -gt 0 ]]; then
     echo "Foxguard check failed: $blocked new finding(s) at or above $level." >&2
     sec_loud "foxguard: $blocked new finding(s) at or above $level in the pushed files (above); push refused."
+    if [[ "$unscanned_block" -gt 0 ]]; then
+      echo "[pre-push] A file whose remote copy foxguard could not scan has findings the base cannot vouch for. Review that file; if they are not new, push again with SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1." >&2
+    fi
     echo "[pre-push] Fix them in the commit that added them, or change the level: git config security.foxguardBlock critical|off (see docs/security-gates.md)." >&2
     exit 1
   fi
   if [[ "$warned" -gt 0 ]]; then
-    sec_loud "foxguard: $warned finding(s) below $level, already in the base, or in a file the base could not scan, in $nfiles changed file(s) (above). They do not block the push."
+    sec_loud "foxguard: $warned finding(s) below $level, already in the base, or allowed in a file the base could not scan, in $nfiles changed file(s) (above). They do not block the push."
   fi
   exit 0
 )

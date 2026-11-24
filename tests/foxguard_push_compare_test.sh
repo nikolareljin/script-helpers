@@ -40,21 +40,25 @@ run() {  # <description> <want rc> <want verdict prefix or -> args...
   ok "$desc"
 }
 
-run "a file the only base skipped warns" 0 WARN --base "$tmp/clean.json" --base-unscanned "$tmp/skip"
-run "a file over 1 MB at the base warns" 0 WARN --base "$tmp/clean.json" --base-unscanned "$tmp/skip_big"
-run "a skip of another file does not hide it" 3 BLOCK --base "$tmp/clean.json" --base-unscanned "$tmp/skip_other"
-run "no skip list: a new finding blocks" 3 BLOCK --base "$tmp/clean.json"
-run "a second base that scanned the file still blocks it" 3 BLOCK \
+run "a file the only base skipped blocks without the override" 3 BLOCK --base "$tmp/clean.json" --base-unscanned "$tmp/skip"
+grep -qF "push with SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1" "$tmp/out" && ok "the block names the override" || error "the block does not name the override"
+run "with --allow-unscanned it warns" 0 WARN --allow-unscanned --base "$tmp/clean.json" --base-unscanned "$tmp/skip"
+grep -qF "allowed by SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1" "$tmp/out" && ok "the warning names the override" || error "the warning does not name the override"
+run "a file over 1 MB at the base warns with --allow-unscanned" 0 WARN --allow-unscanned --base "$tmp/clean.json" --base-unscanned "$tmp/skip_big"
+run "with --allow-unscanned, a skip of another file does not hide it" 3 BLOCK --allow-unscanned --base "$tmp/clean.json" --base-unscanned "$tmp/skip_other"
+run "no skip list: a new finding blocks" 3 BLOCK --allow-unscanned --base "$tmp/clean.json"
+run "a second base that scanned the file still blocks it" 3 BLOCK --allow-unscanned \
   --base "$tmp/clean.json" --base-unscanned "$tmp/skip" --base "$tmp/clean.json"
-run "the same, with the readable base first" 3 BLOCK \
+run "the same, with the readable base first" 3 BLOCK --allow-unscanned \
   --base "$tmp/clean.json" --base "$tmp/clean.json" --base-unscanned "$tmp/skip"
-run "every base skipped it: it warns" 0 WARN \
+run "every base skipped it: it warns with --allow-unscanned" 0 WARN --allow-unscanned \
   --base "$tmp/clean.json" --base-unscanned "$tmp/skip" --base "$tmp/clean.json" --base-unscanned "$tmp/skip_big"
-run "a skip list with no base refuses" 2 - --base-unscanned "$tmp/skip"
-run "a missing skip list refuses" 2 - --base "$tmp/clean.json" --base-unscanned "$tmp/missing"
-run "a malformed skip list refuses" 2 - --base "$tmp/clean.json" --base-unscanned "$tmp/bad"
+run "below the level it warns" 0 WARN --level critical --base "$tmp/clean.json" --base-unscanned "$tmp/skip"
+run "a skip list with no base refuses" 2 - --allow-unscanned --base-unscanned "$tmp/skip"
+run "a missing skip list refuses, even with --allow-unscanned" 2 - --allow-unscanned --base "$tmp/clean.json" --base-unscanned "$tmp/missing"
+run "a malformed skip list refuses, even with --allow-unscanned" 2 - --allow-unscanned --base "$tmp/clean.json" --base-unscanned "$tmp/bad"
 : > "$tmp/empty"
-run "an empty skip list hides nothing" 3 BLOCK --base "$tmp/clean.json" --base-unscanned "$tmp/empty"
+run "an empty skip list hides nothing" 3 BLOCK --allow-unscanned --base "$tmp/clean.json" --base-unscanned "$tmp/empty"
 
 if [[ "$failures" -gt 0 ]]; then note "$failures failure(s)"; exit 1; fi
 note "all passed"

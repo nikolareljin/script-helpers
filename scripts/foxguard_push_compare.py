@@ -2,16 +2,18 @@
 
 Usage: foxguard_push_compare.py --level <critical|high|medium|low>
        --tip <tip.json> [--base <base.json> ...] [--base-unscanned <list> ...]
+       [--allow-unscanned]
 
 Reads foxguard JSON reports (`foxguard --format json`), each a file or a
 directory of them. A tip finding is new
 when its rule, file and whitespace-normalized snippet occur more often at the
 tip than in every base report, so a finding that only moved lines is not new.
 --base-unscanned names the files the --base before it skipped, as foxguard
-printed them ("warning: skipping <file> (<reason>)"). A tip finding in a file
-every base skipped is a warning: no base can say what was already there, and
-once the push lands it is compared as usual. A base that scanned the file
-still judges it.
+printed them ("warning: skipping <file> (<reason>)"). No base can say what
+was already in a file every base skipped, so a tip finding there at or above
+--level blocks and names the reason; with --allow-unscanned (the operator
+reviewed the file) it is a warning instead. A base that scanned the file
+still judges it, and once the push lands it is compared as usual.
 Prints one tab-separated line per tip finding:
     BLOCK|WARN <severity> <file>:<line> <rule> <why> <description>
 Exit 0: nothing blocks. 3: a new finding at or above --level. 2: a report
@@ -26,6 +28,7 @@ from collections import Counter
 from pathlib import Path
 
 RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+ALLOW = "SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE"
 SKIPPED = re.compile(r"^warning: skipping (.+) \(([^()]*)\)$")
 
 
@@ -94,6 +97,7 @@ def main():
     # before it.
     parser.add_argument("--base", dest="reports", action="append", type=lambda v: ("base", v), default=[])
     parser.add_argument("--base-unscanned", dest="reports", action="append", type=lambda v: ("skip", v))
+    parser.add_argument("--allow-unscanned", action="store_true")
     args = parser.parse_args()
     try:
         tip = load(args.tip)
@@ -130,8 +134,13 @@ def main():
         rank = RANK.get(severity, RANK["critical"])
         if seen[k] <= known[k]:
             verdict, why = "WARN", "already in the base"
-        elif k[1] in unscanned:
-            verdict, why = "WARN", f"the base copy could not be scanned ({unscanned[k[1]]})"
+        elif k[1] in unscanned and rank >= threshold:
+            reason = f"the base copy could not be scanned ({unscanned[k[1]]})"
+            if args.allow_unscanned:
+                verdict, why = "WARN", f"{reason}; allowed by {ALLOW}=1"
+            else:
+                verdict, why = "BLOCK", f"{reason}; review the file, then push with {ALLOW}=1"
+                blocked = True
         elif rank >= threshold:
             verdict, why = "BLOCK", "new"
             blocked = True

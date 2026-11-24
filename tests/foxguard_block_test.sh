@@ -303,23 +303,28 @@ def load(x):
   if grep -qF "Install the pinned foxguard" "$tmp/out"; then error "a skip must not advise installing foxguard"; else ok "a skip does not advise installing foxguard"; fi
   has "it says how to fix a skip" "so foxguard can read it"
   expect "and only warns at off" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
-  # Fixed so foxguard can read it: the base copy was never scanned, so what
-  # it finds there is a warning, once. A new file still blocks.
+  # Fixed so foxguard can read it: the base copy was never scanned, so it
+  # cannot vouch for what the tip finds there. That blocks unless the
+  # operator opts in for the push; a new finding elsewhere blocks anyway.
   setup; commit loader.py "def f(:
     pass
 $high_code"; publish
   commit loader.py "$high_code"
-  expect "a file the base could not parse, made readable, does not block" 0 "$(check "$F")"
-  has "its finding is a warning with the reason" "WARNING (foxguard): high loader.py:3 py/no-yaml-load (the base copy could not be scanned (parse error))"
+  expect "a finding in a file the base could not parse blocks" 1 "$(check "$F")"
+  has "it names the reason and the override" "BLOCK (foxguard): high loader.py:3 py/no-yaml-load (the base copy could not be scanned (parse error); review the file, then push with SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
   has "and the base skip is named" "foxguard: base: warning: skipping loader.py (parse error)"
+  has "the refusal says how to re-run" "push again with SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1"
+  expect "any value but 1 still blocks" 1 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=yes)"
+  expect "with the override it passes" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
+  has "as a warning that names the override" "WARNING (foxguard): high loader.py:3 py/no-yaml-load (the base copy could not be scanned (parse error); allowed by SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
   commit other.py "$high_code"
-  expect "a new finding in another file still blocks" 1 "$(check "$F")"
+  expect "with the override, a new finding in another file still blocks" 1 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
   has "the other file blocks" "BLOCK (foxguard): high other.py:3 py/no-yaml-load (new)"
   publish
   commit loader.py "$high_code
 def again(y):
     return yaml.load(y)"
-  expect "once the readable copy is on the remote, a new finding blocks" 1 "$(check "$F")"
+  expect "once the readable copy is on the remote, a new finding blocks even with the override" 1 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
   # A file of no language foxguard reads is not a skip.
   setup; commit notes.txt "plain text"
   expect "an unsupported file type passes at high" 0 "$(check "$F")"
