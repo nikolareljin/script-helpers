@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Changed
+
+- **foxguard pin 0.14.1 -> 0.14.2.** `CI_DEFAULT_FOXGUARD_VERSION` and its five SHA-256 values in `lib/ci_defaults.sh`, copied from the release's `checksums.txt`; the asset digests and a local download agree. `ci_security.sh` now treats a foxguard older than 0.14.2 on `PATH` as out of date. The test stubs that stand for the pinned version report 0.14.2.
+
 ## 2026-11-24 — v0.67.3
 
 ### Fixed
