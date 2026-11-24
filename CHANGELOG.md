@@ -2,7 +2,7 @@
 
 ### Fixed
 
-- **The foxguard push gate no longer blocks old findings in a file the base could not parse.** When the copy on the remote was skipped (a parse error, or over 1 MB), it had no findings to compare with, so every finding in the newly readable file counted as new and the push was refused, although the push added none of them: fixing a file so foxguard can read it made it unpushable. Those findings are now warnings that name the reason, and the base skip is printed; once the readable copy lands, the file is compared as usual. `foxguard_push_compare.py` takes `--base-unscanned <list>` and refuses a list it cannot read. Test: `tests/foxguard_block_test.sh` (fails without the fix).
+- **The foxguard push gate no longer blocks old findings in a file the base could not parse.** When the copy on the remote was skipped (a parse error, or over 1 MB), it had no findings to compare with, so every finding in the newly readable file counted as new and the push was refused, although the push added none of them: fixing a file so foxguard can read it made it unpushable. Those findings are now warnings that name the reason, and the base skip is printed; with several bases, only when every base skipped the file. Once the readable copy lands, the file is compared as usual. `foxguard_push_compare.py` takes `--base-unscanned <list>` after the `--base` it belongs to, and refuses a list it cannot read or one with no `--base` before it. Tests: `tests/foxguard_block_test.sh` and `tests/foxguard_push_compare_test.sh` (both fail without the fix).
 
 ## 2026-11-24 — v0.67.3
 

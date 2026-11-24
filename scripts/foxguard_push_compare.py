@@ -7,10 +7,11 @@ Reads foxguard JSON reports (`foxguard --format json`), each a file or a
 directory of them. A tip finding is new
 when its rule, file and whitespace-normalized snippet occur more often at the
 tip than in every base report, so a finding that only moved lines is not new.
---base-unscanned names the files a base scan skipped, as foxguard printed
-them ("warning: skipping <file> (<reason>)"). That base cannot say what was
-already there, so every tip finding in such a file is a warning: the copy on
-the remote was never scanned, and once the push lands it is compared as usual.
+--base-unscanned names the files the --base before it skipped, as foxguard
+printed them ("warning: skipping <file> (<reason>)"). A tip finding in a file
+every base skipped is a warning: no base can say what was already there, and
+once the push lands it is compared as usual. A base that scanned the file
+still judges it.
 Prints one tab-separated line per tip finding:
     BLOCK|WARN <severity> <file>:<line> <rule> <why> <description>
 Exit 0: nothing blocks. 3: a new finding at or above --level. 2: a report
@@ -89,16 +90,27 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--level", required=True, choices=sorted(RANK))
     parser.add_argument("--tip", required=True)
-    parser.add_argument("--base", action="append", default=[])
-    parser.add_argument("--base-unscanned", action="append", default=[])
+    # Kept in command-line order: each --base-unscanned belongs to the --base
+    # before it.
+    parser.add_argument("--base", dest="reports", action="append", type=lambda v: ("base", v), default=[])
+    parser.add_argument("--base-unscanned", dest="reports", action="append", type=lambda v: ("skip", v))
     args = parser.parse_args()
     try:
         tip = load(args.tip)
-        bases = [Counter(key(f) for f in load(path)) for path in args.base]
-        unscanned = {}
-        for path in args.base_unscanned:
-            for name, reason in load_unscanned(path).items():
-                unscanned.setdefault(name, reason)
+        bases, skips = [], []
+        for kind, path in args.reports:
+            if kind == "base":
+                bases.append(Counter(key(f) for f in load(path)))
+                skips.append({})
+            elif not skips:
+                raise ValueError(f"--base-unscanned {path} has no --base before it")
+            else:
+                for name, reason in load_unscanned(path).items():
+                    skips[-1].setdefault(name, reason)
+        # Unscanned only when every base skipped it.
+        unscanned = dict(skips[0]) if skips else {}
+        for other in skips[1:]:
+            unscanned = {n: r for n, r in unscanned.items() if n in other}
     except (OSError, ValueError) as err:
         print(f"foxguard report unreadable: {err}", file=sys.stderr)
         return 2

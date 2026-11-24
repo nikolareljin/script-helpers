@@ -170,8 +170,9 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
 - **A base copy foxguard could not read** (a parse error, or over 1 MB) says
   nothing about what was already there, so each finding in that file at the
   tip is a `WARNING` that names the reason, and the base skip is printed.
-  Once the readable copy is on the remote, the file is compared as usual and
-  a new finding blocks.
+  With several bases this holds only when every base skipped the file; a base
+  that scanned it still judges it. Once the readable copy is on the remote,
+  the file is compared as usual and a new finding blocks.
 - **Config**: the foxguard config (`.foxguard.yml` and the other names) is read
   from the base (the first boundary commit when there are several), never from
   the pushed commits, so a push cannot disable the rules that judge it. No base, or no config there: none. A push that adds or
