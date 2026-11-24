@@ -1,5 +1,7 @@
 ## Unreleased
 
+## 2026-11-24 — v0.67.3
+
 ### Fixed
 
 - **`tests/claude_hook_destinations_test.sh` no longer fails under CPU load.** Its two latency checks wanted the hook to finish in under 2000 ms, and a busy machine missed that on `main` too. They now count the shell commands the hook and its child scripts run (an xtrace on `BASH_XTRACEFD`): a hit must run the same number against 5,000 names as against 10, and an out-of-scope call must also never reach `private_name_candidate` or `check_private_names.sh`. A per-name loop in `check_private_names.sh` or a name scan before the scope decision fails it (both checked by reverting locally). bash older than 4.1 skips the count.
