@@ -936,7 +936,8 @@ Usage: bash scripts/preflight.sh [--quick] [--stack <name>] [--docker] [--skip-s
                     is all it does.
                     This is what the pre-push hook uses.
   --stack <name>    Check one stack only, instead of every stack detected.
-                    Repeatable. One of: flutter gradle node python go rust php.
+                    Repeatable. One of: flutter gradle ios node python go rust
+                    php make.
   --docker          Reproduce CI in containers via the ci_*.sh runners, using
                     the images pinned in lib/ci_defaults.sh. Slower and closer
                     to CI. The default runs on the host, which is what makes
@@ -944,7 +945,7 @@ Usage: bash scripts/preflight.sh [--quick] [--stack <name>] [--docker] [--skip-s
   --skip-security   Skip the secret / dependency scan.
   --security-only   Run only the secret / dependency scan (`./dev scan`). No
                     stack is needed.
-  --list            Print the stacks detected and exit without running them.
+  --list            Print the stacks that would run (after --stack) and exit.
   --dir <path>      Project directory (default: the repository root).
   -h, --help        Show this help message.
 
@@ -1164,7 +1165,7 @@ Usage: pwsh -File ps\scripts\preflight.ps1 [-Quick] [-Stack <name>] [-Docker] [-
   -Docker        Run supported checks in Docker.
   -SkipSecurity  Skip security checks.
   -SecurityOnly  Run only security checks.
-  -List          Print detected stacks without running them.
+  -List          Print the stacks that would run (after -Stack) and exit.
   -Dir <path>    Project directory (default: repository root or current directory).
   -Help          Show this help message.
 ```
@@ -2842,6 +2843,32 @@ Example:
 
 ```text
   bash scripts/lint_docs.sh
+```
+
+### `scripts/lint_shell.sh`
+
+Run ShellCheck over every tracked shell file and fail on a finding.
+
+```text
+Usage: bash scripts/lint_shell.sh [--list]
+  --list      Print the files that would be checked and exit.
+  -h, --help  Show help.
+  SHELLCHECK_SEVERITY  Minimum severity that fails (error|warning|info|style). Default: warning.
+```
+
+Exit codes:
+
+```text
+0  No finding at or above the severity.
+1  ShellCheck reported a finding.
+2  Bad argument or SHELLCHECK_SEVERITY, not a git work tree, or shellcheck
+not installed.
+```
+
+Example:
+
+```text
+SHELLCHECK_SEVERITY=info bash scripts/lint_shell.sh
 ```
 
 ### `scripts/local_security_report.py`

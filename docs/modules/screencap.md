@@ -69,6 +69,10 @@ Dependencies
 `adb` for Android. macOS with Xcode for iOS simulators. `ffmpeg` for
 `screencap_frame`, `screencap_gif`, and for Android clips over 180 seconds.
 
+`tests/screencap_test.sh` takes a real screenshot only with
+`SCREENCAP_TEST_REAL=1` and a device or simulator attached; otherwise it skips
+that check, so a phone left plugged in does not fail `make test`.
+
 Examples
 --------
 

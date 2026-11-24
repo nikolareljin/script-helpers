@@ -37,6 +37,8 @@ concurrency:
 jobs:
   macos:
     runs-on: macos-latest
+    # A full run takes about an hour; the limit stops a hang, not a slow run.
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-19
