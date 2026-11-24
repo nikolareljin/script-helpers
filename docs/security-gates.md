@@ -212,7 +212,7 @@ both tools):
 | Version on `PATH`, against the pin | Result |
 |---|---|
 | equal (`8.30.1` or `v8.30.1` for a `v8.30.1` pin) | used |
-| newer, same series (`8.44.0`; `0.14.7` for a `0.14.1` pin) | used |
+| newer, same series (`8.44.0`; `0.14.7` for a `0.14.2` pin) | used |
 | newer, breaking series: another major, or another minor of a `0.x` pin (`9.0.0`; `0.15.0`) | used, with a `WARNING` naming the found version, the pin and the install command |
 | older (`8.18.4`; `0.14.0`) | not used |
 | not `[v]X.Y.Z`: a prerelease (`8.31.0-rc1`), a dev build, no output | not used |
@@ -229,9 +229,9 @@ CI or with `SCRIPT_HELPERS_NO_AUTO_INSTALL=1` (`PREFLIGHT_NO_INSTALL=1` for
 preflight), and when the install fails (offline, a download that does not match
 the pin) the result is the one for a missing scanner: the commit or push is
 refused (foxguard at `off`: a warning), naming the binary passed over, for example
-`Foxguard check failed: /usr/local/bin/foxguard is foxguard 0.14.0, older than the minimum 0.14.1.`
+`Foxguard check failed: /usr/local/bin/foxguard is foxguard 0.14.0, older than the minimum 0.14.2.`
 
-Also missing: another cached version (`foxguard/0.14.0/` next to a `0.14.1`
+Also missing: another cached version (`foxguard/0.14.0/` next to a `0.14.2`
 pin) and a cached foxguard with another SHA-256.
 
 `check_sensitive.sh`, the pre-push hook, `ci_security.sh`, `foxguard_report.sh`,

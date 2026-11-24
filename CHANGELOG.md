@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Changed
+
+- **foxguard pin 0.14.1 -> 0.14.2.** `CI_DEFAULT_FOXGUARD_VERSION` and its five SHA-256 values in `lib/ci_defaults.sh`, copied from the release's `checksums.txt`; the asset digests and a local download agree. `ci_security.sh` now treats a foxguard older than 0.14.2 on `PATH` as out of date. The test stubs that stand for the pinned version report 0.14.2.
+
 ### Fixed
 
 - **The foxguard push gate says why a file whose remote copy it could not scan blocks, and takes an opt-in override.** When the copy on the remote was skipped (a parse error, or over 1 MB), it had no findings to compare with, so every finding in the newly readable file counted as new and the push was refused as `(new)`, with no way through short of turning foxguard off. Those findings still block by default, now as `the base copy could not be scanned (<reason>)`, with the base skip printed and a hint to review the file. `SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1` on that push turns them into warnings that name the override. It covers only files whose base copy was skipped, and with several bases only files every base skipped; a new finding in any other file still blocks, and once the readable copy lands the file is compared as usual. `foxguard_push_compare.py` takes `--base-unscanned <list>` after the `--base` it belongs to and `--allow-unscanned`, and exits 2 on a list it cannot read or one with no `--base` before it, with or without the override. A skipped file is listed under its real path: one scanned from its own directory (`src/dist/app.py`) used to be listed as `app.py`, which named the `app.py` at the root instead. A carriage return in a file name no longer splits a skip line in two, and outside Windows `a\b.py` and `a/b.py` are two files, in the skip list and in the comparison. Tests: `tests/foxguard_block_test.sh` and `tests/foxguard_push_compare_test.sh` (both fail without the fix).
