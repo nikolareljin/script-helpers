@@ -345,6 +345,53 @@ done
 rc=0; bash -c 'source "$1"; trap_stack_push --run' _ "$LIB" 2>/dev/null || rc=$?
 if [[ "$rc" -eq 2 ]]; then note "--run without a function or path: exit 2"; else error "--run without arguments: rc=$rc, want 2"; fi
 
+for bad in no_such_function 'rm -rf'; do
+  rc=0; bash -c 'source "$1"; trap_stack_push --run "$2" /tmp/x' _ "$LIB" "$bad" 2>/dev/null || rc=$?
+  if [[ "$rc" -eq 2 ]]; then note "--run '$bad' (not a function): exit 2"; else error "--run '$bad': rc=$rc, want 2"; fi
+done
+
+# A signal that arrives while a --run function runs does not run it again,
+# and the older paths are still removed.
+reset
+cat >"$work/run.sh" <<EOF
+source "$LIB"
+WORK="$work"
+EOF
+cat >>"$work/run.sh" <<'EOF'
+slow() { echo slow >>"$WORK/trap.out"; [[ -e "$WORK/f3" ]] || { : >"$WORK/f3"; kill -INT $$; }; rm -rf -- "$1"; }
+mkdir "$WORK/d1"; trap_stack_push "$WORK/d1"
+mkdir "$WORK/d2"; trap_stack_push --run slow "$WORK/d2"
+exit 0
+EOF
+rc=0; bash "$work/run.sh" >/dev/null 2>&1 || rc=$?
+rm -f -- "$work/f3"
+got="$(tr '\n' ' ' <"$work/trap.out" 2>/dev/null)"
+if [[ "$got" == "slow " && "$(left)" == " none" ]]; then
+  note "--run, INT during the function: it ran once, the older path was removed, exit $rc"
+else
+  error "--run, INT during the function: trap.out: '$got', left:$(left), rc=$rc"
+fi
+
+# A --run function that calls exit in the EXIT trap does not stop the older
+# paths from being removed, and the script's exit status is kept.
+reset
+cat >"$work/run.sh" <<EOF
+source "$LIB"
+WORK="$work"
+EOF
+cat >>"$work/run.sh" <<'EOF'
+bye() { rm -rf -- "$1"; exit 7; }
+mkdir "$WORK/d1"; trap_stack_push "$WORK/d1"
+mkdir "$WORK/d2"; trap_stack_push --run bye "$WORK/d2"
+exit 0
+EOF
+rc=0; bash "$work/run.sh" >/dev/null 2>&1 || rc=$?
+if [[ "$rc" -eq 0 && "$(left)" == " none" ]]; then
+  note "--run function that exits: the older path was removed, exit status kept"
+else
+  error "--run function that exits: rc=$rc (want 0), left:$(left)"
+fi
+
 if [[ "$failures" -gt 0 ]]; then
   note "FAILED: $failures"
   exit 1

@@ -10,6 +10,7 @@
 # trap_stack_push --run <function> <path> registers <function> instead of
 # rm -rf: pop and the traps call "<function> <path>". Use it for a path that
 # needs more than rm, such as a mount point that must be detached first.
+# <function> must be defined at the push; in a trap it runs in a subshell.
 #
 # While anything is registered, EXIT, HUP, INT and TERM remove every
 # registered path, newest first. A trap the caller already had for one of
@@ -58,8 +59,10 @@ _TRAP_STACK_CODES=(0 129 130 143)
 # for removal on EXIT, HUP, INT and TERM, until trap_stack_pop takes it off.
 # A relative path is registered as it resolves now, so a later cd does not
 # change what is removed.
-# With --run, "<function> <path>" is called instead of rm -rf.
-# Returns: 0 registered; 2 an empty path, "/", or --run without a function.
+# With --run, "<function> <path>" is called instead of rm -rf. <function>
+# must be a shell function defined at the push.
+# Returns: 0 registered; 2 an empty path, "/", or --run without a defined
+# function.
 # Output: stderr the usage line on a bad argument.
 trap_stack_push() {
   local run="" path
@@ -68,7 +71,7 @@ trap_stack_push() {
     [[ -n "$run" ]] && shift 2 || set --
   fi
   path="${1:-}"
-  if [[ -z "$path" || "$path" == / ]]; then
+  if [[ -z "$path" || "$path" == / ]] || { [[ -n "$run" ]] && ! declare -F -- "$run" >/dev/null; }; then
     printf '[ERROR] trap_stack_push: usage: trap_stack_push [--run <function>] <path>\n' >&2
     return 2
   fi
@@ -195,8 +198,11 @@ _trap_stack_restore() {
 # _trap_stack_fire <status>: remove every registered path, newest first, and
 # return <status>. Each is removed once: its entry stays on the stack, empty,
 # so a caller's trap that does not exit returns to code that still pops it.
+# The entry is emptied before its removal starts: a signal during it runs this
+# again, which must not start the same removal a second time. A --run function
+# runs in a subshell, so one that calls exit does not skip the older paths.
 _trap_stack_fire() {
-  local rc="${1:-0}" i
+  local rc="${1:-0}" i path run
   _trap_stack_self
   # Only in the shell that registered the paths: bash can run a parent's trap
   # in a subshell that is signalled as it starts. Level 0 passes on bash 3.2:
@@ -206,14 +212,16 @@ _trap_stack_fire() {
     i="$_TRAP_STACK_DEPTH"
     while [[ "$i" -gt 0 ]]; do
       i=$((i - 1))
-      [[ -n "${_TRAP_STACK_PATHS[i]:-}" ]] || continue
-      if [[ -n "${_TRAP_STACK_RUNS[i]:-}" ]]; then
-        "${_TRAP_STACK_RUNS[i]}" "${_TRAP_STACK_PATHS[i]}" || :
-      else
-        rm -rf -- "${_TRAP_STACK_PATHS[i]}" 2>/dev/null || :
-      fi
-      # Done: the EXIT trap that follows a signal's exit does not run it again.
+      path="${_TRAP_STACK_PATHS[i]:-}"
+      [[ -n "$path" ]] || continue
+      run="${_TRAP_STACK_RUNS[i]:-}"
+      # Also keeps the EXIT trap that follows a signal's exit from running it again.
       _TRAP_STACK_PATHS[i]=""
+      if [[ -n "$run" ]]; then
+        ( "$run" "$path" ) || :
+      else
+        rm -rf -- "$path" 2>/dev/null || :
+      fi
     done
   fi
   return "$rc"
