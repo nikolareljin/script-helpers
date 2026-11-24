@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Fixed
+
+- **`setup_traps` prints the exit code of a failed script.** The EXIT handler read `$?` after its own `[[ ]]` guard, so `cleanup` always saw 0 and "Script failed with exit code N" never printed. The handler now passes `$?` to `cleanup` before the guard runs; the script still exits with its own status, also when `trap_stack` chains onto the trap. `ci_pimcore_bundle_check.sh` and `ci_wp_plugin_check.sh` had the same pattern in their `cleanup_stack` traps. Covered by `tests/traps_test.sh`.
+
 ## 2026-11-24 — v0.67.3
 
 ### Fixed

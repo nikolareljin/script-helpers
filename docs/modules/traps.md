@@ -5,11 +5,11 @@ Basic EXIT/INT/TERM traps with error reporting.
 Functions
 ---------
 
-- cleanup
-  - Purpose: Trap handler that prints a non-zero exit code via `log_error` when a script exits with failure.
+- cleanup [exit_code]
+  - Purpose: Trap handler that prints a non-zero exit code via `log_error` when a script exits with failure. Takes the status as `$1`; without it, reads `$?` on entry.
 
 - setup_traps
-  - Purpose: Install traps: `EXIT` -> `cleanup`, `INT` -> prints interrupt and exits 130, `TERM` -> prints terminated and exits 143.
+  - Purpose: Install traps: `EXIT` -> `cleanup "$?"` (status captured before any other command in the handler), `INT` -> prints interrupt and exits 130, `TERM` -> prints terminated and exits 143.
 
 Notes
 -----
