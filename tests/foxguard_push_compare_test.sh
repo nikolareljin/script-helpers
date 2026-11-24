@@ -12,7 +12,7 @@ set -uo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 helper="$ROOT_DIR/scripts/foxguard_push_compare.py"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 
 failures=0
 note()  { echo "[foxguard_push_compare_test] $*"; }
