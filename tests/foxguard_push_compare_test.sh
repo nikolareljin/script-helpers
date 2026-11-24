@@ -31,10 +31,11 @@ printf 'warning: skipping other.py (parse error)\n' > "$tmp/skip_other"
 printf 'warning: skipping loader.py (1600001 bytes exceeds --max-file-size)\n' > "$tmp/skip_big"
 printf 'not a skip line\n' > "$tmp/bad"
 
+tip="$tmp/tip.json"
 run() {  # <description> <want rc> <want verdict prefix or -> args...
   local desc="$1" want="$2" verdict="$3" rc=0
   shift 3
-  "$py" -I "$helper" --level high --tip "$tmp/tip.json" "$@" > "$tmp/out" 2>&1 || rc=$?
+  "$py" -I "$helper" --level high --tip "$tip" "$@" > "$tmp/out" 2>&1 || rc=$?
   if [[ "$rc" != "$want" ]]; then error "$desc: want exit $want, got $rc"; sed 's/^/    | /' "$tmp/out" >&2; return; fi
   if [[ "$verdict" != - ]] && ! grep -q "^$verdict	" "$tmp/out"; then error "$desc: no $verdict line"; sed 's/^/    | /' "$tmp/out" >&2; return; fi
   ok "$desc"
@@ -59,6 +60,23 @@ run "a missing skip list refuses, even with --allow-unscanned" 2 - --allow-unsca
 run "a malformed skip list refuses, even with --allow-unscanned" 2 - --allow-unscanned --base "$tmp/clean.json" --base-unscanned "$tmp/bad"
 : > "$tmp/empty"
 run "an empty skip list hides nothing" 3 BLOCK --allow-unscanned --base "$tmp/clean.json" --base-unscanned "$tmp/empty"
+# One skip line names one file: a carriage return in a name starts no line.
+printf 'warning: skipping junk (a)\rwarning: skipping loader.py (parse error)\n' > "$tmp/skip_cr"
+run "a carriage return in a skipped name does not name a second file" 3 BLOCK --allow-unscanned --base "$tmp/clean.json" --base-unscanned "$tmp/skip_cr"
+# Where / separates directories, a\b.py is not a/b.py.
+if [[ "$("$py" -I -c 'import os; print(os.sep)')" == / ]]; then
+  cat > "$tmp/tip_dir.json" <<'EOF'
+{"findings":[{"rule_id":"py/no-yaml-load","severity":"high","file":"a/b.py","line":3,"snippet":"yaml.load(x)","description":"d"}]}
+EOF
+  cat > "$tmp/base_backslash.json" <<'EOF'
+{"findings":[{"rule_id":"py/no-yaml-load","severity":"high","file":"a\\b.py","line":3,"snippet":"yaml.load(x)","description":"d"}]}
+EOF
+  printf 'warning: skipping a\\b.py (parse error)\n' > "$tmp/skip_backslash"
+  tip="$tmp/tip_dir.json"
+  run "a skipped a\\b.py does not cover a/b.py" 3 BLOCK --allow-unscanned --base "$tmp/clean.json" --base-unscanned "$tmp/skip_backslash"
+  run "a finding in a\\b.py at the base does not vouch for a/b.py" 3 BLOCK --base "$tmp/base_backslash.json"
+  tip="$tmp/tip.json"
+fi
 
 if [[ "$failures" -gt 0 ]]; then note "$failures failure(s)"; exit 1; fi
 note "all passed"

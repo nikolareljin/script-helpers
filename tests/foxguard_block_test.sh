@@ -325,6 +325,17 @@ $high_code"; publish
 def again(y):
     return yaml.load(y)"
   expect "once the readable copy is on the remote, a new finding blocks even with the override" 1 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
+  # A base copy scanned from its own directory (foxguard calls src/dist/
+  # noise) is listed under its real path: the override must not reach the
+  # loader.py at the root, whose base copy was read.
+  setup; mkdir -p "$tmp/repo/src/dist"; commit src/dist/loader.py "def f(:
+    pass
+$high_code"; commit loader.py "x = 1"; publish
+  commit src/dist/loader.py "$high_code"; commit loader.py "$high_code"
+  expect "with the override, a file named like a skipped one in another directory still blocks" 1 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
+  has "the base skip carries the real path" "foxguard: base: warning: skipping src/dist/loader.py (parse error)"
+  has "the root file blocks as new" "BLOCK (foxguard): high loader.py:3 py/no-yaml-load (new)"
+  has "the skipped file is the one allowed" "WARNING (foxguard): high src/dist/loader.py:3 py/no-yaml-load (the base copy could not be scanned (parse error); allowed by SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
   # A file of no language foxguard reads is not a skip.
   setup; commit notes.txt "plain text"
   expect "an unsupported file type passes at high" 0 "$(check "$F")"

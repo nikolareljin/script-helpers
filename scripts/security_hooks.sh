@@ -708,6 +708,15 @@ sec_foxguard_tree() {
   done < "$2"
 }
 
+# sec_foxguard_skip_name <scanned name> <real path> <in> <out>: foxguard's
+# messages of <in>, with a file scanned from its own directory or as a copy
+# named by its real path. "skipping app.py" for src/dist/app.py would
+# otherwise read as the app.py at the root.
+sec_foxguard_skip_name() {
+  C="$1" R="$2" awk '{ p = "skipping " ENVIRON["C"] " ("; i = index($0, p)
+    if (i) $0 = substr($0, 1, i - 1) "skipping " ENVIRON["R"] " (" substr($0, i + length(p)); print }' "$3" > "$4"
+}
+
 # sec_foxguard_scan <cmd> <config> <dir> <out> <list>: foxguard on each file
 # of <list> (paths relative to <dir>) present in <dir>, one report per file
 # in the directory <out>. One file at a time: a directory scan never reads
@@ -715,7 +724,8 @@ sec_foxguard_tree() {
 # node_modules/, build/ ...) without a word, so such a file is scanned again
 # from its own directory and <out>/<n>.path keeps its real name. Return 0
 # scanned; 1 failed. Files it skipped for any reason but an unsupported
-# extension (parse error, too large, still noise) are listed in <out>.skipped.
+# extension (parse error, too large, still noise) are listed in <out>.skipped,
+# each under its real path: the list says which base copies were never read.
 sec_foxguard_scan() {
   local rc f x k=0
   { mkdir -p "$4" && : > "$4.err"; } || return 1
@@ -727,16 +737,15 @@ sec_foxguard_scan() {
     if [[ "$rc" -le 1 ]] && grep -q 'noise path' "$4.one"; then
       rc=0; printf '%s\n' "$f" > "$4/$k.path"
       # shellcheck disable=SC2086
-      ( cd "$3/$(dirname "$f")" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "${f##*/}" ) </dev/null >/dev/null 2>"$4.one" || rc=$?
+      ( cd "$3/$(dirname "$f")" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "${f##*/}" ) </dev/null >/dev/null 2>"$4.two" || rc=$?
+      sec_foxguard_skip_name "${f##*/}" "$f" "$4.two" "$4.one" || return 1
       # Still noise: the name itself (x.min.js). Scan a copy named <n>.<ext>.
       if [[ "$rc" -le 1 ]] && grep -q 'noise path' "$4.one"; then
         rc=0; x="${f##*/}"; x="${x##*.}"
         { mkdir -p "$4/$k.d" && cat < "$3/$f" > "$4/$k.d/$k.$x"; } || return 1
         # shellcheck disable=SC2086
         ( cd "$4/$k.d" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "$k.$x" ) </dev/null >/dev/null 2>"$4.two" || rc=$?
-        # Name the copy by its real path in foxguard's messages (a skip is advice).
-        C="$k.$x" R="$f" awk '{ p = "skipping " ENVIRON["C"] " ("; i = index($0, p)
-          if (i) $0 = substr($0, 1, i - 1) "skipping " ENVIRON["R"] " (" substr($0, i + length(p)); print }' "$4.two" > "$4.one" || return 1
+        sec_foxguard_skip_name "$k.$x" "$f" "$4.two" "$4.one" || return 1
         if grep -q 'noise path' "$4.one"; then printf 'warning: skipping %s (noise path)\n' "$f" >> "$4.one"; fi
       fi
     fi

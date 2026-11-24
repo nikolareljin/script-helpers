@@ -22,6 +22,7 @@ could not be read, or anything else went wrong (never read as a pass).
 
 import argparse
 import json
+import os
 import re
 import sys
 from collections import Counter
@@ -61,7 +62,8 @@ def load(path):
 def load_unscanned(path):
     # The <out>.skipped list sec_foxguard_scan wrote for a base: file -> reason.
     unscanned = {}
-    with Path(path).open(encoding="utf-8") as handle:
+    # newline="\n": a carriage return in a file name must not start a line.
+    with Path(path).open(encoding="utf-8", newline="\n") as handle:
         for line in handle:
             line = line.rstrip("\n")
             if not line:
@@ -74,7 +76,11 @@ def load_unscanned(path):
 
 
 def norm_file(name):
-    name = str(name or "").replace("\\", "/")
+    name = str(name or "")
+    # Only where a backslash separates directories: elsewhere a\b.py and
+    # a/b.py are two files, and one must not stand in for the other.
+    if os.sep == "\\":
+        name = name.replace("\\", "/")
     while name.startswith("./"):
         name = name[2:]
     return name
