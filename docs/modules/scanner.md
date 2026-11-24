@@ -12,7 +12,7 @@ Functions
 ---------
 
 - scanner_pin tool
-  - Purpose: Print the pinned version of that scanner, as `ci_defaults` has it (`v8.30.1`, `0.14.1`).
+  - Purpose: Print the pinned version of that scanner, as `ci_defaults` has it (`v8.30.1`, `0.14.2`).
 
 - scanner_path_version tool
   - Purpose: Print what the `tool` on `PATH` reports: the first line of `gitleaks version`, or of `foxguard --version` without the leading `foxguard `.

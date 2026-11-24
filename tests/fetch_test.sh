@@ -40,7 +40,7 @@ chmod +x "$tmp/u/uname"
 mkdir -p "$tmp/rel"
 printf '#!/usr/bin/env bash\necho 8.30.1\n' > "$tmp/rel/gitleaks"; chmod +x "$tmp/rel/gitleaks"
 tar -czf "$tmp/rel/gitleaks.tar.gz" -C "$tmp/rel" gitleaks
-printf '#!/usr/bin/env bash\necho 0.14.1\n' > "$tmp/rel/foxguard"
+printf '#!/usr/bin/env bash\necho 0.14.2\n' > "$tmp/rel/foxguard"
 GL_SHA="$(source "$ROOT_DIR/lib/foxguard.sh" && foxguard_sha256 "$tmp/rel/gitleaks.tar.gz")"
 FG_SHA="$(source "$ROOT_DIR/lib/foxguard.sh" && foxguard_sha256 "$tmp/rel/foxguard")"
 [[ ${#GL_SHA} -eq 64 ]] || { note "SKIP: no shasum, sha256sum or openssl"; exit 0; }

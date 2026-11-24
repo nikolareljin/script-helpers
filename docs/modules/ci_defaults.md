@@ -44,7 +44,7 @@ The image `make test-bash32` and `scripts/local_test_bash32.sh` run the suite in
 The SHA-256 of each release archive `lib/gitleaks.sh` installs on a host without gitleaks; an archive that does not match is refused. Bump the version and every checksum together, from the release's `gitleaks_<version>_checksums.txt`.
 
 ### foxguard
-- `CI_DEFAULT_FOXGUARD_VERSION` (default: `0.14.1`)
+- `CI_DEFAULT_FOXGUARD_VERSION` (default: `0.14.2`)
 - `CI_DEFAULT_FOXGUARD_SHA256_LINUX_X86_64`, `..._LINUX_AARCH64`, `..._MACOS_X86_64`, `..._MACOS_AARCH64`, `..._WINDOWS_X86_64`
 
 Not a Docker image. `ci_security.sh --install-foxguard` downloads that release binary and refuses it unless its SHA-256 matches; see the [foxguard module](./foxguard.md). Bump the version and every checksum together, from the release's `checksums.txt`.
