@@ -37,7 +37,7 @@ trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
 mkdir -p "$tmp/bin" "$tmp/nobin"
 cat > "$tmp/bin/foxguard" <<'EOF'
 #!/usr/bin/env bash
-if [[ "${1:-}" == "--version" ]]; then echo "foxguard ${FOX_VERSION:-0.14.1}"; exit 0; fi
+if [[ "${1:-}" == "--version" ]]; then echo "foxguard ${FOX_VERSION:-0.14.2}"; exit 0; fi
 echo "$(basename "$(pwd -P)"): ${FOX_NAME:-path} $*" >> "$FOX_LOG"
 [[ -n "${FOX_FAIL:-}" ]] && { echo "Error: stub scan failure" >&2; exit 2; }
 out="" ; excludes=()
@@ -187,14 +187,14 @@ r="$(new_repo version)"
 : > "$FOX_LOG"; RC=0
 OUT="$(cd "$r" && FOX_VERSION=0.13.1 CI="" SCRIPT_HELPERS_NO_AUTO_INSTALL=1 PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/ci_security.sh" --no-docker --skip-python --skip-node --skip-gitleaks 2>&1)" || RC=$?
 read_local_report
-[[ $RC -eq 0 && "$OUT" == *"$tmp/bin/foxguard is foxguard 0.13.1, older than the minimum 0.14.1; skipping the foxguard scan"*"--install-foxguard"* && ! -s "$FOX_LOG" ]] \
+[[ $RC -eq 0 && "$OUT" == *"$tmp/bin/foxguard is foxguard 0.13.1, older than the minimum 0.14.2; skipping the foxguard scan"*"--install-foxguard"* && ! -s "$FOX_LOG" ]] \
   && note "older version on PATH: not run, skipped with the install command" || error "version: rc=$RC log='$(cat "$FOX_LOG")' out='$OUT'"
 RC=0; (cd "$r" && FOX_VERSION=0.13.1 CI="" PATH="$tmp/bin:$PATH" bash "$ROOT_DIR/scripts/ci_security.sh" --check-foxguard) || RC=$?
 [[ $RC -eq 3 ]] && note "--check-foxguard with an older version: exit 3" || error "check other version: rc=$RC"
 
 # 9. The pinned binary in the cache is preferred over one on PATH, when its
 #    SHA-256 is the pinned one; with another SHA-256 it is not run.
-cache_bin="$XDG_CACHE_HOME/script-helpers/foxguard/0.14.1/foxguard"
+cache_bin="$XDG_CACHE_HOME/script-helpers/foxguard/0.14.2/foxguard"
 mkdir -p "$(dirname "$cache_bin")"
 sed 's/\${FOX_NAME:-path}/cache/' "$tmp/bin/foxguard" > "$cache_bin"; chmod +x "$cache_bin"
 sec "$r"
@@ -247,7 +247,7 @@ elif [[ -z "$asset" ]]; then
   note "SKIP install cases: no release binary for $(uname -s) $(uname -m)"
 fi
 if [[ -n "$asset" ]]; then
-  printf '#!/bin/sh\necho "foxguard 0.14.1"\n' > "$tmp/served"
+  printf '#!/bin/sh\necho "foxguard 0.14.2"\n' > "$tmp/served"
   cat > "$tmp/bin/curl" <<EOF
 #!/usr/bin/env bash
 while [[ \$# -gt 0 ]]; do [[ "\$1" == "-o" ]] && { cp "$tmp/served" "\$2"; exit 0; }; shift; done
@@ -297,10 +297,10 @@ mkdir -p "$tmp/uname"
 printf '#!/bin/sh\ncase "$1" in -s) echo "$UNAME_S" ;; -m) echo "$UNAME_M" ;; esac\n' > "$tmp/uname/uname"; chmod +x "$tmp/uname/uname"
 plat() { UNAME_S="$1" UNAME_M="$2" PATH="$tmp/uname:$PATH" bash -c 'source "$1/helpers.sh" && shlib_import foxguard && a="$(foxguard_asset)" || { echo "rc=$?"; exit 0; }; echo "$a $(foxguard_expected_sha256 "$a") $(basename "$(foxguard_cache_path)")"' _ "$ROOT_DIR"; }
 got="$(plat MINGW64_NT-10.0-26100 x86_64)"
-[[ "$got" == "foxguard-windows-x86_64.exe 0fb139cb088a302a2c6567087079c4152025c20ac0e06a64107e9a0382e4bffb foxguard.exe" ]] \
+[[ "$got" == "foxguard-windows-x86_64.exe 83b1512b6e22463055cf45d16620578ac41f02a090f912069d9d4223ae517949 foxguard.exe" ]] \
   && note "Git Bash on Windows: .exe asset, pinned checksum, foxguard.exe" || error "windows: '$got'"
 got="$(plat Darwin arm64)"
-[[ "$got" == "foxguard-macos-aarch64 e466cb4692a959fb500cd9f55d35aac0dd530afce8358643ed186e2c8c85f8c5 foxguard" ]] \
+[[ "$got" == "foxguard-macos-aarch64 d81086ad96f46e07c863f33b64be1c5e14013d92f8e3344c6f17a23d8f34772f foxguard" ]] \
   && note "macOS arm64: aarch64 asset" || error "mac arm: '$got'"
 [[ "$(plat MSYS_NT-10.0 aarch64)" == "rc=3" && "$(plat FreeBSD amd64)" == "rc=3" ]] \
   && note "Windows arm64, FreeBSD: no release binary, rc 3" || error "unsupported: '$(plat MSYS_NT-10.0 aarch64)' '$(plat FreeBSD amd64)'"

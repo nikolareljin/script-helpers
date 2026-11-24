@@ -18,10 +18,11 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/traps-test.XXXXXX")"
 # Guarded: a subshell inherits this trap.
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf -- "$work"; fi' EXIT
 
-# run_case <label> <code> <with_stack 0|1>: a script that calls setup_traps
-# (optionally pushes a trap_stack path) and exits <code>.
+# run_case <label> <code> <with_stack 0|1> [body]: a script that calls
+# setup_traps (optionally pushes a trap_stack path), then runs [body]
+# (default: exit <code>) and should exit <code>.
 run_case() {
-  local label="$1" code="$2" stack="$3" rc out
+  local label="$1" code="$2" stack="$3" body="${4:-exit $2}" rc out
   cat >"$work/s.sh" <<SCRIPT
 source "$ROOT_DIR/helpers.sh"
 shlib_import logging traps trap_stack
@@ -29,7 +30,7 @@ setup_traps
 if [[ $stack -eq 1 ]]; then
   mkdir "$work/d" && trap_stack_push "$work/d"
 fi
-exit $code
+$body
 SCRIPT
   rm -rf -- "$work/d"
   bash "$work/s.sh" >"$work/out" 2>&1
@@ -54,6 +55,11 @@ run_case "exit 0" 0 0
 run_case "exit 3" 3 0
 run_case "exit 0 with trap_stack" 0 1
 run_case "exit 3 with trap_stack" 3 1
+run_case "exit 1" 1 0
+run_case "set -e failure" 1 0 'set -e; false'
+run_case "failing subshell, then exit 0" 0 0 '( exit 4 ); x=$(exit 6); exit 0'
+run_case "SIGINT" 130 0 'kill -INT $$; sleep 5'
+run_case "SIGTERM" 143 1 'kill -TERM $$; sleep 5'
 
 # cleanup called with no argument still reads $? on entry.
 out="$(bash -c 'source ./helpers.sh; shlib_import logging traps; (exit 5); cleanup' 2>&1)"

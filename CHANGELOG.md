@@ -1,8 +1,12 @@
 ## Unreleased
 
+### Changed
+
+- **foxguard pin 0.14.1 -> 0.14.2.** `CI_DEFAULT_FOXGUARD_VERSION` and its five SHA-256 values in `lib/ci_defaults.sh`, copied from the release's `checksums.txt`; the asset digests and a local download agree. `ci_security.sh` now treats a foxguard older than 0.14.2 on `PATH` as out of date. The test stubs that stand for the pinned version report 0.14.2.
+
 ### Fixed
 
-- **`setup_traps` prints the exit code of a failed script.** The EXIT handler read `$?` after its own `[[ ]]` guard, so `cleanup` always saw 0 and "Script failed with exit code N" never printed. The handler now passes `$?` to `cleanup` before the guard runs; the script still exits with its own status, also when `trap_stack` chains onto the trap. `ci_pimcore_bundle_check.sh` and `ci_wp_plugin_check.sh` had the same pattern in their `cleanup_stack` traps. Covered by `tests/traps_test.sh`.
+- **`setup_traps` prints the exit code of a failed script.** The EXIT handler read `$?` after its own `[[ ]]` guard, so `cleanup` always saw 0 and "Script failed with exit code N" never printed. The handler now passes `$?` to `cleanup` before the guard runs; the script still exits with its own status, also when `trap_stack` chains onto the trap. On INT and TERM the handler now also prints "Script failed with exit code 130" (or 143) after "Script interrupted" (or "Script terminated"). `ci_pimcore_bundle_check.sh` and `ci_wp_plugin_check.sh` had the same pattern in their `cleanup_stack` traps; there the status only fed `return`, which bash ignores in an EXIT trap, so their exit status was never wrong. Covered by `tests/traps_test.sh` (exit 0, 1, 3, `set -e`, a failing subshell, INT, TERM; fails without the fix).
 
 ## 2026-11-24 — v0.67.3
 
