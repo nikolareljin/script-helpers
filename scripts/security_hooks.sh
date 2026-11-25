@@ -579,14 +579,15 @@ sec_loud() {
 # Never blocks: a missing foxguard (installed when it can be), a failed scan
 # and every finding are loud warnings, and the push goes on. As the blocking
 # scan, it reads what foxguard would drop without a word: a file in a noise
-# path (a/build/x.py) as a copy that keeps its directories, each with "_" in
-# front, one with a noise name (x.min.js) as a copy under another name, one
+# path (a/build/x.py) as a copy that keeps its directories, each with "d_"
+# in front, one with a noise name (x.min.js) as a copy named x._min.js, one
 # with an upper-case extension (app.PY) as a copy with the extension in
 # lower case. A file foxguard still does not read (a parse error,
-# too large, C++ named .C) is named.
+# too large, C++ named .C, a file type it knows that no copy got read) is
+# named.
 sec_foxguard_warn() {
   local refs="$1" remote="${2:-}" cmd f out rc frc=0 shown=0 failed=0 r base="" issues=0 hit=0 k
-  local copies="" unread=0 x lx as mr under=/_
+  local copies="" unread=0 x e lx as mr known names under=/d_
   if ! cmd="$(sec_foxguard_cmd)"; then
     if ! sec_foxguard_platform_ok; then
       sec_loud "the foxguard scan did NOT run: foxguard has no binary for $(uname -s) $(uname -m)."
@@ -613,31 +614,40 @@ sec_foxguard_warn() {
     out="$($cmd "$x" 2>&1)" || rc=$?
     # The directories of <f> for a copy, as in sec_foxguard_scan.
     mr=""
-    case "$f" in */*) mr="${f%/*}"; mr=_${mr//\//$under}/ ;; esac
-    x="${f##*/}"; lx="$(printf '%s' "${x##*.}" | LC_ALL=C tr 'A-Z' 'a-z')" || lx=""
-    # Three copies at most: with its directories (a noise path), under
-    # another name (a noise name), with the extension in lower case.
-    for k in 1 2 3; do
+    case "$f" in */*) mr="${f%/*}"; mr=d_${mr//\//$under}/ ;; esac
+    x="${f##*/}"; e="${x##*.}"; known=0
+    lx="$(printf '%s' "$e" | LC_ALL=C tr 'A-Z' 'a-z')" || lx="$e"
+    # The names of a copy, in order, as in sec_foxguard_scan: its own but for
+    # the part that is noise (sec_foxguard_copy_name), that with the
+    # extension in lower case, and copy.<extension> as the last resort.
+    names=("$(sec_foxguard_copy_name "$x")")
+    if [[ "$x" == *.* && -n "$lx" ]]; then
+      if [[ "$lx" != "$e" ]]; then names+=("$(sec_foxguard_copy_name "${x%.*}.$lx")"); fi
+      names+=("copy.$lx")
+    fi
+    for k in "${names[@]}"; do
       [[ "$rc" -le 1 ]] || break
-      if [[ "$out" == *"Skipped 1 file: 1 noise path."* ]]; then
-        if [[ -z "$as" && -n "$mr" ]]; then as="$mr$x"
-        elif [[ "$as" != "${mr}copy."* && "$x" == *.* && -n "$lx" ]]; then as="${mr}copy.$lx"
-        else break; fi
-      elif [[ "$out" == *"Skipped 1 file: 1 unsupported extension."* && "$x" == *.*[[:upper:]]* \
-        && -n "$lx" && "$lx" != "${x##*.}" && "$as" != "${mr}copy.$lx" ]]; then
-        as="${mr}copy.$lx"
-      else
-        break
-      fi
-      rc=0
+      # foxguard says "noise" only of a file type it knows.
+      if [[ "$out" == *"Skipped 1 file: 1 noise path."* ]]; then known=1
+      elif [[ "$out" == *"Skipped 1 file: 1 unsupported extension."* && ( "$known" -eq 1 || "$lx" != "$e" ) ]]; then :
+      else break; fi
+      # Its own name, at its own place: the file as it was given above.
+      [[ -n "$k" && "$mr$k" != "$f" ]] || continue
+      as="$mr$k"; rc=0
       if { [[ -n "$copies" ]] || copies="$(mktemp -d "${TMPDIR:-/tmp}/sh-foxguard.XXXXXX" 2>/dev/null)"; } \
         && mkdir -p "$copies/$mr" 2>/dev/null && cat < "$f" > "$copies/$as" 2>/dev/null; then
+        # "./" in front of a name that starts with a dash, as above.
+        x="$as"; case "$as" in -*) x="./$as" ;; esac
         # shellcheck disable=SC2086
-        out="$(cd "$copies" && $cmd "$as" 2>&1)" || rc=$?
+        out="$(cd "$copies" && $cmd "$x" 2>&1)" || rc=$?
       else
         out="Skipped 1 file: 1 copy to scan could not be written."
       fi
     done
+    # A file type foxguard knows that no copy got read.
+    if [[ "$rc" -le 1 && "$known" -eq 1 && "$out" == *"Skipped 1 file: 1 unsupported extension."* ]]; then
+      out="Skipped 1 file: 1 noise path."
+    fi
     # Not read, and not for a file type foxguard does not know: say so.
     if [[ "$rc" -le 1 && "$out" == *"Skipped 1 file: 1 "* && "$out" != *"Skipped 1 file: 1 unsupported extension."* ]]; then
       unread=$((unread + 1)); r="${out#*Skipped 1 file: 1 }"
@@ -842,77 +852,94 @@ sec_foxguard_skips() {
   LC_ALL=C awk '/^warning: skipping .* \(.*\)$/ && !/\(unsupported extension\)$/' "$1"
 }
 
+# sec_foxguard_copy_name <name>: <name> for a copy of a file foxguard calls
+# noise by its name (x.min.js): "._min" for each ".min", which is not noise.
+# The rest stays: foxguard tells some files by their name (Dockerfile.x,
+# nginx.conf, haproxy.cfg, Cargo.lock), and a copy named <n>.conf or <n>.js
+# is an unsupported extension, or another language.
+sec_foxguard_copy_name() {
+  printf '%s\n' "${1//.min/._min}"
+}
+
+# sec_foxguard_scan_copy <cmd> <config> <file> <out> <n> <dirs> <name> <path>:
+# foxguard on a copy of <file> named <dirs><name> under <out>/<n>.d, its
+# report in <out>/<n>.json and its messages in <out>.one, the copy named
+# there by its real <path>. SEC_FOXGUARD_RC holds foxguard's exit status.
+# Return 1 when a write fails.
+sec_foxguard_scan_copy() {
+  SEC_FOXGUARD_RC=0
+  # The report of the run before is emptied: a rerun that writes none must
+  # not be read as that one.
+  { mkdir -p "$4/$5.d/$6" && cat < "$3" > "$4/$5.d/$6$7" && : > "$4/$5.json"; } || return 1
+  # shellcheck disable=SC2086  # FOXGUARD_CMD may carry arguments
+  ( cd "$4/$5.d" && $1 --quiet --format json --output "$4/$5.json" --config "$2" -- "$6$7" ) </dev/null >/dev/null 2>"$4.two" || SEC_FOXGUARD_RC=$?
+  sec_foxguard_skip_name "$6$7" "$8" "$4.two" "$4.one"
+}
+
 # sec_foxguard_scan <cmd> <config> <dir> <out> <list>: foxguard on each file
 # of <list> (paths relative to <dir>) present in <dir>, one report per file
 # in the directory <out>. One file at a time: a directory scan never reads
 # hidden paths, and foxguard drops a path it calls noise (vendor/,
 # node_modules/, build/ ...) without a word, so such a file is scanned again
-# from its own directory and <out>/<n>.path keeps its real name. foxguard
-# knows an extension in lower case only, and app.PY still runs: such a file is
-# scanned as a copy named <n>.<extension in lower case>. A copy keeps its
-# directories, each with "_" in front (a/_build/<n>.py): foxguard tells some
-# files by their path (conf.d/, nginx), and "_build" is not noise. Return 0
+# as a copy and <out>/<n>.path keeps its real name. A copy keeps its
+# directories, each with "d_" in front (d_a/d_build/x.py): "d_build" is not
+# noise ("_" alone would make the noise path __tests__ of _tests__), and
+# foxguard tells some files by their path (conf.d/, nginx: with its own
+# directory alone nginx/build/apache.conf would be read as an Apache config). It keeps its name too, but for the part that is noise
+# (sec_foxguard_copy_name); <n>.<extension> is the name of last resort.
+# foxguard knows an extension in lower case only, and app.PY still runs: such
+# a file is scanned as a copy with the extension in lower case. Return 0
 # scanned; 1 failed. Files it skipped for any reason but an unsupported
 # extension (parse error, too large, still noise) are listed in <out>.skipped,
 # each under its real path: the list says which base copies were never read.
+# foxguard says "noise" only of a file type it knows, so one that no copy got
+# read, whatever the last copy was left out for, is listed as a noise path.
 # A .C or .H that does not parse as C is C++, which foxguard does not read:
 # listed in <out>.cxx instead, for the caller to name.
 # A list, a name or a message that cannot be written fails the scan: a short
 # <out>.skipped would read as "nothing skipped", and the file would pass unread.
 sec_foxguard_scan() {
-  local rc f x lx s md mr under=/_ k=0
+  local rc f x e lx s c mr known under=/d_ k=0
   { mkdir -p "$4" && : > "$4.err" && : > "$4.skipped" && : > "$4.cxx"; } || return 1
   while IFS= read -r f; do
     [[ -n "$f" && -f "$3/$f" ]] || continue
-    k=$((k + 1)); rc=0
-    # Where a copy goes: the directories of <f>, each with "_" in front.
+    k=$((k + 1)); rc=0; known=0
+    # Where a copy goes: the directories of <f>, each with "d_" in front.
     mr=""
-    case "$f" in */*) mr="${f%/*}"; mr=_${mr//\//$under}/ ;; esac
-    md="$4/$k.d/$mr"
+    case "$f" in */*) mr="${f%/*}"; mr=d_${mr//\//$under}/ ;; esac
+    x="${f##*/}"; e="${x##*.}"
     # shellcheck disable=SC2086  # FOXGUARD_CMD may carry arguments
     ( cd "$3" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "$f" ) </dev/null >/dev/null 2>"$4.one" || rc=$?
     if [[ "$rc" -le 1 ]] && sec_foxguard_noise "$4.one"; then
-      rc=0; printf '%s\n' "$f" > "$4/$k.path" || return 1
-      # The report of the run above is emptied: a rerun that writes none
-      # must not be read as that one.
-      : > "$4/$k.json" || return 1
-      # shellcheck disable=SC2086
-      ( cd "$3/$(dirname -- "$f")" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "${f##*/}" ) </dev/null >/dev/null 2>"$4.two" || rc=$?
-      sec_foxguard_skip_name "${f##*/}" "$f" "$4.two" "$4.one" || return 1
+      known=1; printf '%s\n' "$f" > "$4/$k.path" || return 1
+      c="$(sec_foxguard_copy_name "$x")" || return 1
+      sec_foxguard_scan_copy "$1" "$2" "$3/$f" "$4" "$k" "$mr" "$c" "$f" || return 1
+      rc="$SEC_FOXGUARD_RC"
       if [[ "$rc" -le 1 ]] && sec_foxguard_noise "$4.one"; then
-        # Still noise: the name itself (x.min.js). Scan a copy named <n>.<ext>.
-        rc=0; x="${f##*/}"; x="${x##*.}"
-        { mkdir -p "$md" && cat < "$3/$f" > "$md/$k.$x" && : > "$4/$k.json"; } || return 1
-        # shellcheck disable=SC2086
-        ( cd "$4/$k.d" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "$mr$k.$x" ) </dev/null >/dev/null 2>"$4.two" || rc=$?
-        sec_foxguard_skip_name "$mr$k.$x" "$f" "$4.two" "$4.one" || return 1
-        if sec_foxguard_noise "$4.one"; then printf 'warning: skipping %s (noise path)\n' "$f" >> "$4.one" || return 1; fi
-      elif [[ "$rc" -le 1 && "$f" == */* ]] && sec_foxguard_unsupported "$4.one"; then
-        # Not read without its directories: foxguard tells an nginx or Apache
-        # config by its path (nginx/build/site.conf). Scan a copy that keeps them.
-        rc=0
-        { mkdir -p "$md" && cat < "$3/$f" > "$md/${f##*/}" && : > "$4/$k.json"; } || return 1
-        # shellcheck disable=SC2086
-        ( cd "$4/$k.d" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "$mr${f##*/}" ) </dev/null >/dev/null 2>"$4.two" || rc=$?
-        sec_foxguard_skip_name "$mr${f##*/}" "$f" "$4.two" "$4.one" || return 1
-        if sec_foxguard_noise "$4.one"; then printf 'warning: skipping %s (noise path)\n' "$f" >> "$4.one" || return 1; fi
+        # Still noise: a name foxguard drops that this hook does not know.
+        sec_foxguard_scan_copy "$1" "$2" "$3/$f" "$4" "$k" "$mr" "$k.$e" "$f" || return 1
+        rc="$SEC_FOXGUARD_RC"
       fi
     fi
     # Not read for its extension, which has an upper-case letter (app.PY,
-    # x.Js): scan a copy named <n>.<extension in lower case>.
-    x="${f##*/}"
+    # x.Js): scan a copy with the extension in lower case.
     if [[ "$rc" -le 1 && "$x" == *.*[[:upper:]]* ]] && sec_foxguard_unsupported "$4.one"; then
-      x="${x##*.}"; lx="$(printf '%s' "$x" | LC_ALL=C tr 'A-Z' 'a-z')" || return 1
-      if [[ -n "$lx" && "$lx" != "$x" ]]; then
-        rc=0; printf '%s\n' "$f" > "$4/$k.path" || return 1
-        { mkdir -p "$md" && cat < "$3/$f" > "$md/$k.$lx" && : > "$4/$k.json"; } || return 1
-        # shellcheck disable=SC2086
-        ( cd "$4/$k.d" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "$mr$k.$lx" ) </dev/null >/dev/null 2>"$4.two" || rc=$?
-        sec_foxguard_skip_name "$mr$k.$lx" "$f" "$4.two" "$4.one" || return 1
+      lx="$(printf '%s' "$e" | LC_ALL=C tr 'A-Z' 'a-z')" || return 1
+      if [[ -n "$lx" && "$lx" != "$e" ]]; then
+        printf '%s\n' "$f" > "$4/$k.path" || return 1
+        c="$(sec_foxguard_copy_name "${x%.*}.$lx")" || return 1
+        sec_foxguard_scan_copy "$1" "$2" "$3/$f" "$4" "$k" "$mr" "$c" "$f" || return 1
+        rc="$SEC_FOXGUARD_RC"
+        if [[ "$rc" -le 1 ]] && sec_foxguard_noise "$4.one"; then known=1; fi
+        # Not read under its own name (noise, or ".PY" with nothing in front).
+        if [[ "$rc" -le 1 ]] && { sec_foxguard_noise "$4.one" || sec_foxguard_unsupported "$4.one"; }; then
+          sec_foxguard_scan_copy "$1" "$2" "$3/$f" "$4" "$k" "$mr" "$k.$lx" "$f" || return 1
+          rc="$SEC_FOXGUARD_RC"
+        fi
         # .C and .H are C to some and C++ to a compiler. One that parses as C
         # is scanned as C. One that does not is C++: not a file to fix, so
         # not a skip that refuses the push, but named.
-        if [[ "$x" == C || "$x" == H ]]; then
+        if [[ "$e" == C || "$e" == H ]]; then
           s="$(LC_ALL=C awk '/^warning: skipping .* \(parse error\)$/' "$4.one")" || return 1
           if [[ -n "$s" ]]; then
             printf '%s\n' "$s" >> "$4.cxx" || return 1
@@ -921,6 +948,10 @@ sec_foxguard_scan() {
           fi
         fi
       fi
+    fi
+    # A file type foxguard knows that no copy got read: never a silent pass.
+    if [[ "$rc" -le 1 && "$known" -eq 1 ]] && { sec_foxguard_noise "$4.one" || sec_foxguard_unsupported "$4.one"; }; then
+      printf 'warning: skipping %s (noise path)\n' "$f" >> "$4.one" || return 1
     fi
     awk '{ print }' "$4.one" >> "$4.err" || return 1
     # The shell writes the list itself, one checked write per file.

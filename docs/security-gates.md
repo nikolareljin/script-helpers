@@ -172,11 +172,15 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
   flagged line is new, one that only moved is not. Without a base, every file
   of the tip. Each file is scanned on its own, so hidden paths and the ones
   foxguard skips as noise in a directory scan (`vendor/`, `node_modules/`,
-  `build/`, `dist/`) are read too. A file foxguard calls noise by its name
-  (`app.min.js`) is scanned as a copy under another name and reported under
-  its own. A copy keeps the directories of the file, each with `_` in front:
-  foxguard tells an nginx or Apache config by its path, so
-  `nginx/build/site.conf` is scanned as `_nginx/_build/site.conf`. A skipped
+  `build/`, `dist/`) are read too, each as a copy. A copy keeps the
+  directories of the file, each with `d_` in front: foxguard tells an nginx
+  or Apache config by its path, so `nginx/build/site.conf` is scanned as
+  `d_nginx/d_build/site.conf`. A file foxguard calls noise by its name
+  (`app.min.js`) is scanned as a copy named `app._min.js`: the rest of the
+  name stays, because foxguard tells some files by it (`nginx.conf`,
+  `Dockerfile.dev`, `haproxy.cfg`, `Cargo.lock`). Each is reported under its
+  own name. foxguard calls only a file type it knows noise, so one that no
+  copy got read is a skipped file (`noise path`), never a silent pass. A skipped
   file is named, with the cause. At `off` the same files are scanned, as the
   same copies, and a file
   foxguard still could not read is named as `not scanned` and counted in a

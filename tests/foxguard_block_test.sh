@@ -136,8 +136,8 @@ has "and says so" "the foxguard scan failed"
 # --------------------------------- a list that cannot be written fails closed
 # sec_foxguard_scan with stand-in scanners: what is tested is what the hook
 # does when one of its own writes fails, not what foxguard reports.
-# skipfox: every file unparseable. noisefox: a path with a directory is noise,
-# then clean from its own directory. stillnoisefox: noise under any name.
+# skipfox: every file unparseable. noisefox: a file below vendor/ is noise,
+# and clean as a copy below d_vendor/. stillnoisefox: noise under any name.
 # norerunfox: noise, then a rerun that fails without a report.
 cat > "$tmp/skipfox" <<'EOF'
 #!/usr/bin/env bash
@@ -148,7 +148,7 @@ cat > "$tmp/noisefox" <<'EOF'
 #!/usr/bin/env bash
 while [[ $# -gt 1 ]]; do [[ "$1" == --output ]] && out="$2"; shift; done
 printf '{"findings": []}\n' > "$out"
-case "$1" in */*) echo "Skipped 1 file: 1 noise path." >&2 ;; esac
+case "$1" in vendor/*) echo "Skipped 1 file: 1 noise path." >&2 ;; esac
 EOF
 cat > "$tmp/stillnoisefox" <<'EOF'
 #!/usr/bin/env bash
@@ -158,7 +158,7 @@ EOF
 cat > "$tmp/norerunfox" <<'EOF'
 #!/usr/bin/env bash
 while [[ $# -gt 1 ]]; do [[ "$1" == --output ]] && out="$2"; shift; done
-case "$1" in */*) printf '{"findings": []}\n' > "$out"; echo "Skipped 1 file: 1 noise path." >&2; exit 0 ;; esac
+case "$1" in vendor/*) printf '{"findings": []}\n' > "$out"; echo "Skipped 1 file: 1 noise path." >&2; exit 0 ;; esac
 exit 1
 EOF
 # cxxfox: knows .c, not .C, and what it is given does not parse as C.
@@ -182,7 +182,29 @@ case "$1" in
   *) echo "Skipped 1 file: 1 unsupported extension." >&2 ;;
 esac
 EOF
-chmod +x "$tmp/skipfox" "$tmp/noisefox" "$tmp/stillnoisefox" "$tmp/norerunfox" "$tmp/cxxfox" "$tmp/pathfox"
+# namefox: as foxguard, a .conf is read only with nginx in its name, another
+# is an unsupported extension, and a name with .min. in it is noise.
+# lostfox: the file is noise where it is, and no copy of it is read.
+cat > "$tmp/namefox" <<'EOF'
+#!/usr/bin/env bash
+while [[ $# -gt 1 ]]; do [[ "$1" == --output ]] && out="$2"; shift; done
+printf '{"findings": []}\n' > "$out"
+case "${1##*/}" in
+  *nginx*.min.*.conf|*nginx*.min.conf) echo "Skipped 1 file: 1 noise path." >&2 ;;
+  *nginx*.conf) printf '{"findings": [{"rule_id": "r", "file": "%s"}]}\n' "$1" > "$out"; exit 1 ;;
+  *) echo "Skipped 1 file: 1 unsupported extension." >&2 ;;
+esac
+EOF
+cat > "$tmp/lostfox" <<'EOF'
+#!/usr/bin/env bash
+while [[ $# -gt 1 ]]; do [[ "$1" == --output ]] && out="$2"; shift; done
+printf '{"findings": []}\n' > "$out"
+case "$1" in
+  vendor/b.py) echo "Skipped 1 file: 1 noise path." >&2 ;;
+  *) echo "Skipped 1 file: 1 unsupported extension." >&2 ;;
+esac
+EOF
+chmod +x "$tmp/skipfox" "$tmp/noisefox" "$tmp/stillnoisefox" "$tmp/norerunfox" "$tmp/cxxfox" "$tmp/pathfox" "$tmp/namefox" "$tmp/lostfox"
 # scan <fox> [<shell code run first, $2 is the work directory>] [<file>]: the
 # exit status of sec_foxguard_scan on <file> (vendor/b.py); its lists are
 # $tmp/u/out.*.
@@ -201,9 +223,11 @@ expect "a skipped file: the scan itself succeeds" 0 "$(scan skipfox)"
 expect "a skip list that cannot be created fails the scan" 1 "$(scan skipfox 'mkdir "$2/out.skipped"')"
 expect "a skip line that cannot be written fails the scan" 1 \
   "$(scan skipfox 'printf() { case "${2:-}" in "warning: skipping "*) return 1 ;; esac; builtin printf "$@"; }')"
-expect "a file scanned from its own directory: the scan succeeds" 0 "$(scan noisefox)"
+expect "a file in a noise path, scanned as a copy: the scan succeeds" 0 "$(scan noisefox)"
+[[ -e "$tmp/u/out.skipped" && ! -s "$tmp/u/out.skipped" ]] && ok "and it is not a skip" || error "skip list: '$(cat "$tmp/u/out.skipped" 2>&1)'"
 [[ "$(cat "$tmp/u/out/1.path" 2>/dev/null)" == vendor/b.py ]] && ok "and its real name is kept" || error "no out/1.path"
 expect "a real name that cannot be written fails the scan" 1 "$(scan noisefox 'mkdir -p "$2/out/1.path"')"
+expect "a copy that cannot be written fails the scan" 1 "$(scan noisefox 'mkdir -p "$2/out/1.d/d_vendor/b.py"')"
 expect "a file that is noise under any name: the scan succeeds" 0 "$(scan stillnoisefox)"
 [[ "$(cat "$tmp/u/out.skipped" 2>/dev/null)" == "warning: skipping vendor/b.py (noise path)" ]] \
   && ok "and it is listed as skipped" || error "noise skip list: '$(cat "$tmp/u/out.skipped" 2>&1)'"
@@ -223,6 +247,16 @@ expect "a C++ line that cannot be written fails the scan" 1 \
 expect "a file foxguard tells by its path, in a noise path: the scan succeeds" 0 "$(scan pathfox : nginx/build/site.conf)"
 grep -q '"rule_id": "r"' "$tmp/u/out/1.json" 2>/dev/null && ok "and it is read with its directories" || error "report: '$(cat "$tmp/u/out/1.json" 2>&1)'"
 [[ "$(cat "$tmp/u/out/1.path" 2>/dev/null)" == nginx/build/site.conf ]] && ok "under its real name" || error "no out/1.path"
+# A file told by its name, with a noise name: a copy named <n>.conf would be
+# an unsupported extension, and nothing would say so.
+expect "a file foxguard tells by its name, with a noise name: the scan succeeds" 0 "$(scan namefox : nginx.min.conf)"
+grep -q '"rule_id": "r"' "$tmp/u/out/1.json" 2>/dev/null && ok "and it is read under a name that keeps what tells it" || error "report: '$(cat "$tmp/u/out/1.json" 2>&1)'"
+[[ "$(cat "$tmp/u/out/1.path" 2>/dev/null)" == nginx.min.conf ]] && ok "under its real name" || error "no out/1.path"
+# foxguard says "noise" only of a file type it knows: when no copy is read,
+# whatever the last one was left out for, the file is a skip.
+expect "a file that is noise, and unsupported as every copy: the scan succeeds" 0 "$(scan lostfox)"
+[[ "$(cat "$tmp/u/out.skipped" 2>/dev/null)" == "warning: skipping vendor/b.py (noise path)" ]] \
+  && ok "and it is listed as skipped" || error "lost skip list: '$(cat "$tmp/u/out.skipped" 2>&1)'"
 # sec_foxguard_paths: a file it cannot add to the list would never be scanned.
 setup; commit app.py "$high_code"
 paths() {  # <shell code run first, $2 is the work directory>
@@ -402,6 +436,12 @@ $high_code"
     setup; publish; mkdir -p "$tmp/repo/$(dirname "$p")"; commit "$p" "$high_code"
     expect "a new finding in $p blocks" 1 "$(check "$F")"
   done
+  # The directories of a copy get "d_" in front. "_" would make the noise
+  # path __tests__ of _tests__, and refuse the file as one foxguard skipped.
+  setup; publish; mkdir -p "$tmp/repo/src/_tests__/build"; commit src/_tests__/build/app.py "$high_code"; commit src/_tests__/Loader.PY "$high_code"
+  expect "a new finding below _tests__, in a file scanned as a copy, blocks" 1 "$(check "$F")"
+  has "as a finding, not as a skipped file" "BLOCK (foxguard): high src/_tests__/build/app.py:3 py/no-yaml-load (new)"
+  has "with an upper-case extension too" "BLOCK (foxguard): high src/_tests__/Loader.PY:3 py/no-yaml-load (new)"
   # foxguard calls a minified name (x.min.js) noise wherever it sits: it is
   # read under another name, so it neither escapes nor refuses a clean push.
   setup; publish; mkdir -p "$tmp/repo/static"; commit static/app.min.js 'document.body.innerHTML = location.hash;'
@@ -679,6 +719,100 @@ int main(int argc, char **argv) { system(argv[1]); return 0; }'
   setup; publish; mkdir -p "$tmp/repo/deploy/nginx/build"; commit deploy/nginx/build/site.conf 'server { ssl_protocols SSLv3 TLSv1; }'
   expect "a finding in a file told by its path, in a noise path, blocks" 1 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=medium)"
   has "under its own name" "BLOCK (foxguard): medium deploy/nginx/build/site.conf:1 config/nginx-pq-vulnerable-tls (new)"
+  # foxguard tells some files by their name (nginx.conf, Dockerfile.dev,
+  # haproxy.cfg). With a noise name a copy named <n>.conf would be an
+  # unsupported extension, and the finding would pass without a word.
+  for p in nginx.min.conf deploy/my-nginx.min.conf deploy/nginx/site.min.conf; do
+    setup; publish; mkdir -p "$tmp/repo/$(dirname "$p")"; commit "$p" 'server { ssl_protocols SSLv3 TLSv1; }'
+    expect "a finding in $p blocks" 1 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=medium)"
+    has "under its own name" "BLOCK (foxguard): medium $p:1 config/nginx-pq-vulnerable-tls (new)"
+    expect "at off: the push goes on" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+    has "and the finding is shown" "config/nginx-pq-vulnerable-tls"
+  done
+  # The directories decide which config it is: from its own directory alone
+  # nginx/build/apache.conf would be read as an Apache config, and found clean.
+  setup; publish; mkdir -p "$tmp/repo/deploy/nginx/build"; commit deploy/nginx/build/apache.conf 'server { ssl_protocols SSLv3 TLSv1; }'
+  expect "an nginx config named apache.conf, in a noise path, is read as nginx" 1 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=medium)"
+  has "under its own name" "BLOCK (foxguard): medium deploy/nginx/build/apache.conf:1 config/nginx-pq-vulnerable-tls (new)"
+  # Every name foxguard 0.14.2 reads, found by giving it each one: the
+  # extensions, the files it tells by their name, the ones it tells by their
+  # path. Each is pushed as it is, in a noise path, with a noise name and with
+  # its extension in upper case. logfox is the real foxguard, and writes down
+  # what it made of each file it was given. The last thing foxguard says of a
+  # pushed file must not be "unsupported extension" or "noise path": that is
+  # a file it reads, left out by the copy the hook scanned in its place.
+  fox_exts="bash c cjs clj cljc cljs cls cs dart dockerfile edn ex exs go h hcl hs hsc htm html java js json jsx kt kts lhs mjs ml mli php py pyw rake rb rs sc scala sh sol swift tf tfvars trigger ts tsx xml yaml yml"
+  fox_names="Dockerfile Dockerfile.dev nginx.conf my-nginx.conf apache2.conf httpd.conf haproxy.cfg requirements.txt Cargo.lock Pipfile.lock poetry.lock"
+  fox_paths="nginx/site.conf conf.d/site.conf apache/site.conf httpd/site.conf sites-enabled/site.conf sites-available/site.conf mods-enabled/site.conf haproxy/site.cfg"
+  cat > "$tmp/logfox" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do f="$a"; done
+rc=0; $REAL_FOX "$@" > "$FOX_LOG.out" 2> "$FOX_LOG.err" || rc=$?
+v=read
+if grep -q 'unsupported extension' "$FOX_LOG.out" "$FOX_LOG.err"; then v="unsupported extension"
+elif grep -q 'noise path' "$FOX_LOG.out" "$FOX_LOG.err"; then v="noise path"
+elif grep -q 'Skipped 1 file' "$FOX_LOG.out" "$FOX_LOG.err"; then v=skipped; fi
+printf '%s\t%s\n' "$f" "$v" >> "$FOX_LOG"
+cat "$FOX_LOG.out"; cat "$FOX_LOG.err" >&2
+exit "$rc"
+EOF
+  chmod +x "$tmp/logfox"
+  setup; publish
+  : > "$tmp/enum.plain"; : > "$tmp/enum.all"; : > "$tmp/enum.other"
+  for n in $(for e in $fox_exts; do printf 'x.%s\n' "$e"; done) $fox_names $fox_paths; do
+    # <d>: its directory, "a" when it has none. <pre>: where a variant with
+    # another name goes. An upper-case one goes to a directory u/: its copy
+    # (d_u/x.py) must not be taken for the pushed x.py in the log, and on a
+    # file system that ignores case x.PY beside x.py would be one file.
+    d=a; b="$n"; pre=""
+    case "$n" in */*) d="${n%/*}"; b="${n##*/}"; pre="$d/" ;; esac
+    printf '%s\n' "$n" >> "$tmp/enum.plain"
+    set -- "$n" "$d/build/$b"
+    case "$b" in
+      *.*)
+        st="${b%.*}"; ex="${b##*.}"; ux="$(printf '%s' "$ex" | tr 'a-z' 'A-Z')"
+        set -- "$@" "${pre}u/$st.$ux" "$d/build/u/$st.$ux"
+        # A name foxguard knows whole (Cargo.lock) is no longer it with .min.
+        case "$b" in
+          requirements.txt|*.lock) ;;
+          *) set -- "$@" "$pre$st.min.$ex" "$d/build/$st.min.$ex" "${pre}u/$st.min.$ux" ;;
+        esac ;;
+    esac
+    for v in "$@"; do
+      mkdir -p "$tmp/repo/$(dirname "$v")"
+      case "$v" in *.xml|*.XML) printf '<a/>\n' > "$tmp/repo/$v" ;; *) printf '\n' > "$tmp/repo/$v" ;; esac
+      printf '%s\n' "$v" >> "$tmp/enum.all"
+    done
+  done
+  # And files it has no rules for, in the same places: none is a skip.
+  for v in notes.txt a/build/notes.txt notes.min.txt a/build/notes.min.TXT site.conf a/build/site.conf a/build/site.min.CONF a/build/logo.PNG; do
+    printf 'plain text\n' > "$tmp/repo/$v"; printf '%s\n' "$v" >> "$tmp/enum.other"
+  done
+  gc -C "$tmp/repo" add -A; gc -C "$tmp/repo" commit -q -m "every name foxguard reads"
+  # enum_left <log>: the pushed files foxguard did not read in the end, and
+  # the plain names it did not read as they are (the list above is then not
+  # what this foxguard knows).
+  enum_left() {
+    LC_ALL=C awk -F'\t' '
+      FILENAME == ARGV[1] { plain[$0] = 1; next }
+      FILENAME == ARGV[2] { real[$0] = 1; next }
+      FILENAME == ARGV[3] { other[$0] = 1; next }
+      { a = $1; sub(/^\.\//, "", a); if (a in real) cur = a; else if (a in other) cur = ""
+        if (cur != "") { last[cur] = $2; n[cur]++ } }
+      END {
+        for (f in real) if (last[f] != "read") print f " (" ((f in last) ? last[f] : "never given to foxguard") ")"
+        for (f in plain) if (n[f] != 1) print f " (not read as it is: is the list of names current?)"
+      }' "$tmp/enum.plain" "$tmp/enum.all" "$tmp/enum.other" "$1" | LC_ALL=C sort -u
+  }
+  for level in high off; do
+    : > "$tmp/enum.log"
+    expect "at $level: every name foxguard reads, as $(wc -l < "$tmp/enum.all" | tr -d ' ') clean files, passes" 0 \
+      "$(check FOXGUARD_CMD="$tmp/logfox" REAL_FOX="$real_fox" FOX_LOG="$tmp/enum.log" SCRIPT_HELPERS_FOXGUARD_BLOCK="$level")"
+    left="$(enum_left "$tmp/enum.log")"
+    [[ -s "$tmp/enum.log" && -z "$left" ]] && ok "and foxguard read each one, as it is or as a copy" \
+      || error "at $level foxguard did not read: $(printf '%s' "$left" | tr '\n' ';' | cut -c1-600)"
+    if grep -qE 'not scanned|skipping|NOT read' "$tmp/out"; then error "at $level a clean file was named: $(grep -E 'not scanned|skipping|NOT read' "$tmp/out" | sed -n 1,3p)"; else ok "and none is named as unread, nor a file foxguard has no rules for"; fi
+  done
   # At off nothing blocks, and nothing is left out without a word either.
   setup; publish; commit Loader.PY "$high_code"; mkdir -p "$tmp/repo/a/build"; commit a/build/hash.py "$medium_code"
   commit Tmpl.C 'template <class T> class A { public: T v; A() : v() {} };'; commit broken.py 'def f(:
@@ -687,16 +821,16 @@ int main(int argc, char **argv) { system(argv[1]); return 0; }'
   commit app.min.py "$high_code"; commit ./-dash.py "$medium_code"
   expect "at off: a push with files foxguard drops goes on" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
   has "the upper-case extension is scanned" "py/no-yaml-load"
-  has "and named" "WARNING (foxguard): Loader.PY, scanned as copy.py:"
+  has "and named" "WARNING (foxguard): Loader.PY, scanned as Loader.py:"
   has "the noise path is scanned" "py/no-weak-crypto"
-  has "and named" "WARNING (foxguard): a/build/hash.py, scanned as _a/_build/hash.py:"
+  has "and named" "WARNING (foxguard): a/build/hash.py, scanned as d_a/d_build/hash.py:"
   has "C++ named .C is named as not scanned" "foxguard: not scanned: Tmpl.C (parse error)"
   has "an unparseable file too" "foxguard: not scanned: broken.py (parse error)"
   has "and both are counted" "foxguard did NOT read 2 of 9 changed file(s)"
-  has "a noise name is scanned" "WARNING (foxguard): app.min.py, scanned as copy.py:"
+  has "a noise name is scanned" "WARNING (foxguard): app.min.py, scanned as app._min.py:"
   has "a name that starts with a dash too" "-dash.py"
   if grep -qF "the foxguard scan did NOT run" "$tmp/out"; then error "at off a scan failed: $(grep -F 'did NOT run' "$tmp/out")"; else ok "and no scan failed"; fi
-  has "an upper-case extension in a noise path is scanned" "WARNING (foxguard): a/build/Mod.Py, scanned as _a/_build/copy.py:"
+  has "an upper-case extension in a noise path is scanned" "WARNING (foxguard): a/build/Mod.Py, scanned as d_a/d_build/Mod.py:"
   has "a file told by its path, in a noise path, too" "config/nginx-pq-vulnerable-tls"
   if grep -qF "NOTES.TXT" "$tmp/out"; then error "a file type foxguard does not read was named at off"; else ok "the text file is not named"; fi
   # A file of no language foxguard reads is not a skip.
