@@ -579,12 +579,13 @@ sec_loud() {
 # Never blocks: a missing foxguard (installed when it can be), a failed scan
 # and every finding are loud warnings, and the push goes on. As the blocking
 # scan, it reads what foxguard would drop without a word: a file in a noise
-# path (a/build/x.py) from its own directory, one with an upper-case extension
-# (app.PY) as a copy with the extension in lower case. A file foxguard still
-# does not read (a parse error, too large, C++ named .C) is named.
+# path (a/build/x.py) as a copy that keeps its directories, each with "_" in
+# front, one with an upper-case extension (app.PY) as a copy with the
+# extension in lower case. A file foxguard still does not read (a parse error,
+# too large, C++ named .C) is named.
 sec_foxguard_warn() {
   local refs="$1" remote="${2:-}" cmd f out rc frc=0 shown=0 failed=0 r base="" issues=0 hit=0 k
-  local copies="" unread=0 x lx as
+  local copies="" unread=0 x lx as mr under=/_
   if ! cmd="$(sec_foxguard_cmd)"; then
     if ! sec_foxguard_platform_ok; then
       sec_loud "the foxguard scan did NOT run: foxguard has no binary for $(uname -s) $(uname -m)."
@@ -607,25 +608,36 @@ sec_foxguard_warn() {
     rc=0; as=""
     # shellcheck disable=SC2086  # FOXGUARD_CMD may carry arguments
     out="$($cmd "$f" 2>&1)" || rc=$?
-    if [[ "$rc" -le 1 && "$f" == */* && "$out" == *"Skipped 1 file: 1 noise path."* ]]; then
-      rc=0; as="${f##*/}"
-      # shellcheck disable=SC2086
-      out="$(cd "$(dirname -- "$f")" && $cmd "$as" 2>&1)" || rc=$?
+    # The directories of <f> for a copy, as in sec_foxguard_scan.
+    mr=""
+    case "$f" in */*) mr="${f%/*}"; mr=_${mr//\//$under}/ ;; esac
+    if [[ "$rc" -le 1 && -n "$mr" && "$out" == *"Skipped 1 file: 1 noise path."* ]]; then
+      as="$mr${f##*/}"
     fi
     x="${f##*/}"
     if [[ "$rc" -le 1 && "$x" == *.*[[:upper:]]* && "$out" == *"Skipped 1 file: 1 unsupported extension."* ]]; then
       x="${x##*.}"; lx="$(printf '%s' "$x" | LC_ALL=C tr 'A-Z' 'a-z')" || lx=""
-      if [[ -n "$lx" && "$lx" != "$x" ]]; then
-        rc=0; as="copy.$lx"
-        if { [[ -n "$copies" ]] || copies="$(mktemp -d "${TMPDIR:-/tmp}/sh-foxguard.XXXXXX" 2>/dev/null)"; } \
-          && cat < "$f" > "$copies/$as" 2>/dev/null; then
-          # shellcheck disable=SC2086
-          out="$(cd "$copies" && $cmd "$as" 2>&1)" || rc=$?
-        else
-          out="Skipped 1 file: 1 copy to scan could not be written."
-        fi
-      fi
+      if [[ -n "$lx" && "$lx" != "$x" ]]; then as="${mr}copy.$lx"; fi
     fi
+    # Twice at most: a noise path first, then its upper-case extension.
+    for k in 1 2; do
+      [[ -n "$as" ]] || break
+      rc=0
+      if { [[ -n "$copies" ]] || copies="$(mktemp -d "${TMPDIR:-/tmp}/sh-foxguard.XXXXXX" 2>/dev/null)"; } \
+        && mkdir -p "$copies/$mr" 2>/dev/null && cat < "$f" > "$copies/$as" 2>/dev/null; then
+        # shellcheck disable=SC2086
+        out="$(cd "$copies" && $cmd "$as" 2>&1)" || rc=$?
+      else
+        out="Skipped 1 file: 1 copy to scan could not be written."
+      fi
+      x="${f##*/}"; lx="$(printf '%s' "${x##*.}" | LC_ALL=C tr 'A-Z' 'a-z')" || lx=""
+      if [[ "$rc" -le 1 && "$as" == "$mr$x" && "$x" == *.*[[:upper:]]* && -n "$lx" && "$lx" != "${x##*.}" \
+        && "$out" == *"Skipped 1 file: 1 unsupported extension."* ]]; then
+        as="${mr}copy.$lx"
+      else
+        break
+      fi
+    done
     # Not read, and not for a file type foxguard does not know: say so.
     if [[ "$rc" -le 1 && "$out" == *"Skipped 1 file: 1 "* && "$out" != *"Skipped 1 file: 1 unsupported extension."* ]]; then
       unread=$((unread + 1)); r="${out#*Skipped 1 file: 1 }"

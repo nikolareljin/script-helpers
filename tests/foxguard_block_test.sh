@@ -682,15 +682,18 @@ int main(int argc, char **argv) { system(argv[1]); return 0; }'
   # At off nothing blocks, and nothing is left out without a word either.
   setup; publish; commit Loader.PY "$high_code"; mkdir -p "$tmp/repo/a/build"; commit a/build/hash.py "$medium_code"
   commit Tmpl.C 'template <class T> class A { public: T v; A() : v() {} };'; commit broken.py 'def f(:
-    pass'; commit NOTES.TXT "plain text"
+    pass'; commit NOTES.TXT "plain text"; commit a/build/Mod.Py "$high_code"
+  mkdir -p "$tmp/repo/deploy/nginx/build"; commit deploy/nginx/build/site.conf 'server { ssl_protocols SSLv3 TLSv1; }'
   expect "at off: a push with files foxguard drops goes on" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
   has "the upper-case extension is scanned" "py/no-yaml-load"
   has "and named" "WARNING (foxguard): Loader.PY, scanned as copy.py:"
   has "the noise path is scanned" "py/no-weak-crypto"
-  has "and named" "WARNING (foxguard): a/build/hash.py, scanned as hash.py:"
+  has "and named" "WARNING (foxguard): a/build/hash.py, scanned as _a/_build/hash.py:"
   has "C++ named .C is named as not scanned" "foxguard: not scanned: Tmpl.C (parse error)"
   has "an unparseable file too" "foxguard: not scanned: broken.py (parse error)"
-  has "and both are counted" "foxguard did NOT read 2 of 5 changed file(s)"
+  has "and both are counted" "foxguard did NOT read 2 of 7 changed file(s)"
+  has "an upper-case extension in a noise path is scanned" "WARNING (foxguard): a/build/Mod.Py, scanned as _a/_build/copy.py:"
+  has "a file told by its path, in a noise path, too" "config/nginx-pq-vulnerable-tls"
   if grep -qF "NOTES.TXT" "$tmp/out"; then error "a file type foxguard does not read was named at off"; else ok "the text file is not named"; fi
   # A file of no language foxguard reads is not a skip.
   setup; commit notes.txt "plain text"

@@ -177,8 +177,8 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
   its own. A copy keeps the directories of the file, each with `_` in front:
   foxguard tells an nginx or Apache config by its path, so
   `nginx/build/site.conf` is scanned as `_nginx/_build/site.conf`. A skipped
-  file is named, with the cause. At `off` the same files are scanned (a noise
-  path from its own directory, an upper-case extension as a copy), and a file
+  file is named, with the cause. At `off` the same files are scanned, as the
+  same copies, and a file
   foxguard still could not read is named as `not scanned` and counted in a
   warning. A control character in a
   printed file name is shown as `?` (in a finding: `\xNN` or `\uNNNN`), so a
