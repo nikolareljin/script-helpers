@@ -196,5 +196,50 @@ EOF
   tip="$tmp/tip.json"
 fi
 
+# The hook prints some names itself (sec_foxguard_show) and the helper prints
+# the rest (shown): a character one of them hides must not get through the
+# other. Every code point from U+0080 up goes through the hook's filter: each
+# one of the list below is replaced, and nothing the helper would print is.
+# -B: importing the helper must not leave a __pycache__ in scripts/.
+cat > "$tmp/points.py" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+from foxguard_push_compare import shown
+MUST = [0xAD, 0x61C, 0x6DD, 0x70F, 0x890, 0x891, 0x8E2, 0x180E, 0xFEFF, 0x110BD, 0x110CD, 0xE0001]
+for lo, hi in ((0x80, 0x9F), (0x600, 0x605), (0x200B, 0x200F), (0x2028, 0x202E), (0x2060, 0x206F), (0xFFF9, 0xFFFB),
+               (0x13430, 0x1343F), (0x1BCA0, 0x1BCA3), (0x1D173, 0x1D17A), (0xE0020, 0xE007F)):
+    MUST.extend(range(lo, hi + 1))
+points = [cp for cp in range(0x80, 0x30000) if not 0xD800 <= cp <= 0xDFFF] + list(range(0xE0000, 0xE0080))
+if sys.argv[2] == "write":
+    with open(sys.argv[3], "w", encoding="utf-8", newline="\n") as out:
+        for cp in points:
+            out.write(f"{cp:06X} {chr(cp)}\n")
+    sys.exit(0)
+with open(sys.argv[3], encoding="utf-8", newline="\n") as got:
+    lines = got.read().split("\n")[:-1]
+bad = []
+if len(lines) != len(points):
+    bad.append(f"{len(lines)} lines for {len(points)} code points")
+for cp, line in zip(points, lines):
+    if line == f"{cp:06X} ?":
+        if shown(chr(cp)) == chr(cp):
+            bad.append(f"U+{cp:04X} is hidden by the hook and printed by the helper")
+    elif line != f"{cp:06X} {chr(cp)}":
+        bad.append(f"U+{cp:04X} came out as {line!r}")
+    elif cp in MUST:
+        bad.append(f"U+{cp:04X} is printed by the hook")
+    if cp in MUST and shown(chr(cp)) == chr(cp):
+        bad.append(f"U+{cp:04X} is printed by the helper")
+print("\n".join(bad[:10]))
+sys.exit(1 if bad else 0)
+EOF
+"$py" -I -B "$tmp/points.py" "$ROOT_DIR/scripts" write "$tmp/points"
+bash -c 'source "$1/scripts/security_hooks.sh"; sec_foxguard_show "" < "$2"' _ "$ROOT_DIR" "$tmp/points" 2> "$tmp/points.shown"
+if "$py" -I -B "$tmp/points.py" "$ROOT_DIR/scripts" check "$tmp/points.shown" > "$tmp/out" 2>&1; then
+  ok "the hook and the helper hide the same control, reordering and invisible characters, and no letter"
+else
+  error "sec_foxguard_show and shown() disagree: $(cat "$tmp/out")"
+fi
+
 if [[ "$failures" -gt 0 ]]; then note "$failures failure(s)"; exit 1; fi
 note "all passed"

@@ -126,7 +126,7 @@ scanner output.
 
 | `security.foxguardBlock` | A push is refused on a new finding of severity |
 |---|---|
-| `off` | never: findings, a missing foxguard and a failed scan are warnings |
+| `off` | never: findings, a missing foxguard, a failed scan and a file foxguard could not read are warnings |
 | `critical` | critical |
 | `high` (default) | high or critical |
 | `medium` | medium, high or critical |
@@ -155,8 +155,11 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
   file over its 1 MB limit). A file type foxguard has no rules for is not a skip.
   foxguard knows an extension in lower case only; a file such as `app.PY` or
   `x.Js` still runs, so it is scanned as a copy with the extension in lower
-  case and reported under its own name. `.C` and `.H` are left alone: they
-  are C++, which foxguard does not read.
+  case and reported under its own name. `.C` and `.H` are scanned as C. One
+  that does not parse as C is C++, which foxguard does not read: it is named
+  as `not scanned` and does not refuse the push. When the base copy was such
+  a file, a finding in the new one blocks as `the base copy could not be
+  scanned`.
   A working file the hook cannot write under `TMPDIR` (the file lists and
   maps, the list of skipped files, the base list, the configs, the copy of a
   file to scan) refuses the push too: a short list is never read as "nothing
@@ -171,11 +174,17 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
   foxguard skips as noise in a directory scan (`vendor/`, `node_modules/`,
   `build/`, `dist/`) are read too. A file foxguard calls noise by its name
   (`app.min.js`) is scanned as a copy under another name and reported under
-  its own. A skipped file is named, with the cause. A control character in a
+  its own. A copy keeps the directories of the file, each with `_` in front:
+  foxguard tells an nginx or Apache config by its path, so
+  `nginx/build/site.conf` is scanned as `_nginx/_build/site.conf`. A skipped
+  file is named, with the cause. At `off` the same files are scanned (a noise
+  path from its own directory, an upper-case extension as a copy), and a file
+  foxguard still could not read is named as `not scanned` and counted in a
+  warning. A control character in a
   printed file name is shown as `?` (in a finding: `\xNN` or `\uNNNN`), so a
   carriage return in a name cannot draw over the line that reports it. The
-  same goes for the C1 controls and the characters that reorder text
-  (U+202E and the like).
+  same goes for the C1 controls and the characters that reorder, hide or
+  break text (U+202E, U+200E, U+200B, U+2028 and the like).
   A changed path with a tab or newline refuses the push. So does one whose
   name is not valid UTF-8, which foxguard cannot be given: the path is
   printed with the odd bytes as `\xNN`, and the remedy is to rename it. Two

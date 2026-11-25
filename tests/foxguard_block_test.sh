@@ -161,12 +161,35 @@ while [[ $# -gt 1 ]]; do [[ "$1" == --output ]] && out="$2"; shift; done
 case "$1" in */*) printf '{"findings": []}\n' > "$out"; echo "Skipped 1 file: 1 noise path." >&2; exit 0 ;; esac
 exit 1
 EOF
-chmod +x "$tmp/skipfox" "$tmp/noisefox" "$tmp/stillnoisefox" "$tmp/norerunfox"
-# scan <fox> [<shell code run first, $2 is the work directory>]: the exit
-# status of sec_foxguard_scan on vendor/b.py; its lists are $tmp/u/out.*.
+# cxxfox: knows .c, not .C, and what it is given does not parse as C.
+# pathfox: a/build/ is noise, and a .conf is read only below a directory.
+cat > "$tmp/cxxfox" <<'EOF'
+#!/usr/bin/env bash
+while [[ $# -gt 1 ]]; do [[ "$1" == --output ]] && out="$2"; shift; done
+printf '{"findings": []}\n' > "$out"
+case "$1" in
+  *.c) printf 'warning: skipping %s (parse error)\nSkipped 1 file: 1 parse error.\n' "$1" >&2 ;;
+  *) echo "Skipped 1 file: 1 unsupported extension." >&2 ;;
+esac
+EOF
+cat > "$tmp/pathfox" <<'EOF'
+#!/usr/bin/env bash
+while [[ $# -gt 1 ]]; do [[ "$1" == --output ]] && out="$2"; shift; done
+printf '{"findings": []}\n' > "$out"
+case "$1" in
+  */build/*) echo "Skipped 1 file: 1 noise path." >&2 ;;
+  */*) printf '{"findings": [{"rule_id": "r", "file": "%s"}]}\n' "$1" > "$out"; exit 1 ;;
+  *) echo "Skipped 1 file: 1 unsupported extension." >&2 ;;
+esac
+EOF
+chmod +x "$tmp/skipfox" "$tmp/noisefox" "$tmp/stillnoisefox" "$tmp/norerunfox" "$tmp/cxxfox" "$tmp/pathfox"
+# scan <fox> [<shell code run first, $2 is the work directory>] [<file>]: the
+# exit status of sec_foxguard_scan on <file> (vendor/b.py); its lists are
+# $tmp/u/out.*.
 scan() {
-  rm -rf "$tmp/u"; mkdir -p "$tmp/u/tree/vendor"; printf 'x = 1\n' > "$tmp/u/tree/vendor/b.py"
-  printf 'vendor/b.py\n' > "$tmp/u/list"; printf '{}\n' > "$tmp/u/config"
+  local f="${3:-vendor/b.py}"
+  rm -rf "$tmp/u"; mkdir -p "$tmp/u/tree/$(dirname "$f")"; printf 'x = 1\n' > "$tmp/u/tree/$f"
+  printf '%s\n' "$f" > "$tmp/u/list"; printf '{}\n' > "$tmp/u/config"
   ln -s "$tmp/$1" "$tmp/u/fox"; printf '%s\n' "${2:-:}" > "$tmp/u/first"
   bash -c 'source "$1/scripts/security_hooks.sh"; source "$2/first"; sec_foxguard_scan "$2/fox" "$2/config" "$2/tree" "$2/out" "$2/list"' \
     _ "$ROOT_DIR" "$tmp/u" >"$tmp/out" 2>&1
@@ -187,6 +210,19 @@ expect "a file that is noise under any name: the scan succeeds" 0 "$(scan stilln
 expect "a noise skip that cannot be written fails the scan" 1 \
   "$(scan stillnoisefox 'printf() { case "$1" in *"(noise path)"*) return 1 ;; esac; builtin printf "$@"; }')"
 expect "a rerun that writes no report is not read as the first, empty one" 1 "$(scan norerunfox)"
+# A .C that does not parse as C is C++: on its own list, not a skip.
+expect "a .C that is not C: the scan succeeds" 0 "$(scan cxxfox : src/b.C)"
+[[ "$(cat "$tmp/u/out.cxx" 2>/dev/null)" == "warning: skipping src/b.C (parse error)" ]] \
+  && ok "and it is listed as C++, under its own name" || error "C++ list: '$(cat "$tmp/u/out.cxx" 2>&1)'"
+[[ -e "$tmp/u/out.skipped" && ! -s "$tmp/u/out.skipped" ]] && ok "and not as a skip" || error "skip list: '$(cat "$tmp/u/out.skipped" 2>&1)'"
+expect "a C++ list that cannot be created fails the scan" 1 "$(scan cxxfox 'mkdir "$2/out.cxx"' src/b.C)"
+expect "a C++ line that cannot be written fails the scan" 1 \
+  "$(scan cxxfox 'printf() { case "${2:-}" in "warning: skipping "*) return 1 ;; esac; builtin printf "$@"; }' src/b.C)"
+# A file told by its path, in a noise path: its own directory alone would
+# leave it unread, and nothing would say so.
+expect "a file foxguard tells by its path, in a noise path: the scan succeeds" 0 "$(scan pathfox : nginx/build/site.conf)"
+grep -q '"rule_id": "r"' "$tmp/u/out/1.json" 2>/dev/null && ok "and it is read with its directories" || error "report: '$(cat "$tmp/u/out/1.json" 2>&1)'"
+[[ "$(cat "$tmp/u/out/1.path" 2>/dev/null)" == nginx/build/site.conf ]] && ok "under its real name" || error "no out/1.path"
 # sec_foxguard_paths: a file it cannot add to the list would never be scanned.
 setup; commit app.py "$high_code"
 paths() {  # <shell code run first, $2 is the work directory>
@@ -615,6 +651,47 @@ $high_code"
   setup; publish; commit Tmpl.C 'template <class T> class A { public: T v; A() : v() {} };
 namespace n { int f() { return 1; } }'; commit Tmpl.H 'namespace n { template <class T> class B { public: T v; }; }'; commit NOTES.TXT "plain text"
   expect "C++ named .C and .H, and a file type foxguard does not read in any case, pass" 0 "$(check "$F")"
+  has "the C++ is named as not scanned" "foxguard: not scanned: warning: skipping Tmpl.C (parse error)"
+  has "the header too" "foxguard: not scanned: warning: skipping Tmpl.H (parse error)"
+  has "and counted" "2 .C or .H file(s) above do not parse as C and were not scanned"
+  if grep -qF "NOTES.TXT" "$tmp/out"; then error "a file type foxguard does not read was named"; else ok "the text file is not named"; fi
+  # C named .C is scanned as C: a finding there is not a silent pass.
+  c_code='#include <stdlib.h>
+int main(int argc, char **argv) { system(argv[1]); return 0; }'
+  setup; publish; commit Util.C "$c_code"
+  expect "a new finding in C code named .C blocks" 1 "$(check "$F")"
+  has "under its own name" "Util.C:2 c/taint-command-injection (new)"
+  # The base copy was C++, so never read: it vouches for nothing.
+  setup; commit Util.C 'template <class T> class A { public: T v; A() : v() {} };'; publish; commit Util.C "$c_code"
+  expect "a finding in a .C whose base copy was C++ blocks" 1 "$(check "$F")"
+  has "as unscanned at the base" "Util.C:2 c/taint-command-injection (the base copy could not be scanned (parse error); review the file, then push with SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
+  expect "and is a warning with the override" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
+  # The same for a base copy with an upper-case extension that did not parse:
+  # scanned as .py, skipped, and so no clean base.
+  setup; commit Loader.PY 'def f(:
+    pass'; publish; commit Loader.PY "$high_code"
+  expect "a finding in a file whose upper-case base copy did not parse blocks" 1 "$(check "$F")"
+  has "as unscanned at the base" "high Loader.PY:3 py/no-yaml-load (the base copy could not be scanned (parse error); review the file"
+  has "the base skip is named" "foxguard: base: warning: skipping Loader.PY (parse error)"
+  expect "and is a warning with the override" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
+  # foxguard tells an nginx config by its path. In a noise path it is scanned
+  # from a copy, which must keep the directories.
+  setup; publish; mkdir -p "$tmp/repo/deploy/nginx/build"; commit deploy/nginx/build/site.conf 'server { ssl_protocols SSLv3 TLSv1; }'
+  expect "a finding in a file told by its path, in a noise path, blocks" 1 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=medium)"
+  has "under its own name" "BLOCK (foxguard): medium deploy/nginx/build/site.conf:1 config/nginx-pq-vulnerable-tls (new)"
+  # At off nothing blocks, and nothing is left out without a word either.
+  setup; publish; commit Loader.PY "$high_code"; mkdir -p "$tmp/repo/a/build"; commit a/build/hash.py "$medium_code"
+  commit Tmpl.C 'template <class T> class A { public: T v; A() : v() {} };'; commit broken.py 'def f(:
+    pass'; commit NOTES.TXT "plain text"
+  expect "at off: a push with files foxguard drops goes on" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+  has "the upper-case extension is scanned" "py/no-yaml-load"
+  has "and named" "WARNING (foxguard): Loader.PY, scanned as copy.py:"
+  has "the noise path is scanned" "py/no-weak-crypto"
+  has "and named" "WARNING (foxguard): a/build/hash.py, scanned as hash.py:"
+  has "C++ named .C is named as not scanned" "foxguard: not scanned: Tmpl.C (parse error)"
+  has "an unparseable file too" "foxguard: not scanned: broken.py (parse error)"
+  has "and both are counted" "foxguard did NOT read 2 of 5 changed file(s)"
+  if grep -qF "NOTES.TXT" "$tmp/out"; then error "a file type foxguard does not read was named at off"; else ok "the text file is not named"; fi
   # A file of no language foxguard reads is not a skip.
   setup; commit notes.txt "plain text"
   expect "an unsupported file type passes at high" 0 "$(check "$F")"
