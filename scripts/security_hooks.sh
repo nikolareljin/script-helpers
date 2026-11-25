@@ -781,16 +781,16 @@ sec_foxguard_scan() {
     ( cd "$3" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "$f" ) </dev/null >/dev/null 2>"$4.one" || rc=$?
     if [[ "$rc" -le 1 ]] && sec_foxguard_noise "$4.one"; then
       rc=0; printf '%s\n' "$f" > "$4/$k.path" || return 1
-      # The report of the run above goes: a rerun that writes none must not
-      # be read as that empty one.
-      rm -f -- "$4/$k.json" || return 1
+      # The report of the run above is emptied: a rerun that writes none
+      # must not be read as that one.
+      : > "$4/$k.json" || return 1
       # shellcheck disable=SC2086
       ( cd "$3/$(dirname -- "$f")" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "${f##*/}" ) </dev/null >/dev/null 2>"$4.two" || rc=$?
       sec_foxguard_skip_name "${f##*/}" "$f" "$4.two" "$4.one" || return 1
       # Still noise: the name itself (x.min.js). Scan a copy named <n>.<ext>.
       if [[ "$rc" -le 1 ]] && sec_foxguard_noise "$4.one"; then
         rc=0; x="${f##*/}"; x="${x##*.}"
-        { mkdir -p "$4/$k.d" && cat < "$3/$f" > "$4/$k.d/$k.$x" && rm -f -- "$4/$k.json"; } || return 1
+        { mkdir -p "$4/$k.d" && cat < "$3/$f" > "$4/$k.d/$k.$x" && : > "$4/$k.json"; } || return 1
         # shellcheck disable=SC2086
         ( cd "$4/$k.d" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "$k.$x" ) </dev/null >/dev/null 2>"$4.two" || rc=$?
         sec_foxguard_skip_name "$k.$x" "$f" "$4.two" "$4.one" || return 1

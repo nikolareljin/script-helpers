@@ -167,8 +167,9 @@ chmod +x "$tmp/skipfox" "$tmp/noisefox" "$tmp/stillnoisefox" "$tmp/norerunfox"
 scan() {
   rm -rf "$tmp/u"; mkdir -p "$tmp/u/tree/vendor"; printf 'x = 1\n' > "$tmp/u/tree/vendor/b.py"
   printf 'vendor/b.py\n' > "$tmp/u/list"; printf '{}\n' > "$tmp/u/config"
-  bash -c 'source "$1/scripts/security_hooks.sh"; eval "$4"; sec_foxguard_scan "$3" "$2/config" "$2/tree" "$2/out" "$2/list"' \
-    _ "$ROOT_DIR" "$tmp/u" "$tmp/$1" "${2:-:}" >"$tmp/out" 2>&1
+  ln -s "$tmp/$1" "$tmp/u/fox"; printf '%s\n' "${2:-:}" > "$tmp/u/first"
+  bash -c 'source "$1/scripts/security_hooks.sh"; source "$2/first"; sec_foxguard_scan "$2/fox" "$2/config" "$2/tree" "$2/out" "$2/list"' \
+    _ "$ROOT_DIR" "$tmp/u" >"$tmp/out" 2>&1
   echo $?
 }
 expect "a skipped file: the scan itself succeeds" 0 "$(scan skipfox)"
@@ -189,9 +190,9 @@ expect "a rerun that writes no report is not read as the first, empty one" 1 "$(
 # sec_foxguard_paths: a file it cannot add to the list would never be scanned.
 setup; commit app.py "$high_code"
 paths() {  # <shell code run first, $2 is the work directory>
-  rm -rf "$tmp/u"; mkdir -p "$tmp/u"
-  (cd "$tmp/repo" && bash -c 'source "$1/scripts/security_hooks.sh"; eval "$3"; sec_foxguard_paths "" HEAD "$2/files" "$2/map"' \
-    _ "$ROOT_DIR" "$tmp/u" "${1:-:}") >"$tmp/out" 2>&1
+  rm -rf "$tmp/u"; mkdir -p "$tmp/u"; printf '%s\n' "${1:-:}" > "$tmp/u/first"
+  (cd "$tmp/repo" && bash -c 'source "$1/scripts/security_hooks.sh"; source "$2/first"; sec_foxguard_paths "" HEAD "$2/files" "$2/map"' \
+    _ "$ROOT_DIR" "$tmp/u") >"$tmp/out" 2>&1
   echo $?
 }
 expect "the changed files are listed" 0 "$(paths)"
