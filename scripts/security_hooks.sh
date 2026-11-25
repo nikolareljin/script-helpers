@@ -903,11 +903,18 @@ sec_foxguard_block() (
       sec_foxguard_refuse "$level" "foxguard skipped $(wc -l < "$d/tip.json.skipped" | tr -d ' ') changed file(s)" \
         "Fix each file named above (a parse error, or over 1 MB) so foxguard can read it"; exit 1
     fi
-    set --; i=0
+    # A base left out (over 8), unreadable or whose scan failed skipped
+    # nothing: the override then covers no file.
+    set --; i=0; incomplete=0
+    if [[ -s "$d/all-bases" && "$(wc -l < "$d/all-bases")" -gt 8 ]]; then incomplete=1; fi
     while IFS= read -r b; do
       [[ -n "$b" ]] || continue
       i=$((i + 1))
-      sec_foxguard_tree "$b" "$d/map$i" "$d/base$i" || continue
+      if ! sec_foxguard_tree "$b" "$d/map$i" "$d/base$i"; then
+        incomplete=1
+        echo "[pre-push] foxguard: the files of base ${b:0:12} could not be read; its findings count as new." >&2
+        continue
+      fi
       if sec_foxguard_scan "$cmd" "$d/config" "$d/base$i" "$d/base$i.json" "$d/files"; then
         set -- "$@" --base "$d/base$i.json"
         # A base copy foxguard could not read cannot say what was already
@@ -917,11 +924,13 @@ sec_foxguard_block() (
           set -- "$@" --base-unscanned "$d/base$i.json.skipped"
         fi
       else
+        incomplete=1
         echo "[pre-push] foxguard: the scan of base ${b:0:12} failed; its findings count as new." >&2
       fi
     done < "$d/bases"
     # Exit 3 is a block; 0 nothing blocks; anything else (a crash too) refuses.
     if [[ "${SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE:-}" == 1 ]]; then set -- "$@" --allow-unscanned; fi
+    if [[ "$incomplete" -eq 1 ]]; then set -- "$@" --base-incomplete; fi
     rc=0
     "$py" -I "$helper" --level "$level" --tip "$d/tip.json" ${@+"$@"} < /dev/null > "$d/verdict" || rc=$?
     case "$rc" in 0|3) ;; *) sec_foxguard_refuse "$level" "the foxguard reports could not be compared"; exit 1 ;; esac
@@ -931,7 +940,7 @@ sec_foxguard_block() (
     while IFS=$'\t' read -r verdict sev loc rule why desc; do
       if [[ "$verdict" == BLOCK ]]; then
         blocked=$((blocked + 1))
-        case "$why" in "the base copy could not be scanned"*) unscanned_block=$((unscanned_block + 1)) ;; esac
+        case "$why" in "the base copy could not be scanned"*"then push with"*) unscanned_block=$((unscanned_block + 1)) ;; esac
         printf '[pre-push] BLOCK (foxguard): %s %s %s (%s): %s\n' "$sev" "$loc" "$rule" "$why" "$desc" >&2
       else
         warned=$((warned + 1))

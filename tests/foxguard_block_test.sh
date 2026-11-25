@@ -336,6 +336,40 @@ $high_code"; commit loader.py "x = 1"; publish
   has "the base skip carries the real path" "foxguard: base: warning: skipping src/dist/loader.py (parse error)"
   has "the root file blocks as new" "BLOCK (foxguard): high loader.py:3 py/no-yaml-load (new)"
   has "the skipped file is the one allowed" "WARNING (foxguard): high src/dist/loader.py:3 py/no-yaml-load (the base copy could not be scanned (parse error); allowed by SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
+  # Two bases, both with the unparseable copy. Every base skipped it, so the
+  # override applies; when the scan of one base fails, that base skipped
+  # nothing and the override must not.
+  setup; commit loader.py "def f(:
+    pass
+$high_code"; publish
+  gc -C "$tmp/repo" checkout -q -b side; commit side.txt "side"
+  gc -C "$tmp/repo" push -q origin side; git -C "$tmp/repo" fetch -q origin
+  gc -C "$tmp/repo" checkout -q main; commit other.txt "other"; publish
+  gc -C "$tmp/repo" checkout -q -b topic; gc -C "$tmp/repo" merge -q --no-edit side >/dev/null 2>&1
+  commit loader.py "$high_code"
+  topic_check() {  # [env...]
+    printf 'refs/heads/topic %s refs/heads/topic %s\n' "$(git -C "$tmp/repo" rev-parse HEAD)" 0000000000000000000000000000000000000000 > "$tmp/refs"
+    (cd "$tmp/repo" && env "$@" bash -c 'set -euo pipefail; source "$1/scripts/security_hooks.sh" && sec_foxguard_push "$2" origin' _ "$ROOT_DIR" "$tmp/refs") >"$tmp/out" 2>&1
+    echo $?
+  }
+  expect "two bases that both skipped the file: the override passes" 0 "$(topic_check "$F" SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
+  printf '#!/usr/bin/env bash\ncase "$PWD" in */base2) exit 2 ;; esac\nexec "%s" "$@"\n' "$real_fox" > "$tmp/base2fox"; chmod +x "$tmp/base2fox"
+  expect "the scan of one base fails: the override does not apply" 1 "$(topic_check FOXGUARD_CMD="$tmp/base2fox" SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
+  has "the failed base is named" "failed; its findings count as new."
+  has "the block says why the override does not apply" "BLOCK (foxguard): high loader.py:3 py/no-yaml-load (the base copy could not be scanned (parse error); another base was not scanned, so SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1 does not apply)"
+  if grep -qF "push again with SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1" "$tmp/out"; then error "a block the override cannot lift must not advise it"; else ok "it does not advise the override"; fi
+  # Over 8 bases: the ninth is never scanned, so it skipped nothing either.
+  setup; commit loader.py "def f(:
+    pass
+$high_code"; publish
+  for n in 1 2 3 4 5 6 7 8 9; do
+    gc -C "$tmp/repo" checkout -q -b "b$n" origin/main; commit "b$n.txt" "$n"; gc -C "$tmp/repo" push -q origin "b$n"
+  done
+  git -C "$tmp/repo" fetch -q origin
+  gc -C "$tmp/repo" checkout -q -b topic b1; gc -C "$tmp/repo" merge -q --no-edit b2 b3 b4 b5 b6 b7 b8 b9 >/dev/null 2>&1
+  commit loader.py "$high_code"
+  expect "nine bases, eight scanned: the override does not apply" 1 "$(topic_check "$F" SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
+  has "the block says a base was not scanned" "another base was not scanned, so SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1 does not apply"
   # A file of no language foxguard reads is not a skip.
   setup; commit notes.txt "plain text"
   expect "an unsupported file type passes at high" 0 "$(check "$F")"

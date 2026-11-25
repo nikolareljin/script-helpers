@@ -175,7 +175,9 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
   are a `WARNING` that names the override. Only the value `1` turns it on. It
   covers only files whose base copy was skipped: a new finding in any other
   file still blocks. With several bases, a file counts as skipped only when
-  every base skipped it. Once the readable copy is on the remote, the file is
+  every base skipped it. A base that was not scanned skipped nothing: when
+  the scan of a base fails, or the push has more than 8 bases, the override
+  covers no file and the block says so. Once the readable copy is on the remote, the file is
   compared as usual and a new finding blocks, override or not.
 - **Config**: the foxguard config (`.foxguard.yml` and the other names) is read
   from the base (the first boundary commit when there are several), never from

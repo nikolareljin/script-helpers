@@ -60,9 +60,42 @@ run "a missing skip list refuses, even with --allow-unscanned" 2 - --allow-unsca
 run "a malformed skip list refuses, even with --allow-unscanned" 2 - --allow-unscanned --base "$tmp/clean.json" --base-unscanned "$tmp/bad"
 : > "$tmp/empty"
 run "an empty skip list hides nothing" 3 BLOCK --allow-unscanned --base "$tmp/clean.json" --base-unscanned "$tmp/empty"
+# A base that is not among the reports skipped nothing.
+run "a base left out: the file blocks, even with --allow-unscanned" 3 BLOCK --allow-unscanned --base-incomplete \
+  --base "$tmp/clean.json" --base-unscanned "$tmp/skip"
+grep -qF "another base was not scanned, so SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1 does not apply" "$tmp/out" \
+  && ok "the block says the override does not apply" || error "the block does not say the override does not apply"
 # One skip line names one file: a carriage return in a name starts no line.
 printf 'warning: skipping junk (a)\rwarning: skipping loader.py (parse error)\n' > "$tmp/skip_cr"
 run "a carriage return in a skipped name does not name a second file" 3 BLOCK --allow-unscanned --base "$tmp/clean.json" --base-unscanned "$tmp/skip_cr"
+# <n>.path names a file scanned from its own directory. A carriage return in
+# it is part of the name: vendor/x.py<CR> is not the skipped vendor/x.py.
+mkdir -p "$tmp/tip_cr" "$tmp/tip_cr2"
+cp "$tmp/tip.json" "$tmp/tip_cr/1.json"; cp "$tmp/tip.json" "$tmp/tip_cr2/1.json"
+printf 'vendor/x.py\r\n' > "$tmp/tip_cr/1.path"
+printf 'vendor/c\rd.py\n' > "$tmp/tip_cr2/1.path"
+printf 'warning: skipping vendor/x.py (parse error)\n' > "$tmp/skip_vendor"
+printf 'warning: skipping vendor/c\rd.py (parse error)\n' > "$tmp/skip_vendor_cr"
+tip="$tmp/tip_cr"
+run "a name ending in a carriage return is not the skipped file" 3 BLOCK --allow-unscanned --base "$tmp/clean.json" --base-unscanned "$tmp/skip_vendor"
+tip="$tmp/tip_cr2"
+run "a skipped name with a carriage return is matched as written" 0 WARN --allow-unscanned --base "$tmp/clean.json" --base-unscanned "$tmp/skip_vendor_cr"
+tip="$tmp/tip.json"
+# Windows, also under MSYS or Cygwin where os.sep is "/": a\b.py is a/b.py.
+cat > "$tmp/as_cygwin.py" <<'PYEOF'
+import runpy, sys
+sys.platform = "cygwin"
+sys.argv = sys.argv[1:]
+runpy.run_path(sys.argv[0], run_name="__main__")
+PYEOF
+cat > "$tmp/tip_win.json" <<'EOF'
+{"findings":[{"rule_id":"py/no-yaml-load","severity":"high","file":"a\\b.py","line":3,"snippet":"yaml.load(x)","description":"d"}]}
+EOF
+printf 'warning: skipping a/b.py (parse error)\n' > "$tmp/skip_slash"
+rc=0; "$py" -I "$tmp/as_cygwin.py" "$helper" --level high --tip "$tmp/tip_win.json" --allow-unscanned \
+  --base "$tmp/clean.json" --base-unscanned "$tmp/skip_slash" > "$tmp/out" 2>&1 || rc=$?
+if [[ "$rc" -eq 0 ]] && grep -q "^WARN	.*a/b.py:3" "$tmp/out"; then ok "under Cygwin Python a\\b.py is the skipped a/b.py"
+else error "under Cygwin Python a\\b.py is not read as a/b.py (exit $rc)"; sed 's/^/    | /' "$tmp/out" >&2; fi
 # Where / separates directories, a\b.py is not a/b.py.
 if [[ "$("$py" -I -c 'import os; print(os.sep)')" == / ]]; then
   cat > "$tmp/tip_dir.json" <<'EOF'

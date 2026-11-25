@@ -2,7 +2,7 @@
 
 Usage: foxguard_push_compare.py --level <critical|high|medium|low>
        --tip <tip.json> [--base <base.json> ...] [--base-unscanned <list> ...]
-       [--allow-unscanned]
+       [--allow-unscanned] [--base-incomplete]
 
 Reads foxguard JSON reports (`foxguard --format json`), each a file or a
 directory of them. A tip finding is new
@@ -14,6 +14,9 @@ was already in a file every base skipped, so a tip finding there at or above
 --level blocks and names the reason; with --allow-unscanned (the operator
 reviewed the file) it is a warning instead. A base that scanned the file
 still judges it, and once the push lands it is compared as usual.
+--base-incomplete says a base is not among the --base reports (its scan
+failed, or it was left out): it skipped nothing, so --allow-unscanned turns
+no finding into a warning.
 Prints one tab-separated line per tip finding:
     BLOCK|WARN <severity> <file>:<line> <rule> <why> <description>
 Exit 0: nothing blocks. 3: a new finding at or above --level. 2: a report
@@ -44,7 +47,9 @@ def load(path):
             # <n>.path: the real name of a file scanned from its own directory.
             real = part.with_suffix(".path")
             if real.exists():
-                name = real.read_text(encoding="utf-8").rstrip("\n")
+                # newline="\n": a carriage return in a file name stays one.
+                with real.open(encoding="utf-8", newline="\n") as handle:
+                    name = handle.read().rstrip("\n")
                 for finding in findings:
                     finding["file"] = name
             found.extend(findings)
@@ -78,8 +83,10 @@ def load_unscanned(path):
 def norm_file(name):
     name = str(name or "")
     # Only where a backslash separates directories: elsewhere a\b.py and
-    # a/b.py are two files, and one must not stand in for the other.
-    if os.sep == "\\":
+    # a/b.py are two files, and one must not stand in for the other. Python
+    # under MSYS or Cygwin has os.sep "/", and a Windows foxguard beside it
+    # still prints backslashes.
+    if os.sep == "\\" or sys.platform in ("win32", "cygwin", "msys"):
         name = name.replace("\\", "/")
     while name.startswith("./"):
         name = name[2:]
@@ -104,6 +111,7 @@ def main():
     parser.add_argument("--base", dest="reports", action="append", type=lambda v: ("base", v), default=[])
     parser.add_argument("--base-unscanned", dest="reports", action="append", type=lambda v: ("skip", v))
     parser.add_argument("--allow-unscanned", action="store_true")
+    parser.add_argument("--base-incomplete", action="store_true")
     args = parser.parse_args()
     try:
         tip = load(args.tip)
@@ -142,7 +150,11 @@ def main():
             verdict, why = "WARN", "already in the base"
         elif k[1] in unscanned and rank >= threshold:
             reason = f"the base copy could not be scanned ({unscanned[k[1]]})"
-            if args.allow_unscanned:
+            if args.base_incomplete:
+                # A base that is not here skipped nothing: it might have read the file.
+                verdict, why = "BLOCK", f"{reason}; another base was not scanned, so {ALLOW}=1 does not apply"
+                blocked = True
+            elif args.allow_unscanned:
                 verdict, why = "WARN", f"{reason}; allowed by {ALLOW}=1"
             else:
                 verdict, why = "BLOCK", f"{reason}; review the file, then push with {ALLOW}=1"
