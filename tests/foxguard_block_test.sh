@@ -998,6 +998,31 @@ ENV NODE_TLS_REJECT_UNAUTHORIZED=0'
   expect "at off: a failing foxguard on such a file" 0 "$(check FOXGUARD_CMD="$tmp/brokenfox" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
   has "the name is shown with ?" "foxguard (a?b.py): boom"
   if LC_ALL=C grep -q "$(printf '[\r\033]')" "$tmp/out"; then error "at off a failed scan printed a control character"; else ok "and no control character is printed"; fi
+  # At off a message of foxguard's own follows its progress on the same line
+  # (a rule id in the config that it does not know): the progress is left
+  # out, the message is not.
+  setup; publish; commit .foxguard.yml 'scan:
+  disable_rules:
+    - no/such-rule'; commit app.py "$high_code"
+  expect "at off: a finding, and a message of foxguard's own" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+  has "the message is shown" "WARNING (foxguard): Warning: unknown rule id in config (enable_rules/disable_rules): no/such-rule"
+  has "and the finding" "py/no-yaml-load"
+  if grep -qF "scanning..." "$tmp/out" || LC_ALL=C grep -q "$(printf '\r')" "$tmp/out"; then
+    error "at off the progress of foxguard was printed: $(grep -F 'scanning...' "$tmp/out" | sed -n 1p | cat -v)"
+  else ok "and its progress is not"; fi
+  # At off the reason a file was left out is foxguard's summary line: not a
+  # file name in a skip line, nor a line of a file in a finding.
+  setup; publish; commit 'Skipped 1 file: 1 unsupported extension..py' 'def f(:
+    pass'; commit said.py 'import yaml
+def load(x):
+    return yaml.load("Skipped 1 file: 1 noise path.")'
+  expect "at off: a file name and a line of code that read as a summary" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+  has "a parse error is named, whatever the file name says" "foxguard: not scanned: Skipped 1 file: 1 unsupported extension..py (parse error)"
+  has "and counted, alone" "foxguard did NOT read 1 of 2 changed file(s)"
+  has "the file with a finding is read" "WARNING (foxguard):   said.py"
+  if grep -qF "not scanned: said.py" "$tmp/out" || grep -qF "said.py, scanned as" "$tmp/out"; then
+    error "at off a file with a finding was named as not scanned, or scanned again: $(grep -F 'said.py' "$tmp/out" | sed -n 1,2p)"
+  else ok "and is not named as not scanned, nor scanned again as a copy"; fi
   # At off a file left out for its extension is not scanned again under its
   # own name: one run for a file with no extension, two for app.PY.
   setup; publish; mkdir -p "$tmp/repo/src"; commit src/Makefile 'all:'; commit src/Run "$high_code"; commit src/app.PY "$high_code"

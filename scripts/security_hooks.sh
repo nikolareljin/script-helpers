@@ -575,6 +575,18 @@ sec_loud() {
   printf '%s[pre-push] ========================================================%s\n' "$y" "$r" >&2
 }
 
+# sec_foxguard_left_out <exit status> <output>: why foxguard left the one file
+# of a run out, from its summary line ("Skipped 1 file: 1 parse error."):
+# "parse error", "noise path", "unsupported extension". Nothing when it read
+# the file. A skip line ("warning: skipping <file> (<reason>)") is not read: it
+# carries the file name, and a file named "Skipped 1 file: 1 unsupported
+# extension..py" with a parse error was not left out for its extension. A run
+# with findings read the file, and prints lines of it.
+sec_foxguard_left_out() {
+  [[ "$1" -eq 0 ]] || return 0
+  printf '%s\n' "$2" | LC_ALL=C sed -n -e '/warning: skipping /d' -e 's/^.*Skipped 1 file: 1 \([^.]*\)\..*$/\1/p' | sed -n 1p
+}
+
 # sec_foxguard_warn <refs-file> <remote>: foxguard at security.foxguardBlock=off.
 # Never blocks: a missing foxguard (installed when it can be), a failed scan
 # and every finding are loud warnings, and the push goes on. As the blocking
@@ -587,7 +599,7 @@ sec_loud() {
 # named.
 sec_foxguard_warn() {
   local refs="$1" remote="${2:-}" cmd f out rc frc=0 shown=0 failed=0 r base="" issues=0 hit=0 k
-  local copies="" unread=0 x e lx as mr known names own n=0 under=/d_
+  local copies="" unread=0 x e lx as mr known names own n=0 under=/d_ why cr=$'\r'
   if ! cmd="$(sec_foxguard_cmd)"; then
     if ! sec_foxguard_platform_ok; then
       sec_loud "the foxguard scan did NOT run: foxguard has no binary for $(uname -s) $(uname -m)."
@@ -612,6 +624,7 @@ sec_foxguard_warn() {
     x="$f"; case "$f" in -*) x="./$f" ;; esac
     # shellcheck disable=SC2086  # FOXGUARD_CMD may carry arguments
     out="$($cmd "$x" 2>&1)" || rc=$?
+    why="$(sec_foxguard_left_out "$rc" "$out")"
     # The directories of <f> for a copy, as in sec_foxguard_scan.
     mr=""
     case "$f" in */*) mr="${f%/*}"; mr=d_${mr//\//$under}/ ;; esac
@@ -633,8 +646,8 @@ sec_foxguard_warn() {
     for k in "${names[@]}"; do
       [[ "$rc" -le 1 ]] || break
       # foxguard says "noise" only of a file type it knows.
-      if [[ "$out" == *"Skipped 1 file: 1 noise path."* ]]; then known=1
-      elif [[ "$out" == *"Skipped 1 file: 1 unsupported extension."* && ( "$known" -eq 1 || "$lx" != "$e" ) ]]; then :
+      if [[ "$why" == "noise path" ]]; then known=1
+      elif [[ "$why" == "unsupported extension" && ( "$known" -eq 1 || "$lx" != "$e" ) ]]; then :
       else break; fi
       # The first name is its own: a copy for a noise path or name only.
       # Left out for its extension, the file would be left out again under
@@ -649,18 +662,17 @@ sec_foxguard_warn() {
         x="$as"; case "$as" in -*) x="./$as" ;; esac
         # shellcheck disable=SC2086
         out="$(cd "$copies/$n" && $cmd "$x" 2>&1)" || rc=$?
+        why="$(sec_foxguard_left_out "$rc" "$out")"
       else
-        out="Skipped 1 file: 1 copy to scan could not be written."
+        out=""; why="copy to scan could not be written"
       fi
     done
     # A file type foxguard knows that no copy got read.
-    if [[ "$rc" -le 1 && "$known" -eq 1 && "$out" == *"Skipped 1 file: 1 unsupported extension."* ]]; then
-      out="Skipped 1 file: 1 noise path."
-    fi
+    if [[ "$known" -eq 1 && "$why" == "unsupported extension" ]]; then why="noise path"; fi
     # Not read, and not for a file type foxguard does not know: say so.
-    if [[ "$rc" -le 1 && "$out" == *"Skipped 1 file: 1 "* && "$out" != *"Skipped 1 file: 1 unsupported extension."* ]]; then
-      unread=$((unread + 1)); r="${out#*Skipped 1 file: 1 }"
-      printf '%s (%s)\n' "$f" "${r%%.*}" | sec_foxguard_show '[pre-push] foxguard: not scanned: '
+    if [[ -n "$why" && "$why" != "unsupported extension" ]]; then
+      unread=$((unread + 1))
+      printf '%s (%s)\n' "$f" "$why" | sec_foxguard_show '[pre-push] foxguard: not scanned: '
     fi
     case "$rc" in
       0) ;;
@@ -674,9 +686,16 @@ sec_foxguard_warn() {
         if [[ -n "${out//[[:space:]]/}" ]]; then shown=$((shown + 1)); fi
         # foxguard prints the file name as it is: through sec_foxguard_show,
         # so a carriage return in it cannot draw over the line. Its progress
-        # line, which starts with one, is left out.
+        # ("<CR>  foxguard v0.14.2 . scanning... ") and the blanks that wipe
+        # it are left out. Only those: a message of its own (a rule it could
+        # not load, an unknown rule id in the config) follows the progress on
+        # the same line, and is shown.
         while IFS= read -r r; do
-          [[ -n "${r//[[:space:]]/}" && "$r" != $'\r'* ]] || continue
+          if [[ "$r" == "$cr"* ]]; then
+            r="${r#"$cr"}"
+            case "$r" in "  foxguard v"*"scanning..."*) r="${r#*scanning...}"; r="${r# }" ;; esac
+          fi
+          [[ -n "${r//[[:space:]]/}" ]] || continue
           printf '[pre-push] WARNING (foxguard): %s\n' "$r"
         done < <(printf '%s\n' "$out") | sec_foxguard_show '' ;;
       *)

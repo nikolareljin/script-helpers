@@ -187,7 +187,9 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
   warning. A control character in a
   printed file name is shown as `?` (in a finding: `\xNN` or `\uNNNN`), so a
   carriage return in a name cannot draw over the line that reports it. At
-  `off` the lines of foxguard's own report are shown the same way. The
+  `off` the lines of foxguard's own report are shown the same way, without
+  its progress; a message of its own (an unknown rule id in the config) is
+  shown. The
   same goes for the C1 controls and the characters that reorder, hide or
   break text (U+202E, U+200E, U+200B, U+2028 and the like).
   A changed path with a tab or newline refuses the push. So does one whose
