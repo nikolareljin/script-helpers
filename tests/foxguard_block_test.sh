@@ -213,7 +213,7 @@ expect "the files of a commit are written" 0 "$(tree 'app.py\tapp.py\nother.py\t
 cmp -s "$tmp/repo/app.py" "$tmp/u/tree/app.py" && ok "each whole" || error "tree/app.py is not the committed file"
 # A sed that loses its output when it writes to a file, and says nothing.
 expect "a copy that comes out short fails" 1 \
-  "$(tree 'app.py\tapp.py\n' 'sed() { if [[ "$*" == *f0xguard* && ! -p /dev/stdout ]]; then command sed "$@" | head -c 5; return 0; fi; command sed "$@"; }')"
+  "$(tree 'app.py\tapp.py\n' 'sed() { if [[ "$*" == *f0xguard* && ! -p /dev/stdout ]]; then command sed "$@" >/dev/null; printf short; return 0; fi; command sed "$@"; }')"
 # What a case-insensitive file system does to App.py and app.py, on any
 # file system: the second name is the first file.
 expect "two names that are one file in the tree are refused" 2 "$(tree 'app.py\tsame.py\nother.py\tsame.py\n')"
