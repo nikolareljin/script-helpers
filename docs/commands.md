@@ -138,6 +138,10 @@ Usage: source scripts/security_hooks.sh; sec_pre_push <refs-file> <remote-name> 
                                medium or low. With git config
                                security.foxguardBlock also set, the stricter
                                of the two applies. Neither: high.
+  SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE  1: a finding in a file
+                               whose base copy could not be scanned warns
+                               instead of blocking, for this push only.
+                               Any other value: it blocks.
 ```
 
 Exit codes:
@@ -2664,11 +2668,20 @@ scripts/script-helpers/scripts/docs_site.sh preview --port 8080
 Split foxguard findings of a pushed tip into new and already present.
 
 ```text
-Usage:
-       --tip <tip.json> [--base <base.json> ...]
+Usage: foxguard_push_compare.py --level <critical|high|medium|low>
+       --tip <tip.json> [--base <base.json> ...] [--base-unscanned <list> ...]
+       [--base-absent <list> ...] [--allow-unscanned] [--base-incomplete]
+       foxguard_push_compare.py --names <list>
 ```
 
-Exit codes: not in the header; the script exits with 2.
+Exit codes:
+
+```text
+0 nothing blocks; 3 a new finding at or above --level; 2 a report
+could not be read, or anything else went wrong (never read as a pass).
+With --names: 0 every path is UTF-8; 4 one is not; 2 the list could not
+be read.
+```
 
 ### `scripts/gen_command_reference.py`
 

@@ -126,7 +126,7 @@ scanner output.
 
 | `security.foxguardBlock` | A push is refused on a new finding of severity |
 |---|---|
-| `off` | never: findings, a missing foxguard and a failed scan are warnings |
+| `off` | never: findings, a missing foxguard, a failed scan and a file foxguard could not read are warnings |
 | `critical` | critical |
 | `high` (default) | high or critical |
 | `medium` | medium, high or critical |
@@ -153,20 +153,78 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
   foxguard is missing (install it: `setup-hooks.sh --install-foxguard`), when the scan
   fails, or when foxguard skips a changed file it should read (a parse error, a
   file over its 1 MB limit). A file type foxguard has no rules for is not a skip.
+  foxguard knows an extension in lower case only; a file such as `app.PY` or
+  `x.Js` still runs, so it is scanned as a copy with the extension in lower
+  case and reported under its own name. `.C` and `.H` are scanned as C. One
+  that does not parse as C is C++, which foxguard does not read: it is named
+  as `not scanned` and does not refuse the push. When the base copy was such
+  a file, a finding in the new one blocks as `the base copy could not be
+  scanned`.
+  A working file the hook cannot write under `TMPDIR` (the file lists and
+  maps, the list of skipped files, the base list, the configs, the copy of a
+  file to scan) refuses the push too: a short list is never read as "nothing
+  to scan" or "nothing skipped". The lists are counted and each copy is read
+  back after the write, so a tool that loses its output without an error is
+  caught as well.
 - **Which files**: every file the tip adds or changes against the base,
   merges and type changes included; a renamed file is compared with its old
   path. Occurrences are counted per rule, file and snippet: an added copy of a
   flagged line is new, one that only moved is not. Without a base, every file
   of the tip. Each file is scanned on its own, so hidden paths and the ones
   foxguard skips as noise in a directory scan (`vendor/`, `node_modules/`,
-  `build/`, `dist/`) are read too. A file foxguard calls noise by its name
-  (`app.min.js`) is scanned as a copy under another name and reported under
-  its own. A skipped file is named, with the cause.
-  A changed path with a tab or newline refuses the push. Ignore files
+  `build/`, `dist/`) are read too, each as a copy. A copy keeps the
+  directories of the file, each with `d_` in front: foxguard tells an nginx
+  or Apache config by its path, so `nginx/build/site.conf` is scanned as
+  `d_nginx/d_build/site.conf`. A file foxguard calls noise by its name
+  (`app.min.js`) is scanned as a copy named `app._min.js`: the rest of the
+  name stays, because foxguard tells some files by it (`nginx.conf`,
+  `Dockerfile.dev`, `haproxy.cfg`, `Cargo.lock`). Each is reported under its
+  own name. foxguard calls only a file type it knows noise, so one that no
+  copy got read is a skipped file (`noise path`), never a silent pass. A skipped
+  file is named, with the cause. At `off` no copy is scanned: each changed
+  file is scanned where it is, under the foxguard config of the working tree,
+  so the warnings are those of `foxguard <file>` run by hand. A file foxguard
+  does not read there is printed as `not scanned: <path> (<reason>)` and
+  counted in a warning: `noise path` (a noise path or a noise name),
+  `upper-case extension` (`app.PY`; whether foxguard reads the name in lower
+  case is asked of an empty file under `TMPDIR`, and nothing of the file is
+  copied), `parse error`, or foxguard's own reason. A file type it has no
+  rules for is not named. A blocking level scans those files. A control character in a
+  printed file name is shown as `?` (in a finding: `\xNN` or `\uNNNN`), so a
+  carriage return in a name cannot draw over the line that reports it. At
+  `off` the lines of foxguard's own report are shown the same way, without
+  its progress; a message of its own (an unknown rule id in the config) is
+  shown. The
+  same goes for the C1 controls and the characters that reorder, hide or
+  break text (U+202E, U+200E, U+200B, U+2028 and the like).
+  A changed path with a tab or newline refuses the push. So does one whose
+  name is not valid UTF-8, which foxguard cannot be given: the path is
+  printed with the odd bytes as `\xNN`, and the remedy is to rename it. Two
+  changed paths that are one file where the hook writes its copies (names
+  that differ only in case or in Unicode form, under a `TMPDIR` on macOS or
+  Windows, or a file named as a directory of the other path) refuse the push
+  as well, because one of them could not be scanned:
+  rename one, or point `TMPDIR` at a case-sensitive file system. On a
+  case-sensitive file system both are scanned. Ignore files
   (`.ignore` and the like) are not written to the scanned tree, so a push
   cannot hide its own files. Inline suppressions (`# foxguard: ignore`, the word
   `foxguard` in any case) are defused in every scanned copy, so a push cannot silence a finding it adds; a
   suppressed finding the base already has is a `WARNING`.
+- **A base copy foxguard could not read** (a parse error, or over 1 MB) says
+  nothing about what was already there. A finding at or above the level in
+  that file at the tip blocks; the block names the reason, and the base skip
+  is printed. Review the file, and if the findings are not new, push again
+  with `SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1`: for that push they
+  are a `WARNING` that names the override. Only the value `1` turns it on. It
+  covers only files whose base copy was skipped: a new finding in any other
+  file still blocks. With several bases, a file counts as skipped only when
+  every base that has it skipped it. A base without the file says nothing
+  about it (a symlink, submodule or directory at that path is not "without":
+  the finding then blocks as new); a base that read its copy still judges the file, and a file no
+  base has is new. A base that was not scanned skipped nothing: when
+  the scan of a base fails, or the push has more than 8 bases, the override
+  covers no file and the block says so. Once the readable copy is on the remote, the file is
+  compared as usual and a new finding blocks, override or not.
 - **Config**: the foxguard config (`.foxguard.yml` and the other names) is read
   from the base (the first boundary commit when there are several), never from
   the pushed commits, so a push cannot disable the rules that judge it. No base, or no config there: none. A push that adds or
