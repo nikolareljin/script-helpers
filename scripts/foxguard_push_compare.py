@@ -2,18 +2,20 @@
 
 Usage: foxguard_push_compare.py --level <critical|high|medium|low>
        --tip <tip.json> [--base <base.json> ...] [--base-unscanned <list> ...]
-       [--allow-unscanned] [--base-incomplete]
+       [--base-absent <list> ...] [--allow-unscanned] [--base-incomplete]
 
 Reads foxguard JSON reports (`foxguard --format json`), each a file or a
 directory of them. A tip finding is new
 when its rule, file and whitespace-normalized snippet occur more often at the
 tip than in every base report, so a finding that only moved lines is not new.
 --base-unscanned names the files the --base before it skipped, as foxguard
-printed them ("warning: skipping <file> (<reason>)"). No base can say what
-was already in a file every base skipped, so a tip finding there at or above
---level blocks and names the reason; with --allow-unscanned (the operator
-reviewed the file) it is a warning instead. A base that scanned the file
-still judges it, and once the push lands it is compared as usual.
+printed them ("warning: skipping <file> (<reason>)"). --base-absent names
+the files the --base before it does not have, one path per line. No base can
+say what was already in a file that every base having it skipped (at least
+one must have it), so a tip finding there at or above --level blocks and
+names the reason; with --allow-unscanned (the operator reviewed the file) it
+is a warning instead. A base that scanned the file still judges it, a file
+no base has is new, and once the push lands it is compared as usual.
 --base-incomplete says a base is not among the --base reports (its scan
 failed, or it was left out): it skipped nothing, so --allow-unscanned turns
 no finding into a warning.
@@ -80,6 +82,13 @@ def load_unscanned(path):
     return unscanned
 
 
+def load_absent(path):
+    # The paths a base does not have, one per line, as the hook wrote them.
+    # newline="\n": a carriage return in a file name must not start a line.
+    with Path(path).open(encoding="utf-8", newline="\n") as handle:
+        return {norm_file(line.rstrip("\n")) for line in handle if line.rstrip("\n")}
+
+
 def norm_file(name):
     name = str(name or "")
     # Only where a backslash separates directories: elsewhere a\b.py and
@@ -106,29 +115,37 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--level", required=True, choices=sorted(RANK))
     parser.add_argument("--tip", required=True)
-    # Kept in command-line order: each --base-unscanned belongs to the --base
-    # before it.
+    # Kept in command-line order: each --base-unscanned and --base-absent
+    # belongs to the --base before it.
     parser.add_argument("--base", dest="reports", action="append", type=lambda v: ("base", v), default=[])
     parser.add_argument("--base-unscanned", dest="reports", action="append", type=lambda v: ("skip", v))
+    parser.add_argument("--base-absent", dest="reports", action="append", type=lambda v: ("absent", v))
     parser.add_argument("--allow-unscanned", action="store_true")
     parser.add_argument("--base-incomplete", action="store_true")
     args = parser.parse_args()
     try:
         tip = load(args.tip)
-        bases, skips = [], []
+        bases, skips, absents = [], [], []
         for kind, path in args.reports:
             if kind == "base":
                 bases.append(Counter(key(f) for f in load(path)))
                 skips.append({})
+                absents.append(set())
             elif not skips:
-                raise ValueError(f"--base-unscanned {path} has no --base before it")
-            else:
+                flag = "--base-unscanned" if kind == "skip" else "--base-absent"
+                raise ValueError(f"{flag} {path} has no --base before it")
+            elif kind == "skip":
                 for name, reason in load_unscanned(path).items():
                     skips[-1].setdefault(name, reason)
-        # Unscanned only when every base skipped it.
-        unscanned = dict(skips[0]) if skips else {}
-        for other in skips[1:]:
-            unscanned = {n: r for n, r in unscanned.items() if n in other}
+            else:
+                absents[-1].update(load_absent(path))
+        # Unscanned: a base skipped it, and every other base skipped it too
+        # or does not have it. A file no base has was skipped by none.
+        unscanned = {}
+        for skipped in skips:
+            for name, reason in skipped.items():
+                if name not in unscanned and all(name in s or name in a for s, a in zip(skips, absents)):
+                    unscanned[name] = reason
     except (OSError, ValueError) as err:
         print(f"foxguard report unreadable: {err}", file=sys.stderr)
         return 2

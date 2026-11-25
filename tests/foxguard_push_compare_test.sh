@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # SCRIPT: foxguard_push_compare_test.sh
-# DESCRIPTION: Tests how scripts/foxguard_push_compare.py reads --base-unscanned.
+# DESCRIPTION: Tests how scripts/foxguard_push_compare.py reads --base-unscanned and --base-absent.
 # USAGE: ./tests/foxguard_push_compare_test.sh
 # PARAMETERS: None.
 # EXAMPLE: bash tests/foxguard_push_compare_test.sh
 # ----------------------------------------------------
 # Needs no foxguard: the reports are written here. The hook passes one
-# --base-unscanned after each --base whose scan skipped files.
+# --base-unscanned after each --base whose scan skipped files, and one
+# --base-absent after each --base that lacks some of the changed files.
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -65,6 +66,33 @@ run "a base left out: the file blocks, even with --allow-unscanned" 3 BLOCK --al
   --base "$tmp/clean.json" --base-unscanned "$tmp/skip"
 grep -qF "another base was not scanned, so SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1 does not apply" "$tmp/out" \
   && ok "the block says the override does not apply" || error "the block does not say the override does not apply"
+# A base that does not have the file neither read nor skipped it: the file
+# is unscanned when another base skipped it, and new when no base has it.
+printf 'loader.py\n' > "$tmp/absent"
+printf 'other.py\n' > "$tmp/absent_other"
+run "skipped by one base, absent from the other: it blocks without the override" 3 BLOCK \
+  --base "$tmp/clean.json" --base-unscanned "$tmp/skip" --base "$tmp/clean.json" --base-absent "$tmp/absent"
+grep -qF "could not be scanned (parse error); review the file, then push with SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1" "$tmp/out" \
+  && ok "the block names the reason and the override" || error "skipped and absent: the block does not name the override"
+run "skipped by one base, absent from the other: it warns with --allow-unscanned" 0 WARN --allow-unscanned \
+  --base "$tmp/clean.json" --base-unscanned "$tmp/skip" --base "$tmp/clean.json" --base-absent "$tmp/absent"
+run "the same, with the base that lacks it first" 0 WARN --allow-unscanned \
+  --base "$tmp/clean.json" --base-absent "$tmp/absent" --base "$tmp/clean.json" --base-unscanned "$tmp/skip"
+run "skipped by one, absent from one, scanned by a third: it blocks" 3 BLOCK --allow-unscanned \
+  --base "$tmp/clean.json" --base-unscanned "$tmp/skip" --base "$tmp/clean.json" --base-absent "$tmp/absent" --base "$tmp/clean.json"
+run "absent from every base: it is new, with --allow-unscanned too" 3 BLOCK --allow-unscanned \
+  --base "$tmp/clean.json" --base-absent "$tmp/absent" --base "$tmp/clean.json" --base-absent "$tmp/absent"
+grep -q "	new	" "$tmp/out" && ok "and it is named new" || error "a file no base has is not named new"
+run "a base that lacks another file still judges this one" 3 BLOCK --allow-unscanned \
+  --base "$tmp/clean.json" --base-unscanned "$tmp/skip" --base "$tmp/clean.json" --base-absent "$tmp/absent_other"
+run "skipped and absent, with a base left out: it blocks" 3 BLOCK --allow-unscanned --base-incomplete \
+  --base "$tmp/clean.json" --base-unscanned "$tmp/skip" --base "$tmp/clean.json" --base-absent "$tmp/absent"
+run "an absent list with no base refuses" 2 - --allow-unscanned --base-absent "$tmp/absent"
+run "a missing absent list refuses" 2 - --allow-unscanned --base "$tmp/clean.json" --base-absent "$tmp/missing"
+# One line names one file: junk<CR>loader.py is not loader.py.
+printf 'junk\rloader.py\n' > "$tmp/absent_cr"
+run "a carriage return in an absent name does not name a second file" 3 BLOCK --allow-unscanned \
+  --base "$tmp/clean.json" --base-unscanned "$tmp/skip" --base "$tmp/clean.json" --base-absent "$tmp/absent_cr"
 # One skip line names one file: a carriage return in a name starts no line.
 printf 'warning: skipping junk (a)\rwarning: skipping loader.py (parse error)\n' > "$tmp/skip_cr"
 run "a carriage return in a skipped name does not name a second file" 3 BLOCK --allow-unscanned --base "$tmp/clean.json" --base-unscanned "$tmp/skip_cr"

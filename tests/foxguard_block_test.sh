@@ -370,6 +370,59 @@ $high_code"; publish
   commit loader.py "$high_code"
   expect "nine bases, eight scanned: the override does not apply" 1 "$(topic_check "$F" SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
   has "the block says a base was not scanned" "another base was not scanned, so SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1 does not apply"
+  # Two bases: main has the unparseable copy, side was cut before the file
+  # existed. The base without the file read nothing and skipped nothing, so
+  # the override applies; without it the finding blocks and names it.
+  setup; commit seed.txt "seed"; publish
+  gc -C "$tmp/repo" checkout -q -b side; commit side.txt "side"
+  gc -C "$tmp/repo" push -q origin side; git -C "$tmp/repo" fetch -q origin
+  gc -C "$tmp/repo" checkout -q main; commit loader.py "def f(:
+    pass
+$high_code"; publish
+  gc -C "$tmp/repo" checkout -q -b topic; gc -C "$tmp/repo" merge -q --no-edit side >/dev/null 2>&1
+  commit loader.py "$high_code"
+  expect "skipped by one base, absent from the other: it blocks" 1 "$(topic_check "$F")"
+  has "and the block names the override" "BLOCK (foxguard): high loader.py:3 py/no-yaml-load (the base copy could not be scanned (parse error); review the file, then push with SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
+  expect "skipped by one base, absent from the other: the override passes" 0 "$(topic_check "$F" SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
+  has "as a warning that names the override" "WARNING (foxguard): high loader.py:3 py/no-yaml-load (the base copy could not be scanned (parse error); allowed by SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
+  commit fresh.py "$high_code"
+  expect "with the override, a file no base has still blocks" 1 "$(topic_check "$F" SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
+  has "it blocks as new" "BLOCK (foxguard): high fresh.py:3 py/no-yaml-load (new)"
+  # The other base has a copy it read, with nothing in it: it still judges
+  # the file, so the override does not apply.
+  setup; commit seed.txt "seed"; publish
+  gc -C "$tmp/repo" checkout -q -b side; commit loader.py "x = 1"
+  gc -C "$tmp/repo" push -q origin side; git -C "$tmp/repo" fetch -q origin
+  gc -C "$tmp/repo" checkout -q main; commit loader.py "def f(:
+    pass
+$high_code"; publish
+  gc -C "$tmp/repo" checkout -q -b topic; gc -C "$tmp/repo" merge -q --no-edit -s ours side >/dev/null 2>&1
+  commit loader.py "$high_code"
+  expect "skipped by one base, read by the other: the override does not apply" 1 "$(topic_check "$F" SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
+  has "it blocks as new" "BLOCK (foxguard): high loader.py:3 py/no-yaml-load (new)"
+  # A file name that is pathspec magic to git (":(top)x.py", ":!x.py") is a
+  # file like any other: it is scanned, and its finding blocks.
+  for magic in ':(top)evil.py' ':!evil.py'; do
+    setup; commit notes.txt "plain text"; publish
+    printf '%s\n' "$high_code" > "$tmp/repo/$magic"
+    gc -C "$tmp/repo" --literal-pathspecs add -- "$magic"; gc -C "$tmp/repo" commit -q -m "add $magic"
+    expect "a new finding in a file named $magic blocks" 1 "$(check "$F")"
+    has "under its own name" "BLOCK (foxguard): high $magic:3 py/no-yaml-load (new)"
+  done
+  # Its unparseable base copy is skipped under that name too.
+  setup; printf 'def f(:\n    pass\n%s\n' "$high_code" > "$tmp/repo/:(top)evil.py"
+  gc -C "$tmp/repo" --literal-pathspecs add -- ':(top)evil.py'; gc -C "$tmp/repo" commit -q -m "add"; publish
+  printf '%s\n' "$high_code" > "$tmp/repo/:(top)evil.py"
+  gc -C "$tmp/repo" --literal-pathspecs add -- ':(top)evil.py'; gc -C "$tmp/repo" commit -q -m "fix"
+  expect "a magic-named file the base could not parse passes with the override" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
+  has "and is named" "WARNING (foxguard): high :(top)evil.py:3 py/no-yaml-load (the base copy could not be scanned (parse error); allowed by"
+  # A parse error in a file with "noise path" in its name is one skip, not a
+  # noise path as well.
+  setup; commit "noise path.py" "def f(:
+    pass"
+  expect "an unparseable file named 'noise path.py' is refused" 1 "$(check "$F")"
+  has "as one skipped file" "foxguard skipped 1 changed file(s)"
+  if grep -qF "(noise path)" "$tmp/out"; then error "a parse error must not be listed as a noise path too"; else ok "it is not listed as a noise path"; fi
   # A file of no language foxguard reads is not a skip.
   setup; commit notes.txt "plain text"
   expect "an unsupported file type passes at high" 0 "$(check "$F")"

@@ -14,8 +14,8 @@
 #                                medium or low. With git config
 #                                security.foxguardBlock also set, the stricter
 #                                of the two applies. Neither: high.
-#   SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE  1: a finding in a file the
-#                                base copy of could not be scanned warns
+#   SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE  1: a finding in a file
+#                                whose base copy could not be scanned warns
 #                                instead of blocking, for this push only.
 #                                Any other value: it blocks.
 # EXIT_CODES:
@@ -692,6 +692,9 @@ sec_foxguard_refuse() {
 # written: foxguard honours .ignore, so a pushed one could hide the files
 # beside it. Inline suppressions ("foxguard: ignore" in a comment, any
 # case) are defused on every side, so a push cannot silence a finding it adds.
+# <src> is read as a literal path: ":(top)x.py" and ":!x.py" are file names
+# here, not pathspec magic that would leave the file out unscanned. Return 1
+# when git fails.
 sec_foxguard_tree() {
   local c="$1" src dst mode
   mkdir -p "$3" || return 1
@@ -699,12 +702,28 @@ sec_foxguard_tree() {
     [[ -n "$src" && -n "$dst" ]] || continue
     case "/$dst/" in */../*|*/./*|//*) return 1 ;; esac
     case "${dst##*/}" in .*ignore) continue ;; esac
-    mode="$(git ls-tree --full-tree "$c" -- "$src" 2>/dev/null | cut -d' ' -f1)"
+    mode="$(git --literal-pathspecs ls-tree --full-tree "$c" -- "$src" 2>/dev/null)" || return 1
+    mode="${mode%% *}"
     [[ "$mode" == 100644 || "$mode" == 100755 ]] || continue
     mkdir -p "$3/$(dirname "$dst")" && git cat-file blob "$c:$src" > "$3.blob" || return 1
     # Any case and separator: foxguard 0.14.1 honours only "foxguard: ignore",
     # a later one may accept more.
     LC_ALL=C sed -e 's/[Ff][Oo][Xx][Gg][Uu][Aa][Rr][Dd]/f0xguard/g' "$3.blob" > "$3/$dst" || return 1
+  done < "$2"
+}
+
+# sec_foxguard_absent <commit> <map-file> <out>: the <dst> of each
+# "<src><TAB><dst>" line whose <src> <commit> has no entry for, one per line
+# in <out>. A base without the file neither read nor skipped it. A symlink, a
+# submodule or a directory at <src> is an entry: not absent. Return 1 when git
+# or the write fails.
+sec_foxguard_absent() {
+  local src dst entry
+  : > "$3" || return 1
+  while IFS=$'\t' read -r src dst; do
+    [[ -n "$src" && -n "$dst" ]] || continue
+    entry="$(git --literal-pathspecs ls-tree --full-tree "$1" -- "$src" 2>/dev/null)" || return 1
+    if [[ -z "$entry" ]]; then printf '%s\n' "$dst" >> "$3" || return 1; fi
   done < "$2"
 }
 
@@ -715,6 +734,13 @@ sec_foxguard_tree() {
 sec_foxguard_skip_name() {
   C="$1" R="$2" awk '{ p = "skipping " ENVIRON["C"] " ("; i = index($0, p)
     if (i) $0 = substr($0, 1, i - 1) "skipping " ENVIRON["R"] " (" substr($0, i + length(p)); print }' "$3" > "$4"
+}
+
+# sec_foxguard_noise <messages>: foxguard dropped the file as a noise path
+# ("Skipped 1 file: 1 noise path."). A skip line is not read: it carries the
+# file name, and "noise path.py" with a parse error is not a noise path.
+sec_foxguard_noise() {
+  awk '!/^warning: skipping / && /noise path/ { found = 1 } END { exit !found }' "$1"
 }
 
 # sec_foxguard_scan <cmd> <config> <dir> <out> <list>: foxguard on each file
@@ -734,19 +760,19 @@ sec_foxguard_scan() {
     k=$((k + 1)); rc=0
     # shellcheck disable=SC2086  # FOXGUARD_CMD may carry arguments
     ( cd "$3" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "$f" ) </dev/null >/dev/null 2>"$4.one" || rc=$?
-    if [[ "$rc" -le 1 ]] && grep -q 'noise path' "$4.one"; then
+    if [[ "$rc" -le 1 ]] && sec_foxguard_noise "$4.one"; then
       rc=0; printf '%s\n' "$f" > "$4/$k.path"
       # shellcheck disable=SC2086
       ( cd "$3/$(dirname "$f")" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "${f##*/}" ) </dev/null >/dev/null 2>"$4.two" || rc=$?
       sec_foxguard_skip_name "${f##*/}" "$f" "$4.two" "$4.one" || return 1
       # Still noise: the name itself (x.min.js). Scan a copy named <n>.<ext>.
-      if [[ "$rc" -le 1 ]] && grep -q 'noise path' "$4.one"; then
+      if [[ "$rc" -le 1 ]] && sec_foxguard_noise "$4.one"; then
         rc=0; x="${f##*/}"; x="${x##*.}"
         { mkdir -p "$4/$k.d" && cat < "$3/$f" > "$4/$k.d/$k.$x"; } || return 1
         # shellcheck disable=SC2086
         ( cd "$4/$k.d" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "$k.$x" ) </dev/null >/dev/null 2>"$4.two" || rc=$?
         sec_foxguard_skip_name "$k.$x" "$f" "$4.two" "$4.one" || return 1
-        if grep -q 'noise path' "$4.one"; then printf 'warning: skipping %s (noise path)\n' "$f" >> "$4.one"; fi
+        if sec_foxguard_noise "$4.one"; then printf 'warning: skipping %s (noise path)\n' "$f" >> "$4.one"; fi
       fi
     fi
     { grep "" "$4.one" || true; } >> "$4.err"
@@ -922,6 +948,14 @@ sec_foxguard_block() (
         if [[ -s "$d/base$i.json.skipped" ]]; then
           sed 's/^/[pre-push] foxguard: base: /' "$d/base$i.json.skipped" >&2
           set -- "$@" --base-unscanned "$d/base$i.json.skipped"
+        fi
+        # A base without the file has no copy to read or skip: it does not
+        # stand between the override and a file another base skipped.
+        if sec_foxguard_absent "$b" "$d/map$i" "$d/base$i.absent"; then
+          if [[ -s "$d/base$i.absent" ]]; then set -- "$@" --base-absent "$d/base$i.absent"; fi
+        else
+          incomplete=1
+          echo "[pre-push] foxguard: the files base ${b:0:12} lacks could not be listed; SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1 does not apply." >&2
         fi
       else
         incomplete=1

@@ -138,8 +138,8 @@ Usage: source scripts/security_hooks.sh; sec_pre_push <refs-file> <remote-name> 
                                medium or low. With git config
                                security.foxguardBlock also set, the stricter
                                of the two applies. Neither: high.
-  SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE  1: a finding in a file the
-                               base copy of could not be scanned warns
+  SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE  1: a finding in a file
+                               whose base copy could not be scanned warns
                                instead of blocking, for this push only.
                                Any other value: it blocks.
 ```
@@ -2670,7 +2670,7 @@ Split foxguard findings of a pushed tip into new and already present.
 ```text
 Usage:
        --tip <tip.json> [--base <base.json> ...] [--base-unscanned <list> ...]
-       [--allow-unscanned] [--base-incomplete]
+       [--base-absent <list> ...] [--allow-unscanned] [--base-incomplete]
 ```
 
 Exit codes: not in the header; the script exits with 2.
