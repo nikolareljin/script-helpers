@@ -730,10 +730,13 @@ sec_foxguard_absent() {
 # sec_foxguard_skip_name <scanned name> <real path> <in> <out>: foxguard's
 # messages of <in>, with a file scanned from its own directory or as a copy
 # named by its real path. "skipping app.py" for src/dist/app.py would
-# otherwise read as the app.py at the root.
+# otherwise read as the app.py at the root. The shell writes <out>: a skip line
+# lost there would be a skipped file nobody hears of. Return 1 when it fails.
 sec_foxguard_skip_name() {
-  C="$1" R="$2" awk '{ p = "skipping " ENVIRON["C"] " ("; i = index($0, p)
-    if (i) $0 = substr($0, 1, i - 1) "skipping " ENVIRON["R"] " (" substr($0, i + length(p)); print }' "$3" > "$4"
+  local s
+  s="$(C="$1" R="$2" awk '{ p = "skipping " ENVIRON["C"] " ("; i = index($0, p)
+    if (i) $0 = substr($0, 1, i - 1) "skipping " ENVIRON["R"] " (" substr($0, i + length(p)); print }' "$3")" || return 1
+  if [[ -n "$s" ]]; then printf '%s\n' "$s" > "$4"; else : > "$4"; fi
 }
 
 # sec_foxguard_noise <messages>: foxguard dropped the file as a noise path
@@ -741,6 +744,20 @@ sec_foxguard_skip_name() {
 # file name, and "noise path.py" with a parse error is not a noise path.
 sec_foxguard_noise() {
   awk '!/^warning: skipping / && /noise path/ { found = 1 } END { exit !found }' "$1"
+}
+
+# sec_foxguard_show <prefix>: the lines of stdin on stderr, each after <prefix>.
+# A control character is shown as "?": a carriage return or an escape sequence
+# in a file name must not draw over the line that names the file.
+sec_foxguard_show() {
+  LC_ALL=C tr '\001-\010\013-\037\177' '?' | sed "s/^/$1/" >&2
+}
+
+# sec_foxguard_skips <messages>: the lines of <messages> that name a file
+# foxguard skipped, but for an unsupported extension (not code it reads).
+# LC_ALL=C: a name is bytes, whatever the locale makes of them.
+sec_foxguard_skips() {
+  LC_ALL=C awk '/^warning: skipping .* \(.*\)$/ && !/\(unsupported extension\)$/' "$1"
 }
 
 # sec_foxguard_scan <cmd> <config> <dir> <out> <list>: foxguard on each file
@@ -752,33 +769,40 @@ sec_foxguard_noise() {
 # scanned; 1 failed. Files it skipped for any reason but an unsupported
 # extension (parse error, too large, still noise) are listed in <out>.skipped,
 # each under its real path: the list says which base copies were never read.
+# A list, a name or a message that cannot be written fails the scan: a short
+# <out>.skipped would read as "nothing skipped", and the file would pass unread.
 sec_foxguard_scan() {
-  local rc f x k=0
-  { mkdir -p "$4" && : > "$4.err"; } || return 1
+  local rc f x s k=0
+  { mkdir -p "$4" && : > "$4.err" && : > "$4.skipped"; } || return 1
   while IFS= read -r f; do
     [[ -n "$f" && -f "$3/$f" ]] || continue
     k=$((k + 1)); rc=0
     # shellcheck disable=SC2086  # FOXGUARD_CMD may carry arguments
     ( cd "$3" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "$f" ) </dev/null >/dev/null 2>"$4.one" || rc=$?
     if [[ "$rc" -le 1 ]] && sec_foxguard_noise "$4.one"; then
-      rc=0; printf '%s\n' "$f" > "$4/$k.path"
+      rc=0; printf '%s\n' "$f" > "$4/$k.path" || return 1
+      # The report of the run above goes: a rerun that writes none must not
+      # be read as that empty one.
+      rm -f -- "$4/$k.json" || return 1
       # shellcheck disable=SC2086
       ( cd "$3/$(dirname -- "$f")" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "${f##*/}" ) </dev/null >/dev/null 2>"$4.two" || rc=$?
       sec_foxguard_skip_name "${f##*/}" "$f" "$4.two" "$4.one" || return 1
       # Still noise: the name itself (x.min.js). Scan a copy named <n>.<ext>.
       if [[ "$rc" -le 1 ]] && sec_foxguard_noise "$4.one"; then
         rc=0; x="${f##*/}"; x="${x##*.}"
-        { mkdir -p "$4/$k.d" && cat < "$3/$f" > "$4/$k.d/$k.$x"; } || return 1
+        { mkdir -p "$4/$k.d" && cat < "$3/$f" > "$4/$k.d/$k.$x" && rm -f -- "$4/$k.json"; } || return 1
         # shellcheck disable=SC2086
         ( cd "$4/$k.d" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "$k.$x" ) </dev/null >/dev/null 2>"$4.two" || rc=$?
         sec_foxguard_skip_name "$k.$x" "$f" "$4.two" "$4.one" || return 1
-        if sec_foxguard_noise "$4.one"; then printf 'warning: skipping %s (noise path)\n' "$f" >> "$4.one"; fi
+        if sec_foxguard_noise "$4.one"; then printf 'warning: skipping %s (noise path)\n' "$f" >> "$4.one" || return 1; fi
       fi
     fi
-    { grep "" "$4.one" || true; } >> "$4.err"
+    awk '{ print }' "$4.one" >> "$4.err" || return 1
+    # The shell writes the list itself, one checked write per file.
+    s="$(sec_foxguard_skips "$4.one")" || return 1
+    if [[ -n "$s" ]]; then printf '%s\n' "$s" >> "$4.skipped" || return 1; fi
     { [[ "$rc" -eq 0 || "$rc" -eq 1 ]] && [[ -s "$4/$k.json" ]]; } || return 1
   done < "$5"
-  { grep -E '^warning: skipping .* \(.*\)$' "$4.err" | grep -v '(unsupported extension)$' > "$4.skipped"; } || true
   return 0
 }
 
@@ -786,7 +810,8 @@ sec_foxguard_scan() {
 # against <base> (merges and type changes included), appended to <files>, and
 # "<path at base><TAB><path at tip>" for each to <map>, so a renamed file is
 # compared with its old self. No <base>: every file of <tip>. Return 1 when git
-# fails, 2 for a path with a tab or newline (it cannot be named safely).
+# or a write fails (a file left off the list is never scanned), 2 for a path
+# with a tab or newline (it cannot be named safely).
 sec_foxguard_paths() {
   local st p old raw="$3.raw"
   if [[ -n "$1" ]]; then
@@ -804,8 +829,8 @@ sec_foxguard_paths() {
       p="$st"; old="$st"
     fi
     case "$p$old" in *$'\t'*|*$'\n'*) return 2 ;; esac
-    printf '%s\n' "$p" >> "$3"
-    printf '%s\t%s\n' "$old" "$p" >> "$4"
+    printf '%s\n' "$p" >> "$3" || return 1
+    printf '%s\t%s\n' "$old" "$p" >> "$4" || return 1
   done < "$raw"
 }
 
@@ -842,8 +867,11 @@ sec_foxguard_block() (
   helper="$_SEC_LIB_DIR/foxguard_push_compare.py"
   [[ -f "$helper" ]] || { sec_foxguard_refuse "$level" "foxguard_push_compare.py is missing (rerun setup-hooks.sh to refresh the hook copy)"; exit 1; }
   # Absolute: the scan runs from inside the tree it writes.
-  tmp_root="$(cd "${TMPDIR:-/tmp}" && pwd)" || { sec_foxguard_refuse "$level" "no temporary directory"; exit 1; }
-  work="$(mktemp -d "$tmp_root/sh-foxguard.XXXXXX")" || { sec_foxguard_refuse "$level" "no temporary directory"; exit 1; }
+  tmp_root="$(cd "${TMPDIR:-/tmp}" && pwd)" \
+    || { sec_foxguard_refuse "$level" "no temporary directory" "Point TMPDIR at a directory that exists and push again"; exit 1; }
+  # The remedy when a working file cannot be written: not a foxguard to install.
+  tmpfix="Check that $tmp_root is writable and has free space, then push again"
+  work="$(mktemp -d "$tmp_root/sh-foxguard.XXXXXX")" || { sec_foxguard_refuse "$level" "no temporary directory" "$tmpfix"; exit 1; }
   owner="${BASHPID-$$}"
   trap 'if [[ ${BASHPID-$$} == "$owner" ]]; then rm -rf -- "$work"; fi' EXIT
   trap 'exit 1' HUP INT TERM
@@ -851,7 +879,8 @@ sec_foxguard_block() (
   while read -r lref lsha rref rsha; do
     [[ -n "${lsha:-}" ]] || continue
     [[ "$lsha" =~ ^0+$ ]] && continue
-    n=$((n + 1)); d="$work/$n"; mkdir -p "$d"
+    n=$((n + 1)); d="$work/$n"
+    mkdir -p "$d" || { sec_foxguard_refuse "$level" "no temporary directory" "$tmpfix"; exit 1; }
     # The base: the commits next to the pushed ones that the target has.
     excl=""
     if [[ ! "${rsha:-0}" =~ ^0+$ ]] && git cat-file -e "${rsha}^{commit}" 2>/dev/null; then
@@ -864,8 +893,9 @@ sec_foxguard_block() (
       # shellcheck disable=SC2086  # ids are checked hex, one per word
       git rev-list --boundary "$lsha" --not $excl > "$d/rev-list" 2>/dev/null \
         || { sec_foxguard_refuse "$level" "git rev-list failed for $lref"; exit 1; }
-      sed -n -e 's/^-//p' "$d/rev-list" > "$d/all-bases"
-      sed -n 1,8p "$d/all-bases" > "$d/bases"
+      # A base lost from either list would not be scanned, and nothing would say so.
+      { sed -n -e 's/^-//p' "$d/rev-list" > "$d/all-bases" && sed -n 1,8p "$d/all-bases" > "$d/bases"; } \
+        || { sec_foxguard_refuse "$level" "the base commits of $lref could not be listed" "$tmpfix"; exit 1; }
       # Nothing new on this ref: the remote has every commit.
       [[ -s "$d/rev-list" ]] || continue
     fi
@@ -889,10 +919,14 @@ sec_foxguard_block() (
         *) sec_foxguard_refuse "$level" "git could not list the files of $lref"; exit 1 ;;
       esac
     fi
-    LC_ALL=C sort -u "$d/files" -o "$d/files"
+    # A file lost from the list or the map is never scanned: refuse instead.
+    LC_ALL=C sort -u "$d/files" -o "$d/files" \
+      || { sec_foxguard_refuse "$level" "the list of changed files could not be sorted" "$tmpfix"; exit 1; }
     [[ -s "$d/files" ]] || continue
     nfiles=$((nfiles + $(wc -l < "$d/files")))
-    awk '{ print $0 "\t" $0 }' "$d/files" > "$d/tipmap"
+    # Counted after the write: not every awk reports one that failed.
+    { awk '{ print $0 "\t" $0 }' "$d/files" > "$d/tipmap" && [[ "$(wc -l < "$d/tipmap")" -eq "$(wc -l < "$d/files")" ]]; } \
+      || { sec_foxguard_refuse "$level" "the list of pushed files could not be written" "$tmpfix"; exit 1; }
     # Each base gets every file of the union, under its path there (the old
     # name when renamed against that base), so no base copy is missing a file.
     i=0
@@ -905,12 +939,15 @@ sec_foxguard_block() (
     done < "$d/bases"
     # One config for every side, the base's: the push being checked must not
     # bring the config that judges it. No base, or none there: no config.
-    printf '{}\n' > "$d/config"; : > "$d/config.base"; : > "$d/config.tip"
+    printf '{}\n' > "$d/config" || { sec_foxguard_refuse "$level" "the foxguard config could not be written" "$tmpfix"; exit 1; }
+    : > "$d/config.base"; : > "$d/config.tip"
     cbase="$(sed -n 1p "$d/bases")"
     for name in .foxguard.yml .foxguard.yaml foxguard.yml foxguard.yaml; do
       if [[ -n "$cbase" && ! -s "$d/config.base" && "$(git cat-file -t "$cbase:$name" 2>/dev/null)" == blob ]]; then
-        printf '%s\n' "$name" > "$d/config.base"; git cat-file blob "$cbase:$name" >> "$d/config.base"
-        git cat-file blob "$cbase:$name" > "$d/config"
+        # Half a config, or none, would judge the push by other rules.
+        git cat-file blob "$cbase:$name" > "$d/config" \
+          || { sec_foxguard_refuse "$level" "the foxguard config of the base could not be read" "$tmpfix"; exit 1; }
+        { printf '%s\n' "$name"; cat "$d/config"; } > "$d/config.base"
       fi
       if [[ ! -s "$d/config.tip" && "$(git cat-file -t "$lsha:$name" 2>/dev/null)" == blob ]]; then
         printf '%s\n' "$name" > "$d/config.tip"; git cat-file blob "$lsha:$name" >> "$d/config.tip"
@@ -921,11 +958,11 @@ sec_foxguard_block() (
     fi
     sec_foxguard_tree "$lsha" "$d/tipmap" "$d/tip" || { sec_foxguard_refuse "$level" "the pushed files could not be read"; exit 1; }
     if ! sec_foxguard_scan "$cmd" "$d/config" "$d/tip" "$d/tip.json" "$d/files"; then
-      sed -n 1,3p "$d/tip.json.err" | sed 's/^/[pre-push] foxguard: /' >&2
+      sed -n 1,3p "$d/tip.json.err" | sec_foxguard_show '[pre-push] foxguard: '
       sec_foxguard_refuse "$level" "the foxguard scan failed"; exit 1
     fi
     if [[ -s "$d/tip.json.skipped" ]]; then
-      sed 's/^/[pre-push] foxguard: /' "$d/tip.json.skipped" >&2
+      sec_foxguard_show '[pre-push] foxguard: ' < "$d/tip.json.skipped"
       sec_foxguard_refuse "$level" "foxguard skipped $(wc -l < "$d/tip.json.skipped" | tr -d ' ') changed file(s)" \
         "Fix each file named above (a parse error, or over 1 MB) so foxguard can read it"; exit 1
     fi
@@ -946,7 +983,7 @@ sec_foxguard_block() (
         # A base copy foxguard could not read cannot say what was already
         # there: its findings at the tip block, unless the operator opts in.
         if [[ -s "$d/base$i.json.skipped" ]]; then
-          sed 's/^/[pre-push] foxguard: base: /' "$d/base$i.json.skipped" >&2
+          sec_foxguard_show '[pre-push] foxguard: base: ' < "$d/base$i.json.skipped"
           set -- "$@" --base-unscanned "$d/base$i.json.skipped"
         fi
         # A base without the file has no copy to read or skip: it does not

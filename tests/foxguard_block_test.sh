@@ -133,6 +133,72 @@ printf '#!/usr/bin/env bash\necho boom >&2\nexit 2\n' > "$tmp/brokenfox"; chmod 
 expect "a failing foxguard at high: refused" 1 "$(check FOXGUARD_CMD="$tmp/brokenfox")"
 has "and says so" "the foxguard scan failed"
 
+# --------------------------------- a list that cannot be written fails closed
+# sec_foxguard_scan with stand-in scanners: what is tested is what the hook
+# does when one of its own writes fails, not what foxguard reports.
+# skipfox: every file unparseable. noisefox: a path with a directory is noise,
+# then clean from its own directory. stillnoisefox: noise under any name.
+# norerunfox: noise, then a rerun that fails without a report.
+cat > "$tmp/skipfox" <<'EOF'
+#!/usr/bin/env bash
+while [[ $# -gt 1 ]]; do [[ "$1" == --output ]] && out="$2"; shift; done
+printf '{"findings": []}\n' > "$out"; printf 'warning: skipping %s (parse error)\n' "$1" >&2
+EOF
+cat > "$tmp/noisefox" <<'EOF'
+#!/usr/bin/env bash
+while [[ $# -gt 1 ]]; do [[ "$1" == --output ]] && out="$2"; shift; done
+printf '{"findings": []}\n' > "$out"
+case "$1" in */*) echo "Skipped 1 file: 1 noise path." >&2 ;; esac
+EOF
+cat > "$tmp/stillnoisefox" <<'EOF'
+#!/usr/bin/env bash
+while [[ $# -gt 1 ]]; do [[ "$1" == --output ]] && out="$2"; shift; done
+printf '{"findings": []}\n' > "$out"; echo "Skipped 1 file: 1 noise path." >&2
+EOF
+cat > "$tmp/norerunfox" <<'EOF'
+#!/usr/bin/env bash
+while [[ $# -gt 1 ]]; do [[ "$1" == --output ]] && out="$2"; shift; done
+case "$1" in */*) printf '{"findings": []}\n' > "$out"; echo "Skipped 1 file: 1 noise path." >&2; exit 0 ;; esac
+exit 1
+EOF
+chmod +x "$tmp/skipfox" "$tmp/noisefox" "$tmp/stillnoisefox" "$tmp/norerunfox"
+# scan <fox> [<shell code run first, $2 is the work directory>]: the exit
+# status of sec_foxguard_scan on vendor/b.py; its lists are $tmp/u/out.*.
+scan() {
+  rm -rf "$tmp/u"; mkdir -p "$tmp/u/tree/vendor"; printf 'x = 1\n' > "$tmp/u/tree/vendor/b.py"
+  printf 'vendor/b.py\n' > "$tmp/u/list"; printf '{}\n' > "$tmp/u/config"
+  bash -c 'source "$1/scripts/security_hooks.sh"; eval "$4"; sec_foxguard_scan "$3" "$2/config" "$2/tree" "$2/out" "$2/list"' \
+    _ "$ROOT_DIR" "$tmp/u" "$tmp/$1" "${2:-:}" >"$tmp/out" 2>&1
+  echo $?
+}
+expect "a skipped file: the scan itself succeeds" 0 "$(scan skipfox)"
+[[ "$(cat "$tmp/u/out.skipped" 2>/dev/null)" == "warning: skipping vendor/b.py (parse error)" ]] \
+  && ok "and the skip is listed" || error "skip list: '$(cat "$tmp/u/out.skipped" 2>&1)'"
+expect "a skip list that cannot be created fails the scan" 1 "$(scan skipfox 'mkdir "$2/out.skipped"')"
+expect "a skip line that cannot be written fails the scan" 1 \
+  "$(scan skipfox 'printf() { case "${2:-}" in "warning: skipping "*) return 1 ;; esac; builtin printf "$@"; }')"
+expect "a file scanned from its own directory: the scan succeeds" 0 "$(scan noisefox)"
+[[ "$(cat "$tmp/u/out/1.path" 2>/dev/null)" == vendor/b.py ]] && ok "and its real name is kept" || error "no out/1.path"
+expect "a real name that cannot be written fails the scan" 1 "$(scan noisefox 'mkdir -p "$2/out/1.path"')"
+expect "a file that is noise under any name: the scan succeeds" 0 "$(scan stillnoisefox)"
+[[ "$(cat "$tmp/u/out.skipped" 2>/dev/null)" == "warning: skipping vendor/b.py (noise path)" ]] \
+  && ok "and it is listed as skipped" || error "noise skip list: '$(cat "$tmp/u/out.skipped" 2>&1)'"
+expect "a noise skip that cannot be written fails the scan" 1 \
+  "$(scan stillnoisefox 'printf() { case "$1" in *"(noise path)"*) return 1 ;; esac; builtin printf "$@"; }')"
+expect "a rerun that writes no report is not read as the first, empty one" 1 "$(scan norerunfox)"
+# sec_foxguard_paths: a file it cannot add to the list would never be scanned.
+setup; commit app.py "$high_code"
+paths() {  # <shell code run first, $2 is the work directory>
+  rm -rf "$tmp/u"; mkdir -p "$tmp/u"
+  (cd "$tmp/repo" && bash -c 'source "$1/scripts/security_hooks.sh"; eval "$3"; sec_foxguard_paths "" HEAD "$2/files" "$2/map"' \
+    _ "$ROOT_DIR" "$tmp/u" "${1:-:}") >"$tmp/out" 2>&1
+  echo $?
+}
+expect "the changed files are listed" 0 "$(paths)"
+[[ "$(cat "$tmp/u/files" 2>/dev/null)" == app.py ]] && ok "by name" || error "files: '$(cat "$tmp/u/files" 2>&1)'"
+expect "a file list that cannot be written fails" 1 "$(paths 'mkdir "$2/files"')"
+expect "a file map that cannot be written fails" 1 "$(paths 'mkdir "$2/map"')"
+
 # ---------------------------------------------------- with the real foxguard
 if [[ -z "$real_fox" ]]; then
   if [[ "${FOXGUARD_REQUIRE:-0}" == 1 ]]; then
@@ -432,12 +498,42 @@ $high_code"; publish
   expect "an unparseable file named 'noise path.py' is refused" 1 "$(check "$F")"
   has "as one skipped file" "foxguard skipped 1 changed file(s)"
   if grep -qF "(noise path)" "$tmp/out"; then error "a parse error must not be listed as a noise path too"; else ok "it is not listed as a noise path"; fi
+  # A carriage return in the name of a skipped file is not sent to the
+  # terminal, where it would draw the name over the start of its line.
+  setup; printf 'def f(:\n    pass\n' > "$tmp/repo/$(printf 'a\rb.py')"; gc -C "$tmp/repo" add -A; gc -C "$tmp/repo" commit -q -m cr
+  expect "an unparseable file with a carriage return in its name is refused" 1 "$(check "$F")"
+  has "named with the carriage return replaced" "foxguard: warning: skipping a?b.py (parse error)"
+  if LC_ALL=C grep -q "$(printf '\r')" "$tmp/out"; then error "a carriage return reaches the terminal"; else ok "no carriage return is printed"; fi
   # A file of no language foxguard reads is not a skip.
   setup; commit notes.txt "plain text"
   expect "an unsupported file type passes at high" 0 "$(check "$F")"
   # A symlink's blob is its target path, not code: not scanned, so not a skip.
   ln -s ../elsewhere/target.py "$tmp/repo/link.py"; gc -C "$tmp/repo" add link.py; gc -C "$tmp/repo" commit -q -m link
   expect "a committed symlink named .py passes at high" 0 "$(check "$F")"
+
+  # The hook's own working files. A write that fails must refuse the push:
+  # an empty list reads as "nothing to scan" or "nothing skipped". Each
+  # stand-in is a shell function the hook inherits in place of the tool.
+  setup; publish; commit app.py "$high_code"
+  expect "a map of the pushed files that comes out empty refuses the push" 1 \
+    "$(awk() { case "$*" in *'print $0 "\t" $0'*) return 0 ;; esac; command awk "$@"; }; export -f awk; check "$F")"
+  has "and says so" "the list of pushed files could not be written"
+  expect "a file list that cannot be sorted refuses the push" 1 \
+    "$(sort() { case "$*" in *" -o "*) return 1 ;; esac; command sort "$@"; }; export -f sort; check "$F")"
+  has "and says so" "the list of changed files could not be sorted"
+  has "with a remedy that is not installing foxguard" "is writable and has free space"
+  expect "a base list that cannot be written refuses the push" 1 \
+    "$(sed() { case "$*" in *"1,8p"*) return 4 ;; esac; command sed "$@"; }; export -f sed; check "$F")"
+  has "and says so" "the base commits of refs/heads/main could not be listed"
+  setup; publish; commit broken.py 'def f(:
+    pass'
+  expect "a skip of a pushed file that cannot be listed refuses the push" 1 \
+    "$(printf() { case "${2:-}" in "warning: skipping "*) return 1 ;; esac; builtin printf "$@"; }; export -f printf; check "$F")"
+  has "as a failed scan" "the foxguard scan failed"
+  setup; commit .foxguard.yml "$quiet_cfg"; publish; commit app.py "$high_code"
+  expect "a base config that cannot be read refuses the push" 1 \
+    "$(git() { case "$*" in "cat-file blob "*":.foxguard.yml") return 1 ;; esac; command git "$@"; }; export -f git; check "$F")"
+  has "and says so" "the foxguard config of the base could not be read"
 
   # Through the hook's own sequence: the refusal reaches _sec_pre_push.
   setup; commit app.py "$high_code"

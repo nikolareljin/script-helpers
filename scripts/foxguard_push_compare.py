@@ -107,6 +107,12 @@ def key(finding):
     return (str(finding.get("rule_id") or ""), norm_file(finding.get("file")), snippet)
 
 
+def shown(name):
+    # For the terminal: a control character in a file name must not move the
+    # cursor over the verdict printed in front of it.
+    return "".join(ch if ch >= " " and ch != "\x7f" else f"\\x{ord(ch):02x}" for ch in name)
+
+
 def clean(text):
     return " ".join(str(text or "").split())
 
@@ -183,7 +189,7 @@ def main():
             verdict, why = "WARN", "new, below the block level"
         print("\t".join([
             verdict, severity or "unknown",
-            f"{norm_file(finding.get('file'))}:{finding.get('line', '?')}",
+            f"{shown(norm_file(finding.get('file')))}:{finding.get('line', '?')}",
             clean(finding.get("rule_id")), why, clean(finding.get("description")),
         ]))
     return 3 if blocked else 0

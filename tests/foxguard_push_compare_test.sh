@@ -93,6 +93,17 @@ run "a missing absent list refuses" 2 - --allow-unscanned --base "$tmp/clean.jso
 printf 'junk\rloader.py\n' > "$tmp/absent_cr"
 run "a carriage return in an absent name does not name a second file" 3 BLOCK --allow-unscanned \
   --base "$tmp/clean.json" --base-unscanned "$tmp/skip" --base "$tmp/clean.json" --base-absent "$tmp/absent_cr"
+# A control character in a file name is printed escaped: on a terminal a
+# carriage return or an escape sequence would draw over the verdict.
+printf '{"findings":[{"rule_id":"r","severity":"high","file":"a\\rb\\u001b[2K.py","line":3,"snippet":"s","description":"d"}]}\n' > "$tmp/tip_ctl.json"
+tip="$tmp/tip_ctl.json"
+run "a file name with control characters blocks" 3 BLOCK --base "$tmp/clean.json"
+tip="$tmp/tip.json"
+if grep -qF 'a\x0db\x1b[2K.py:3' "$tmp/out" && ! LC_ALL=C grep -q "$(printf '[\r\033]')" "$tmp/out"; then
+  ok "and is printed with them escaped"
+else
+  error "control characters reach the terminal: $(cat -v "$tmp/out")"
+fi
 # One skip line names one file: a carriage return in a name starts no line.
 printf 'warning: skipping junk (a)\rwarning: skipping loader.py (parse error)\n' > "$tmp/skip_cr"
 run "a carriage return in a skipped name does not name a second file" 3 BLOCK --allow-unscanned --base "$tmp/clean.json" --base-unscanned "$tmp/skip_cr"
