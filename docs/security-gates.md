@@ -165,8 +165,11 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
   that starts with `#!` and names `sh`, `bash`, `dash`, `ash`, `python*`,
   `pypy*`, `ruby`, `node`, `nodejs` or `php` (after `env`, its options and
   assignments) is scanned as a copy named with that language's extension
-  (`deploy.sh`) and reported under its own name. A script in another
-  language (`zsh`, `perl`) is not a skip.
+  (`deploy.sh`) and reported under its own name. One with no extension that
+  foxguard cannot read is a skip, and refuses the push. One with an
+  extension (`entry.sh.j2`, `run.erb`) is a template as often as not: it is
+  named as `not scanned` and does not refuse the push, and as a base copy it
+  is unscanned. A script in another language (`zsh`, `perl`) is not a skip.
   A working file the hook cannot write under `TMPDIR` (the file lists and
   maps, the list of skipped files, the base list, the configs, the copy of a
   file to scan) refuses the push too: a short list is never read as "nothing

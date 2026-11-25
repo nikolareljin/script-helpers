@@ -874,6 +874,10 @@ ENV NODE_TLS_REJECT_UNAUTHORIZED=0'
 eval "$1"'
   broken_code='def f(:
     pass'
+  j2_code='#!/bin/bash
+{% if x %}
+export A={{ a }}
+{% endif %}'
   # put <path> <content> <verdict> <the path it must have the findings of>
   put() {
     mkdir -p "$tmp/repo/$(dirname -- "$1")" && printf '%s\n' "$2" > "$tmp/repo/$1" || error "could not write $1"
@@ -918,6 +922,7 @@ eval "$1"'
     if [[ "$1" == 1 ]]; then
       places b broken.py "$broken_code" K; places b brk "#!/bin/sh
 if then" K
+      places b entry.sh.j2 "$j2_code" K
       places b latin.py "$(printf '# caf\351\nx = 1')" K
       put b/Tmpl.C 'template <class T> class A { public: T v; A() : v() {} };' K
       put b/build/Tmpl.H 'template <class T> class A { public: T v; A() : v() {} };' K
@@ -1012,6 +1017,19 @@ if then"
   has "and named" "foxguard: warning: skipping brk (parse error)"
   expect "at off: the push goes on" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
   has "and it is named as not scanned" "foxguard: not scanned: brk (parse error)"
+  # With an extension foxguard does not know, a script it cannot read is a
+  # template as often as not: named, and the push is not refused for it.
+  setup; publish; commit entry.sh.j2 "$j2_code"
+  expect "a shell template that does not parse as shell passes at high" 0 "$(check "$F")"
+  has "and is named as not scanned" "foxguard: not scanned: warning: skipping entry.sh.j2 (parse error)"
+  has "and counted" 'foxguard: 1 file(s) above start with "#!" and could not be read as that language'
+  expect "at off: the push goes on" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+  has "and it is named as not scanned" "foxguard: not scanned: entry.sh.j2 (parse error)"
+  # As a base copy it was not read: it vouches for nothing.
+  publish; commit entry.sh.j2 "$sh_code"
+  expect "a finding in a script whose base copy could not be read blocks" 1 "$(check "$F")"
+  has "as unscanned at the base" "critical entry.sh.j2:2 bash/taint-command-injection (the base copy could not be scanned (parse error); review the file"
+  expect "and is a warning with the override" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
   # No rules for zsh, and LICENSE is no script: neither is a skip.
   setup; publish; commit z "#!/bin/zsh
 for f (*.c) print \$f"; commit LICENSE "plain text"
