@@ -693,8 +693,8 @@ sec_foxguard_refuse() {
 # beside it. Inline suppressions ("foxguard: ignore" in a comment, any
 # case) are defused on every side, so a push cannot silence a finding it adds.
 # <src> is read as a literal path: ":(top)x.py" and ":!x.py" are file names
-# here, not pathspec magic that would leave the file out unscanned. Return 1
-# when git fails.
+# here, not pathspec magic that would leave the file out unscanned, and
+# "-z/x.py" is a path, not an option of dirname. Return 1 when git fails.
 sec_foxguard_tree() {
   local c="$1" src dst mode
   mkdir -p "$3" || return 1
@@ -705,7 +705,7 @@ sec_foxguard_tree() {
     mode="$(git --literal-pathspecs ls-tree --full-tree "$c" -- "$src" 2>/dev/null)" || return 1
     mode="${mode%% *}"
     [[ "$mode" == 100644 || "$mode" == 100755 ]] || continue
-    mkdir -p "$3/$(dirname "$dst")" && git cat-file blob "$c:$src" > "$3.blob" || return 1
+    mkdir -p "$3/$(dirname -- "$dst")" && git cat-file blob "$c:$src" > "$3.blob" || return 1
     # Any case and separator: foxguard 0.14.1 honours only "foxguard: ignore",
     # a later one may accept more.
     LC_ALL=C sed -e 's/[Ff][Oo][Xx][Gg][Uu][Aa][Rr][Dd]/f0xguard/g' "$3.blob" > "$3/$dst" || return 1
@@ -763,7 +763,7 @@ sec_foxguard_scan() {
     if [[ "$rc" -le 1 ]] && sec_foxguard_noise "$4.one"; then
       rc=0; printf '%s\n' "$f" > "$4/$k.path"
       # shellcheck disable=SC2086
-      ( cd "$3/$(dirname "$f")" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "${f##*/}" ) </dev/null >/dev/null 2>"$4.two" || rc=$?
+      ( cd "$3/$(dirname -- "$f")" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "${f##*/}" ) </dev/null >/dev/null 2>"$4.two" || rc=$?
       sec_foxguard_skip_name "${f##*/}" "$f" "$4.two" "$4.one" || return 1
       # Still noise: the name itself (x.min.js). Scan a copy named <n>.<ext>.
       if [[ "$rc" -le 1 ]] && sec_foxguard_noise "$4.one"; then

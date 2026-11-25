@@ -409,6 +409,15 @@ $high_code"; publish
     expect "a new finding in a file named $magic blocks" 1 "$(check "$F")"
     has "under its own name" "BLOCK (foxguard): high $magic:3 py/no-yaml-load (new)"
   done
+  # A directory whose name starts with a dash is a directory, also when the
+  # file is scanned from inside it (vendor/ is a noise path).
+  for dashed in '-z/app.py' '-z/vendor/y.py'; do
+    setup; commit notes.txt "plain text"; publish
+    mkdir -p "$tmp/repo/${dashed%/*}"; printf '%s\n' "$high_code" > "$tmp/repo/$dashed"
+    gc -C "$tmp/repo" add -- "$dashed"; gc -C "$tmp/repo" commit -q -m "add $dashed"
+    expect "a new finding in $dashed blocks" 1 "$(check "$F")"
+    has "as a finding, not an unreadable file" "BLOCK (foxguard): high $dashed:3 py/no-yaml-load (new)"
+  done
   # Its unparseable base copy is skipped under that name too.
   setup; printf 'def f(:\n    pass\n%s\n' "$high_code" > "$tmp/repo/:(top)evil.py"
   gc -C "$tmp/repo" --literal-pathspecs add -- ':(top)evil.py'; gc -C "$tmp/repo" commit -q -m "add"; publish
