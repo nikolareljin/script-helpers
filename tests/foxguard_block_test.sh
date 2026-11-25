@@ -1004,6 +1004,11 @@ ENV NODE_TLS_REJECT_UNAUTHORIZED=0'
   setup; publish; mkdir -p "$tmp/repo/u/probe.txt"; commit u/Z.TXT "plain text"; commit u/probe.txt/NOTES.TXT "plain text"
   expect "at off: two files, the second below a name the first is asked under" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
   if grep -qE 'not scanned|NOT read' "$tmp/out"; then error "a text file was named: $(grep -E 'not scanned|NOT read' "$tmp/out" | sed -n 1,2p)"; else ok "and neither text file is named as not scanned"; fi
+  # When foxguard cannot be asked (no TMPDIR to write the empty file in), the
+  # file is named: no answer is never read as "foxguard does not read it".
+  setup; publish; commit NOTES.TXT "plain text"
+  expect "at off: a push whose probe cannot be written goes on" 0 "$(check "$F" TMPDIR="$tmp/no-such-dir" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+  has "and the file is named as not scanned" "foxguard: not scanned: NOTES.TXT (upper-case extension)"
   # At off nothing blocks, and nothing is left out without a word either.
   setup; publish; commit Loader.PY "$high_code"; mkdir -p "$tmp/repo/a/build"; commit a/build/hash.py "$medium_code"
   commit Tmpl.C 'template <class T> class A { public: T v; A() : v() {} };'; commit broken.py 'def f(:
