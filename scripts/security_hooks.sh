@@ -1157,7 +1157,9 @@ sec_foxguard_block() (
     esac
     if ! sec_foxguard_scan "$cmd" "$d/config" "$d/tip" "$d/tip.json" "$d/files"; then
       sed -n 1,3p "$d/tip.json.err" | sec_foxguard_show '[pre-push] foxguard: '
-      sec_foxguard_refuse "$level" "the foxguard scan failed"; exit 1
+      # foxguard failed, or a working file of the scan could not be written.
+      sec_foxguard_refuse "$level" "the foxguard scan failed" \
+        "Install the pinned foxguard: scripts/setup-hooks.sh --install-foxguard, and check that $tmp_root is writable and has free space"; exit 1
     fi
     # Said, not refused: C++ is no file to fix, and foxguard reads none of it.
     # Before the refusal below: a push it stops still names each file not read.

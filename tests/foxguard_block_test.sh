@@ -1135,6 +1135,7 @@ def load(x):
   expect "a skip of a pushed file that cannot be listed refuses the push" 1 \
     "$(printf() { case "${2:-}" in ("warning: skipping "*) return 1 ;; esac; builtin printf "$@"; }; export -f printf; check "$F")"
   has "as a failed scan" "the foxguard scan failed"
+  has "with the remedy for a working file too" "is writable and has free space"
   setup; commit .foxguard.yml "$quiet_cfg"; publish; commit app.py "$high_code"
   expect "a base config that cannot be read refuses the push" 1 \
     "$(git() { case "$*" in ("cat-file blob "*":.foxguard.yml") return 1 ;; esac; command git "$@"; }; export -f git; check "$F")"
