@@ -315,6 +315,38 @@ shown="$(printf 'a\302\233b\342\200\256c\342\201\246d caf\303\251\rz\033[2K\n' \
   | bash -c 'source "$1/scripts/security_hooks.sh"; sec_foxguard_show "p: "' _ "$ROOT_DIR" 2>&1)"
 [[ "$shown" == "p: a?b?c?d caf$(printf '\303\251')?z?[2K" ]] && ok "a printed name loses its control characters, C1 controls and reordering characters, and keeps its letters" \
   || error "sec_foxguard_show printed: $(printf '%s' "$shown" | cat -v)"
+# sec_foxguard_script_ext: the language of a script, from its first line.
+# "-" stands for none: a file that is no script, or one in a language
+# foxguard has no rules for.
+mkdir -p "$tmp/sx"
+while IFS='|' read -r first want; do
+  printf '%b\n' "$first" 'eval "$1"' > "$tmp/sx/-s"
+  got="$(cd "$tmp/sx" && bash -c 'source "$1/scripts/security_hooks.sh"; sec_foxguard_script_ext -s' _ "$ROOT_DIR" 2>&1)"
+  [[ "${got:--}" == "$want" ]] && ok "a script that starts with '$first' is read as: $want" \
+    || error "a script that starts with '$first': want $want, got '${got:--}'"
+done <<'EOF'
+#!/bin/sh|sh
+#!/usr/bin/env bash|sh
+#! /bin/bash -eu|sh
+#!/bin/dash|sh
+#!/usr/bin/env -S python3 -u|py
+#!/usr/bin/env -i PATH=/usr/bin python|py
+#!/usr/bin/python3.12|py
+#!/usr/bin/env pypy3|py
+#!/usr/bin/env ruby|rb
+#!/usr/bin/env node|js
+#!/usr/bin/nodejs|js
+#!/usr/bin/php8.3|php
+#!/usr/bin/env bash\r|sh
+#!/bin/zsh|-
+#!/usr/bin/perl -w|-
+#!/usr/bin/env|-
+#!|-
+# !/bin/sh|-
+echo #!/bin/sh|-
+\0#!/bin/sh|-
+|-
+EOF
 # A path that is not UTF-8: foxguard takes no such argument. Refused before
 # any scan, with the path and a remedy that is not installing foxguard.
 setup; publish
@@ -741,7 +773,7 @@ int main(int argc, char **argv) { system(argv[1]); return 0; }'
   # what it made of each file it was given. The last thing foxguard says of a
   # pushed file must not be "unsupported extension" or "noise path": that is
   # a file it reads, left out by the copy the hook scanned in its place.
-  fox_exts="bash c cjs clj cljc cljs cls cs dart dockerfile edn ex exs go h hcl hs hsc htm html java js json jsx kt kts lhs mjs ml mli php py pyw rake rb rs sc scala sh sol swift tf tfvars trigger ts tsx xml yaml yml"
+  fox_exts="bash c cjs clj cljc cljs cls cs dart dockerfile edn ex exs gemspec go h hcl hs hsc htm html java js json jsx kt kts lhs mjs ml mli php py pyw rake rb rs sc scala sh sol swift tf tfvars trigger ts tsx xml yaml yml"
   fox_names="Dockerfile Dockerfile.dev nginx.conf my-nginx.conf apache2.conf httpd.conf haproxy.cfg requirements.txt Cargo.lock Pipfile.lock poetry.lock"
   fox_paths="nginx/site.conf conf.d/site.conf apache/site.conf httpd/site.conf sites-enabled/site.conf sites-available/site.conf mods-enabled/site.conf haproxy/site.cfg"
   cat > "$tmp/logfox" <<'EOF'
@@ -815,6 +847,188 @@ EOF
       || error "at $level foxguard did not read: $(printf '%s' "$left" | tr '\n' ';' | cut -c1-600)"
     if grep -qE 'not scanned|skipping|NOT read' "$tmp/out"; then error "at $level a clean file was named: $(grep -E 'not scanned|skipping|NOT read' "$tmp/out" | sed -n 1,3p)"; else ok "and none is named as unread, nor a file foxguard has no rules for"; fi
   done
+  # One verdict for each changed file, and the same findings for a copy as
+  # for the file where foxguard reads it. cwdfox is the real foxguard, and
+  # writes down where it ran and what it made of the file: a copy is scanned
+  # from a directory of its own (<n>.d in the blocking scan, below
+  # sh-foxguard.* at off).
+  cat > "$tmp/cwdfox" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do f="$a"; done
+rc=0; $REAL_FOX "$@" > "$FOX_LOG.out" 2> "$FOX_LOG.err" || rc=$?
+v="$(cat "$FOX_LOG.out" "$FOX_LOG.err" | LC_ALL=C sed -n 's/^.*Skipped 1 file: 1 \([^.]*\)\..*$/\1/p' | tail -1)"
+printf '%s\t%s\t%s\n' "$PWD" "$f" "${v:-read}" >> "$FOX_LOG"
+cat "$FOX_LOG.out"; cat "$FOX_LOG.err" >&2
+exit "$rc"
+EOF
+  chmod +x "$tmp/cwdfox"
+  conf_code='server { ssl_protocols SSLv3 TLSv1; }
+SSLProtocol SSLv3
+ssl-default-bind-ciphers RC4-SHA'
+  docker_code='FROM x
+ENV NODE_TLS_REJECT_UNAUTHORIZED=0'
+  sh_code='#!/usr/bin/env bash
+eval "$1"'
+  broken_code='def f(:
+    pass'
+  # put <path> <content> <verdict> <the path it must have the findings of>
+  put() {
+    mkdir -p "$tmp/repo/$(dirname -- "$1")" && printf '%s\n' "$2" > "$tmp/repo/$1" || error "could not write $1"
+    printf '%s\t%s\t%s\n' "$1" "$3" "${4:-}" >> "$tmp/inv.want"
+  }
+  # places <dir> <name> <content> <verdict> [<path>]: the file as it is and
+  # wherever a copy is scanned in its place: in noise paths, beside
+  # directories named as the copies are, with a noise name, with the
+  # extension in upper case. Each must have the findings of <path>; the
+  # default is the file as it is.
+  places() {
+    local d="$1" b="$2" as="" st ex ux
+    [[ "$4" == S ]] && as="${5:-$d/$b}"
+    put "$d/$b" "$3" "$4" "$as"
+    put "$d/build/$b" "$3" "$4" "$as"
+    put "$d/w/node_modules/p k/$b" "$3" "$4" "$as"
+    put "d_$d/d_build/$b" "$3" "$4" "$as"
+    case "$b" in
+      *.*)
+        st="${b%.*}"; ex="${b##*.}"; ux="$(printf '%s' "$ex" | tr 'a-z' 'A-Z')"
+        put "$d/u/$st.$ux" "$3" "$4" "$as"; put "$d/dist/u/$st.$ux" "$3" "$4" "$as"
+        # A name foxguard knows whole is no longer it with .min.
+        case "$b" in
+          requirements.txt) ;;
+          *) put "$d/$st.min.$ex" "$3" "$4" "$as"; put "$d/gen/$st.min.$ex" "$3" "$4" "$as"; put "$d/spec/u/$st.min.$ux" "$3" "$4" "$as" ;;
+        esac ;;
+    esac
+  }
+  # inv_fill <1: the files foxguard cannot read too>
+  inv_fill() {
+    setup; publish; : > "$tmp/inv.want"
+    places a app.py "$high_code" S; places a 'sp ace (1).py' "$high_code" S; places a -dash.py "$high_code" S
+    places a web.js 'document.body.innerHTML = location.hash;' S; places c util.c "$c_code" S
+    places nginx site.conf "$conf_code" S; places etc/apache2/sites-enabled 000.conf "$conf_code" S
+    places haproxy site.cfg "$conf_code" S; places x nginx.conf "$conf_code" S; places x httpd.conf "$conf_code" S
+    places docker Dockerfile "$docker_code" S; places docker Dockerfile.dev "$docker_code" S
+    places p requirements.txt 'rsa==4.0' S
+    # A script foxguard does not read for its name: as the same code named .sh.
+    put bin/deploy.sh "$sh_code" S bin/deploy.sh; places bin deploy "$sh_code" S bin/deploy.sh; places bin tool.cgi "$sh_code" S bin/deploy.sh
+    # Two copies that would be one path in a directory for all of them.
+    put a/build/d_x.min.js 'document.body.innerHTML = location.hash;' S a/web.js; put a/build/x._min.js/y.py "$high_code" S a/app.py
+    if [[ "$1" == 1 ]]; then
+      places b broken.py "$broken_code" K; places b brk "#!/bin/sh
+if then" K
+      places b latin.py "$(printf '# caf\351\nx = 1')" K
+      put b/Tmpl.C 'template <class T> class A { public: T v; A() : v() {} };' K
+      put b/build/Tmpl.H 'template <class T> class A { public: T v; A() : v() {} };' K
+      places t notes.txt 'plain text' N; places t site.conf "$conf_code" N; places t LICENSE 'plain text' N
+      places t z "#!/bin/zsh
+for f (*.c) print \$f" N
+    fi
+    gc -C "$tmp/repo" add -A; gc -C "$tmp/repo" commit -q -m "one verdict each"
+  }
+  # inv_left: each file of inv.want that does not have exactly its verdict.
+  # S: the last thing foxguard did with it or a copy of it is read it. K: the
+  # hook names it as skipped or not scanned. N: foxguard has no rules for it,
+  # under any name the hook gave it.
+  inv_left() {
+    LC_ALL=C awk -F'\t' '
+      FILENAME == ARGV[1] { want[$1] = $2; next }
+      FILENAME == ARGV[2] {
+        if (sub(/^\[pre-push\] foxguard: (warning: skipping |not scanned: (warning: skipping )?)/, "") && match($0, /^.* \(/)) named[substr($0, 1, RLENGTH - 2)]++
+        next }
+      { cwd = $1; a = $2; sub(/^\.\//, "", a)
+        if (cwd ~ /\/[0-9]+\.d$/ || cwd ~ /\/sh-foxguard\.[^\/]*\/[0-9]+$/) { if (cur != "") { last[cur] = $3; if ($3 != "unsupported extension") code[cur] = 1 } }
+        else { cur = a; given[a]++; last[a] = $3; if ($3 != "unsupported extension") code[a] = 1 } }
+      END {
+        for (f in want) {
+          v = ""
+          if (last[f] == "read") v = v "S"
+          if (named[f] == 1) v = v "K"; else if (named[f] > 1) v = v "K" named[f]
+          if (last[f] == "unsupported extension" && !(f in code)) v = v "N"
+          if (given[f] != 1) v = v "(given to foxguard as it is " (given[f] + 0) " times)"
+          if (v != want[f]) print f ": want " want[f] ", got " (v == "" ? "none" : v)
+        }
+        for (f in named) if (!(f in want)) print f ": named, and not a pushed file"
+      }' "$tmp/inv.want" "$tmp/out" "$tmp/inv.log" | LC_ALL=C sort
+  }
+  # inv_findings: each pushed file whose BLOCK lines are not those of the
+  # file it must have the findings of (the same file where foxguard reads it
+  # as it is), and each of those with none.
+  inv_findings() {
+    LC_ALL=C awk -F'\t' '
+      FILENAME == ARGV[1] { pushed[$1] = 1; if ($3 != "") as[$1] = $3; next }
+      index($0, "[pre-push] BLOCK (foxguard): ") == 1 && (i = index($0, " (new): ")) {
+        s = substr($0, 30, i - 30); sev = s; sub(/ .*/, "", sev); rule = s; sub(/.* /, "", rule)
+        loc = substr(s, length(sev) + 2, length(s) - length(sev) - length(rule) - 2)
+        file = loc; sub(/:[0-9]+$/, "", file); line = substr(loc, length(file) + 2)
+        got[file] = got[file] sev " " line " " rule ";" }
+      END {
+        for (f in as) {
+          if (got[as[f]] == "") print as[f] ": no finding where foxguard reads it as it is"
+          else if (got[f] != got[as[f]]) print f ": [" got[f] "], and " as[f] " has [" got[as[f]] "]"
+        }
+        for (f in got) if (!(f in pushed)) print f ": a finding in a file that was not pushed" }' "$tmp/inv.want" "$tmp/out" | LC_ALL=C sort
+  }
+  inv_fill 0; : > "$tmp/inv.log"
+  expect "$(wc -l < "$tmp/inv.want" | tr -d ' ') files with a finding, most scanned as a copy: refused at low" 1 \
+    "$(check FOXGUARD_CMD="$tmp/cwdfox" REAL_FOX="$real_fox" FOX_LOG="$tmp/inv.log" SCRIPT_HELPERS_FOXGUARD_BLOCK=low)"
+  left="$(inv_findings)"
+  [[ -z "$left" ]] && ok "each copy has the findings of the file where foxguard reads it as it is" \
+    || error "a copy does not have the findings of its file: $(printf '%s' "$left" | tr '\n' ';' | cut -c1-900)"
+  left="$(inv_left)"
+  [[ -s "$tmp/inv.log" && -z "$left" ]] && ok "and each file was read, none named as skipped" \
+    || error "not one verdict each: $(printf '%s' "$left" | tr '\n' ';' | cut -c1-900)"
+  for level in low off; do
+    inv_fill 1; : > "$tmp/inv.log"
+    want_rc=1; [[ "$level" == off ]] && want_rc=0
+    expect "at $level: $(wc -l < "$tmp/inv.want" | tr -d ' ') files, some that foxguard cannot read and some it has no rules for" "$want_rc" \
+      "$(check FOXGUARD_CMD="$tmp/cwdfox" REAL_FOX="$real_fox" FOX_LOG="$tmp/inv.log" SCRIPT_HELPERS_FOXGUARD_BLOCK="$level")"
+    left="$(inv_left)"
+    [[ -s "$tmp/inv.log" && -z "$left" ]] && ok "and each has exactly one verdict: scanned, named as not read, or not code" \
+      || error "at $level not one verdict each: $(printf '%s' "$left" | tr '\n' ';' | cut -c1-900)"
+  done
+  nk="$(grep -c "$(printf '\tK\t')" "$tmp/inv.want")"; ns="$(grep -c "$(printf '\tS\t')" "$tmp/inv.want")"; na="$(wc -l < "$tmp/inv.want" | tr -d ' ')"
+  has "at off the files not read are counted" "foxguard did NOT read $nk of $na changed file(s)"
+  has "and each file with a finding" "finding(s) in $ns of $na changed file(s)"
+  # A script foxguard does not read for its name (bin/deploy) runs by its
+  # first line: it is scanned as a copy named with that language's extension.
+  setup; publish; mkdir -p "$tmp/repo/bin"; commit bin/deploy "$sh_code"
+  expect "a new finding in a script with no extension blocks" 1 "$(check "$F")"
+  has "under its own name" "BLOCK (foxguard): critical bin/deploy:2 bash/taint-command-injection (new)"
+  expect "at off: the push goes on" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+  has "and the script is scanned, and named" "WARNING (foxguard): bin/deploy, scanned as d_bin/deploy.sh:"
+  publish; commit bin/deploy "$sh_code
+# touched"
+  expect "a finding in such a script already in the base does not block" 0 "$(check "$F")"
+  has "it is a warning" "WARNING (foxguard): critical bin/deploy:2 bash/taint-command-injection (already in the base)"
+  setup; publish; commit tool.cgi "#!/usr/bin/env -S python3 -u
+$high_code"
+  expect "a new finding in a Python script named .cgi blocks" 1 "$(check "$F")"
+  has "under its own name" "BLOCK (foxguard): high tool.cgi:4 py/no-yaml-load (new)"
+  setup; publish; commit brk "#!/bin/sh
+if then"
+  expect "a script with no extension that does not parse is refused" 1 "$(check "$F")"
+  has "and named" "foxguard: warning: skipping brk (parse error)"
+  expect "at off: the push goes on" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+  has "and it is named as not scanned" "foxguard: not scanned: brk (parse error)"
+  # No rules for zsh, and LICENSE is no script: neither is a skip.
+  setup; publish; commit z "#!/bin/zsh
+for f (*.c) print \$f"; commit LICENSE "plain text"
+  for level in high off; do
+    expect "at $level: a zsh script and a file that is no script pass" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK="$level")"
+    if grep -qE 'not scanned|skipping|NOT read' "$tmp/out"; then error "at $level one of them was named: $(grep -E 'not scanned|skipping|NOT read' "$tmp/out" | sed -n 1,3p)"; else ok "and neither is named as unread"; fi
+  done
+  # A refused push names every file foxguard did not read, the C++ ones too.
+  setup; publish; commit broken.py "$broken_code"; commit Tmpl.C 'template <class T> class A { public: T v; A() : v() {} };'
+  expect "a push with a file that does not parse and a C++ file named .C is refused" 1 "$(check "$F")"
+  has "the first is named" "foxguard: warning: skipping broken.py (parse error)"
+  has "and the C++ file too" "foxguard: not scanned: warning: skipping Tmpl.C (parse error)"
+  # At off each file has a directory of its own for its copies: in one for
+  # all, the copy of the first file is where the second needs a directory.
+  setup; publish; mkdir -p "$tmp/repo/a/build/x._min.js"
+  commit a/build/d_x.min.js 'document.body.innerHTML = location.hash;'; commit a/build/x._min.js/y.py "$high_code"
+  expect "at off: two files whose copies would be one path" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+  has "the first is scanned" "WARNING (foxguard): a/build/d_x.min.js, scanned as d_a/d_build/d_x._min.js:"
+  has "and the second" "WARNING (foxguard): a/build/x._min.js/y.py, scanned as d_a/d_build/d_x._min.js/y.py:"
+  if grep -qE 'not scanned|NOT read' "$tmp/out"; then error "one of them was not read: $(grep -E 'not scanned|NOT read' "$tmp/out" | sed -n 1,2p)"; else ok "and neither is named as not scanned"; fi
   # At off nothing blocks, and nothing is left out without a word either.
   setup; publish; commit Loader.PY "$high_code"; mkdir -p "$tmp/repo/a/build"; commit a/build/hash.py "$medium_code"
   commit Tmpl.C 'template <class T> class A { public: T v; A() : v() {} };'; commit broken.py 'def f(:

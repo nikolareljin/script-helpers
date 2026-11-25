@@ -160,6 +160,13 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
   as `not scanned` and does not refuse the push. When the base copy was such
   a file, a finding in the new one blocks as `the base copy could not be
   scanned`.
+  foxguard tells a language by the extension, and a script runs by its first
+  line: a file foxguard does not read for its name (`bin/deploy`, `tool.cgi`)
+  that starts with `#!` and names `sh`, `bash`, `dash`, `ash`, `python*`,
+  `pypy*`, `ruby`, `node`, `nodejs` or `php` (after `env`, its options and
+  assignments) is scanned as a copy named with that language's extension
+  (`deploy.sh`) and reported under its own name. A script in another
+  language (`zsh`, `perl`) is not a skip.
   A working file the hook cannot write under `TMPDIR` (the file lists and
   maps, the list of skipped files, the base list, the configs, the copy of a
   file to scan) refuses the push too: a short list is never read as "nothing
