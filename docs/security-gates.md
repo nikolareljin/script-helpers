@@ -181,10 +181,15 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
   `Dockerfile.dev`, `haproxy.cfg`, `Cargo.lock`). Each is reported under its
   own name. foxguard calls only a file type it knows noise, so one that no
   copy got read is a skipped file (`noise path`), never a silent pass. A skipped
-  file is named, with the cause. At `off` the same files are scanned, as the
-  same copies, and a file
-  foxguard still could not read is named as `not scanned` and counted in a
-  warning. A control character in a
+  file is named, with the cause. At `off` no copy is scanned: each changed
+  file is scanned where it is, under the foxguard config of the working tree,
+  so the warnings are those of `foxguard <file>` run by hand. A file foxguard
+  does not read there is printed as `not scanned: <path> (<reason>)` and
+  counted in a warning: `noise path` (a noise path or a noise name),
+  `upper-case extension` (`app.PY`; whether foxguard reads the name in lower
+  case is asked of an empty file under `TMPDIR`, and nothing of the file is
+  copied), `parse error`, or foxguard's own reason. A file type it has no
+  rules for is not named. A blocking level scans those files. A control character in a
   printed file name is shown as `?` (in a finding: `\xNN` or `\uNNNN`), so a
   carriage return in a name cannot draw over the line that reports it. At
   `off` the lines of foxguard's own report are shown the same way, without

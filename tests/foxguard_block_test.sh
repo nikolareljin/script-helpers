@@ -726,8 +726,10 @@ int main(int argc, char **argv) { system(argv[1]); return 0; }'
     setup; publish; mkdir -p "$tmp/repo/$(dirname "$p")"; commit "$p" 'server { ssl_protocols SSLv3 TLSv1; }'
     expect "a finding in $p blocks" 1 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=medium)"
     has "under its own name" "BLOCK (foxguard): medium $p:1 config/nginx-pq-vulnerable-tls (new)"
+    # At off a file is scanned where it is, never as a copy: it is named.
     expect "at off: the push goes on" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
-    has "and the finding is shown" "config/nginx-pq-vulnerable-tls"
+    has "and the file is named as not scanned" "foxguard: not scanned: $p (noise path)"
+    if grep -qF "config/nginx-pq-vulnerable-tls" "$tmp/out"; then error "at off $p was scanned as a copy"; else ok "and not scanned as a copy"; fi
   done
   # The directories decide which config it is: from its own directory alone
   # nginx/build/apache.conf would be read as an Apache config, and found clean.
@@ -806,26 +808,56 @@ EOF
         for (f in plain) if (n[f] != 1) print f " (not read as it is: is the list of names current?)"
       }' "$tmp/enum.plain" "$tmp/enum.all" "$tmp/enum.other" "$1" | LC_ALL=C sort -u
   }
-  for level in high off; do
-    : > "$tmp/enum.log"
-    expect "at $level: every name foxguard reads, as $(wc -l < "$tmp/enum.all" | tr -d ' ') clean files, passes" 0 \
-      "$(check FOXGUARD_CMD="$tmp/logfox" REAL_FOX="$real_fox" FOX_LOG="$tmp/enum.log" SCRIPT_HELPERS_FOXGUARD_BLOCK="$level")"
-    left="$(enum_left "$tmp/enum.log")"
-    [[ -s "$tmp/enum.log" && -z "$left" ]] && ok "and foxguard read each one, as it is or as a copy" \
-      || error "at $level foxguard did not read: $(printf '%s' "$left" | tr '\n' ';' | cut -c1-600)"
-    if grep -qE 'not scanned|skipping|NOT read' "$tmp/out"; then error "at $level a clean file was named: $(grep -E 'not scanned|skipping|NOT read' "$tmp/out" | sed -n 1,3p)"; else ok "and none is named as unread, nor a file foxguard has no rules for"; fi
-  done
+  # enum_off <log>: at off no copy is scanned. Each pushed file that is not
+  # given to foxguard exactly once, where it is; each one foxguard does not
+  # read there that is not named exactly once; each one named that foxguard
+  # read, has no rules for, or that was not pushed.
+  enum_off() {
+    LC_ALL=C awk -F'\t' '
+      FILENAME == ARGV[1] { real[$0] = 1; next }
+      FILENAME == ARGV[2] { other[$0] = 1; next }
+      FILENAME == ARGV[3] {
+        if (sub(/^\[pre-push\] foxguard: not scanned: /, "") && match($0, / \([^()]*\)$/)) named[substr($0, 1, RSTART - 1)]++
+        next }
+      { a = $1; sub(/^\.\//, "", a); if ((a in real) || (a in other)) { n[a]++; if (n[a] == 1) got[a] = $2 } }
+      END {
+        for (f in real) {
+          if (n[f] != 1) print f " (given to foxguard as it is " (n[f] + 0) " times)"
+          else if (got[f] == "read" && (f in named)) print f " (read, and named as not scanned)"
+          else if (got[f] != "read" && named[f] != 1) print f " (" got[f] ", named " (named[f] + 0) " times)"
+        }
+        for (f in other) if ((f in named) || n[f] != 1) print f " (no rules for it: named, or given " (n[f] + 0) " times)"
+        for (f in named) if (!(f in real) && !(f in other)) print f " (named, and not a pushed file)"
+      }' "$tmp/enum.all" "$tmp/enum.other" "$tmp/out" "$1" | LC_ALL=C sort -u
+  }
+  : > "$tmp/enum.log"
+  expect "at high: every name foxguard reads, as $(wc -l < "$tmp/enum.all" | tr -d ' ') clean files, passes" 0 \
+    "$(check FOXGUARD_CMD="$tmp/logfox" REAL_FOX="$real_fox" FOX_LOG="$tmp/enum.log" SCRIPT_HELPERS_FOXGUARD_BLOCK=high)"
+  left="$(enum_left "$tmp/enum.log")"
+  [[ -s "$tmp/enum.log" && -z "$left" ]] && ok "and foxguard read each one, as it is or as a copy" \
+    || error "at high foxguard did not read: $(printf '%s' "$left" | tr '\n' ';' | cut -c1-600)"
+  if grep -qE 'not scanned|skipping|NOT read' "$tmp/out"; then error "at high a clean file was named: $(grep -E 'not scanned|skipping|NOT read' "$tmp/out" | sed -n 1,3p)"; else ok "and none is named as unread, nor a file foxguard has no rules for"; fi
+  : > "$tmp/enum.log"
+  expect "at off: the same files pass" 0 \
+    "$(check FOXGUARD_CMD="$tmp/logfox" REAL_FOX="$real_fox" FOX_LOG="$tmp/enum.log" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+  left="$(enum_off "$tmp/enum.log")"
+  [[ -s "$tmp/enum.log" && -z "$left" ]] && ok "and each is read where it is or named once as not scanned, none that foxguard has no rules for" \
+    || error "at off: $(printf '%s' "$left" | tr '\n' ';' | cut -c1-600)"
+  nn="$(grep -c 'foxguard: not scanned: ' "$tmp/out")"
+  [[ "$nn" -gt 0 ]] && ok "$nn of them are named" || error "at off no file in a noise path or with an upper-case extension was named"
+  has "and counted" "foxguard did NOT read $nn of $(($(wc -l < "$tmp/enum.all") + $(wc -l < "$tmp/enum.other"))) changed file(s)"
   # One verdict for each changed file, and the same findings for a copy as
   # for the file where foxguard reads it. cwdfox is the real foxguard, and
   # writes down where it ran and what it made of the file: a copy is scanned
-  # from a directory of its own (<n>.d in the blocking scan, below
-  # sh-foxguard.* at off).
+  # from a directory of its own (<n>.d in the blocking scan). At off no
+  # copy is scanned: below sh-foxguard.* foxguard is given an empty file
+  # only, to ask whether it reads the name. The log has the size of each file.
   cat > "$tmp/cwdfox" <<'EOF'
 #!/usr/bin/env bash
 for a in "$@"; do f="$a"; done
 rc=0; $REAL_FOX "$@" > "$FOX_LOG.out" 2> "$FOX_LOG.err" || rc=$?
 v="$(cat "$FOX_LOG.out" "$FOX_LOG.err" | LC_ALL=C sed -n 's/^.*Skipped 1 file: 1 \([^.]*\)\..*$/\1/p' | tail -1)"
-printf '%s\t%s\t%s\n' "$PWD" "$f" "${v:-read}" >> "$FOX_LOG"
+printf '%s\t%s\t%s\t%s\n' "$PWD" "$f" "${v:-read}" "$(wc -c < "$f" | tr -d ' ')" >> "$FOX_LOG"
 cat "$FOX_LOG.out"; cat "$FOX_LOG.err" >&2
 exit "$rc"
 EOF
@@ -888,18 +920,24 @@ ENV NODE_TLS_REJECT_UNAUTHORIZED=0'
   # inv_left: each file of inv.want that does not have exactly its verdict.
   # S: the last thing foxguard did with it or a copy of it is read it. K: the
   # hook names it as skipped or not scanned. N: foxguard has no rules for it,
-  # under any name the hook gave it.
+  # under any name the hook gave it. inv_left off: a file marked S that
+  # foxguard does not read where it is must be K, since no copy is scanned;
+  # and what foxguard is given outside the repository must be empty.
   inv_left() {
-    LC_ALL=C awk -F'\t' '
+    LC_ALL=C awk -F'\t' -v off="$([[ "${1:-}" == off ]] && echo 1 || echo 0)" '
       FILENAME == ARGV[1] { want[$1] = $2; next }
       FILENAME == ARGV[2] {
         if (sub(/^\[pre-push\] foxguard: (warning: skipping |not scanned: (warning: skipping )?)/, "") && match($0, /^.* \(/)) named[substr($0, 1, RLENGTH - 2)]++
         next }
       { cwd = $1; a = $2; sub(/^\.\//, "", a)
-        if (cwd ~ /\/[0-9]+\.d$/ || cwd ~ /\/sh-foxguard\.[^\/]*\/[0-9]+$/) { if (cur != "") { last[cur] = $3; if ($3 != "unsupported extension") code[cur] = 1 } }
+        if (cwd ~ /\/[0-9]+\.d$/) { if (cur != "") { last[cur] = $3; if ($3 != "unsupported extension") code[cur] = 1 } }
+        else if (cwd ~ /\/sh-foxguard\.[^\/]*\/[0-9]+$/) {
+          if ($4 != 0) print a ": " $4 " bytes given to foxguard outside the repository"
+          if (cur != "" && $3 != "unsupported extension") code[cur] = 1 }
         else { cur = a; given[a]++; last[a] = $3; if ($3 != "unsupported extension") code[a] = 1 } }
       END {
         for (f in want) {
+          if (off + 0 == 1 && want[f] == "S" && last[f] != "read") want[f] = "K"
           v = ""
           if (last[f] == "read") v = v "S"
           if (named[f] == 1) v = v "K"; else if (named[f] > 1) v = v "K" named[f]
@@ -942,46 +980,68 @@ ENV NODE_TLS_REJECT_UNAUTHORIZED=0'
     want_rc=1; [[ "$level" == off ]] && want_rc=0
     expect "at $level: $(wc -l < "$tmp/inv.want" | tr -d ' ') files, some that foxguard cannot read and some it has no rules for" "$want_rc" \
       "$(check FOXGUARD_CMD="$tmp/cwdfox" REAL_FOX="$real_fox" FOX_LOG="$tmp/inv.log" SCRIPT_HELPERS_FOXGUARD_BLOCK="$level")"
-    left="$(inv_left)"
+    left="$(inv_left "$level")"
     [[ -s "$tmp/inv.log" && -z "$left" ]] && ok "and each has exactly one verdict: scanned, named as not read, or not code" \
       || error "at $level not one verdict each: $(printf '%s' "$left" | tr '\n' ';' | cut -c1-900)"
   done
   nk="$(grep -c "$(printf '\tK\t')" "$tmp/inv.want")"; ns="$(grep -c "$(printf '\tS\t')" "$tmp/inv.want")"; na="$(wc -l < "$tmp/inv.want" | tr -d ' ')"
-  has "at off the files not read are counted" "foxguard did NOT read $nk of $na changed file(s)"
-  has "and each file with a finding" "finding(s) in $ns of $na changed file(s)"
+  # At off every file is S (read where it is, with its finding), named, or N.
+  nn="$(grep -c 'foxguard: not scanned: ' "$tmp/out")"; nx="$(grep -c "$(printf '\tN\t')" "$tmp/inv.want")"
+  [[ "$nn" -gt "$nk" && "$nn" -lt "$((nk + ns))" ]] && ok "at off $nn files are named: the $nk no level reads, and each that only a copy would get read" \
+    || error "at off $nn files are named, of $nk that no level reads and $ns with a finding"
+  has "and counted" "foxguard did NOT read $nn of $na changed file(s)"
+  has "and each file with a finding that is read where it is" "finding(s) in $((na - nn - nx)) of $na changed file(s)"
+  if grep -qF "scanned as" "$tmp/out"; then error "at off a copy was scanned: $(grep -F 'scanned as' "$tmp/out" | sed -n 1p)"; else ok "and none is scanned as a copy"; fi
   # A refused push names every file foxguard did not read, the C++ ones too.
   setup; publish; commit broken.py "$broken_code"; commit Tmpl.C 'template <class T> class A { public: T v; A() : v() {} };'
   expect "a push with a file that does not parse and a C++ file named .C is refused" 1 "$(check "$F")"
   has "the first is named" "foxguard: warning: skipping broken.py (parse error)"
   has "and the C++ file too" "foxguard: not scanned: warning: skipping Tmpl.C (parse error)"
-  # At off each file has a directory of its own for its copies: in one for
-  # all, the copy of the first file is where the second needs a directory.
-  setup; publish; mkdir -p "$tmp/repo/a/build/x._min.js"
-  commit a/build/d_x.min.js 'document.body.innerHTML = location.hash;'; commit a/build/x._min.js/y.py "$high_code"
-  expect "at off: two files whose copies would be one path" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
-  has "the first is scanned" "WARNING (foxguard): a/build/d_x.min.js, scanned as d_a/d_build/d_x._min.js:"
-  has "and the second" "WARNING (foxguard): a/build/x._min.js/y.py, scanned as d_a/d_build/d_x._min.js/y.py:"
-  if grep -qE 'not scanned|NOT read' "$tmp/out"; then error "one of them was not read: $(grep -E 'not scanned|NOT read' "$tmp/out" | sed -n 1,2p)"; else ok "and neither is named as not scanned"; fi
+  # At off foxguard is asked whether it reads z.txt and probe.txt, as empty
+  # files. Each pushed file has a directory of its own for them: in one for
+  # all, probe.txt of the first is where the second needs a directory, and
+  # that file would be named for want of an answer.
+  setup; publish; mkdir -p "$tmp/repo/u/probe.txt"; commit u/Z.TXT "plain text"; commit u/probe.txt/NOTES.TXT "plain text"
+  expect "at off: two files, the second below a name the first is asked under" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+  if grep -qE 'not scanned|NOT read' "$tmp/out"; then error "a text file was named: $(grep -E 'not scanned|NOT read' "$tmp/out" | sed -n 1,2p)"; else ok "and neither text file is named as not scanned"; fi
   # At off nothing blocks, and nothing is left out without a word either.
   setup; publish; commit Loader.PY "$high_code"; mkdir -p "$tmp/repo/a/build"; commit a/build/hash.py "$medium_code"
   commit Tmpl.C 'template <class T> class A { public: T v; A() : v() {} };'; commit broken.py 'def f(:
     pass'; commit NOTES.TXT "plain text"; commit a/build/Mod.Py "$high_code"
   mkdir -p "$tmp/repo/deploy/nginx/build"; commit deploy/nginx/build/site.conf 'server { ssl_protocols SSLv3 TLSv1; }'
   commit app.min.py "$high_code"; commit ./-dash.py "$medium_code"
-  expect "at off: a push with files foxguard drops goes on" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
-  has "the upper-case extension is scanned" "py/no-yaml-load"
-  has "and named" "WARNING (foxguard): Loader.PY, scanned as Loader.py:"
-  has "the noise path is scanned" "py/no-weak-crypto"
-  has "and named" "WARNING (foxguard): a/build/hash.py, scanned as d_a/d_build/hash.py:"
-  has "C++ named .C is named as not scanned" "foxguard: not scanned: Tmpl.C (parse error)"
+  mkdir -p "$tmp/td"
+  expect "at off: a push with files foxguard drops goes on" 0 "$(check "$F" TMPDIR="$tmp/td" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+  has "the upper-case extension is named as not scanned" "foxguard: not scanned: Loader.PY (upper-case extension)"
+  has "the noise path too" "foxguard: not scanned: a/build/hash.py (noise path)"
+  has "C++ named .C too" "foxguard: not scanned: Tmpl.C (upper-case extension)"
   has "an unparseable file too" "foxguard: not scanned: broken.py (parse error)"
-  has "and both are counted" "foxguard did NOT read 2 of 9 changed file(s)"
-  has "a noise name is scanned" "WARNING (foxguard): app.min.py, scanned as app._min.py:"
-  has "a name that starts with a dash too" "-dash.py"
+  has "a noise name too" "foxguard: not scanned: app.min.py (noise path)"
+  has "an upper-case extension in a noise path too" "foxguard: not scanned: a/build/Mod.Py (upper-case extension)"
+  has "a file told by its path, in a noise path, too" "foxguard: not scanned: deploy/nginx/build/site.conf (noise path)"
+  has "and all are counted" "foxguard did NOT read 7 of 9 changed file(s)"
+  has "a name that starts with a dash is scanned where it is" "WARNING (foxguard):   ./-dash.py"
+  has "with its finding" "py/no-weak-crypto"
+  nf=1; na=9; has "the only one" "foxguard: $nf finding(s) in $nf of $na changed file(s)"
   if grep -qF "the foxguard scan did NOT run" "$tmp/out"; then error "at off a scan failed: $(grep -F 'did NOT run' "$tmp/out")"; else ok "and no scan failed"; fi
-  has "an upper-case extension in a noise path is scanned" "WARNING (foxguard): a/build/Mod.Py, scanned as d_a/d_build/Mod.py:"
-  has "a file told by its path, in a noise path, too" "config/nginx-pq-vulnerable-tls"
+  if grep -qE 'scanned as|py/no-yaml-load|config/nginx' "$tmp/out"; then
+    error "at off a file was scanned as a copy: $(grep -E 'scanned as|py/no-yaml-load|config/nginx' "$tmp/out" | sed -n 1,2p)"
+  else ok "and no file is scanned as a copy"; fi
   if grep -qF "NOTES.TXT" "$tmp/out"; then error "a file type foxguard does not read was named at off"; else ok "the text file is not named"; fi
+  if ls -d "$tmp/td"/sh-foxguard.* >/dev/null 2>&1; then error "at off a working directory was left behind"; else ok "and no working directory is left behind"; fi
+  # At off the findings are those of a scan where the files are, under the
+  # repository's foxguard config. A copy scanned elsewhere was judged without
+  # it, and showed a rule the config turns off.
+  setup; commit .foxguard.yml 'scan:
+  disable_rules:
+    - py/no-yaml-load'; publish
+  commit app.py "$high_code"; commit Loader.PY "$high_code"; mkdir -p "$tmp/repo/a/build"; commit a/build/load.py "$high_code"
+  commit app.min.py "$high_code"; commit hash.py "$medium_code"
+  expect "at off: a rule the repository's config turns off" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+  if grep -qF "py/no-yaml-load" "$tmp/out"; then error "at off a finding of a rule the config turns off was shown: $(grep -F -B3 'py/no-yaml-load' "$tmp/out" | sed -n 1p)"; else ok "no finding of that rule is shown, for any file"; fi
+  has "a finding of another rule is" "py/no-weak-crypto"
+  nf=1; na=5; has "the findings are counted" "foxguard: $nf finding(s) in $nf of $na changed file(s)"
+  has "and the files not read where they are" "foxguard did NOT read 3 of 5 changed file(s)"
   # At off foxguard's own lines carry the file name: a carriage return, an
   # escape sequence or U+202E in it must not reach the terminal.
   setup; publish; commit "$(printf 'a\rb.py')" "$high_code"; commit "$(printf 'e\033[2Jx.py')" "$high_code"
@@ -1023,16 +1083,23 @@ def load(x):
   if grep -qF "not scanned: said.py" "$tmp/out" || grep -qF "said.py, scanned as" "$tmp/out"; then
     error "at off a file with a finding was named as not scanned, or scanned again: $(grep -F 'said.py' "$tmp/out" | sed -n 1,2p)"
   else ok "and is not named as not scanned, nor scanned again as a copy"; fi
-  # At off a file left out for its extension is not scanned again under its
-  # own name: one run for a file with no extension, two for app.PY.
+  # At off a file left out for its extension is given to foxguard once: a
+  # file with no extension, and one with an extension in lower case. For
+  # app.PY and NOTES.TXT foxguard is asked about the extension in lower case
+  # (an empty file): app.py is read, so app.PY is named; NOTES.txt and
+  # probe.txt are not, so NOTES.TXT is not.
   setup; publish; mkdir -p "$tmp/repo/src"; commit src/Makefile 'all:'; commit src/Run "$high_code"; commit src/app.PY "$high_code"
+  commit src/NOTES.TXT "plain text"; commit src/plain.txt "plain text"
   : > "$tmp/runs.log"
   expect "at off: files left out for their extension" 0 \
     "$(check FOXGUARD_CMD="$tmp/logfox" REAL_FOX="$real_fox" FOX_LOG="$tmp/runs.log" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
   got="$(cut -f1 "$tmp/runs.log" | tr '\n' ' ')"
-  [[ "$got" == "src/Makefile src/Run src/app.PY d_src/app.py " ]] && ok "a file with no extension is given to foxguard once, app.PY once more as app.py" \
+  [[ "$got" == "src/Makefile src/NOTES.TXT src/NOTES.txt src/probe.txt src/Run src/app.PY src/app.py src/plain.txt " ]] \
+    && ok "each file is given to foxguard once, and the names in lower case are asked about" \
     || error "at off foxguard was given: $got"
-  has "and app.PY is scanned" "WARNING (foxguard): src/app.PY, scanned as d_src/app.py:"
+  has "app.PY is named as not scanned" "foxguard: not scanned: src/app.PY (upper-case extension)"
+  has "and it alone" "foxguard did NOT read 1 of 5 changed file(s)"
+  if grep -qF "py/no-yaml-load" "$tmp/out"; then error "at off app.PY was scanned as a copy"; else ok "and is not scanned as a copy"; fi
   # A file of no language foxguard reads is not a skip.
   setup; commit notes.txt "plain text"
   expect "an unsupported file type passes at high" 0 "$(check "$F")"

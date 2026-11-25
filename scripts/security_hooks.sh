@@ -589,17 +589,16 @@ sec_foxguard_left_out() {
 
 # sec_foxguard_warn <refs-file> <remote>: foxguard at security.foxguardBlock=off.
 # Never blocks: a missing foxguard (installed when it can be), a failed scan
-# and every finding are loud warnings, and the push goes on. As the blocking
-# scan, it reads what foxguard would drop without a word: a file in a noise
-# path (a/build/x.py) as a copy that keeps its directories, each with "d_"
-# in front, one with a noise name (x.min.js) as a copy named x._min.js, one
-# with an upper-case extension (app.PY) as a copy with the extension in
-# lower case. A file foxguard still does not read (a parse error,
-# too large, C++ named .C, a file type it knows that no copy got read) is
-# named.
+# and every finding are loud warnings, and the push goes on. Each changed file
+# is scanned where it is, under the repository's foxguard config, and never
+# as a copy: a copy elsewhere is judged without that config. A file foxguard
+# does not read there is named and counted: one it drops as noise (a noise
+# path such as a/build/x.py, a noise name such as x.min.js), one whose
+# extension it reads in lower case only (app.PY), a parse error, a file that
+# is too large. A file type it does not know is not named.
 sec_foxguard_warn() {
   local refs="$1" remote="${2:-}" cmd f out rc frc=0 shown=0 failed=0 r base="" issues=0 hit=0 k
-  local copies="" unread=0 x e lx as mr known names own n=0 under=/d_ why cr=$'\r'
+  local probes="" unread=0 x e lx mr p pout prc n=0 why cr=$'\r'
   if ! cmd="$(sec_foxguard_cmd)"; then
     if ! sec_foxguard_platform_ok; then
       sec_loud "the foxguard scan did NOT run: foxguard has no binary for $(uname -s) $(uname -m)."
@@ -619,56 +618,43 @@ sec_foxguard_warn() {
   [[ ${#files[@]} -gt 0 ]] || return 0
   # Distinguish reported findings from scanner execution errors.
   for f in "${files[@]}"; do
-    rc=0; as=""
+    rc=0
     # "./" in front of a name that starts with a dash: a path, not an option.
     x="$f"; case "$f" in -*) x="./$f" ;; esac
     # shellcheck disable=SC2086  # FOXGUARD_CMD may carry arguments
     out="$($cmd "$x" 2>&1)" || rc=$?
     why="$(sec_foxguard_left_out "$rc" "$out")"
-    # The directories of <f> for a copy, as in sec_foxguard_scan.
-    mr=""
-    case "$f" in */*) mr="${f%/*}"; mr=d_${mr//\//$under}/ ;; esac
-    x="${f##*/}"; e="${x##*.}"; known=0
-    lx="$(printf '%s' "$e" | LC_ALL=C tr 'A-Z' 'a-z')" || lx="$e"
-    # The names of a copy, in order, as in sec_foxguard_scan: its own but for
-    # the part that is noise (sec_foxguard_copy_name), that with the
-    # extension in lower case, and copy.<extension> as the last resort.
-    names=("$(sec_foxguard_copy_name "$x")")
-    if [[ "$x" == *.* && -n "$lx" ]]; then
-      if [[ "$lx" != "$e" ]]; then names+=("$(sec_foxguard_copy_name "${x%.*}.$lx")"); fi
-      names+=("copy.$lx")
-    fi
-    # Each file has its own directory for its copies: in one for all, the
-    # copy of a/build/d_x.min.js would be where a/build/x._min.js/y.py needs
-    # a directory, and that file would not be read.
-    n=$((n + 1))
-    own=1
-    for k in "${names[@]}"; do
-      [[ "$rc" -le 1 ]] || break
-      # foxguard says "noise" only of a file type it knows.
-      if [[ "$why" == "noise path" ]]; then known=1
-      elif [[ "$why" == "unsupported extension" && ( "$known" -eq 1 || "$lx" != "$e" ) ]]; then :
-      else break; fi
-      # The first name is its own: a copy for a noise path or name only.
-      # Left out for its extension, the file would be left out again under
-      # it (src/Makefile, src/app.PY): sec_foxguard_scan makes no such copy.
-      if [[ "$own" -eq 1 ]]; then own=0; [[ "$known" -eq 1 ]] || continue; fi
-      # Its own name, at its own place: the file as it was given above.
-      [[ -n "$k" && "$mr$k" != "$f" ]] || continue
-      as="$mr$k"; rc=0
-      if { [[ -n "$copies" ]] || copies="$(mktemp -d "${TMPDIR:-/tmp}/sh-foxguard.XXXXXX" 2>/dev/null)"; } \
-        && mkdir -p "$copies/$n/$mr" 2>/dev/null && cat < "$f" > "$copies/$n/$as" 2>/dev/null; then
-        # "./" in front of a name that starts with a dash, as above.
-        x="$as"; case "$as" in -*) x="./$as" ;; esac
-        # shellcheck disable=SC2086
-        out="$(cd "$copies/$n" && $cmd "$x" 2>&1)" || rc=$?
-        why="$(sec_foxguard_left_out "$rc" "$out")"
-      else
-        out=""; why="copy to scan could not be written"
+    # Left out for an extension with an upper-case letter: foxguard knows an
+    # extension in lower case only, and app.PY still runs. Whether it reads
+    # the name in lower case is asked of an empty file of that name, under
+    # the same directories (and of probe.<extension> beside it, for ".PY"):
+    # nothing of the file is copied. Each file has a directory of its own, so
+    # the empty file of one is never where the next needs a directory. When
+    # foxguard cannot be asked, the file is named too.
+    x="${f##*/}"; e="${x##*.}"; n=$((n + 1))
+    if [[ "$why" == "unsupported extension" && "$x" == *.* ]]; then
+      lx="$(printf '%s' "$e" | LC_ALL=C tr 'A-Z' 'a-z')" || lx=""
+      if [[ -n "$lx" && "$lx" != "$e" ]]; then
+        mr=""; case "$f" in */*) mr="${f%/*}/" ;; esac
+        why="upper-case extension"
+        if { [[ -n "$probes" ]] || probes="$(mktemp -d "${TMPDIR:-/tmp}/sh-foxguard.XXXXXX" 2>/dev/null)"; } \
+          && mkdir -p "$probes/$n/$mr" 2>/dev/null; then
+          why="unsupported extension"
+          for k in "${x%.*}.$lx" "probe.$lx"; do
+            p="$mr$k"; case "$p" in -*) p="./$p" ;; esac
+            prc=0; pout=""
+            if : 2>/dev/null > "$probes/$n/$mr$k"; then
+              # shellcheck disable=SC2086
+              pout="$(cd "$probes/$n" && $cmd "$p" 2>&1)" || prc=$?
+            else
+              prc=2
+            fi
+            # foxguard reads that name, or could not be asked: say so.
+            if [[ "$(sec_foxguard_left_out "$prc" "$pout")" != "unsupported extension" ]]; then why="upper-case extension"; break; fi
+          done
+        fi
       fi
-    done
-    # A file type foxguard knows that no copy got read.
-    if [[ "$known" -eq 1 && "$why" == "unsupported extension" ]]; then why="noise path"; fi
+    fi
     # Not read, and not for a file type foxguard does not know: say so.
     if [[ -n "$why" && "$why" != "unsupported extension" ]]; then
       unread=$((unread + 1))
@@ -678,8 +664,6 @@ sec_foxguard_warn() {
       0) ;;
       1)
         hit=$((hit + 1))
-        # The findings below carry the name it was scanned under.
-        if [[ -n "$as" ]]; then printf '%s, scanned as %s:\n' "$f" "$as" | sec_foxguard_show '[pre-push] WARNING (foxguard): '; fi
         # Its summary line, "N issues" (terminal format); 1 when it has none.
         k="$(printf '%s\n' "$out" | LC_ALL=C sed -n -e 's/^[^0-9]*\([0-9][0-9]*\) issues\{0,1\}$/\1/p' -e 's/^[^0-9]*\([0-9][0-9]*\) issues\{0,1\}[^a-z].*/\1/p' | tail -1)"
         issues=$((issues + ${k:-1}))
@@ -703,7 +687,7 @@ sec_foxguard_warn() {
         while IFS= read -r r; do printf '[pre-push] foxguard (%s): %s\n' "$f" "$r"; done < <(printf '%s\n' "$out" | sed -n 1,3p) | sec_foxguard_show '' ;;
     esac
   done
-  if [[ -n "$copies" ]]; then rm -rf -- "$copies"; fi
+  if [[ -n "$probes" ]]; then rm -rf -- "$probes"; fi
   [[ "$failed" -gt 0 ]] && sec_loud "the foxguard scan did NOT run on $failed of ${#files[@]} file(s) (exit $frc)."
   [[ "$unread" -gt 0 ]] && sec_loud "foxguard did NOT read $unread of ${#files[@]} changed file(s) (named above as not scanned)."
   if [[ "$shown" -gt 0 ]]; then
