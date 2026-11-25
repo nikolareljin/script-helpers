@@ -982,6 +982,32 @@ ENV NODE_TLS_REJECT_UNAUTHORIZED=0'
   has "an upper-case extension in a noise path is scanned" "WARNING (foxguard): a/build/Mod.Py, scanned as d_a/d_build/Mod.py:"
   has "a file told by its path, in a noise path, too" "config/nginx-pq-vulnerable-tls"
   if grep -qF "NOTES.TXT" "$tmp/out"; then error "a file type foxguard does not read was named at off"; else ok "the text file is not named"; fi
+  # At off foxguard's own lines carry the file name: a carriage return, an
+  # escape sequence or U+202E in it must not reach the terminal.
+  setup; publish; commit "$(printf 'a\rb.py')" "$high_code"; commit "$(printf 'e\033[2Jx.py')" "$high_code"
+  commit "$(printf 'u\342\200\256x.py')" "$high_code"
+  expect "at off: findings in files with a control character in the name" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+  has "the carriage return is shown as ?" "WARNING (foxguard):   a?b.py"
+  has "the escape too" "WARNING (foxguard):   e?[2Jx.py"
+  has "and U+202E" "WARNING (foxguard):   u?x.py"
+  if LC_ALL=C grep -q "$(printf '[\r\033]')" "$tmp/out" || LC_ALL=C grep -qF "$(printf '\342\200\256')" "$tmp/out"; then
+    error "at off a control character reached the terminal: $(LC_ALL=C grep -n "$(printf '[\r\033]')" "$tmp/out" | sed -n 1,2p | cat -v)"
+  else ok "and none is printed as it is"; fi
+  has "the findings are counted as before" "foxguard: 3 finding(s) in 3 of 3 changed file(s)"
+  # A scan that fails names the file the same way.
+  expect "at off: a failing foxguard on such a file" 0 "$(check FOXGUARD_CMD="$tmp/brokenfox" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+  has "the name is shown with ?" "foxguard (a?b.py): boom"
+  if LC_ALL=C grep -q "$(printf '[\r\033]')" "$tmp/out"; then error "at off a failed scan printed a control character"; else ok "and no control character is printed"; fi
+  # At off a file left out for its extension is not scanned again under its
+  # own name: one run for a file with no extension, two for app.PY.
+  setup; publish; mkdir -p "$tmp/repo/src"; commit src/Makefile 'all:'; commit src/Run "$high_code"; commit src/app.PY "$high_code"
+  : > "$tmp/runs.log"
+  expect "at off: files left out for their extension" 0 \
+    "$(check FOXGUARD_CMD="$tmp/logfox" REAL_FOX="$real_fox" FOX_LOG="$tmp/runs.log" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+  got="$(cut -f1 "$tmp/runs.log" | tr '\n' ' ')"
+  [[ "$got" == "src/Makefile src/Run src/app.PY d_src/app.py " ]] && ok "a file with no extension is given to foxguard once, app.PY once more as app.py" \
+    || error "at off foxguard was given: $got"
+  has "and app.PY is scanned" "WARNING (foxguard): src/app.PY, scanned as d_src/app.py:"
   # A file of no language foxguard reads is not a skip.
   setup; commit notes.txt "plain text"
   expect "an unsupported file type passes at high" 0 "$(check "$F")"

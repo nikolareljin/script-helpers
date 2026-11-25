@@ -587,7 +587,7 @@ sec_loud() {
 # named.
 sec_foxguard_warn() {
   local refs="$1" remote="${2:-}" cmd f out rc frc=0 shown=0 failed=0 r base="" issues=0 hit=0 k
-  local copies="" unread=0 x e lx as mr known names n=0 under=/d_
+  local copies="" unread=0 x e lx as mr known names own n=0 under=/d_
   if ! cmd="$(sec_foxguard_cmd)"; then
     if ! sec_foxguard_platform_ok; then
       sec_loud "the foxguard scan did NOT run: foxguard has no binary for $(uname -s) $(uname -m)."
@@ -629,12 +629,17 @@ sec_foxguard_warn() {
     # copy of a/build/d_x.min.js would be where a/build/x._min.js/y.py needs
     # a directory, and that file would not be read.
     n=$((n + 1))
+    own=1
     for k in "${names[@]}"; do
       [[ "$rc" -le 1 ]] || break
       # foxguard says "noise" only of a file type it knows.
       if [[ "$out" == *"Skipped 1 file: 1 noise path."* ]]; then known=1
       elif [[ "$out" == *"Skipped 1 file: 1 unsupported extension."* && ( "$known" -eq 1 || "$lx" != "$e" ) ]]; then :
       else break; fi
+      # The first name is its own: a copy for a noise path or name only.
+      # Left out for its extension, the file would be left out again under
+      # it (src/Makefile, src/app.PY): sec_foxguard_scan makes no such copy.
+      if [[ "$own" -eq 1 ]]; then own=0; [[ "$known" -eq 1 ]] || continue; fi
       # Its own name, at its own place: the file as it was given above.
       [[ -n "$k" && "$mr$k" != "$f" ]] || continue
       as="$mr$k"; rc=0
@@ -666,14 +671,17 @@ sec_foxguard_warn() {
         # Its summary line, "N issues" (terminal format); 1 when it has none.
         k="$(printf '%s\n' "$out" | LC_ALL=C sed -n -e 's/^[^0-9]*\([0-9][0-9]*\) issues\{0,1\}$/\1/p' -e 's/^[^0-9]*\([0-9][0-9]*\) issues\{0,1\}[^a-z].*/\1/p' | tail -1)"
         issues=$((issues + ${k:-1}))
+        if [[ -n "${out//[[:space:]]/}" ]]; then shown=$((shown + 1)); fi
+        # foxguard prints the file name as it is: through sec_foxguard_show,
+        # so a carriage return in it cannot draw over the line. Its progress
+        # line, which starts with one, is left out.
         while IFS= read -r r; do
-          [[ -n "${r//[[:space:]]/}" ]] || continue
-          shown=$((shown + 1))
-          printf '[pre-push] WARNING (foxguard): %s\n' "$r" >&2
-        done < <(printf '%s\n' "$out") ;;
+          [[ -n "${r//[[:space:]]/}" && "$r" != $'\r'* ]] || continue
+          printf '[pre-push] WARNING (foxguard): %s\n' "$r"
+        done < <(printf '%s\n' "$out") | sec_foxguard_show '' ;;
       *)
         failed=$((failed + 1)); frc="$rc"
-        while IFS= read -r r; do printf '[pre-push] foxguard (%s): %s\n' "$f" "$r" >&2; done < <(printf '%s\n' "$out" | sed -n 1,3p) ;;
+        while IFS= read -r r; do printf '[pre-push] foxguard (%s): %s\n' "$f" "$r"; done < <(printf '%s\n' "$out" | sed -n 1,3p) | sec_foxguard_show '' ;;
     esac
   done
   if [[ -n "$copies" ]]; then rm -rf -- "$copies"; fi
