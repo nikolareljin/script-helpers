@@ -935,7 +935,7 @@ sec_foxguard_scan_copy() {
 # does not read for its name (bin/deploy, tool.cgi) runs by its first line:
 # it is scanned as a copy named with the extension of that language
 # (sec_foxguard_script_ext). One with an extension foxguard does not know
-# that cannot be read (a template: entry.sh.j2) is listed in <out>.script
+# that does not parse (a template: entry.sh.j2) is listed in <out>.script
 # instead, for the caller to name. Return 0
 # scanned; 1 failed. Files it skipped for any reason but an unsupported
 # extension (parse error, too large, still noise) are listed in <out>.skipped,
@@ -1012,15 +1012,18 @@ sec_foxguard_scan() {
           sec_foxguard_scan_copy "$1" "$2" "$3/$f" "$4" "$k" "$mr" "$k.$lx" "$f" || return 1
           rc="$SEC_FOXGUARD_RC"
         fi
-        # With an extension foxguard does not know, a script that cannot be
-        # read is a template as often as not (entry.sh.j2, run.erb): not a
-        # file to fix, so not a skip that refuses the push, but named. One
-        # with no extension (bin/deploy) is a skip like any other.
+        # With an extension foxguard does not know, a script that does not
+        # parse is a template as often as not (entry.sh.j2, run.erb): not a
+        # file to fix, so not a skip that refuses the push, but named. Only
+        # here (a file foxguard does not read for its name, told by its
+        # first line) and only a parse error: one that is too large or not
+        # UTF-8 is a skip like any other, as is one with no extension
+        # (bin/deploy).
         if [[ "${x#.}" == *.* ]]; then
-          s="$(sec_foxguard_skips "$4.one")" || return 1
+          s="$(LC_ALL=C awk '/^warning: skipping .* \(parse error\)$/' "$4.one")" || return 1
           if [[ -n "$s" ]]; then
             printf '%s\n' "$s" >> "$4.script" || return 1
-            s="$(LC_ALL=C awk '!/^warning: skipping .* \(.*\)$/' "$4.one")" || return 1
+            s="$(LC_ALL=C awk '!/^warning: skipping .* \(parse error\)$/' "$4.one")" || return 1
             if [[ -n "$s" ]]; then printf '%s\n' "$s" > "$4.one" || return 1; else : > "$4.one" || return 1; fi
           fi
         fi
@@ -1229,7 +1232,7 @@ sec_foxguard_block() (
     fi
     if [[ -s "$d/tip.json.script" ]]; then
       sec_foxguard_show '[pre-push] foxguard: not scanned: ' < "$d/tip.json.script"
-      echo "[pre-push] foxguard: $(wc -l < "$d/tip.json.script" | tr -d ' ') file(s) above start with \"#!\" and could not be read as that language (a template, perhaps) and were not scanned." >&2
+      echo "[pre-push] foxguard: $(wc -l < "$d/tip.json.script" | tr -d ' ') file(s) above start with \"#!\" and do not parse as that language (a template, perhaps) and were not scanned." >&2
     fi
     if [[ -s "$d/tip.json.skipped" ]]; then
       sec_foxguard_show '[pre-push] foxguard: ' < "$d/tip.json.skipped"
@@ -1248,7 +1251,7 @@ sec_foxguard_block() (
         echo "[pre-push] foxguard: the files of base ${b:0:12} could not be read; its findings count as new." >&2
         continue
       fi
-      # A base copy that is C++, or a script that could not be read, was not
+      # A base copy that is C++, or a script that did not parse, was not
       # read either: it vouches for nothing.
       if sec_foxguard_scan "$cmd" "$d/config" "$d/base$i" "$d/base$i.json" "$d/files" \
         && cat "$d/base$i.json.cxx" "$d/base$i.json.script" >> "$d/base$i.json.skipped"; then

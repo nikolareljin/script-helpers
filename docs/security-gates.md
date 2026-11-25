@@ -167,9 +167,11 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
   assignments) is scanned as a copy named with that language's extension
   (`deploy.sh`) and reported under its own name. One with no extension that
   foxguard cannot read is a skip, and refuses the push. One with an
-  extension (`entry.sh.j2`, `run.erb`) is a template as often as not: it is
-  named as `not scanned` and does not refuse the push, and as a base copy it
-  is unscanned. A script in another language (`zsh`, `perl`) is not a skip.
+  extension that does not parse (`entry.sh.j2`, `run.erb`) is a template as
+  often as not: it is named as `not scanned` and does not refuse the push,
+  and as a base copy it is unscanned. Only a parse error is taken so: such a
+  script that is too large or not UTF-8 refuses the push. A script in
+  another language (`zsh`, `perl`) is not a skip.
   A working file the hook cannot write under `TMPDIR` (the file lists and
   maps, the list of skipped files, the base list, the configs, the copy of a
   file to scan) refuses the push too: a short list is never read as "nothing

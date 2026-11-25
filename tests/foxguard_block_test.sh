@@ -1022,7 +1022,7 @@ if then"
   setup; publish; commit entry.sh.j2 "$j2_code"
   expect "a shell template that does not parse as shell passes at high" 0 "$(check "$F")"
   has "and is named as not scanned" "foxguard: not scanned: warning: skipping entry.sh.j2 (parse error)"
-  has "and counted" 'foxguard: 1 file(s) above start with "#!" and could not be read as that language'
+  has "and counted" 'foxguard: 1 file(s) above start with "#!" and do not parse as that language'
   expect "at off: the push goes on" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
   has "and it is named as not scanned" "foxguard: not scanned: entry.sh.j2 (parse error)"
   # As a base copy it was not read: it vouches for nothing.
@@ -1030,6 +1030,25 @@ if then"
   expect "a finding in a script whose base copy could not be read blocks" 1 "$(check "$F")"
   has "as unscanned at the base" "critical entry.sh.j2:2 bash/taint-command-injection (the base copy could not be scanned (parse error); review the file"
   expect "and is a warning with the override" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
+  # Only a parse error is taken for a template. A script with an extension
+  # that is too large, or not UTF-8, is a skip that refuses the push, as is a
+  # source file foxguard reads by its name, whatever it was skipped for.
+  setup; publish
+  { printf '#!/usr/bin/env python3\n'; awk 'BEGIN { for (i = 0; i < 120000; i++) print "a" i " = 1" }'; } > "$tmp/repo/tool.cgi"
+  gc -C "$tmp/repo" add tool.cgi; gc -C "$tmp/repo" commit -q -m big
+  expect "a script with an extension that is too large is refused at high" 1 "$(check "$F")"
+  has "as a skipped file" "foxguard: warning: skipping tool.cgi ("
+  has "and counted as one" "foxguard skipped 1 changed file(s)"
+  setup; publish; commit tool.cgi "$(printf '#!/usr/bin/env python3\n# caf\351\nx = 1')"
+  expect "a script with an extension that is not UTF-8 is refused at high" 1 "$(check "$F")"
+  has "as a skipped file" "foxguard: warning: skipping tool.cgi (binary or non-UTF-8 content)"
+  setup; publish; commit app.min.py "#!/usr/bin/env python3
+$broken_code"; commit Loader.PY "#!/usr/bin/env python3
+$broken_code"
+  expect "source files that start with #! and do not parse are refused at high" 1 "$(check "$F")"
+  has "the one with a noise name" "foxguard: warning: skipping app.min.py (parse error)"
+  has "and the one with an upper-case extension" "foxguard: warning: skipping Loader.PY (parse error)"
+  has "both counted" "foxguard skipped 2 changed file(s)"
   # No rules for zsh, and LICENSE is no script: neither is a skip.
   setup; publish; commit z "#!/bin/zsh
 for f (*.c) print \$f"; commit LICENSE "plain text"
