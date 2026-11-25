@@ -767,18 +767,20 @@ EOF
     d=a; b="$n"; pre=""
     case "$n" in */*) d="${n%/*}"; b="${n##*/}"; pre="$d/" ;; esac
     printf '%s\n' "$n" >> "$tmp/enum.plain"
-    set -- "$n" "$d/build/$b"
+    # A list in a variable (no name here has a space): the positional
+    # parameters of this script stay empty for the cases below.
+    vs="$n $d/build/$b"
     case "$b" in
       *.*)
         st="${b%.*}"; ex="${b##*.}"; ux="$(printf '%s' "$ex" | tr 'a-z' 'A-Z')"
-        set -- "$@" "${pre}u/$st.$ux" "$d/build/u/$st.$ux"
+        vs="$vs ${pre}u/$st.$ux $d/build/u/$st.$ux"
         # A name foxguard knows whole (Cargo.lock) is no longer it with .min.
         case "$b" in
           requirements.txt|*.lock) ;;
-          *) set -- "$@" "$pre$st.min.$ex" "$d/build/$st.min.$ex" "${pre}u/$st.min.$ux" ;;
+          *) vs="$vs $pre$st.min.$ex $d/build/$st.min.$ex ${pre}u/$st.min.$ux" ;;
         esac ;;
     esac
-    for v in "$@"; do
+    for v in $vs; do
       mkdir -p "$tmp/repo/$(dirname "$v")"
       case "$v" in *.xml|*.XML) printf '<a/>\n' > "$tmp/repo/$v" ;; *) printf '\n' > "$tmp/repo/$v" ;; esac
       printf '%s\n' "$v" >> "$tmp/enum.all"
