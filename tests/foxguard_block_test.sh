@@ -846,38 +846,40 @@ EOF
   # an empty list reads as "nothing to scan" or "nothing skipped". Each
   # stand-in is a shell function the hook inherits in place of the tool.
   setup; publish; commit app.py "$high_code"
+  # A pattern of a case inside $( ) has its "(" too: without it bash 3.2
+  # ends the command substitution at the ")" of the pattern.
   expect "a map of the pushed files that comes out empty refuses the push" 1 \
-    "$(awk() { case "$*" in *'print $0 "\t" $0'*) return 0 ;; esac; command awk "$@"; }; export -f awk; check "$F")"
+    "$(awk() { case "$*" in (*'print $0 "\t" $0'*) return 0 ;; esac; command awk "$@"; }; export -f awk; check "$F")"
   has "and says so" "the list of pushed files could not be written"
   expect "a file list that cannot be sorted refuses the push" 1 \
-    "$(sort() { case "$*" in *" -o "*) return 1 ;; esac; command sort "$@"; }; export -f sort; check "$F")"
+    "$(sort() { case "$*" in (*" -o "*) return 1 ;; esac; command sort "$@"; }; export -f sort; check "$F")"
   has "and says so" "the list of changed files could not be sorted"
   has "with a remedy that is not installing foxguard" "is writable and has free space"
   expect "a base list that cannot be written refuses the push" 1 \
-    "$(sed() { case "$*" in *"1,8p"*) return 4 ;; esac; command sed "$@"; }; export -f sed; check "$F")"
+    "$(sed() { case "$*" in (*"1,8p"*) return 4 ;; esac; command sed "$@"; }; export -f sed; check "$F")"
   has "and says so" "the base commits of refs/heads/main could not be listed"
   # Not every sed or awk reports a write that failed: the lists are counted.
   expect "a base list that comes out empty refuses the push" 1 \
-    "$(sed() { case "$*" in *"1,8p"*) return 0 ;; esac; command sed "$@"; }; export -f sed; check "$F")"
+    "$(sed() { case "$*" in (*"1,8p"*) return 0 ;; esac; command sed "$@"; }; export -f sed; check "$F")"
   has "and says so" "the base commits of refs/heads/main could not be listed"
   expect "a base file map that comes out empty refuses the push" 1 \
-    "$(awk() { case "$*" in *'FILENAME == ARGV[1]'*) return 0 ;; esac; command awk "$@"; }; export -f awk; check "$F")"
+    "$(awk() { case "$*" in (*'FILENAME == ARGV[1]'*) return 0 ;; esac; command awk "$@"; }; export -f awk; check "$F")"
   has "and says so" "the base file map could not be built"
   setup; publish; commit broken.py 'def f(:
     pass'
   expect "a skip of a pushed file that cannot be listed refuses the push" 1 \
-    "$(printf() { case "${2:-}" in "warning: skipping "*) return 1 ;; esac; builtin printf "$@"; }; export -f printf; check "$F")"
+    "$(printf() { case "${2:-}" in ("warning: skipping "*) return 1 ;; esac; builtin printf "$@"; }; export -f printf; check "$F")"
   has "as a failed scan" "the foxguard scan failed"
   setup; commit .foxguard.yml "$quiet_cfg"; publish; commit app.py "$high_code"
   expect "a base config that cannot be read refuses the push" 1 \
-    "$(git() { case "$*" in "cat-file blob "*":.foxguard.yml") return 1 ;; esac; command git "$@"; }; export -f git; check "$F")"
+    "$(git() { case "$*" in ("cat-file blob "*":.foxguard.yml") return 1 ;; esac; command git "$@"; }; export -f git; check "$F")"
   has "and says so" "the foxguard config of the base could not be read"
   expect "a base config that cannot be copied refuses the push" 1 \
-    "$(cat() { case "$*" in */config) return 1 ;; esac; command cat "$@"; }; export -f cat; check "$F")"
+    "$(cat() { case "$*" in (*/config) return 1 ;; esac; command cat "$@"; }; export -f cat; check "$F")"
   has "and says so" "the foxguard config of the base could not be copied"
   setup; publish; commit .foxguard.yml "$quiet_cfg"
   expect "a pushed config that cannot be read refuses the push" 1 \
-    "$(git() { case "$*" in "cat-file blob "*":.foxguard.yml") return 1 ;; esac; command git "$@"; }; export -f git; check "$F")"
+    "$(git() { case "$*" in ("cat-file blob "*":.foxguard.yml") return 1 ;; esac; command git "$@"; }; export -f git; check "$F")"
   has "and says so" "the foxguard config of refs/heads/main could not be read"
 
   # Through the hook's own sequence: the refusal reaches _sec_pre_push.
