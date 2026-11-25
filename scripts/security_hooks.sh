@@ -879,12 +879,11 @@ sec_foxguard_copy_name() {
 # perl). The interpreter is the word after env and its options and
 # assignments ("#!/usr/bin/env -S python3 -u": py; -u and -C take a word).
 sec_foxguard_script_ext() {
-  local line w words skip=0 f="$1"
-  # A path, not an option of head.
-  case "$f" in -*) f="./$f" ;; esac
+  local line w words skip=0
+  # Read from stdin: a name that starts with a dash is no option of head.
   # 256 bytes, and a NUL ends the line: the first line of a binary file is
   # not read whole, and one that starts with a NUL is no script.
-  line="$(LC_ALL=C head -c 256 "$f" 2>/dev/null | LC_ALL=C tr '\000' '\n' | LC_ALL=C tr -d '\r' | LC_ALL=C sed -n 1p)" || line=""
+  line="$({ LC_ALL=C head -c 256 < "$1"; } 2>/dev/null | LC_ALL=C tr '\000' '\n' | LC_ALL=C tr -d '\r' | LC_ALL=C sed -n 1p)" || line=""
   case "$line" in '#!'*) ;; *) return 0 ;; esac
   read -r -a words <<< "${line#??}" || true
   for w in ${words[@]+"${words[@]}"}; do
