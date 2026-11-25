@@ -153,6 +153,10 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
   foxguard is missing (install it: `setup-hooks.sh --install-foxguard`), when the scan
   fails, or when foxguard skips a changed file it should read (a parse error, a
   file over its 1 MB limit). A file type foxguard has no rules for is not a skip.
+  foxguard knows an extension in lower case only; a file such as `app.PY` or
+  `x.Js` still runs, so it is scanned as a copy with the extension in lower
+  case and reported under its own name. `.C` and `.H` are left alone: they
+  are C++, which foxguard does not read.
   A working file the hook cannot write under `TMPDIR` (the file lists and
   maps, the list of skipped files, the base list, the configs, the copy of a
   file to scan) refuses the push too: a short list is never read as "nothing
@@ -177,7 +181,8 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
   printed with the odd bytes as `\xNN`, and the remedy is to rename it. Two
   changed paths that are one file where the hook writes its copies (names
   that differ only in case or in Unicode form, under a `TMPDIR` on macOS or
-  Windows) refuse the push as well, because one of them could not be scanned:
+  Windows, or a file named as a directory of the other path) refuse the push
+  as well, because one of them could not be scanned:
   rename one, or point `TMPDIR` at a case-sensitive file system. On a
   case-sensitive file system both are scanned. Ignore files
   (`.ignore` and the like) are not written to the scanned tree, so a push

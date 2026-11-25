@@ -698,9 +698,10 @@ sec_foxguard_refuse() {
 # fails. Return 2 when <dst> is already in <dir>: two names that are one file
 # on this file system (they differ in case, or in Unicode form, on macOS and
 # Windows), where the second would replace the first and the first would never
-# be scanned. SEC_FOXGUARD_CLASH then holds that <dst>.
+# be scanned. The same when a file is where a directory of <dst> must be (A
+# and a/x.py). SEC_FOXGUARD_CLASH then holds that <dst>.
 sec_foxguard_tree() {
-  local c="$1" src dst mode defuse='s/[Ff][Oo][Xx][Gg][Uu][Aa][Rr][Dd]/f0xguard/g'
+  local c="$1" src dst mode up defuse='s/[Ff][Oo][Xx][Gg][Uu][Aa][Rr][Dd]/f0xguard/g'
   SEC_FOXGUARD_CLASH=""
   mkdir -p "$3" || return 1
   while IFS=$'\t' read -r src dst; do
@@ -711,6 +712,12 @@ sec_foxguard_tree() {
     mode="${mode%% *}"
     [[ "$mode" == 100644 || "$mode" == 100755 ]] || continue
     if [[ -e "$3/$dst" || -L "$3/$dst" ]]; then SEC_FOXGUARD_CLASH="$dst"; return 2; fi
+    # A file where a directory of <dst> must be: mkdir could only fail.
+    up="$dst"
+    while [[ "$up" == */* ]]; do
+      up="${up%/*}"
+      if [[ -e "$3/$up" && ! -d "$3/$up" ]]; then SEC_FOXGUARD_CLASH="$dst"; return 2; fi
+    done
     mkdir -p "$3/$(dirname -- "$dst")" && git cat-file blob "$c:$src" > "$3.blob" || return 1
     # Any case and separator: foxguard 0.14.1 honours only "foxguard: ignore",
     # a later one may accept more.
@@ -755,6 +762,13 @@ sec_foxguard_noise() {
   awk '!/^warning: skipping / && /noise path/ { found = 1 } END { exit !found }' "$1"
 }
 
+# sec_foxguard_unsupported <messages>: foxguard left the file out for its
+# extension ("Skipped 1 file: 1 unsupported extension."). A skip line is not
+# read: it carries the file name.
+sec_foxguard_unsupported() {
+  awk '!/^warning: skipping / && /unsupported extension/ { found = 1 } END { exit !found }' "$1"
+}
+
 # sec_foxguard_show <prefix>: the lines of stdin on stderr, each after <prefix>.
 # A control character is shown as "?": a carriage return or an escape sequence
 # in a file name must not draw over the line that names the file. The same for
@@ -778,14 +792,17 @@ sec_foxguard_skips() {
 # in the directory <out>. One file at a time: a directory scan never reads
 # hidden paths, and foxguard drops a path it calls noise (vendor/,
 # node_modules/, build/ ...) without a word, so such a file is scanned again
-# from its own directory and <out>/<n>.path keeps its real name. Return 0
+# from its own directory and <out>/<n>.path keeps its real name. foxguard
+# knows an extension in lower case only, and app.PY still runs: such a file is
+# scanned as a copy named <n>.<extension in lower case> (not .C and .H, which
+# are C++). Return 0
 # scanned; 1 failed. Files it skipped for any reason but an unsupported
 # extension (parse error, too large, still noise) are listed in <out>.skipped,
 # each under its real path: the list says which base copies were never read.
 # A list, a name or a message that cannot be written fails the scan: a short
 # <out>.skipped would read as "nothing skipped", and the file would pass unread.
 sec_foxguard_scan() {
-  local rc f x s k=0
+  local rc f x lx s k=0
   { mkdir -p "$4" && : > "$4.err" && : > "$4.skipped"; } || return 1
   while IFS= read -r f; do
     [[ -n "$f" && -f "$3/$f" ]] || continue
@@ -808,6 +825,21 @@ sec_foxguard_scan() {
         ( cd "$4/$k.d" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "$k.$x" ) </dev/null >/dev/null 2>"$4.two" || rc=$?
         sec_foxguard_skip_name "$k.$x" "$f" "$4.two" "$4.one" || return 1
         if sec_foxguard_noise "$4.one"; then printf 'warning: skipping %s (noise path)\n' "$f" >> "$4.one" || return 1; fi
+      fi
+    fi
+    # Not read for its extension, which has an upper-case letter (app.PY,
+    # x.Js): scan a copy named <n>.<extension in lower case>. But for .C and
+    # .H: those are C++ to a compiler, which foxguard does not read, and as
+    # .c and .h they would be parse errors.
+    x="${f##*/}"
+    if [[ "$rc" -le 1 && "$x" == *.*[[:upper:]]* ]] && sec_foxguard_unsupported "$4.one"; then
+      x="${x##*.}"; lx="$(printf '%s' "$x" | LC_ALL=C tr 'A-Z' 'a-z')" || return 1
+      if [[ -n "$lx" && "$lx" != "$x" && "$x" != C && "$x" != H ]]; then
+        rc=0; printf '%s\n' "$f" > "$4/$k.path" || return 1
+        { mkdir -p "$4/$k.d" && cat < "$3/$f" > "$4/$k.d/$k.$lx" && : > "$4/$k.json"; } || return 1
+        # shellcheck disable=SC2086
+        ( cd "$4/$k.d" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "$k.$lx" ) </dev/null >/dev/null 2>"$4.two" || rc=$?
+        sec_foxguard_skip_name "$k.$lx" "$f" "$4.two" "$4.one" || return 1
       fi
     fi
     awk '{ print }' "$4.one" >> "$4.err" || return 1

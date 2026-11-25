@@ -219,6 +219,32 @@ expect "a copy that comes out short fails" 1 \
 expect "two names that are one file in the tree are refused" 2 "$(tree 'app.py\tsame.py\nother.py\tsame.py\n')"
 [[ "$(cat "$tmp/u/clash" 2>/dev/null)" == same.py ]] && ok "and the name is kept for the message" || error "clash: '$(cat "$tmp/u/clash" 2>&1)'"
 cmp -s "$tmp/repo/app.py" "$tmp/u/tree/same.py" && ok "the first file is not replaced" || error "tree/same.py is not the first file"
+# The same clash one level up: A and a/x.py, where A is already a file.
+expect "a file where a directory of the next name must be is refused too" 2 "$(tree 'app.py\tsame\nother.py\tsame/d/x.py\n')"
+[[ "$(cat "$tmp/u/clash" 2>/dev/null)" == same/d/x.py ]] && ok "and the name is kept for the message" || error "clash: '$(cat "$tmp/u/clash" 2>&1)'"
+# Through the hook: the refusal names the file and the remedy. A map that
+# gives both pushed files one name stands in for the file system.
+setup; publish; commit app.py "$high_code"; commit other.py "x = 1"
+# An awk first on PATH, not an exported function: the bash that runs the hook
+# may be another version than this one, and would not import it.
+mkdir -p "$tmp/oneawk"
+cat > "$tmp/oneawk/awk" <<EOF
+#!/usr/bin/env bash
+case "\$1" in *'print \$0 "\\t" \$0'*) shift; exec "$(command -v awk)" '{ print \$0 "\\tsame.py" }' "\$@" ;; esac
+exec "$(command -v awk)" "\$@"
+EOF
+chmod +x "$tmp/oneawk/awk"
+expect "two pushed names that are one file refuse the push" 1 "$(check FOXGUARD_CMD="$tmp/oddfox" PATH="$tmp/oneawk:$PATH")"
+has "and says why" "two paths that are one file under"
+has "the second name is given" "foxguard: same file here: same.py"
+has "the remedy is to rename one" "Rename one of them, or point TMPDIR at a case-sensitive file system"
+if grep -qF "Install the pinned foxguard" "$tmp/out"; then error "a name clash must not advise installing foxguard"; else ok "it does not advise installing foxguard"; fi
+# sec_foxguard_show: what a printed name may not carry to the terminal, as
+# bytes, with the sed and tr of this machine.
+shown="$(printf 'a\302\233b\342\200\256c\342\201\246d caf\303\251\rz\033[2K\n' \
+  | bash -c 'source "$1/scripts/security_hooks.sh"; sec_foxguard_show "p: "' _ "$ROOT_DIR" 2>&1)"
+[[ "$shown" == "p: a?b?c?d caf$(printf '\303\251')?z?[2K" ]] && ok "a printed name loses its control characters, C1 controls and reordering characters, and keeps its letters" \
+  || error "sec_foxguard_show printed: $(printf '%s' "$shown" | cat -v)"
 # A path that is not UTF-8: foxguard takes no such argument. Refused before
 # any scan, with the path and a remedy that is not installing foxguard.
 setup; publish
@@ -570,6 +596,25 @@ $high_code"; publish
     has "the first is scanned" "BLOCK (foxguard): high Case.py:3 py/no-yaml-load (new)"
     has "and the second" "BLOCK (foxguard): high case.py:3 py/no-yaml-load (new)"
   fi
+  # An extension foxguard knows in lower case only (it reads app.py, not
+  # app.PY): the file runs all the same, so it is scanned, under its own name.
+  setup; publish; commit Loader.PY "$high_code"; mkdir -p "$tmp/repo/vendor"; commit vendor/Mod.Py "$medium_code"
+  expect "a new finding in a file with an upper-case extension blocks" 1 "$(check "$F")"
+  has "under its own name" "BLOCK (foxguard): high Loader.PY:3 py/no-yaml-load (new)"
+  has "one in a noise path too" "WARNING (foxguard): medium vendor/Mod.Py:3 py/no-weak-crypto (new, below the block level)"
+  setup; commit Loader.PY "$high_code"; publish; commit Loader.PY "# moved
+$high_code"
+  expect "one the base already has only warns" 0 "$(check "$F")"
+  has "as already in the base" "WARNING (foxguard): high Loader.PY:4 py/no-yaml-load (already in the base)"
+  setup; publish; commit Broken.Py 'def f(:
+    pass'
+  expect "an unparseable file with an upper-case extension is a skip" 1 "$(check "$F")"
+  has "named as it is" "foxguard: warning: skipping Broken.Py (parse error)"
+  # .C and .H are C++ to a compiler, which foxguard has no rules for: as .c
+  # and .h they would be parse errors, and refuse every push of C++.
+  setup; publish; commit Tmpl.C 'template <class T> class A { public: T v; A() : v() {} };
+namespace n { int f() { return 1; } }'; commit Tmpl.H 'namespace n { template <class T> class B { public: T v; }; }'; commit NOTES.TXT "plain text"
+  expect "C++ named .C and .H, and a file type foxguard does not read in any case, pass" 0 "$(check "$F")"
   # A file of no language foxguard reads is not a skip.
   setup; commit notes.txt "plain text"
   expect "an unsupported file type passes at high" 0 "$(check "$F")"
