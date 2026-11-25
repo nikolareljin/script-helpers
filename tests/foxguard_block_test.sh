@@ -1009,6 +1009,11 @@ ENV NODE_TLS_REJECT_UNAUTHORIZED=0'
   setup; publish; commit NOTES.TXT "plain text"
   expect "at off: a push whose probe cannot be written goes on" 0 "$(check "$F" TMPDIR="$tmp/no-such-dir" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
   has "and the file is named as not scanned" "foxguard: not scanned: NOTES.TXT (upper-case extension)"
+  # A tr that fails cannot tell the case of the extension: the file is named.
+  mkdir -p "$tmp/badtr"; printf '#!/usr/bin/env bash\nin="$(cat)"; [[ "$in" == PY ]] && exit 1\nprintf %%s "$in" | command -p tr "$@"\n' > "$tmp/badtr/tr"; chmod +x "$tmp/badtr/tr"
+  setup; publish; commit Loader.PY "plain text"
+  expect "at off: a push where tr fails goes on" 0 "$(check "$F" PATH="$tmp/badtr:$PATH" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+  has "and the file is named as not scanned" "foxguard: not scanned: Loader.PY (upper-case extension)"
   # At off nothing blocks, and nothing is left out without a word either.
   setup; publish; commit Loader.PY "$high_code"; mkdir -p "$tmp/repo/a/build"; commit a/build/hash.py "$medium_code"
   commit Tmpl.C 'template <class T> class A { public: T v; A() : v() {} };'; commit broken.py 'def f(:

@@ -633,7 +633,8 @@ sec_foxguard_warn() {
     # foxguard cannot be asked, the file is named too.
     x="${f##*/}"; e="${x##*.}"; n=$((n + 1))
     if [[ "$why" == "unsupported extension" && "$x" == *.* ]]; then
-      lx="$(printf '%s' "$e" | LC_ALL=C tr 'A-Z' 'a-z')" || lx=""
+      # A tr that fails leaves the case unknown: name the file.
+      lx="$(printf '%s' "$e" | LC_ALL=C tr 'A-Z' 'a-z')" || { lx=""; why="upper-case extension"; }
       if [[ -n "$lx" && "$lx" != "$e" ]]; then
         mr=""; case "$f" in */*) mr="${f%/*}/" ;; esac
         why="upper-case extension"
