@@ -877,9 +877,9 @@ sec_foxguard_copy_name() {
 # of a script by, from its first line ("#!/usr/bin/env bash": sh), or
 # nothing: no "#!" line, or an interpreter foxguard has no rules for (zsh,
 # perl). The interpreter is the word after env and its options and
-# assignments ("#!/usr/bin/env -S python3 -u": py).
+# assignments ("#!/usr/bin/env -S python3 -u": py; -u and -C take a word).
 sec_foxguard_script_ext() {
-  local line w words f="$1"
+  local line w words skip=0 f="$1"
   # A path, not an option of head.
   case "$f" in -*) f="./$f" ;; esac
   # 256 bytes, and a NUL ends the line: the first line of a binary file is
@@ -889,7 +889,8 @@ sec_foxguard_script_ext() {
   read -r -a words <<< "${line#??}" || true
   for w in ${words[@]+"${words[@]}"}; do
     # The options and assignments of env: not the interpreter.
-    case "$w" in -*|*=*) continue ;; esac
+    if [[ "$skip" -eq 1 ]]; then skip=0; continue; fi
+    case "$w" in -u|--unset|-C|--chdir) skip=1; continue ;; -*|*=*) continue ;; esac
     w="${w##*/}"
     [[ "$w" != env ]] || continue
     case "$w" in
