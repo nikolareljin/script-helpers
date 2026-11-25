@@ -684,6 +684,7 @@ int main(int argc, char **argv) { system(argv[1]); return 0; }'
   commit Tmpl.C 'template <class T> class A { public: T v; A() : v() {} };'; commit broken.py 'def f(:
     pass'; commit NOTES.TXT "plain text"; commit a/build/Mod.Py "$high_code"
   mkdir -p "$tmp/repo/deploy/nginx/build"; commit deploy/nginx/build/site.conf 'server { ssl_protocols SSLv3 TLSv1; }'
+  commit app.min.py "$high_code"; commit ./-dash.py "$medium_code"
   expect "at off: a push with files foxguard drops goes on" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
   has "the upper-case extension is scanned" "py/no-yaml-load"
   has "and named" "WARNING (foxguard): Loader.PY, scanned as copy.py:"
@@ -691,7 +692,10 @@ int main(int argc, char **argv) { system(argv[1]); return 0; }'
   has "and named" "WARNING (foxguard): a/build/hash.py, scanned as _a/_build/hash.py:"
   has "C++ named .C is named as not scanned" "foxguard: not scanned: Tmpl.C (parse error)"
   has "an unparseable file too" "foxguard: not scanned: broken.py (parse error)"
-  has "and both are counted" "foxguard did NOT read 2 of 7 changed file(s)"
+  has "and both are counted" "foxguard did NOT read 2 of 9 changed file(s)"
+  has "a noise name is scanned" "WARNING (foxguard): app.min.py, scanned as copy.py:"
+  has "a name that starts with a dash too" "-dash.py"
+  if grep -qF "the foxguard scan did NOT run" "$tmp/out"; then error "at off a scan failed: $(grep -F 'did NOT run' "$tmp/out")"; else ok "and no scan failed"; fi
   has "an upper-case extension in a noise path is scanned" "WARNING (foxguard): a/build/Mod.Py, scanned as _a/_build/copy.py:"
   has "a file told by its path, in a noise path, too" "config/nginx-pq-vulnerable-tls"
   if grep -qF "NOTES.TXT" "$tmp/out"; then error "a file type foxguard does not read was named at off"; else ok "the text file is not named"; fi
