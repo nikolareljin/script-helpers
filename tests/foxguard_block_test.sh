@@ -993,7 +993,7 @@ ENV NODE_TLS_REJECT_UNAUTHORIZED=0'
   if LC_ALL=C grep -q "$(printf '[\r\033]')" "$tmp/out" || LC_ALL=C grep -qF "$(printf '\342\200\256')" "$tmp/out"; then
     error "at off a control character reached the terminal: $(LC_ALL=C grep -n "$(printf '[\r\033]')" "$tmp/out" | sed -n 1,2p | cat -v)"
   else ok "and none is printed as it is"; fi
-  has "the findings are counted as before" "foxguard: 3 finding(s) in 3 of 3 changed file(s)"
+  nf=3; has "the findings are counted as before" "foxguard: $nf finding(s) in $nf of $nf changed file(s)"
   # A scan that fails names the file the same way.
   expect "at off: a failing foxguard on such a file" 0 "$(check FOXGUARD_CMD="$tmp/brokenfox" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
   has "the name is shown with ?" "foxguard (a?b.py): boom"
