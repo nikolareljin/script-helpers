@@ -153,9 +153,12 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
   foxguard is missing (install it: `setup-hooks.sh --install-foxguard`), when the scan
   fails, or when foxguard skips a changed file it should read (a parse error, a
   file over its 1 MB limit). A file type foxguard has no rules for is not a skip.
-  A working file the hook cannot write under `TMPDIR` (the file lists, the
-  list of skipped files, the base config) refuses the push too: a short list
-  is never read as "nothing to scan" or "nothing skipped".
+  A working file the hook cannot write under `TMPDIR` (the file lists and
+  maps, the list of skipped files, the base list, the configs, the copy of a
+  file to scan) refuses the push too: a short list is never read as "nothing
+  to scan" or "nothing skipped". The lists are counted and each copy is read
+  back after the write, so a tool that loses its output without an error is
+  caught as well.
 - **Which files**: every file the tip adds or changes against the base,
   merges and type changes included; a renamed file is compared with its old
   path. Occurrences are counted per rule, file and snippet: an added copy of a
@@ -165,9 +168,18 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
   `build/`, `dist/`) are read too. A file foxguard calls noise by its name
   (`app.min.js`) is scanned as a copy under another name and reported under
   its own. A skipped file is named, with the cause. A control character in a
-  printed file name is shown as `?` (in a finding: `\xNN`), so a carriage
-  return in a name cannot draw over the line that reports it.
-  A changed path with a tab or newline refuses the push. Ignore files
+  printed file name is shown as `?` (in a finding: `\xNN` or `\uNNNN`), so a
+  carriage return in a name cannot draw over the line that reports it. The
+  same goes for the C1 controls and the characters that reorder text
+  (U+202E and the like).
+  A changed path with a tab or newline refuses the push. So does one whose
+  name is not valid UTF-8, which foxguard cannot be given: the path is
+  printed with the odd bytes as `\xNN`, and the remedy is to rename it. Two
+  changed paths that are one file where the hook writes its copies (names
+  that differ only in case or in Unicode form, under a `TMPDIR` on macOS or
+  Windows) refuse the push as well, because one of them could not be scanned:
+  rename one, or point `TMPDIR` at a case-sensitive file system. On a
+  case-sensitive file system both are scanned. Ignore files
   (`.ignore` and the like) are not written to the scanned tree, so a push
   cannot hide its own files. Inline suppressions (`# foxguard: ignore`, the word
   `foxguard` in any case) are defused in every scanned copy, so a push cannot silence a finding it adds; a

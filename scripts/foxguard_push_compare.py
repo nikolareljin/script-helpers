@@ -1,8 +1,9 @@
 """Split foxguard findings of a pushed tip into new and already present.
 
-Usage: foxguard_push_compare.py --level <critical|high|medium|low>
+USAGE: foxguard_push_compare.py --level <critical|high|medium|low>
        --tip <tip.json> [--base <base.json> ...] [--base-unscanned <list> ...]
        [--base-absent <list> ...] [--allow-unscanned] [--base-incomplete]
+       foxguard_push_compare.py --names <list>
 
 Reads foxguard JSON reports (`foxguard --format json`), each a file or a
 directory of them. A tip finding is new
@@ -21,8 +22,16 @@ failed, or it was left out): it skipped nothing, so --allow-unscanned turns
 no finding into a warning.
 Prints one tab-separated line per tip finding:
     BLOCK|WARN <severity> <file>:<line> <rule> <why> <description>
-Exit 0: nothing blocks. 3: a new finding at or above --level. 2: a report
-could not be read, or anything else went wrong (never read as a pass).
+A file name is printed with each character that is not printable as \\xNN
+or \\uNNNN, and a finding with no rule has "-" for <rule>.
+--names reads the changed paths instead, one per line, and compares nothing:
+foxguard takes no argument that is not UTF-8. Each path that is not UTF-8 is
+printed, its other bytes as \\xNN.
+
+Exit codes: 0 nothing blocks; 3 a new finding at or above --level; 2 a report
+    could not be read, or anything else went wrong (never read as a pass).
+    With --names: 0 every path is UTF-8; 4 one is not; 2 the list could not
+    be read.
 """
 
 import argparse
@@ -109,8 +118,27 @@ def key(finding):
 
 def shown(name):
     # For the terminal: a control character in a file name must not move the
-    # cursor over the verdict printed in front of it.
-    return "".join(ch if ch >= " " and ch != "\x7f" else f"\\x{ord(ch):02x}" for ch in name)
+    # cursor over the verdict printed in front of it. The same for the C1
+    # controls (U+009B starts an escape sequence on some terminals) and the
+    # characters that reorder or hide text: all are not printable.
+    return "".join(
+        ch if ch == " " or ch.isprintable() else (f"\\x{ord(ch):02x}" if ord(ch) < 256 else f"\\u{ord(ch):04x}")
+        for ch in name
+    )
+
+
+def check_names(path):
+    # The list of changed paths, as the hook wrote it.
+    bad = []
+    with Path(path).open("rb") as handle:
+        for line in handle.read().split(b"\n"):
+            try:
+                line.decode("utf-8")
+            except UnicodeDecodeError:
+                bad.append(shown(line.decode("utf-8", "backslashreplace")))
+    for name in bad:
+        print(name)
+    return 4 if bad else 0
 
 
 def clean(text):
@@ -119,8 +147,9 @@ def clean(text):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--level", required=True, choices=sorted(RANK))
-    parser.add_argument("--tip", required=True)
+    parser.add_argument("--names")
+    parser.add_argument("--level", choices=sorted(RANK))
+    parser.add_argument("--tip")
     # Kept in command-line order: each --base-unscanned and --base-absent
     # belongs to the --base before it.
     parser.add_argument("--base", dest="reports", action="append", type=lambda v: ("base", v), default=[])
@@ -129,6 +158,17 @@ def main():
     parser.add_argument("--allow-unscanned", action="store_true")
     parser.add_argument("--base-incomplete", action="store_true")
     args = parser.parse_args()
+    # The hook reads the lines as UTF-8, each ended by a line feed. Left to
+    # the locale (cp1252 on Windows), a file name outside it would fail the
+    # print and the push; left to the platform, each line would end in a
+    # carriage return.
+    sys.stdout.reconfigure(encoding="utf-8", newline="\n")
+    if args.names is not None:
+        if args.level or args.tip or args.reports or args.allow_unscanned or args.base_incomplete:
+            parser.error("--names takes no other argument")
+        return check_names(args.names)
+    if not args.level or not args.tip:
+        parser.error("--level and --tip are required")
     try:
         tip = load(args.tip)
         bases, skips, absents = [], [], []
@@ -190,7 +230,8 @@ def main():
         print("\t".join([
             verdict, severity or "unknown",
             f"{shown(norm_file(finding.get('file')))}:{finding.get('line', '?')}",
-            clean(finding.get("rule_id")), why, clean(finding.get("description")),
+            # Never empty: the hook splits on tabs, and two in a row read as one.
+            clean(finding.get("rule_id")) or "-", why, clean(finding.get("description")),
         ]))
     return 3 if blocked else 0
 

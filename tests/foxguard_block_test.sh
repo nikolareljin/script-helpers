@@ -199,6 +199,37 @@ expect "the changed files are listed" 0 "$(paths)"
 [[ "$(cat "$tmp/u/files" 2>/dev/null)" == app.py ]] && ok "by name" || error "files: '$(cat "$tmp/u/files" 2>&1)'"
 expect "a file list that cannot be written fails" 1 "$(paths 'mkdir "$2/files"')"
 expect "a file map that cannot be written fails" 1 "$(paths 'mkdir "$2/map"')"
+# sec_foxguard_tree: a copy that is not the whole file would be scanned in
+# its place, and two names that land on one file leave one of them unscanned.
+commit other.py "x = 1"
+tree() {  # <map, printf %b> [<shell code run first>]: its exit status; the tree is $tmp/u/tree
+  rm -rf "$tmp/u"; mkdir -p "$tmp/u"; printf '%b' "$1" > "$tmp/u/map"; printf '%s\n' "${2:-:}" > "$tmp/u/first"
+  (cd "$tmp/repo" && bash -c 'source "$1/scripts/security_hooks.sh"; source "$2/first"; rc=0
+    sec_foxguard_tree HEAD "$2/map" "$2/tree" || rc=$?; printf "%s\n" "${SEC_FOXGUARD_CLASH:-}" > "$2/clash"; exit "$rc"' \
+    _ "$ROOT_DIR" "$tmp/u") >"$tmp/out" 2>&1
+  echo $?
+}
+expect "the files of a commit are written" 0 "$(tree 'app.py\tapp.py\nother.py\tother.py\n')"
+cmp -s "$tmp/repo/app.py" "$tmp/u/tree/app.py" && ok "each whole" || error "tree/app.py is not the committed file"
+# A sed that loses its output when it writes to a file, and says nothing.
+expect "a copy that comes out short fails" 1 \
+  "$(tree 'app.py\tapp.py\n' 'sed() { if [[ "$*" == *f0xguard* && ! -p /dev/stdout ]]; then command sed "$@" | head -c 5; return 0; fi; command sed "$@"; }')"
+# What a case-insensitive file system does to App.py and app.py, on any
+# file system: the second name is the first file.
+expect "two names that are one file in the tree are refused" 2 "$(tree 'app.py\tsame.py\nother.py\tsame.py\n')"
+[[ "$(cat "$tmp/u/clash" 2>/dev/null)" == same.py ]] && ok "and the name is kept for the message" || error "clash: '$(cat "$tmp/u/clash" 2>&1)'"
+cmp -s "$tmp/repo/app.py" "$tmp/u/tree/same.py" && ok "the first file is not replaced" || error "tree/same.py is not the first file"
+# A path that is not UTF-8: foxguard takes no such argument. Refused before
+# any scan, with the path and a remedy that is not installing foxguard.
+setup; publish
+blob="$(printf '%s\n' "$high_code" | git -C "$tmp/repo" hash-object -w --stdin)"
+gc -C "$tmp/repo" -c core.precomposeunicode=false update-index --add --cacheinfo "100644,$blob,$(printf 'a\377b.py')"
+gc -C "$tmp/repo" commit -q -m "a name that is not UTF-8"
+expect "a changed path that is not UTF-8 is refused" 1 "$(check FOXGUARD_CMD="$tmp/oddfox")"
+has "and says why" "changes a path whose name is not valid UTF-8"
+has "the path is named, its odd byte escaped" 'foxguard: not UTF-8: a\xffb.py'
+has "the remedy is to rename it" "Rename each file named above"
+if grep -qF "Install the pinned foxguard" "$tmp/out"; then error "a name that is not UTF-8 must not advise installing foxguard"; else ok "it does not advise installing foxguard"; fi
 
 # ---------------------------------------------------- with the real foxguard
 if [[ -z "$real_fox" ]]; then
@@ -505,6 +536,40 @@ $high_code"; publish
   expect "an unparseable file with a carriage return in its name is refused" 1 "$(check "$F")"
   has "named with the carriage return replaced" "foxguard: warning: skipping a?b.py (parse error)"
   if LC_ALL=C grep -q "$(printf '\r')" "$tmp/out"; then error "a carriage return reaches the terminal"; else ok "no carriage return is printed"; fi
+  # Nor is the UTF-8 form of a C1 control (U+009B starts an escape sequence
+  # on some terminals) or of a character that reorders the text (U+202E).
+  setup; printf 'def f(:\n    pass\n' > "$tmp/repo/$(printf 'c\302\233d\342\200\256e.py')"; gc -C "$tmp/repo" add -A; gc -C "$tmp/repo" commit -q -m c1
+  expect "an unparseable file with U+009B and U+202E in its name is refused" 1 "$(check "$F")"
+  has "named with both replaced" "foxguard: warning: skipping c?d?e.py (parse error)"
+  # A name that is not UTF-8 at the base only (the push renames it) is no
+  # reason to refuse: the old name is never handed to foxguard.
+  setup
+  blob="$(printf '%s\n' "$high_code" | git -C "$tmp/repo" hash-object -w --stdin)"
+  gc -C "$tmp/repo" -c core.precomposeunicode=false update-index --add --cacheinfo "100644,$blob,$(printf 'a\377b.py')"
+  gc -C "$tmp/repo" commit -q -m "a name that is not UTF-8"; publish
+  gc -C "$tmp/repo" -c core.precomposeunicode=false update-index --force-remove "$(printf 'a\377b.py')"
+  gc -C "$tmp/repo" update-index --add --cacheinfo "100644,$blob,renamed.py"; gc -C "$tmp/repo" commit -q -m "rename it"
+  expect "a push that renames a file whose old name is not UTF-8 passes" 0 "$(check "$F")"
+  has "its finding is the old one" "WARNING (foxguard): high renamed.py:3 py/no-yaml-load (already in the base)"
+  # Two pushed names that differ only in case. Where they are two files, both
+  # are scanned; where they are one (macOS, Windows), the push is refused:
+  # one of them could not be scanned.
+  setup; publish
+  blob="$(printf '%s\n' "$high_code" | git -C "$tmp/repo" hash-object -w --stdin)"
+  gc -C "$tmp/repo" -c core.ignorecase=false update-index --add --cacheinfo "100644,$blob,Case.py" --cacheinfo "100644,$blob,case.py"
+  gc -C "$tmp/repo" -c core.ignorecase=false commit -q -m "two names, one case apart"
+  [[ "$(git -C "$tmp/repo" ls-tree --name-only HEAD | grep -ci '^case\.py$')" == 2 ]] || error "the commit does not hold Case.py and case.py"
+  : > "$tmp/CaseProbe"
+  if [[ -e "$tmp/caseprobe" ]]; then
+    expect "two names one case apart, on a case-insensitive file system: refused" 1 "$(check "$F")"
+    has "and says why" "two paths that are one file under"
+    has "the second name is given" "foxguard: same file here: case.py"
+    if grep -qF "Install the pinned foxguard" "$tmp/out"; then error "a name clash must not advise installing foxguard"; else ok "it does not advise installing foxguard"; fi
+  else
+    expect "two names one case apart, on a case-sensitive file system: both findings block" 1 "$(check "$F")"
+    has "the first is scanned" "BLOCK (foxguard): high Case.py:3 py/no-yaml-load (new)"
+    has "and the second" "BLOCK (foxguard): high case.py:3 py/no-yaml-load (new)"
+  fi
   # A file of no language foxguard reads is not a skip.
   setup; commit notes.txt "plain text"
   expect "an unsupported file type passes at high" 0 "$(check "$F")"
@@ -526,6 +591,13 @@ $high_code"; publish
   expect "a base list that cannot be written refuses the push" 1 \
     "$(sed() { case "$*" in *"1,8p"*) return 4 ;; esac; command sed "$@"; }; export -f sed; check "$F")"
   has "and says so" "the base commits of refs/heads/main could not be listed"
+  # Not every sed or awk reports a write that failed: the lists are counted.
+  expect "a base list that comes out empty refuses the push" 1 \
+    "$(sed() { case "$*" in *"1,8p"*) return 0 ;; esac; command sed "$@"; }; export -f sed; check "$F")"
+  has "and says so" "the base commits of refs/heads/main could not be listed"
+  expect "a base file map that comes out empty refuses the push" 1 \
+    "$(awk() { case "$*" in *'FILENAME == ARGV[1]'*) return 0 ;; esac; command awk "$@"; }; export -f awk; check "$F")"
+  has "and says so" "the base file map could not be built"
   setup; publish; commit broken.py 'def f(:
     pass'
   expect "a skip of a pushed file that cannot be listed refuses the push" 1 \
@@ -535,6 +607,13 @@ $high_code"; publish
   expect "a base config that cannot be read refuses the push" 1 \
     "$(git() { case "$*" in "cat-file blob "*":.foxguard.yml") return 1 ;; esac; command git "$@"; }; export -f git; check "$F")"
   has "and says so" "the foxguard config of the base could not be read"
+  expect "a base config that cannot be copied refuses the push" 1 \
+    "$(cat() { case "$*" in */config) return 1 ;; esac; command cat "$@"; }; export -f cat; check "$F")"
+  has "and says so" "the foxguard config of the base could not be copied"
+  setup; publish; commit .foxguard.yml "$quiet_cfg"
+  expect "a pushed config that cannot be read refuses the push" 1 \
+    "$(git() { case "$*" in "cat-file blob "*":.foxguard.yml") return 1 ;; esac; command git "$@"; }; export -f git; check "$F")"
+  has "and says so" "the foxguard config of refs/heads/main could not be read"
 
   # Through the hook's own sequence: the refusal reaches _sec_pre_push.
   setup; commit app.py "$high_code"

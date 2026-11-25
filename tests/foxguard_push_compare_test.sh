@@ -104,6 +104,52 @@ if grep -qF 'a\x0db\x1b[2K.py:3' "$tmp/out" && ! LC_ALL=C grep -q "$(printf '[\r
 else
   error "control characters reach the terminal: $(cat -v "$tmp/out")"
 fi
+# So are the C1 controls and the characters that reorder the text.
+printf '{"findings":[{"rule_id":"r","severity":"high","file":"a\\u009bb\\u202ec d.py","line":3,"snippet":"s","description":"d"}]}\n' > "$tmp/tip_c1.json"
+tip="$tmp/tip_c1.json"
+run "a file name with U+009B and U+202E blocks" 3 BLOCK --base "$tmp/clean.json"
+if grep -qF 'a\x9bb\u202ec d.py:3' "$tmp/out"; then ok "and is printed with them escaped, a space as it is"
+else error "U+009B or U+202E reaches the terminal: $(cat -v "$tmp/out")"; fi
+# A finding with no rule keeps its column: the hook splits the line on tabs,
+# and two tabs in a row would move the reason into the rule.
+printf '{"findings":[{"severity":"high","file":"loader.py","line":3,"snippet":"s","description":"d"}]}\n' > "$tmp/tip_norule.json"
+tip="$tmp/tip_norule.json"
+run "a finding with no rule blocks" 3 BLOCK --base "$tmp/clean.json" --base-unscanned "$tmp/skip"
+if [[ "$(awk -F'\t' '{ print $4 }' "$tmp/out")" == - ]]; then ok "and its rule column is not empty"
+else error "an empty rule column: $(cat -v "$tmp/out")"; fi
+# The lines are UTF-8 whatever the locale says: a name outside the locale's
+# encoding (cp1252 on Windows) must not fail the comparison. Nor do they end
+# in a carriage return, as text written by a Windows Python does.
+cat > "$tmp/as_ascii.py" <<'PYEOF'
+import io, runpy, sys
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="ascii", newline="\r\n")
+sys.argv = sys.argv[1:]
+runpy.run_path(sys.argv[0], run_name="__main__")
+PYEOF
+printf '{"findings":[{"rule_id":"r","severity":"high","file":"\\u0436.py","line":3,"snippet":"s","description":"d"}]}\n' > "$tmp/tip_cyr.json"
+rc=0; "$py" -I "$tmp/as_ascii.py" "$helper" --level high --tip "$tmp/tip_cyr.json" --base "$tmp/clean.json" > "$tmp/out" 2>&1 || rc=$?
+if [[ "$rc" -eq 3 ]] && grep -q "^BLOCK	high	$(printf '\320\266').py:3" "$tmp/out"; then ok "a name outside the locale's encoding is printed as UTF-8"
+else error "a name outside the locale's encoding: exit $rc: $(cat -v "$tmp/out")"; fi
+if LC_ALL=C grep -q "$(printf '\r')" "$tmp/out"; then error "a line ends in a carriage return: $(cat -v "$tmp/out")"; else ok "and no line ends in a carriage return"; fi
+tip="$tmp/tip.json"
+# --names: the changed paths, checked before foxguard is handed any.
+names() {  # <description> <want rc> <list>
+  local rc=0
+  "$py" -I "$helper" --names "$3" > "$tmp/out" 2>&1 || rc=$?
+  if [[ "$rc" == "$2" ]]; then ok "$1"; else error "$1: want exit $2, got $rc"; sed 's/^/    | /' "$tmp/out" >&2; fi
+}
+printf 'loader.py\nsrc/%s.py\n' "$(printf '\320\266')" > "$tmp/names_ok"
+printf 'loader.py\na\377b.py\nc\033\376.py\n' > "$tmp/names_bad"
+names "--names: paths that are UTF-8 pass" 0 "$tmp/names_ok"
+[[ ! -s "$tmp/out" ]] && ok "and print nothing" || error "--names printed: $(cat -v "$tmp/out")"
+names "--names: a path that is not UTF-8 is exit 4" 4 "$tmp/names_bad"
+if [[ "$(cat "$tmp/out")" == 'a\xffb.py'$'\n''c\x1b\xfe.py' ]]; then ok "and each such path is printed, escaped"
+else error "--names printed: $(cat -v "$tmp/out")"; fi
+names "--names: a list that cannot be read refuses" 2 "$tmp/missing"
+rc=0; "$py" -I "$helper" --names "$tmp/names_ok" --level high > "$tmp/out" 2>&1 || rc=$?
+[[ "$rc" -eq 2 ]] && ok "--names with a comparison argument refuses" || error "--names --level: exit $rc"
+rc=0; "$py" -I "$helper" --level high > "$tmp/out" 2>&1 || rc=$?
+[[ "$rc" -eq 2 ]] && ok "no --tip refuses" || error "no --tip: exit $rc"
 # One skip line names one file: a carriage return in a name starts no line.
 printf 'warning: skipping junk (a)\rwarning: skipping loader.py (parse error)\n' > "$tmp/skip_cr"
 run "a carriage return in a skipped name does not name a second file" 3 BLOCK --allow-unscanned --base "$tmp/clean.json" --base-unscanned "$tmp/skip_cr"

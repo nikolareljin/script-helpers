@@ -694,9 +694,14 @@ sec_foxguard_refuse() {
 # case) are defused on every side, so a push cannot silence a finding it adds.
 # <src> is read as a literal path: ":(top)x.py" and ":!x.py" are file names
 # here, not pathspec magic that would leave the file out unscanned, and
-# "-z/x.py" is a path, not an option of dirname. Return 1 when git fails.
+# "-z/x.py" is a path, not an option of dirname. Return 1 when git or a write
+# fails. Return 2 when <dst> is already in <dir>: two names that are one file
+# on this file system (they differ in case, or in Unicode form, on macOS and
+# Windows), where the second would replace the first and the first would never
+# be scanned. SEC_FOXGUARD_CLASH then holds that <dst>.
 sec_foxguard_tree() {
-  local c="$1" src dst mode
+  local c="$1" src dst mode defuse='s/[Ff][Oo][Xx][Gg][Uu][Aa][Rr][Dd]/f0xguard/g'
+  SEC_FOXGUARD_CLASH=""
   mkdir -p "$3" || return 1
   while IFS=$'\t' read -r src dst; do
     [[ -n "$src" && -n "$dst" ]] || continue
@@ -705,10 +710,14 @@ sec_foxguard_tree() {
     mode="$(git --literal-pathspecs ls-tree --full-tree "$c" -- "$src" 2>/dev/null)" || return 1
     mode="${mode%% *}"
     [[ "$mode" == 100644 || "$mode" == 100755 ]] || continue
+    if [[ -e "$3/$dst" || -L "$3/$dst" ]]; then SEC_FOXGUARD_CLASH="$dst"; return 2; fi
     mkdir -p "$3/$(dirname -- "$dst")" && git cat-file blob "$c:$src" > "$3.blob" || return 1
     # Any case and separator: foxguard 0.14.1 honours only "foxguard: ignore",
     # a later one may accept more.
-    LC_ALL=C sed -e 's/[Ff][Oo][Xx][Gg][Uu][Aa][Rr][Dd]/f0xguard/g' "$3.blob" > "$3/$dst" || return 1
+    LC_ALL=C sed -e "$defuse" "$3.blob" > "$3/$dst" || return 1
+    # Read back: not every sed reports a write that failed, and a short copy
+    # would be scanned in place of the file.
+    LC_ALL=C sed -e "$defuse" "$3.blob" | cmp -s - "$3/$dst" || return 1
   done < "$2"
 }
 
@@ -748,9 +757,13 @@ sec_foxguard_noise() {
 
 # sec_foxguard_show <prefix>: the lines of stdin on stderr, each after <prefix>.
 # A control character is shown as "?": a carriage return or an escape sequence
-# in a file name must not draw over the line that names the file.
+# in a file name must not draw over the line that names the file. The same for
+# the UTF-8 form of the C1 controls (U+0080 to U+009F: U+009B starts an escape
+# sequence on some terminals) and of the characters that reorder text (U+202A
+# to U+202E, U+2066 to U+2069). LC_ALL=C: bytes, whatever the locale.
 sec_foxguard_show() {
-  LC_ALL=C tr '\001-\010\013-\037\177' '?' | sed "s/^/$1/" >&2
+  LC_ALL=C tr '\001-\010\013-\037\177' '?' \
+    | LC_ALL=C sed -e $'s/\302[\200-\237]/?/g' -e $'s/\342\200[\252-\256]/?/g' -e $'s/\342\201[\246-\251]/?/g' -e "s/^/$1/" >&2
 }
 
 # sec_foxguard_skips <messages>: the lines of <messages> that name a file
@@ -894,7 +907,10 @@ sec_foxguard_block() (
       git rev-list --boundary "$lsha" --not $excl > "$d/rev-list" 2>/dev/null \
         || { sec_foxguard_refuse "$level" "git rev-list failed for $lref"; exit 1; }
       # A base lost from either list would not be scanned, and nothing would say so.
-      { sed -n -e 's/^-//p' "$d/rev-list" > "$d/all-bases" && sed -n 1,8p "$d/all-bases" > "$d/bases"; } \
+      # Counted after the write: not every sed reports one that failed.
+      nb="$(grep -c '^-' "$d/rev-list")" || nb=0
+      { sed -n -e 's/^-//p' "$d/rev-list" > "$d/all-bases" && sed -n 1,8p "$d/all-bases" > "$d/bases" \
+        && [[ "$(wc -l < "$d/all-bases")" -eq "$nb" && "$(wc -l < "$d/bases")" -eq "$((nb > 8 ? 8 : nb))" ]]; } \
         || { sec_foxguard_refuse "$level" "the base commits of $lref could not be listed" "$tmpfix"; exit 1; }
       # Nothing new on this ref: the remote has every commit.
       [[ -s "$d/rev-list" ]] || continue
@@ -923,6 +939,16 @@ sec_foxguard_block() (
     LC_ALL=C sort -u "$d/files" -o "$d/files" \
       || { sec_foxguard_refuse "$level" "the list of changed files could not be sorted" "$tmpfix"; exit 1; }
     [[ -s "$d/files" ]] || continue
+    # foxguard takes no argument that is not UTF-8, and its reports could not
+    # name such a file.
+    rc=0; bad="$("$py" -I "$helper" --names "$d/files" < /dev/null)" || rc=$?
+    case "$rc" in
+      0) ;;
+      4) printf '%s\n' "$bad" | sec_foxguard_show '[pre-push] foxguard: not UTF-8: '
+         sec_foxguard_refuse "$level" "$lref changes a path whose name is not valid UTF-8, which foxguard cannot be pointed at" \
+           "Rename each file named above"; exit 1 ;;
+      *) sec_foxguard_refuse "$level" "the names of the changed files could not be checked" "$tmpfix"; exit 1 ;;
+    esac
     nfiles=$((nfiles + $(wc -l < "$d/files")))
     # Counted after the write: not every awk reports one that failed.
     { awk '{ print $0 "\t" $0 }' "$d/files" > "$d/tipmap" && [[ "$(wc -l < "$d/tipmap")" -eq "$(wc -l < "$d/files")" ]]; } \
@@ -933,9 +959,12 @@ sec_foxguard_block() (
     while IFS= read -r b; do
       i=$((i + 1))
       # FILENAME, not NR == FNR: an empty map would swallow the file list.
-      awk -F'\t' 'FILENAME == ARGV[1] { old[$2] = $1; next } { print (($0 in old) ? old[$0] : $0) "\t" $0 }' \
-        "$d/map$i" "$d/files" > "$d/map$i.all" && mv -f "$d/map$i.all" "$d/map$i" \
-        || { sec_foxguard_refuse "$level" "the base file map could not be built"; exit 1; }
+      # LC_ALL=C: an old name is bytes. Counted after the write, as above: a
+      # file lost from the map would have no base copy, and no base to judge it.
+      { LC_ALL=C awk -F'\t' 'FILENAME == ARGV[1] { old[$2] = $1; next } { print (($0 in old) ? old[$0] : $0) "\t" $0 }' \
+        "$d/map$i" "$d/files" > "$d/map$i.all" && [[ "$(wc -l < "$d/map$i.all")" -eq "$(wc -l < "$d/files")" ]] \
+        && mv -f "$d/map$i.all" "$d/map$i"; } \
+        || { sec_foxguard_refuse "$level" "the base file map could not be built" "$tmpfix"; exit 1; }
     done < "$d/bases"
     # One config for every side, the base's: the push being checked must not
     # bring the config that judges it. No base, or none there: no config.
@@ -947,16 +976,27 @@ sec_foxguard_block() (
         # Half a config, or none, would judge the push by other rules.
         git cat-file blob "$cbase:$name" > "$d/config" \
           || { sec_foxguard_refuse "$level" "the foxguard config of the base could not be read" "$tmpfix"; exit 1; }
-        { printf '%s\n' "$name"; cat "$d/config"; } > "$d/config.base"
+        # Left empty, the next name would be read as the base's config.
+        { printf '%s\n' "$name" && cat "$d/config"; } > "$d/config.base" \
+          || { sec_foxguard_refuse "$level" "the foxguard config of the base could not be copied" "$tmpfix"; exit 1; }
       fi
       if [[ ! -s "$d/config.tip" && "$(git cat-file -t "$lsha:$name" 2>/dev/null)" == blob ]]; then
-        printf '%s\n' "$name" > "$d/config.tip"; git cat-file blob "$lsha:$name" >> "$d/config.tip"
+        # Only compared with the base's: lost, a changed config would go unsaid.
+        { printf '%s\n' "$name" && git cat-file blob "$lsha:$name"; } > "$d/config.tip" \
+          || { sec_foxguard_refuse "$level" "the foxguard config of $lref could not be read" "$tmpfix"; exit 1; }
       fi
     done
     if ! cmp -s "$d/config.base" "$d/config.tip"; then
       sec_loud "this push changes the foxguard config; it takes effect only after it lands on the remote. This push is checked with the remote's config."
     fi
-    sec_foxguard_tree "$lsha" "$d/tipmap" "$d/tip" || { sec_foxguard_refuse "$level" "the pushed files could not be read"; exit 1; }
+    rc=0; sec_foxguard_tree "$lsha" "$d/tipmap" "$d/tip" || rc=$?
+    case "$rc" in
+      0) ;;
+      2) printf '%s\n' "$SEC_FOXGUARD_CLASH" | sec_foxguard_show '[pre-push] foxguard: same file here: '
+         sec_foxguard_refuse "$level" "$lref changes two paths that are one file under $tmp_root (as names that differ only in case or in Unicode form are on macOS and Windows), so one of them cannot be scanned" \
+           "Rename one of them, or point TMPDIR at a case-sensitive file system and push again"; exit 1 ;;
+      *) sec_foxguard_refuse "$level" "the pushed files could not be read" "$tmpfix"; exit 1 ;;
+    esac
     if ! sec_foxguard_scan "$cmd" "$d/config" "$d/tip" "$d/tip.json" "$d/files"; then
       sed -n 1,3p "$d/tip.json.err" | sec_foxguard_show '[pre-push] foxguard: '
       sec_foxguard_refuse "$level" "the foxguard scan failed"; exit 1
