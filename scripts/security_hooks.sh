@@ -595,10 +595,11 @@ sec_foxguard_left_out() {
 # does not read there is named and counted: one it drops as noise (a noise
 # path such as a/build/x.py, a noise name such as x.min.js), one whose
 # extension it reads in lower case only (app.PY), a parse error, a file that
-# is too large. A file type it does not know is not named.
+# is too large, a script it does not read for its name (bin/deploy,
+# "#!/usr/bin/env bash"). A file type it does not know is not named.
 sec_foxguard_warn() {
   local refs="$1" remote="${2:-}" cmd f out rc frc=0 shown=0 failed=0 r base="" issues=0 hit=0 k
-  local probes="" unread=0 x e lx mr p pout prc n=0 why cr=$'\r'
+  local probes="" unread=0 x e lx mr p pout prc n=0 why cr=$'\r' sx
   if ! cmd="$(sec_foxguard_cmd)"; then
     if ! sec_foxguard_platform_ok; then
       sec_loud "the foxguard scan did NOT run: foxguard has no binary for $(uname -s) $(uname -m)."
@@ -655,6 +656,13 @@ sec_foxguard_warn() {
           done
         fi
       fi
+    fi
+    # A script by its first line (bin/deploy, "#!/usr/bin/env bash"), not read
+    # for its name: at off it is not copied, so it is named.
+    # One that cannot be read may be a script too: named, not let through.
+    if [[ "$why" == "unsupported extension" ]]; then
+      if ! sx="$(sec_foxguard_script_ext "$f" 2>/dev/null)"; then why="cannot read"
+      elif [[ -n "$sx" ]]; then why="script"; fi
     fi
     # Not read, and not for a file type foxguard does not know: say so.
     if [[ -n "$why" && "$why" != "unsupported extension" ]]; then
@@ -877,6 +885,79 @@ sec_foxguard_copy_name() {
   printf '%s\n' "${1//.min/._min}"
 }
 
+# sec_foxguard_split_plain <line>: 0 when the line holds no quote, "\" or
+# "$", the characters env -S reads as more than a word break.
+sec_foxguard_split_plain() {
+  case "$1" in *[\\\$\"\']*) return 1 ;; esac
+  return 0
+}
+
+# sec_foxguard_script_ext <file>: the extension foxguard reads the language
+# of a script by, from its first line ("#!/usr/bin/env bash": sh), or
+# nothing: no "#!" line, or an interpreter foxguard has no rules for (zsh,
+# perl). The interpreter is the word after env and its options and
+# assignments ("#!/usr/bin/env -S python3 -u": py). -u, -C, -a, BSD -P and
+# -L take a word, alone or in a cluster ("-iu FOO"); -S with text attached
+# ("-Spython3", "--split-string=python3") splits that text. "?" for a "#!"
+# line whose interpreter it cannot tell: none named, or -S text with quotes,
+# "\" or "$", which env reads in ways this does not. Return 1, with a
+# message, for a file it cannot read: an unread file is not "no script".
+sec_foxguard_script_ext() {
+  local line w words skip=0 i c rest sw
+  if [[ ! -r "$1" ]] || ! { : < "$1"; } 2>/dev/null; then
+    printf 'error: cannot read %s\n' "$1" >&2
+    return 1
+  fi
+  # Read from stdin: a name that starts with a dash is no option of head.
+  # 256 bytes, and a NUL ends the line: the first line of a binary file is
+  # not read whole, and one that starts with a NUL is no script.
+  line="$({ LC_ALL=C head -c 256 < "$1"; } 2>/dev/null | LC_ALL=C tr '\000' '\n' | LC_ALL=C tr -d '\r' | LC_ALL=C sed -n 1p)" || line=""
+  case "$line" in '#!'*) ;; *) return 0 ;; esac
+  read -r -a words <<< "${line#??}" || true
+  i=0
+  while [[ "$i" -lt "${#words[@]}" ]]; do
+    w="${words[$i]}"; i=$((i + 1))
+    # The options and assignments of env: not the interpreter.
+    if [[ "$skip" -eq 1 ]]; then skip=0; continue; fi
+    rest=""
+    case "$w" in
+      --unset|--chdir|--argv0) skip=1; continue ;;
+      --split-string=*) rest="${w#*=}"; sec_foxguard_split_plain "$line" || { echo '?'; return 0; } ;;
+      -|--*) continue ;;
+      -?*)
+        w="${w#-}"
+        while [[ -n "$w" ]]; do
+          c="${w:0:1}"; w="${w:1}"
+          case "$c" in
+            u|C|P|a|L) [[ -n "$w" ]] || skip=1; w=""; break ;;
+            S) sec_foxguard_split_plain "$line" || { echo '?'; return 0; }; rest="$w"; w=""; break ;;
+          esac
+        done
+        [[ -n "$rest" ]] || continue
+        ;;
+      *=*) continue ;;
+    esac
+    if [[ -n "$rest" ]]; then
+      # The text of -S is words of the command line: read them next.
+      sw=(); read -r -a sw <<< "$rest" || true
+      while [[ "$i" -lt "${#words[@]}" ]]; do sw+=("${words[$i]}"); i=$((i + 1)); done
+      words=(); [[ "${#sw[@]}" -eq 0 ]] || words=("${sw[@]}"); i=0
+      continue
+    fi
+    w="${w##*/}"
+    [[ "$w" != env ]] || continue
+    case "$w" in
+      sh|bash|dash|ash) echo sh ;;
+      python|python[0-9]*|pypy|pypy[0-9]*) echo py ;;
+      ruby|ruby[0-9]*) echo rb ;;
+      node|nodejs) echo js ;;
+      php|php[0-9]*) echo php ;;
+    esac
+    return 0
+  done
+  echo '?'
+}
+
 # sec_foxguard_scan_copy <cmd> <config> <file> <out> <n> <dirs> <name> <path>:
 # foxguard on a copy of <file> named <dirs><name> under <out>/<n>.d, its
 # report in <out>/<n>.json and its messages in <out>.one, the copy named
@@ -904,7 +985,12 @@ sec_foxguard_scan_copy() {
 # directory alone nginx/build/apache.conf would be read as an Apache config). It keeps its name too, but for the part that is noise
 # (sec_foxguard_copy_name); <n>.<extension> is the name of last resort.
 # foxguard knows an extension in lower case only, and app.PY still runs: such
-# a file is scanned as a copy with the extension in lower case. Return 0
+# a file is scanned as a copy with the extension in lower case. A script it
+# does not read for its name (bin/deploy, tool.cgi) runs by its first line:
+# it is scanned as a copy named with the extension of that language
+# (sec_foxguard_script_ext). One with an extension foxguard does not know
+# that does not parse (a template: entry.sh.j2) is listed in <out>.script
+# instead, for the caller to name. Return 0
 # scanned; 1 failed. Files it skipped for any reason but an unsupported
 # extension (parse error, too large, still noise) are listed in <out>.skipped,
 # each under its real path: the list says which base copies were never read.
@@ -916,7 +1002,7 @@ sec_foxguard_scan_copy() {
 # <out>.skipped would read as "nothing skipped", and the file would pass unread.
 sec_foxguard_scan() {
   local rc f x e lx s c mr known under=/d_ k=0
-  { mkdir -p "$4" && : > "$4.err" && : > "$4.skipped" && : > "$4.cxx"; } || return 1
+  { mkdir -p "$4" && : > "$4.err" && : > "$4.skipped" && : > "$4.cxx" && : > "$4.script"; } || return 1
   while IFS= read -r f; do
     [[ -n "$f" && -f "$3/$f" ]] || continue
     k=$((k + 1)); rc=0; known=0
@@ -959,6 +1045,47 @@ sec_foxguard_scan() {
           s="$(LC_ALL=C awk '/^warning: skipping .* \(parse error\)$/' "$4.one")" || return 1
           if [[ -n "$s" ]]; then
             printf '%s\n' "$s" >> "$4.cxx" || return 1
+            s="$(LC_ALL=C awk '!/^warning: skipping .* \(parse error\)$/' "$4.one")" || return 1
+            if [[ -n "$s" ]]; then printf '%s\n' "$s" > "$4.one" || return 1; else : > "$4.one" || return 1; fi
+          fi
+        fi
+      fi
+    fi
+    # Not read for its name, and a script by its first line (bin/deploy,
+    # "#!/usr/bin/env bash"): it runs all the same. Scan a copy named with
+    # the extension of that language.
+    if [[ "$rc" -le 1 && "$known" -eq 0 ]] && sec_foxguard_unsupported "$4.one"; then
+      # One that cannot be read is a skip, never "no script".
+      if ! lx="$(sec_foxguard_script_ext "$3/$f" 2>/dev/null)"; then
+        printf 'warning: skipping %s (cannot read)\n' "$f" >> "$4.skipped" || return 1
+        lx=""
+      fi
+      # A "#!" line that names no interpreter it can tell: named, not passed.
+      if [[ "$lx" == "?" ]]; then
+        printf 'warning: skipping %s (interpreter not known)\n' "$f" >> "$4.script" || return 1
+        lx=""
+      fi
+      if [[ -n "$lx" ]]; then
+        known=1; printf '%s\n' "$f" > "$4/$k.path" || return 1
+        c="$(sec_foxguard_copy_name "$x")" || return 1
+        sec_foxguard_scan_copy "$1" "$2" "$3/$f" "$4" "$k" "$mr" "$c.$lx" "$f" || return 1
+        rc="$SEC_FOXGUARD_RC"
+        # Not read under its own name (noise this hook does not know).
+        if [[ "$rc" -le 1 ]] && { sec_foxguard_noise "$4.one" || sec_foxguard_unsupported "$4.one"; }; then
+          sec_foxguard_scan_copy "$1" "$2" "$3/$f" "$4" "$k" "$mr" "$k.$lx" "$f" || return 1
+          rc="$SEC_FOXGUARD_RC"
+        fi
+        # With an extension foxguard does not know, a script that does not
+        # parse is a template as often as not (entry.sh.j2, run.erb): not a
+        # file to fix, so not a skip that refuses the push, but named. Only
+        # here (a file foxguard does not read for its name, told by its
+        # first line) and only a parse error: one that is too large or not
+        # UTF-8 is a skip like any other, as is one with no extension
+        # (bin/deploy).
+        if [[ "${x#.}" == *.* ]]; then
+          s="$(LC_ALL=C awk '/^warning: skipping .* \(parse error\)$/' "$4.one")" || return 1
+          if [[ -n "$s" ]]; then
+            printf '%s\n' "$s" >> "$4.script" || return 1
             s="$(LC_ALL=C awk '!/^warning: skipping .* \(parse error\)$/' "$4.one")" || return 1
             if [[ -n "$s" ]]; then printf '%s\n' "$s" > "$4.one" || return 1; else : > "$4.one" || return 1; fi
           fi
@@ -1168,6 +1295,10 @@ sec_foxguard_block() (
       sec_foxguard_show '[pre-push] foxguard: not scanned: ' < "$d/tip.json.cxx"
       echo "[pre-push] foxguard: $(wc -l < "$d/tip.json.cxx" | tr -d ' ') .C or .H file(s) above do not parse as C and were not scanned: foxguard reads C, not C++." >&2
     fi
+    if [[ -s "$d/tip.json.script" ]]; then
+      sec_foxguard_show '[pre-push] foxguard: not scanned: ' < "$d/tip.json.script"
+      echo "[pre-push] foxguard: $(wc -l < "$d/tip.json.script" | tr -d ' ') file(s) above start with \"#!\" and were not scanned: they do not parse as that language (a template, perhaps), or name no interpreter this gate can tell." >&2
+    fi
     if [[ -s "$d/tip.json.skipped" ]]; then
       sec_foxguard_show '[pre-push] foxguard: ' < "$d/tip.json.skipped"
       sec_foxguard_refuse "$level" "foxguard skipped $(wc -l < "$d/tip.json.skipped" | tr -d ' ') changed file(s)" \
@@ -1185,9 +1316,10 @@ sec_foxguard_block() (
         echo "[pre-push] foxguard: the files of base ${b:0:12} could not be read; its findings count as new." >&2
         continue
       fi
-      # A base copy that is C++ was not read either: it vouches for nothing.
+      # A base copy that is C++, or a script that did not parse, was not
+      # read either: it vouches for nothing.
       if sec_foxguard_scan "$cmd" "$d/config" "$d/base$i" "$d/base$i.json" "$d/files" \
-        && cat "$d/base$i.json.cxx" >> "$d/base$i.json.skipped"; then
+        && cat "$d/base$i.json.cxx" "$d/base$i.json.script" >> "$d/base$i.json.skipped"; then
         set -- "$@" --base "$d/base$i.json"
         # A base copy foxguard could not read cannot say what was already
         # there: its findings at the tip block, unless the operator opts in.
