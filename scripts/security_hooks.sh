@@ -885,16 +885,25 @@ sec_foxguard_copy_name() {
   printf '%s\n' "${1//.min/._min}"
 }
 
+# sec_foxguard_split_plain <line>: 0 when the line holds no quote, "\" or
+# "$", the characters env -S reads as more than a word break.
+sec_foxguard_split_plain() {
+  case "$1" in *[\\\$\"\']*) return 1 ;; esac
+  return 0
+}
+
 # sec_foxguard_script_ext <file>: the extension foxguard reads the language
 # of a script by, from its first line ("#!/usr/bin/env bash": sh), or
 # nothing: no "#!" line, or an interpreter foxguard has no rules for (zsh,
 # perl). The interpreter is the word after env and its options and
 # assignments ("#!/usr/bin/env -S python3 -u": py). -u, -C, -a, BSD -P and
 # -L take a word, alone or in a cluster ("-iu FOO"); -S with text attached
-# ("-Spython3", "--split-string=python3") splits that text. Return 1, with
-# a message, for a file it cannot read: an unread file is not "no script".
+# ("-Spython3", "--split-string=python3") splits that text. "?" for a "#!"
+# line whose interpreter it cannot tell: none named, or -S text with quotes,
+# "\" or "$", which env reads in ways this does not. Return 1, with a
+# message, for a file it cannot read: an unread file is not "no script".
 sec_foxguard_script_ext() {
-  local line w words skip=0 i c rest sw sq="'"
+  local line w words skip=0 i c rest sw
   if [[ ! -r "$1" ]] || ! { : < "$1"; } 2>/dev/null; then
     printf 'error: cannot read %s\n' "$1" >&2
     return 1
@@ -913,15 +922,15 @@ sec_foxguard_script_ext() {
     rest=""
     case "$w" in
       --unset|--chdir|--argv0) skip=1; continue ;;
-      --split-string=*) rest="${w#*=}" ;;
-      --*) continue ;;
+      --split-string=*) rest="${w#*=}"; sec_foxguard_split_plain "$line" || { echo '?'; return 0; } ;;
+      -|--*) continue ;;
       -?*)
         w="${w#-}"
         while [[ -n "$w" ]]; do
           c="${w:0:1}"; w="${w:1}"
           case "$c" in
             u|C|P|a|L) [[ -n "$w" ]] || skip=1; w=""; break ;;
-            S) rest="$w"; w=""; break ;;
+            S) sec_foxguard_split_plain "$line" || { echo '?'; return 0; }; rest="$w"; w=""; break ;;
           esac
         done
         [[ -n "$rest" ]] || continue
@@ -930,7 +939,6 @@ sec_foxguard_script_ext() {
     esac
     if [[ -n "$rest" ]]; then
       # The text of -S is words of the command line: read them next.
-      rest="${rest//\"/ }"; rest="${rest//$sq/ }"
       sw=(); read -r -a sw <<< "$rest" || true
       while [[ "$i" -lt "${#words[@]}" ]]; do sw+=("${words[$i]}"); i=$((i + 1)); done
       words=(); [[ "${#sw[@]}" -eq 0 ]] || words=("${sw[@]}"); i=0
@@ -947,6 +955,7 @@ sec_foxguard_script_ext() {
     esac
     return 0
   done
+  echo '?'
 }
 
 # sec_foxguard_scan_copy <cmd> <config> <file> <out> <n> <dirs> <name> <path>:
@@ -1049,6 +1058,11 @@ sec_foxguard_scan() {
       # One that cannot be read is a skip, never "no script".
       if ! lx="$(sec_foxguard_script_ext "$3/$f" 2>/dev/null)"; then
         printf 'warning: skipping %s (cannot read)\n' "$f" >> "$4.skipped" || return 1
+        lx=""
+      fi
+      # A "#!" line that names no interpreter it can tell: named, not passed.
+      if [[ "$lx" == "?" ]]; then
+        printf 'warning: skipping %s (interpreter not known)\n' "$f" >> "$4.script" || return 1
         lx=""
       fi
       if [[ -n "$lx" ]]; then
@@ -1283,7 +1297,7 @@ sec_foxguard_block() (
     fi
     if [[ -s "$d/tip.json.script" ]]; then
       sec_foxguard_show '[pre-push] foxguard: not scanned: ' < "$d/tip.json.script"
-      echo "[pre-push] foxguard: $(wc -l < "$d/tip.json.script" | tr -d ' ') file(s) above start with \"#!\" and do not parse as that language (a template, perhaps) and were not scanned." >&2
+      echo "[pre-push] foxguard: $(wc -l < "$d/tip.json.script" | tr -d ' ') file(s) above start with \"#!\" and were not scanned: they do not parse as that language (a template, perhaps), or name no interpreter this gate can tell." >&2
     fi
     if [[ -s "$d/tip.json.skipped" ]]; then
       sec_foxguard_show '[pre-push] foxguard: ' < "$d/tip.json.skipped"

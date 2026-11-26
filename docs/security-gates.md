@@ -175,6 +175,9 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
   scanned: such a script is named as `not scanned: <path> (script)`.
   A file whose first line cannot be read is a skip and refuses the push
   (at `off`: `not scanned: <path> (cannot read)`).
+  A `#!` line whose interpreter cannot be told (none named, or `-S` text
+  with quotes, `\` or `$`) is named as `not scanned` and does not refuse
+  the push.
   A working file the hook cannot write under `TMPDIR` (the file lists and
   maps, the list of skipped files, the base list, the configs, the copy of a
   file to scan) refuses the push too: a short list is never read as "nothing

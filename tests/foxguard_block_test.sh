@@ -342,7 +342,13 @@ done <<'EOF'
 #!/usr/bin/env --argv0 name bash|sh
 #!/usr/bin/env -L user bash|sh
 #!/usr/bin/env -Spython3 -u|py
-#!/usr/bin/env -S"python3 -u"|py
+#!/usr/bin/env -S"python3 -u"|?
+#!/usr/bin/env -S 'python3' -u|?
+#!/usr/bin/env -S $PY -u|?
+#!/usr/bin/env -S python3 \\\\ -u|?
+#!/usr/bin/env - bash|sh
+#!/usr/bin/env - sh|sh
+#!/usr/bin/env - -u X bash|sh
 #!/usr/bin/env --split-string=python3|py
 #!/usr/bin/env -iS python3|py
 #!/usr/bin/env -S -u FOO python3|py
@@ -358,8 +364,9 @@ done <<'EOF'
 #!/usr/bin/env bash\r|sh
 #!/bin/zsh|-
 #!/usr/bin/perl -w|-
-#!/usr/bin/env|-
-#!|-
+#!/usr/bin/env|?
+#!|?
+#!/usr/bin/env -i|?
 # !/bin/sh|-
 echo #!/bin/sh|-
 \0#!/bin/sh|-
@@ -1092,10 +1099,17 @@ if then"
   setup; publish; commit entry.sh.j2 "$j2_code"
   expect "a shell template that does not parse as shell passes at high" 0 "$(check "$F")"
   has "and is named as not scanned" "foxguard: not scanned: warning: skipping entry.sh.j2 (parse error)"
-  has "and counted" 'foxguard: 1 file(s) above start with "#!" and do not parse as that language'
+  has "and counted" 'foxguard: 1 file(s) above start with "#!" and were not scanned: they do not parse'
   expect "at off: the push goes on" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
   has "and it is named as not scanned" "foxguard: not scanned: entry.sh.j2 (script)"
+  # A "#!" line whose interpreter cannot be told is named, never passed.
+  setup; publish; commit tool "$(printf '#!/usr/bin/env -S "python3 -u"\nprint(1)')"
+  expect "a script whose interpreter cannot be told passes at high" 0 "$(check "$F")"
+  has "and is named as not scanned" "foxguard: not scanned: warning: skipping tool (interpreter not known)"
+  expect "at off: the push goes on" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+  has "and it is named as not scanned" "foxguard: not scanned: tool (script)"
   # As a base copy it was not read: it vouches for nothing.
+  setup; publish; commit entry.sh.j2 "$j2_code"
   publish; commit entry.sh.j2 "$sh_code"
   expect "a finding in a script whose base copy could not be read blocks" 1 "$(check "$F")"
   has "as unscanned at the base" "critical entry.sh.j2:2 bash/taint-command-injection (the base copy could not be scanned (parse error); review the file"
