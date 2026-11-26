@@ -315,6 +315,41 @@ shown="$(printf 'a\302\233b\342\200\256c\342\201\246d caf\303\251\rz\033[2K\n' \
   | bash -c 'source "$1/scripts/security_hooks.sh"; sec_foxguard_show "p: "' _ "$ROOT_DIR" 2>&1)"
 [[ "$shown" == "p: a?b?c?d caf$(printf '\303\251')?z?[2K" ]] && ok "a printed name loses its control characters, C1 controls and reordering characters, and keeps its letters" \
   || error "sec_foxguard_show printed: $(printf '%s' "$shown" | cat -v)"
+# sec_foxguard_script_ext: the language of a script, from its first line.
+# "-" stands for none: a file that is no script, or one in a language
+# foxguard has no rules for.
+mkdir -p "$tmp/sx"
+while IFS='|' read -r first want; do
+  printf '%b\n' "$first" 'eval "$1"' > "$tmp/sx/-s"
+  got="$(cd "$tmp/sx" && bash -c 'source "$1/scripts/security_hooks.sh"; sec_foxguard_script_ext -s' _ "$ROOT_DIR" 2>&1)"
+  [[ "${got:--}" == "$want" ]] && ok "a script that starts with '$first' is read as: $want" \
+    || error "a script that starts with '$first': want $want, got '${got:--}'"
+done <<'EOF'
+#!/bin/sh|sh
+#!/usr/bin/env bash|sh
+#! /bin/bash -eu|sh
+#!/bin/dash|sh
+#!/usr/bin/env -S python3 -u|py
+#!/usr/bin/env -i PATH=/usr/bin python|py
+#!/usr/bin/env -u PYTHONPATH -C /srv python3|py
+#!/usr/bin/env --unset=X --chdir=/srv ruby|rb
+#!/bin/bash -u|sh
+#!/usr/bin/python3.12|py
+#!/usr/bin/env pypy3|py
+#!/usr/bin/env ruby|rb
+#!/usr/bin/env node|js
+#!/usr/bin/nodejs|js
+#!/usr/bin/php8.3|php
+#!/usr/bin/env bash\r|sh
+#!/bin/zsh|-
+#!/usr/bin/perl -w|-
+#!/usr/bin/env|-
+#!|-
+# !/bin/sh|-
+echo #!/bin/sh|-
+\0#!/bin/sh|-
+|-
+EOF
 # A path that is not UTF-8: foxguard takes no such argument. Refused before
 # any scan, with the path and a remedy that is not installing foxguard.
 setup; publish
@@ -867,8 +902,14 @@ SSLProtocol SSLv3
 ssl-default-bind-ciphers RC4-SHA'
   docker_code='FROM x
 ENV NODE_TLS_REJECT_UNAUTHORIZED=0'
+  sh_code='#!/usr/bin/env bash
+eval "$1"'
   broken_code='def f(:
     pass'
+  j2_code='#!/bin/bash
+{% if x %}
+export A={{ a }}
+{% endif %}'
   # put <path> <content> <verdict> <the path it must have the findings of>
   put() {
     mkdir -p "$tmp/repo/$(dirname -- "$1")" && printf '%s\n' "$2" > "$tmp/repo/$1" || error "could not write $1"
@@ -906,14 +947,20 @@ ENV NODE_TLS_REJECT_UNAUTHORIZED=0'
     places haproxy site.cfg "$conf_code" S; places x nginx.conf "$conf_code" S; places x httpd.conf "$conf_code" S
     places docker Dockerfile "$docker_code" S; places docker Dockerfile.dev "$docker_code" S
     places p requirements.txt 'rsa==4.0' S
+    # A script foxguard does not read for its name: as the same code named .sh.
+    put bin/deploy.sh "$sh_code" S bin/deploy.sh; places bin deploy "$sh_code" S bin/deploy.sh; places bin tool.cgi "$sh_code" S bin/deploy.sh
     # Two copies that would be one path in a directory for all of them.
     put a/build/d_x.min.js 'document.body.innerHTML = location.hash;' S a/web.js; put a/build/x._min.js/y.py "$high_code" S a/app.py
     if [[ "$1" == 1 ]]; then
-      places b broken.py "$broken_code" K
+      places b broken.py "$broken_code" K; places b brk "#!/bin/sh
+if then" K
+      places b entry.sh.j2 "$j2_code" K
       places b latin.py "$(printf '# caf\351\nx = 1')" K
       put b/Tmpl.C 'template <class T> class A { public: T v; A() : v() {} };' K
       put b/build/Tmpl.H 'template <class T> class A { public: T v; A() : v() {} };' K
       places t notes.txt 'plain text' N; places t site.conf "$conf_code" N; places t LICENSE 'plain text' N
+      places t z "#!/bin/zsh
+for f (*.c) print \$f" N
     fi
     gc -C "$tmp/repo" add -A; gc -C "$tmp/repo" commit -q -m "one verdict each"
   }
@@ -941,7 +988,8 @@ ENV NODE_TLS_REJECT_UNAUTHORIZED=0'
           v = ""
           if (last[f] == "read") v = v "S"
           if (named[f] == 1) v = v "K"; else if (named[f] > 1) v = v "K" named[f]
-          if (last[f] == "unsupported extension" && !(f in code)) v = v "N"
+          # At off a script named for its first line is K, not also N.
+          if (last[f] == "unsupported extension" && !(f in code) && !(off + 0 == 1 && named[f] > 0)) v = v "N"
           if (given[f] != 1) v = v "(given to foxguard as it is " (given[f] + 0) " times)"
           if (v != want[f]) print f ": want " want[f] ", got " (v == "" ? "none" : v)
         }
@@ -992,6 +1040,66 @@ ENV NODE_TLS_REJECT_UNAUTHORIZED=0'
   has "and counted" "foxguard did NOT read $nn of $na changed file(s)"
   has "and each file with a finding that is read where it is" "finding(s) in $((na - nn - nx)) of $na changed file(s)"
   if grep -qF "scanned as" "$tmp/out"; then error "at off a copy was scanned: $(grep -F 'scanned as' "$tmp/out" | sed -n 1p)"; else ok "and none is scanned as a copy"; fi
+  # A script foxguard does not read for its name (bin/deploy) runs by its
+  # first line: it is scanned as a copy named with that language's extension.
+  setup; publish; mkdir -p "$tmp/repo/bin"; commit bin/deploy "$sh_code"
+  expect "a new finding in a script with no extension blocks" 1 "$(check "$F")"
+  has "under its own name" "BLOCK (foxguard): critical bin/deploy:2 bash/taint-command-injection (new)"
+  expect "at off: the push goes on" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+  has "and the script is named as not scanned" "foxguard: not scanned: bin/deploy (script)"
+  publish; commit bin/deploy "$sh_code
+# touched"
+  expect "a finding in such a script already in the base does not block" 0 "$(check "$F")"
+  has "it is a warning" "WARNING (foxguard): critical bin/deploy:2 bash/taint-command-injection (already in the base)"
+  setup; publish; commit tool.cgi "#!/usr/bin/env -S python3 -u
+$high_code"
+  expect "a new finding in a Python script named .cgi blocks" 1 "$(check "$F")"
+  has "under its own name" "BLOCK (foxguard): high tool.cgi:4 py/no-yaml-load (new)"
+  setup; publish; commit brk "#!/bin/sh
+if then"
+  expect "a script with no extension that does not parse is refused" 1 "$(check "$F")"
+  has "and named" "foxguard: warning: skipping brk (parse error)"
+  expect "at off: the push goes on" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+  has "and it is named as not scanned" "foxguard: not scanned: brk (script)"
+  # With an extension foxguard does not know, a script it cannot read is a
+  # template as often as not: named, and the push is not refused for it.
+  setup; publish; commit entry.sh.j2 "$j2_code"
+  expect "a shell template that does not parse as shell passes at high" 0 "$(check "$F")"
+  has "and is named as not scanned" "foxguard: not scanned: warning: skipping entry.sh.j2 (parse error)"
+  has "and counted" 'foxguard: 1 file(s) above start with "#!" and do not parse as that language'
+  expect "at off: the push goes on" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+  has "and it is named as not scanned" "foxguard: not scanned: entry.sh.j2 (script)"
+  # As a base copy it was not read: it vouches for nothing.
+  publish; commit entry.sh.j2 "$sh_code"
+  expect "a finding in a script whose base copy could not be read blocks" 1 "$(check "$F")"
+  has "as unscanned at the base" "critical entry.sh.j2:2 bash/taint-command-injection (the base copy could not be scanned (parse error); review the file"
+  expect "and is a warning with the override" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_ALLOW_UNSCANNED_BASE=1)"
+  # Only a parse error is taken for a template. A script with an extension
+  # that is too large, or not UTF-8, is a skip that refuses the push, as is a
+  # source file foxguard reads by its name, whatever it was skipped for.
+  setup; publish
+  { printf '#!/usr/bin/env python3\n'; awk 'BEGIN { for (i = 0; i < 120000; i++) print "a" i " = 1" }'; } > "$tmp/repo/tool.cgi"
+  gc -C "$tmp/repo" add tool.cgi; gc -C "$tmp/repo" commit -q -m big
+  expect "a script with an extension that is too large is refused at high" 1 "$(check "$F")"
+  has "as a skipped file" "foxguard: warning: skipping tool.cgi ("
+  has "and counted as one" "foxguard skipped 1 changed file(s)"
+  setup; publish; commit tool.cgi "$(printf '#!/usr/bin/env python3\n# caf\351\nx = 1')"
+  expect "a script with an extension that is not UTF-8 is refused at high" 1 "$(check "$F")"
+  has "as a skipped file" "foxguard: warning: skipping tool.cgi (binary or non-UTF-8 content)"
+  setup; publish; commit app.min.py "#!/usr/bin/env python3
+$broken_code"; commit Loader.PY "#!/usr/bin/env python3
+$broken_code"
+  expect "source files that start with #! and do not parse are refused at high" 1 "$(check "$F")"
+  has "the one with a noise name" "foxguard: warning: skipping app.min.py (parse error)"
+  has "and the one with an upper-case extension" "foxguard: warning: skipping Loader.PY (parse error)"
+  has "both counted" "foxguard skipped 2 changed file(s)"
+  # No rules for zsh, and LICENSE is no script: neither is a skip.
+  setup; publish; commit z "#!/bin/zsh
+for f (*.c) print \$f"; commit LICENSE "plain text"
+  for level in high off; do
+    expect "at $level: a zsh script and a file that is no script pass" 0 "$(check "$F" SCRIPT_HELPERS_FOXGUARD_BLOCK="$level")"
+    if grep -qE 'not scanned|skipping|NOT read' "$tmp/out"; then error "at $level one of them was named: $(grep -E 'not scanned|skipping|NOT read' "$tmp/out" | sed -n 1,3p)"; else ok "and neither is named as unread"; fi
+  done
   # A refused push names every file foxguard did not read, the C++ ones too.
   setup; publish; commit broken.py "$broken_code"; commit Tmpl.C 'template <class T> class A { public: T v; A() : v() {} };'
   expect "a push with a file that does not parse and a C++ file named .C is refused" 1 "$(check "$F")"
