@@ -887,7 +887,7 @@ sec_foxguard_copy_name() {
 # of a script by, from its first line ("#!/usr/bin/env bash": sh), or
 # nothing: no "#!" line, or an interpreter foxguard has no rules for (zsh,
 # perl). The interpreter is the word after env and its options and
-# assignments ("#!/usr/bin/env -S python3 -u": py; -u and -C take a word).
+# assignments ("#!/usr/bin/env -S python3 -u": py; -u, -C and BSD -P take a word).
 sec_foxguard_script_ext() {
   local line w words skip=0
   # Read from stdin: a name that starts with a dash is no option of head.
@@ -899,7 +899,7 @@ sec_foxguard_script_ext() {
   for w in ${words[@]+"${words[@]}"}; do
     # The options and assignments of env: not the interpreter.
     if [[ "$skip" -eq 1 ]]; then skip=0; continue; fi
-    case "$w" in -u|--unset|-C|--chdir) skip=1; continue ;; -*|*=*) continue ;; esac
+    case "$w" in -u|--unset|-C|--chdir|-P) skip=1; continue ;; -*|*=*) continue ;; esac
     w="${w##*/}"
     [[ "$w" != env ]] || continue
     case "$w" in

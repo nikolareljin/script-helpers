@@ -332,6 +332,7 @@ done <<'EOF'
 #!/usr/bin/env -S python3 -u|py
 #!/usr/bin/env -i PATH=/usr/bin python|py
 #!/usr/bin/env -u PYTHONPATH -C /srv python3|py
+#!/usr/bin/env -P /opt/bin bash|sh
 #!/usr/bin/env --unset=X --chdir=/srv ruby|rb
 #!/bin/bash -u|sh
 #!/usr/bin/python3.12|py
