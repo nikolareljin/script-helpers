@@ -334,6 +334,20 @@ done <<'EOF'
 #!/usr/bin/env -u PYTHONPATH -C /srv python3|py
 #!/usr/bin/env -P /opt/bin bash|sh
 #!/usr/bin/env --unset=X --chdir=/srv ruby|rb
+#!/usr/bin/env -iu FOO python3|py
+#!/usr/bin/env -vC /tmp bash|sh
+#!/usr/bin/env -uFOO bash|sh
+#!/usr/bin/env --unset FOO --chdir /srv bash|sh
+#!/usr/bin/env -a name bash|sh
+#!/usr/bin/env --argv0 name bash|sh
+#!/usr/bin/env -L user bash|sh
+#!/usr/bin/env -Spython3 -u|py
+#!/usr/bin/env -S"python3 -u"|py
+#!/usr/bin/env --split-string=python3|py
+#!/usr/bin/env -iS python3|py
+#!/usr/bin/env -S -u FOO python3|py
+#!/usr/bin/env -- bash|sh
+#!/usr/bin/env -S PATH=/x -iu A perl|-
 #!/bin/bash -u|sh
 #!/usr/bin/python3.12|py
 #!/usr/bin/env pypy3|py
@@ -351,6 +365,17 @@ echo #!/bin/sh|-
 \0#!/bin/sh|-
 |-
 EOF
+# A file that cannot be read is not "no script": rc 1 and a message, so the
+# caller names it instead of passing it unread.
+printf '#!/bin/sh\n' > "$tmp/sx/unread"; chmod 000 "$tmp/sx/unread"
+if [[ -r "$tmp/sx/unread" ]]; then
+  ok "skipped: running as root, a mode-000 file is still readable"
+else
+  urc=0; got="$(bash -c 'source "$1/scripts/security_hooks.sh"; sec_foxguard_script_ext "$2"' _ "$ROOT_DIR" "$tmp/sx/unread" 2>&1)" || urc=$?
+  [[ "$urc" -eq 1 && "$got" == *"cannot read"* ]] && ok "a file that cannot be read is an error, not 'no script'" \
+    || error "an unreadable file: want rc 1 and 'cannot read', got rc $urc '$got'"
+fi
+chmod 600 "$tmp/sx/unread"
 # A path that is not UTF-8: foxguard takes no such argument. Refused before
 # any scan, with the path and a remedy that is not installing foxguard.
 setup; publish

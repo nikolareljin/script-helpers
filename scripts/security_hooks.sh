@@ -599,7 +599,7 @@ sec_foxguard_left_out() {
 # "#!/usr/bin/env bash"). A file type it does not know is not named.
 sec_foxguard_warn() {
   local refs="$1" remote="${2:-}" cmd f out rc frc=0 shown=0 failed=0 r base="" issues=0 hit=0 k
-  local probes="" unread=0 x e lx mr p pout prc n=0 why cr=$'\r'
+  local probes="" unread=0 x e lx mr p pout prc n=0 why cr=$'\r' sx
   if ! cmd="$(sec_foxguard_cmd)"; then
     if ! sec_foxguard_platform_ok; then
       sec_loud "the foxguard scan did NOT run: foxguard has no binary for $(uname -s) $(uname -m)."
@@ -659,8 +659,10 @@ sec_foxguard_warn() {
     fi
     # A script by its first line (bin/deploy, "#!/usr/bin/env bash"), not read
     # for its name: at off it is not copied, so it is named.
-    if [[ "$why" == "unsupported extension" && -n "$(sec_foxguard_script_ext "$f" 2>/dev/null)" ]]; then
-      why="script"
+    # One that cannot be read may be a script too: named, not let through.
+    if [[ "$why" == "unsupported extension" ]]; then
+      if ! sx="$(sec_foxguard_script_ext "$f" 2>/dev/null)"; then why="cannot read"
+      elif [[ -n "$sx" ]]; then why="script"; fi
     fi
     # Not read, and not for a file type foxguard does not know: say so.
     if [[ -n "$why" && "$why" != "unsupported extension" ]]; then
@@ -887,19 +889,53 @@ sec_foxguard_copy_name() {
 # of a script by, from its first line ("#!/usr/bin/env bash": sh), or
 # nothing: no "#!" line, or an interpreter foxguard has no rules for (zsh,
 # perl). The interpreter is the word after env and its options and
-# assignments ("#!/usr/bin/env -S python3 -u": py; -u, -C and BSD -P take a word).
+# assignments ("#!/usr/bin/env -S python3 -u": py). -u, -C, -a, BSD -P and
+# -L take a word, alone or in a cluster ("-iu FOO"); -S with text attached
+# ("-Spython3", "--split-string=python3") splits that text. Return 1, with
+# a message, for a file it cannot read: an unread file is not "no script".
 sec_foxguard_script_ext() {
-  local line w words skip=0
+  local line w words skip=0 i c rest sw sq="'"
+  if [[ ! -r "$1" ]] || ! { : < "$1"; } 2>/dev/null; then
+    printf 'error: cannot read %s\n' "$1" >&2
+    return 1
+  fi
   # Read from stdin: a name that starts with a dash is no option of head.
   # 256 bytes, and a NUL ends the line: the first line of a binary file is
   # not read whole, and one that starts with a NUL is no script.
   line="$({ LC_ALL=C head -c 256 < "$1"; } 2>/dev/null | LC_ALL=C tr '\000' '\n' | LC_ALL=C tr -d '\r' | LC_ALL=C sed -n 1p)" || line=""
   case "$line" in '#!'*) ;; *) return 0 ;; esac
   read -r -a words <<< "${line#??}" || true
-  for w in ${words[@]+"${words[@]}"}; do
+  i=0
+  while [[ "$i" -lt "${#words[@]}" ]]; do
+    w="${words[$i]}"; i=$((i + 1))
     # The options and assignments of env: not the interpreter.
     if [[ "$skip" -eq 1 ]]; then skip=0; continue; fi
-    case "$w" in -u|--unset|-C|--chdir|-P) skip=1; continue ;; -*|*=*) continue ;; esac
+    rest=""
+    case "$w" in
+      --unset|--chdir|--argv0) skip=1; continue ;;
+      --split-string=*) rest="${w#*=}" ;;
+      --*) continue ;;
+      -?*)
+        w="${w#-}"
+        while [[ -n "$w" ]]; do
+          c="${w:0:1}"; w="${w:1}"
+          case "$c" in
+            u|C|P|a|L) [[ -n "$w" ]] || skip=1; w=""; break ;;
+            S) rest="$w"; w=""; break ;;
+          esac
+        done
+        [[ -n "$rest" ]] || continue
+        ;;
+      *=*) continue ;;
+    esac
+    if [[ -n "$rest" ]]; then
+      # The text of -S is words of the command line: read them next.
+      rest="${rest//\"/ }"; rest="${rest//$sq/ }"
+      sw=(); read -r -a sw <<< "$rest" || true
+      while [[ "$i" -lt "${#words[@]}" ]]; do sw+=("${words[$i]}"); i=$((i + 1)); done
+      words=(); [[ "${#sw[@]}" -eq 0 ]] || words=("${sw[@]}"); i=0
+      continue
+    fi
     w="${w##*/}"
     [[ "$w" != env ]] || continue
     case "$w" in
@@ -1010,7 +1046,11 @@ sec_foxguard_scan() {
     # "#!/usr/bin/env bash"): it runs all the same. Scan a copy named with
     # the extension of that language.
     if [[ "$rc" -le 1 && "$known" -eq 0 ]] && sec_foxguard_unsupported "$4.one"; then
-      lx="$(sec_foxguard_script_ext "$3/$f")" || return 1
+      # One that cannot be read is a skip, never "no script".
+      if ! lx="$(sec_foxguard_script_ext "$3/$f" 2>/dev/null)"; then
+        printf 'warning: skipping %s (cannot read)\n' "$f" >> "$4.skipped" || return 1
+        lx=""
+      fi
       if [[ -n "$lx" ]]; then
         known=1; printf '%s\n' "$f" > "$4/$k.path" || return 1
         c="$(sec_foxguard_copy_name "$x")" || return 1

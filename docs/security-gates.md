@@ -173,6 +173,8 @@ SCRIPT_HELPERS_FOXGUARD_BLOCK=critical git push
   script that is too large or not UTF-8 refuses the push. A script in
   another language (`zsh`, `perl`) is not a skip. At `off` no copy is
   scanned: such a script is named as `not scanned: <path> (script)`.
+  A file whose first line cannot be read is a skip and refuses the push
+  (at `off`: `not scanned: <path> (cannot read)`).
   A working file the hook cannot write under `TMPDIR` (the file lists and
   maps, the list of skipped files, the base list, the configs, the copy of a
   file to scan) refuses the push too: a short list is never read as "nothing
