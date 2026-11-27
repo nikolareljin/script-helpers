@@ -284,7 +284,7 @@ sec_changed_odd_files() {
     # shellcheck disable=SC2086
     git log -z --name-only --format= --diff-filter=ACMR $revs 2>/dev/null \
       | while IFS= read -r -d '' f; do
-          f="${f#$'\n'}"
+          # A name may itself begin with a newline: never strip one.
           case "$f" in *$'\t'*|*$'\n'*) ;; *) continue ;; esac
           if git cat-file -e "$tip:$f" 2>/dev/null; then printf '%s\0' "$f"; fi
         done

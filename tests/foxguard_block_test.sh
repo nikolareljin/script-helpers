@@ -422,6 +422,10 @@ for odd in tab newline; do
   expect "at off: only a path with a $odd does not block" 0 "$(check FOXGUARD_CMD="$tmp/okfox" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
   has "and is named and counted ($odd alone)" "foxguard did NOT read 1 of 1 changed file(s)"
 done
+# A name that begins with a newline is named as it is, not lost.
+setup; publish; oddname "$(printf '\nlead.py')"; commit ok.py "x = 1"
+check FOXGUARD_CMD="$tmp/okfox" SCRIPT_HELPERS_FOXGUARD_BLOCK=off >/dev/null
+has "at off: a name beginning with a newline is named" 'foxguard: not scanned: \nlead.py (tab or newline in the name)'
 # Renaming such a file away, the remedy given, is not refused: it is
 # compared as a new file.
 setup; oddname "$(printf 'a\tb.py')"; publish
