@@ -5,6 +5,7 @@ USAGE: foxguard_push_compare.py --level <critical|high|medium|low>
        [--base-absent <list> ...] [--allow-unscanned] [--base-incomplete]
        foxguard_push_compare.py --names <list>
        foxguard_push_compare.py --config-baseline <config>
+       foxguard_push_compare.py --config-rules <config>
 
 Reads foxguard JSON reports (`foxguard --format json`), each a file or a
 directory of them. A tip finding is new
@@ -30,13 +31,17 @@ foxguard takes no argument that is not UTF-8. Each path that is not UTF-8 is
 printed, its other bytes as \\xNN.
 --config-baseline prints scan.baseline of a foxguard config, a path relative
 to the config's directory, or nothing: none set, one that leaves that
-directory, or a config it cannot read (block-style YAML is read without
-PyYAML; anything else needs it).
+directory, or a config it cannot read. Without PyYAML only block-style YAML
+is read; anything else exits 2.
+--config-rules prints scan.rules the same way, except that an absolute path
+is printed as it is and one that leaves the directory exits 5.
 
 Exit codes: 0 nothing blocks; 3 a new finding at or above --level; 2 a report
     could not be read, or anything else went wrong (never read as a pass).
     With --names: 0 every path is UTF-8; 4 one is not; 2 the list could not
     be read. With --config-baseline: 0, or 2 the file could not be read.
+    With --config-rules: as --config-baseline, or 5 the path leaves the
+    config's directory.
 """
 
 import argparse
@@ -146,8 +151,8 @@ def check_names(path):
     return 4 if bad else 0
 
 
-def baseline_value(text):
-    # scan.baseline as foxguard reads it, or None.
+def scan_value(text, key):
+    # scan.<key> as foxguard reads it, or None.
     try:
         import yaml
     except ImportError:
@@ -158,41 +163,82 @@ def baseline_value(text):
         except yaml.YAMLError:
             return None
         scan = data.get("scan") if isinstance(data, dict) else None
-        value = scan.get("baseline") if isinstance(scan, dict) else None
+        value = scan.get(key) if isinstance(scan, dict) else None
         return value if isinstance(value, str) else None
-    # Without PyYAML: block style only ("scan:" then "  baseline: <path>").
-    in_scan, indent = False, None
+    # Without PyYAML: block style only ("scan:" then "  <key>: <path>").
+    # Anything else raises: a scan.rules read as unset would leave foxguard
+    # to read the rules from the pushed files.
+    in_scan, indent, found = False, None, None
     for line in text.splitlines():
+        if line[: len(line) - len(line.lstrip())].count("\t"):
+            raise Unreadable("a tab in the indentation")
         body = re.sub(r"(^|\s)#.*$", "", line).rstrip()
         if not body.strip():
             continue
         lead = len(body) - len(body.lstrip(" "))
+        if found is not None:
+            # A value continued on the lines below "<key>:".
+            if lead > indent:
+                raise Unreadable(body)
+            return found or None
         if lead == 0:
+            if body in ("---", "..."):
+                in_scan, indent = False, None
+                continue
+            if not re.fullmatch(r"[A-Za-z_][\w-]*:(\s.*)?", body) or (body.startswith("scan") and body != "scan:"):
+                raise Unreadable(body)
             in_scan, indent = body == "scan:", None
             continue
         if not in_scan:
             continue
         if indent is None:
             indent = lead
-        match = re.fullmatch(r"baseline:\s*(.*)", body.strip()) if lead == indent else None
+        if lead != indent:
+            continue
+        if not re.match(r"[A-Za-z_-]", body.strip()):
+            raise Unreadable(body)
+        match = re.fullmatch(re.escape(key) + r"\s*:(?:\s+(.*))?", body.strip())
         if match:
-            value = match.group(1).strip()
-            if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            value = (match.group(1) or "").strip()
+            if value[:1] in ("'", '"'):
+                if len(value) < 2 or value[-1] != value[0]:
+                    raise Unreadable(body)
                 value = value[1:-1]
-            return value or None
-    return None
+            elif value[:1] in tuple("|>&*!{[%@`"):
+                raise Unreadable(body)
+            found = value
+    return found or None
+
+
+class OutsideError(Exception):
+    pass
+
+
+class Unreadable(Exception):
+    pass
+
+
+def config_path(path, key):
+    # scan.<key> of the config, relative to its directory, or "". An
+    # absolute path, or one that leaves the directory, raises OutsideError.
+    with Path(path).open(encoding="utf-8") as handle:
+        value = scan_value(handle.read(), key)
+    if not value:
+        return ""
+    if "\n" in value or "\t" in value or value.startswith("/"):
+        raise OutsideError(value)
+    parts = [p for p in value.split("/") if p not in ("", ".")]
+    if ".." in parts:
+        raise OutsideError(value)
+    return "/".join(parts)
 
 
 def config_baseline(path):
     # The baseline the config names, relative to its directory, or "".
-    with Path(path).open(encoding="utf-8") as handle:
-        value = baseline_value(handle.read())
-    if not value or "\n" in value or "\t" in value or value.startswith("/"):
+    try:
+        return config_path(path, "baseline")
+    except OutsideError:
         return ""
-    parts = [p for p in value.split("/") if p not in ("", ".")]
-    if not parts or ".." in parts:
-        return ""
-    return "/".join(parts)
 
 
 def clean(text):
@@ -203,6 +249,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--names")
     parser.add_argument("--config-baseline")
+    parser.add_argument("--config-rules")
     parser.add_argument("--level", choices=sorted(RANK))
     parser.add_argument("--tip")
     # Kept in command-line order: each --base-unscanned and --base-absent
@@ -219,13 +266,29 @@ def main():
     # carriage return.
     sys.stdout.reconfigure(encoding="utf-8", newline="\n")
     if args.config_baseline is not None:
-        if args.names is not None or args.level or args.tip or args.reports or args.allow_unscanned or args.base_incomplete:
+        if args.names is not None or args.config_rules is not None or args.level or args.tip or args.reports or args.allow_unscanned or args.base_incomplete:
             parser.error("--config-baseline takes no other argument")
         try:
             value = config_baseline(args.config_baseline)
-        except (OSError, UnicodeDecodeError) as exc:
+        except (OSError, UnicodeDecodeError, Unreadable) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
+        if value:
+            print(value)
+        return 0
+    if args.config_rules is not None:
+        if args.names is not None or args.config_baseline is not None or args.level or args.tip or args.reports or args.allow_unscanned or args.base_incomplete:
+            parser.error("--config-rules takes no other argument")
+        try:
+            value = config_path(args.config_rules, "rules")
+        except (OSError, UnicodeDecodeError, Unreadable) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        except OutsideError as exc:
+            value = str(exc)
+            if not value.startswith("/") or "\n" in value or "\t" in value:
+                print(f"error: scan.rules leaves the config's directory: {value!r}", file=sys.stderr)
+                return 5
         if value:
             print(value)
         return 0

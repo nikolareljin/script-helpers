@@ -505,6 +505,33 @@ $high_code"
   commit src/app.py "$high_code"
   expect "a pushed baseline does not apply" 1 "$(check "$F")"
   has "the finding blocks" "BLOCK (foxguard): high src/app.py:3 py/no-yaml-load (new)"
+  # scan.rules is read from the remote too: rules in the push never judge it.
+  rule_yml='rules:
+  - id: base-yaml
+    pattern: yaml.load(...)
+    message: no yaml.load
+    languages: [python]
+    severity: ERROR'
+  rules_cfg='scan:
+  rules: rules
+  no_builtins: true'
+  setup; mkdir -p "$tmp/repo/src" "$tmp/repo/rules"; commit rules/r.yml "$rule_yml"; commit .foxguard.yml "$rules_cfg"; publish
+  commit src/app.py "$high_code"
+  expect "the remote's scan.rules judge the push" 1 "$(check "$F")"
+  has "with the remote's rules" "src/app.py:3 semgrep/base-yaml (new)"
+  commit rules/r.yml 'rules: []'
+  expect "pushed rules do not replace the remote's" 1 "$(check "$F")"
+  has "the remote's rule still blocks" "src/app.py:3 semgrep/base-yaml (new)"
+  setup; mkdir -p "$tmp/repo/src"; commit .foxguard.yml "$rules_cfg"; publish
+  commit src/app.py "$high_code"
+  expect "scan.rules the remote does not have refuses the push" 1 "$(check "$F")"
+  has "and says why" "the foxguard rules of the base could not be read"
+  setup; mkdir -p "$tmp/repo/src"; commit .foxguard.yml 'scan:
+  rules: ../rules
+  no_builtins: true'; publish
+  commit src/app.py "$high_code"
+  expect "scan.rules outside the repository refuses the push" 1 "$(check "$F")"
+  has "and says why" "the foxguard rules of the base could not be read"
 
   # A merge whose resolution adds a finding neither parent has.
   setup; publish

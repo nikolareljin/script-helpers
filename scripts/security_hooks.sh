@@ -958,8 +958,26 @@ sec_foxguard_script_ext() {
   echo '?'
 }
 
+# sec_foxguard_base_rules <commit> <path> <out>: the regular files of <path>
+# (a file or a directory) at <commit> written under <out>/<path>. Return 1
+# when there are none, or one cannot be read or written.
+sec_foxguard_base_rules() {
+  local meta p mode type sha n=0
+  # Listed first: a listing cut short would drop rules without a word.
+  { mkdir -p "$3" && git ls-tree -r -z --full-tree "$1" -- "$2" > "$3.list"; } || return 1
+  while IFS= read -r -d '' meta; do
+    p="${meta#*$'\t'}"; meta="${meta%%$'\t'*}"
+    read -r mode type sha <<< "$meta"
+    [[ "$p" == "$2" || "$p" == "$2/"* ]] || continue
+    [[ "$type" == blob && ( "$mode" == 100644 || "$mode" == 100755 ) ]] || continue
+    { mkdir -p "$3/$(dirname -- "$p")" && git cat-file blob "$sha" > "$3/$p"; } || return 1
+    n=$((n + 1))
+  done < "$3.list"
+  [[ "$n" -gt 0 ]]
+}
+
 # sec_foxguard_scan_copy <cmd> <config> <file> <out> <n> <dirs> <name> <path>
-# <baseline> <fallback config>: foxguard on a copy of <file> named
+# <baseline> <fallback config> [<rules>]: foxguard on a copy of <file> named
 # <dirs><name> under <out>/<n>.d, its report in <out>/<n>.json and its
 # messages in <out>.one, the copy named there by its real <path>. The copy
 # is a symlink to <file> (an absolute path): foxguard tells the language and
@@ -969,11 +987,13 @@ sec_foxguard_script_ext() {
 # symlinks), the copy is scanned with <fallback config>, whose directory
 # holds <out>: with <config>, a path of it outside foxguard's project root
 # fails the scan. Its paths then match nothing, as before. An empty
-# <baseline> gives none. SEC_FOXGUARD_RC holds foxguard's exit status.
+# <baseline> gives none; <rules>, when given, replaces scan.rules of the
+# config. SEC_FOXGUARD_RC holds foxguard's exit status.
 # Return 1 when a write fails.
 sec_foxguard_scan_copy() {
   local bl=() cfg="$2"
   [[ -z "${9:-}" ]] || bl=(--baseline "$9")
+  [[ -z "${11:-}" ]] || bl+=(--rules "${11}")
   SEC_FOXGUARD_RC=0
   # The report of the run before is emptied: a rerun that writes none must
   # not be read as that one.
@@ -984,12 +1004,13 @@ sec_foxguard_scan_copy() {
   sec_foxguard_skip_name "$6$7" "$8" "$4.two" "$4.one"
 }
 
-# sec_foxguard_scan <cmd> <config> <dir> <out> <list> [<baseline>]: foxguard
+# sec_foxguard_scan <cmd> <config> <dir> <out> <list> [<baseline> [<rules>]]: foxguard
 # on each file of <list> (paths relative to <dir>) present in <dir>, one
 # report per file in the directory <out>. <config> is copied to <dir>/.git
 # (a path git never tracks, so no pushed file is there): foxguard reads the
 # paths of a config relative to its directory, so they then name the files
-# of <dir>. <baseline>, when given, is the only baseline foxguard reads.
+# of <dir>. <baseline>, when given, is the only baseline foxguard reads, and
+# <rules> the only external rules (scan.rules would name pushed files).
 # One file at a time: a directory scan never reads
 # hidden paths, and foxguard drops a path it calls noise (vendor/,
 # node_modules/, build/ ...) without a word, so such a file is scanned again
@@ -1018,6 +1039,7 @@ sec_foxguard_scan_copy() {
 sec_foxguard_scan() {
   local rc f x e lx s c mr known under=/d_ k=0 cfg="$3/.git" bl=()
   [[ -z "${6:-}" ]] || bl=(--baseline "$6")
+  [[ -z "${7:-}" ]] || bl+=(--rules "$7")
   { mkdir -p "$4" && : > "$4.err" && : > "$4.skipped" && : > "$4.cxx" && : > "$4.script"; } || return 1
   { [[ ! -e "$cfg" && ! -L "$cfg" ]] && cat < "$2" > "$cfg" && cmp -s "$2" "$cfg"; } || return 1
   while IFS= read -r f; do
@@ -1032,11 +1054,11 @@ sec_foxguard_scan() {
     if [[ "$rc" -le 1 ]] && sec_foxguard_noise "$4.one"; then
       known=1; printf '%s\n' "$f" > "$4/$k.path" || return 1
       c="$(sec_foxguard_copy_name "$x")" || return 1
-      sec_foxguard_scan_copy "$1" "$cfg" "$3/$f" "$4" "$k" "$mr" "$c" "$f" "${6:-}" "$2" || return 1
+      sec_foxguard_scan_copy "$1" "$cfg" "$3/$f" "$4" "$k" "$mr" "$c" "$f" "${6:-}" "$2" "${7:-}" || return 1
       rc="$SEC_FOXGUARD_RC"
       if [[ "$rc" -le 1 ]] && sec_foxguard_noise "$4.one"; then
         # Still noise: a name foxguard drops that this hook does not know.
-        sec_foxguard_scan_copy "$1" "$cfg" "$3/$f" "$4" "$k" "$mr" "$k.$e" "$f" "${6:-}" "$2" || return 1
+        sec_foxguard_scan_copy "$1" "$cfg" "$3/$f" "$4" "$k" "$mr" "$k.$e" "$f" "${6:-}" "$2" "${7:-}" || return 1
         rc="$SEC_FOXGUARD_RC"
       fi
     fi
@@ -1047,12 +1069,12 @@ sec_foxguard_scan() {
       if [[ -n "$lx" && "$lx" != "$e" ]]; then
         printf '%s\n' "$f" > "$4/$k.path" || return 1
         c="$(sec_foxguard_copy_name "${x%.*}.$lx")" || return 1
-        sec_foxguard_scan_copy "$1" "$cfg" "$3/$f" "$4" "$k" "$mr" "$c" "$f" "${6:-}" "$2" || return 1
+        sec_foxguard_scan_copy "$1" "$cfg" "$3/$f" "$4" "$k" "$mr" "$c" "$f" "${6:-}" "$2" "${7:-}" || return 1
         rc="$SEC_FOXGUARD_RC"
         if [[ "$rc" -le 1 ]] && sec_foxguard_noise "$4.one"; then known=1; fi
         # Not read under its own name (noise, or ".PY" with nothing in front).
         if [[ "$rc" -le 1 ]] && { sec_foxguard_noise "$4.one" || sec_foxguard_unsupported "$4.one"; }; then
-          sec_foxguard_scan_copy "$1" "$cfg" "$3/$f" "$4" "$k" "$mr" "$k.$lx" "$f" "${6:-}" "$2" || return 1
+          sec_foxguard_scan_copy "$1" "$cfg" "$3/$f" "$4" "$k" "$mr" "$k.$lx" "$f" "${6:-}" "$2" "${7:-}" || return 1
           rc="$SEC_FOXGUARD_RC"
         fi
         # .C and .H are C to some and C++ to a compiler. One that parses as C
@@ -1085,11 +1107,11 @@ sec_foxguard_scan() {
       if [[ -n "$lx" ]]; then
         known=1; printf '%s\n' "$f" > "$4/$k.path" || return 1
         c="$(sec_foxguard_copy_name "$x")" || return 1
-        sec_foxguard_scan_copy "$1" "$cfg" "$3/$f" "$4" "$k" "$mr" "$c.$lx" "$f" "${6:-}" "$2" || return 1
+        sec_foxguard_scan_copy "$1" "$cfg" "$3/$f" "$4" "$k" "$mr" "$c.$lx" "$f" "${6:-}" "$2" "${7:-}" || return 1
         rc="$SEC_FOXGUARD_RC"
         # Not read under its own name (noise this hook does not know).
         if [[ "$rc" -le 1 ]] && { sec_foxguard_noise "$4.one" || sec_foxguard_unsupported "$4.one"; }; then
-          sec_foxguard_scan_copy "$1" "$cfg" "$3/$f" "$4" "$k" "$mr" "$k.$lx" "$f" "${6:-}" "$2" || return 1
+          sec_foxguard_scan_copy "$1" "$cfg" "$3/$f" "$4" "$k" "$mr" "$k.$lx" "$f" "${6:-}" "$2" "${7:-}" || return 1
           rc="$SEC_FOXGUARD_RC"
         fi
         # With an extension foxguard does not know, a script that does not
@@ -1292,15 +1314,37 @@ sec_foxguard_block() (
     # The baseline that config names, from the same base, or an empty one.
     # Given on the command line it is the only baseline foxguard reads, so
     # one in the pushed files is never used.
+    yamlfix="Install PyYAML (python3 -m pip install pyyaml) or write the remote's foxguard config in block style, and check that $tmp_root is writable"
     printf '{"version": 1, "entries": []}\n' > "$d/baseline" \
       || { sec_foxguard_refuse "$level" "the foxguard baseline could not be written" "$tmpfix"; exit 1; }
     if [[ -s "$d/config.base" ]]; then
       bpath="$("$py" -I "$helper" --config-baseline "$d/config" < /dev/null)" \
-        || { sec_foxguard_refuse "$level" "the foxguard config of the base could not be read" "$tmpfix"; exit 1; }
+        || { sec_foxguard_refuse "$level" "the foxguard config of the base could not be read" "$yamlfix"; exit 1; }
       if [[ -n "$bpath" && "$(git cat-file -t "$cbase:$bpath" 2>/dev/null)" == blob ]]; then
         git cat-file blob "$cbase:$bpath" > "$d/baseline" \
           || { sec_foxguard_refuse "$level" "the foxguard baseline of the base could not be read" "$tmpfix"; exit 1; }
       fi
+    fi
+    # scan.rules, from the same base: foxguard reads it relative to the
+    # config, which sits in the scanned tree, so it would read pushed rules.
+    rules=""
+    if [[ -s "$d/config.base" ]]; then
+      rc=0; rpath="$("$py" -I "$helper" --config-rules "$d/config" < /dev/null)" || rc=$?
+      case "$rc" in
+        0) ;;
+        5) sec_foxguard_refuse "$level" "the foxguard rules of the base could not be read: scan.rules leaves the repository" \
+             "Point scan.rules of the remote's foxguard config at a path in the repository"; exit 1 ;;
+        *) sec_foxguard_refuse "$level" "the foxguard config of the base could not be read" "$yamlfix"; exit 1 ;;
+      esac
+      case "$rpath" in
+        '') ;;
+        /*) rules="$rpath" ;;  # a path on this machine, read as before
+        *) rules="$d/rules/$rpath"
+           if ! sec_foxguard_base_rules "$cbase" "$rpath" "$d/rules"; then
+             sec_foxguard_refuse "$level" "the foxguard rules of the base could not be read: $rpath" \
+               "Commit scan.rules of the remote's foxguard config to the remote, or check that $tmp_root is writable"; exit 1
+           fi ;;
+      esac
     fi
     if ! cmp -s "$d/config.base" "$d/config.tip"; then
       sec_loud "this push changes the foxguard config; it takes effect only after it lands on the remote. This push is checked with the remote's config."
@@ -1313,7 +1357,7 @@ sec_foxguard_block() (
            "Rename one of them, or point TMPDIR at a case-sensitive file system and push again"; exit 1 ;;
       *) sec_foxguard_refuse "$level" "the pushed files could not be read" "$tmpfix"; exit 1 ;;
     esac
-    if ! sec_foxguard_scan "$cmd" "$d/config" "$d/tip" "$d/tip.json" "$d/files" "$d/baseline"; then
+    if ! sec_foxguard_scan "$cmd" "$d/config" "$d/tip" "$d/tip.json" "$d/files" "$d/baseline" "$rules"; then
       sed -n 1,3p "$d/tip.json.err" | sec_foxguard_show '[pre-push] foxguard: '
       # foxguard failed, or a working file of the scan could not be written.
       sec_foxguard_refuse "$level" "the foxguard scan failed" \
@@ -1348,7 +1392,7 @@ sec_foxguard_block() (
       fi
       # A base copy that is C++, or a script that did not parse, was not
       # read either: it vouches for nothing.
-      if sec_foxguard_scan "$cmd" "$d/config" "$d/base$i" "$d/base$i.json" "$d/files" "$d/baseline" \
+      if sec_foxguard_scan "$cmd" "$d/config" "$d/base$i" "$d/base$i.json" "$d/files" "$d/baseline" "$rules" \
         && cat "$d/base$i.json.cxx" "$d/base$i.json.script" >> "$d/base$i.json.skipped"; then
         set -- "$@" --base "$d/base$i.json"
         # A base copy foxguard could not read cannot say what was already
