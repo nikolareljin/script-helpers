@@ -4,6 +4,7 @@ USAGE: foxguard_push_compare.py --level <critical|high|medium|low>
        --tip <tip.json> [--base <base.json> ...] [--base-unscanned <list> ...]
        [--base-absent <list> ...] [--allow-unscanned] [--base-incomplete]
        foxguard_push_compare.py --names <list>
+       foxguard_push_compare.py --config-baseline <config>
 
 Reads foxguard JSON reports (`foxguard --format json`), each a file or a
 directory of them. A tip finding is new
@@ -27,11 +28,15 @@ or \\uNNNN, and a finding with no rule has "-" for <rule>.
 --names reads the changed paths instead, one per line, and compares nothing:
 foxguard takes no argument that is not UTF-8. Each path that is not UTF-8 is
 printed, its other bytes as \\xNN.
+--config-baseline prints scan.baseline of a foxguard config, a path relative
+to the config's directory, or nothing: none set, one that leaves that
+directory, or a config it cannot read (block-style YAML is read without
+PyYAML; anything else needs it).
 
 Exit codes: 0 nothing blocks; 3 a new finding at or above --level; 2 a report
     could not be read, or anything else went wrong (never read as a pass).
     With --names: 0 every path is UTF-8; 4 one is not; 2 the list could not
-    be read.
+    be read. With --config-baseline: 0, or 2 the file could not be read.
 """
 
 import argparse
@@ -141,6 +146,55 @@ def check_names(path):
     return 4 if bad else 0
 
 
+def baseline_value(text):
+    # scan.baseline as foxguard reads it, or None.
+    try:
+        import yaml
+    except ImportError:
+        yaml = None
+    if yaml is not None:
+        try:
+            data = yaml.safe_load(text)
+        except yaml.YAMLError:
+            return None
+        scan = data.get("scan") if isinstance(data, dict) else None
+        value = scan.get("baseline") if isinstance(scan, dict) else None
+        return value if isinstance(value, str) else None
+    # Without PyYAML: block style only ("scan:" then "  baseline: <path>").
+    in_scan, indent = False, None
+    for line in text.splitlines():
+        body = re.sub(r"(^|\s)#.*$", "", line).rstrip()
+        if not body.strip():
+            continue
+        lead = len(body) - len(body.lstrip(" "))
+        if lead == 0:
+            in_scan, indent = body == "scan:", None
+            continue
+        if not in_scan:
+            continue
+        if indent is None:
+            indent = lead
+        match = re.fullmatch(r"baseline:\s*(.*)", body.strip()) if lead == indent else None
+        if match:
+            value = match.group(1).strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+                value = value[1:-1]
+            return value or None
+    return None
+
+
+def config_baseline(path):
+    # The baseline the config names, relative to its directory, or "".
+    with Path(path).open(encoding="utf-8") as handle:
+        value = baseline_value(handle.read())
+    if not value or "\n" in value or "\t" in value or value.startswith("/"):
+        return ""
+    parts = [p for p in value.split("/") if p not in ("", ".")]
+    if not parts or ".." in parts:
+        return ""
+    return "/".join(parts)
+
+
 def clean(text):
     return " ".join(str(text or "").split())
 
@@ -148,6 +202,7 @@ def clean(text):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--names")
+    parser.add_argument("--config-baseline")
     parser.add_argument("--level", choices=sorted(RANK))
     parser.add_argument("--tip")
     # Kept in command-line order: each --base-unscanned and --base-absent
@@ -163,6 +218,17 @@ def main():
     # print and the push; left to the platform, each line would end in a
     # carriage return.
     sys.stdout.reconfigure(encoding="utf-8", newline="\n")
+    if args.config_baseline is not None:
+        if args.names is not None or args.level or args.tip or args.reports or args.allow_unscanned or args.base_incomplete:
+            parser.error("--config-baseline takes no other argument")
+        try:
+            value = config_baseline(args.config_baseline)
+        except (OSError, UnicodeDecodeError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        if value:
+            print(value)
+        return 0
     if args.names is not None:
         if args.level or args.tip or args.reports or args.allow_unscanned or args.base_incomplete:
             parser.error("--names takes no other argument")

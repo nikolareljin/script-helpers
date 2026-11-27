@@ -241,5 +241,22 @@ else
   error "sec_foxguard_show and shown() disagree: $(cat "$tmp/out")"
 fi
 
+# --config-baseline: scan.baseline of a config, with PyYAML and without.
+cb() {  # <description> <config text> <want>
+  local got nyg
+  printf '%b' "$2" > "$tmp/cb.yml"
+  got="$("$py" -I "$helper" --config-baseline "$tmp/cb.yml")"
+  nyg="$("$py" -I -c 'import sys; sys.modules["yaml"] = None; h, c = sys.argv[1:3]; sys.argv = [h, "--config-baseline", c]; exec(compile(open(h).read(), h, "exec"))' "$helper" "$tmp/cb.yml")"
+  if [[ "$got" == "$3" && "$nyg" == "$3" ]]; then ok "--config-baseline: $1"; else error "--config-baseline: $1: want '$3', got '$got' / without PyYAML '$nyg'"; fi
+}
+cb "block style" 'scan:\n  baseline: .foxguard/baseline.json\n' .foxguard/baseline.json
+cb "quoted, ./ and a comment" 'scan:\n  disable_rules: [x]\n  baseline: "./b.json"  # here\n' b.json
+cb "none set" 'scan:\n  disable_rules: [x]\n' ''
+cb "a nested key is not it" 'scan:\n  ignore_rules:\n    - path: a\n      baseline: z\n' ''
+cb "outside the config directory" 'scan:\n  baseline: ../b.json\n' ''
+cb "absolute" 'scan:\n  baseline: /etc/b.json\n' ''
+"$py" -I "$helper" --config-baseline "$tmp/nothere.yml" >/dev/null 2>&1
+[[ $? -eq 2 ]] && ok "--config-baseline: a missing config exits 2" || error "--config-baseline: a missing config did not exit 2"
+
 if [[ "$failures" -gt 0 ]]; then note "$failures failure(s)"; exit 1; fi
 note "all passed"
