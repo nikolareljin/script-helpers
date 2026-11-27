@@ -394,6 +394,48 @@ has "and says why" "changes a path whose name is not valid UTF-8"
 has "the path is named, its odd byte escaped" 'foxguard: not UTF-8: a\xffb.py'
 has "the remedy is to rename it" "Rename each file named above"
 if grep -qF "Install the pinned foxguard" "$tmp/out"; then error "a name that is not UTF-8 must not advise installing foxguard"; else ok "it does not advise installing foxguard"; fi
+# A path with a tab or newline: refused at a blocking level with the path and
+# a rename remedy; at off named as not scanned and counted, never silent.
+printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/okfox"; chmod +x "$tmp/okfox"
+oddname() {  # <name>: a commit adding <name> with code foxguard flags
+  local blob
+  blob="$(printf '%s\n' "$high_code" | git -C "$tmp/repo" hash-object -w --stdin)"
+  gc -C "$tmp/repo" update-index --add --cacheinfo "100644,$blob,$1"
+  gc -C "$tmp/repo" commit -q -m "odd name"
+}
+for odd in tab newline; do
+  if [[ "$odd" == tab ]]; then n="$(printf 'a\tb.py')"; shown='a\tb.py'; else n="$(printf 'a\nb.py')"; shown='a\nb.py'; fi
+  setup; publish; oddname "$n"
+  expect "a changed path with a $odd is refused at high" 1 "$(check FOXGUARD_CMD="$tmp/oddfox")"
+  has "and the path is named, the $odd escaped" "foxguard: tab or newline: $shown"
+  has "the remedy is to rename it ($odd)" "Rename each file named above"
+  if grep -qF "Install the pinned foxguard" "$tmp/out"; then error "a $odd in a name must not advise installing foxguard"; else ok "it does not advise installing foxguard ($odd)"; fi
+  setup; oddname "$n"
+  expect "a first push with a $odd in a path is refused at high" 1 "$(check FOXGUARD_CMD="$tmp/oddfox")"
+  has "and the path is named ($odd, no base)" "foxguard: tab or newline: $shown"
+  has "the remedy is to rename it ($odd, no base)" "Rename each file named above"
+  setup; publish; oddname "$n"; commit ok.py "x = 1"
+  expect "at off: a path with a $odd does not block" 0 "$(check FOXGUARD_CMD="$tmp/okfox" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+  has "and is named as not scanned ($odd)" "foxguard: not scanned: $shown (tab or newline in the name)"
+  has "and counted ($odd)" "foxguard did NOT read 1 of 2 changed file(s)"
+  setup; publish; oddname "$n"
+  expect "at off: only a path with a $odd does not block" 0 "$(check FOXGUARD_CMD="$tmp/okfox" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
+  has "and is named and counted ($odd alone)" "foxguard did NOT read 1 of 1 changed file(s)"
+done
+# A name that begins with a newline is named as it is, not lost.
+setup; publish; oddname "$(printf '\nlead.py')"; commit ok.py "x = 1"
+check FOXGUARD_CMD="$tmp/okfox" SCRIPT_HELPERS_FOXGUARD_BLOCK=off >/dev/null
+has "at off: a name beginning with a newline is named" 'foxguard: not scanned: \nlead.py (tab or newline in the name)'
+# Renaming such a file away, the remedy given, is not refused: it is
+# compared as a new file.
+setup; oddname "$(printf 'a\tb.py')"; publish
+gc -C "$tmp/repo" mv "$(printf 'a\tb.py')" ab.py; gc -C "$tmp/repo" commit -q -m rename
+check FOXGUARD_CMD="$tmp/oddfox" >/dev/null
+if grep -qF 'tab or newline' "$tmp/out"; then error "a rename away from a tab name was refused for it: $(tail -3 "$tmp/out")"; else ok "a rename away from a tab name is not refused for it"; fi
+# One the push deletes again is not named.
+setup; publish; oddname "$(printf 'a\tb.py')"; gc -C "$tmp/repo" rm -q --cached "$(printf 'a\tb.py')"; gc -C "$tmp/repo" commit -q -m gone
+check FOXGUARD_CMD="$tmp/okfox" SCRIPT_HELPERS_FOXGUARD_BLOCK=off >/dev/null
+if grep -qF 'not scanned' "$tmp/out"; then error "a deleted odd path was named: $(cat "$tmp/out")"; else ok "at off: an odd path the tip no longer has is not named"; fi
 
 # ---------------------------------------------------- with the real foxguard
 if [[ -z "$real_fox" ]]; then

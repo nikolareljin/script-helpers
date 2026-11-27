@@ -271,6 +271,33 @@ sec_changed_files() {
   done < <(sec_revs "$1" "${2:-}") | LC_ALL=C sort -u
 }
 
+# sec_changed_odd_files <refs-file> <remote-name>: the paths that
+# sec_changed_files skips (a tab or newline in the name) and a pushed ref still
+# has at its tip, each ended by a NUL, once each.
+sec_changed_odd_files() {
+  local revs tip f
+  while IFS= read -r revs; do
+    case "$revs" in
+      *..*) tip="${revs##*..}" ;;
+      *)    tip="${revs%% *}" ;;
+    esac
+    # shellcheck disable=SC2086
+    git log -z --name-only --format= --diff-filter=ACMR $revs 2>/dev/null \
+      | while IFS= read -r -d '' f; do
+          # A name may itself begin with a newline: never strip one.
+          case "$f" in *$'\t'*|*$'\n'*) ;; *) continue ;; esac
+          if git cat-file -e "$tip:$f" 2>/dev/null; then printf '%s\0' "$f"; fi
+        done
+  done < <(sec_revs "$1" "${2:-}") | LC_ALL=C sort -z -u
+}
+
+# sec_foxguard_ctl_name <path>: <path> on one line, a tab shown as \t and a
+# newline as \n, for sec_foxguard_show.
+sec_foxguard_ctl_name() {
+  local p="${1//$'\t'/\\t}"
+  printf '%s\n' "${p//$'\n'/\\n}"
+}
+
 # sec_push_head_line <remote-name>: for a push that came with no ref lines,
 # one ref line for HEAD when it has commits the remote's tracking refs lack;
 # nothing when it has none. git sends no lines when every ref is up to date or
@@ -616,7 +643,18 @@ sec_foxguard_warn() {
   while IFS= read -r f; do
     [[ -f "$f" ]] && files+=("$f")
   done < <(sec_changed_files "$refs" "$remote" | cut -f2- | LC_ALL=C sort -u)
-  [[ ${#files[@]} -gt 0 ]] || return 0
+  # A name with a tab or newline cannot be given to foxguard: named, counted.
+  local odd=()
+  while IFS= read -r -d '' f; do odd+=("$f"); done < <(sec_changed_odd_files "$refs" "$remote")
+  local total=$(( ${#files[@]} + ${#odd[@]} ))
+  for f in ${odd[@]+"${odd[@]}"}; do
+    unread=$((unread + 1))
+    printf '%s (tab or newline in the name)\n' "$(sec_foxguard_ctl_name "$f")" | sec_foxguard_show '[pre-push] foxguard: not scanned: '
+  done
+  if [[ ${#files[@]} -eq 0 ]]; then
+    [[ "$unread" -gt 0 ]] && sec_loud "foxguard did NOT read $unread of $total changed file(s) (named above as not scanned)."
+    return 0
+  fi
   # Distinguish reported findings from scanner execution errors.
   for f in "${files[@]}"; do
     rc=0
@@ -698,7 +736,7 @@ sec_foxguard_warn() {
   done
   if [[ -n "$probes" ]]; then rm -rf -- "$probes"; fi
   [[ "$failed" -gt 0 ]] && sec_loud "the foxguard scan did NOT run on $failed of ${#files[@]} file(s) (exit $frc)."
-  [[ "$unread" -gt 0 ]] && sec_loud "foxguard did NOT read $unread of ${#files[@]} changed file(s) (named above as not scanned)."
+  [[ "$unread" -gt 0 ]] && sec_loud "foxguard did NOT read $unread of $total changed file(s) (named above as not scanned)."
   if [[ "$shown" -gt 0 ]]; then
     sec_loud "foxguard: $issues finding(s) in $hit of ${#files[@]} changed file(s) (above). They do not block the push (security.foxguardBlock is off)."
     # The base for the report: the remote's commit of the first updated ref.
@@ -1110,7 +1148,8 @@ sec_foxguard_scan() {
 # "<path at base><TAB><path at tip>" for each to <map>, so a renamed file is
 # compared with its old self. No <base>: every file of <tip>. Return 1 when git
 # or a write fails (a file left off the list is never scanned), 2 for a path
-# with a tab or newline (it cannot be named safely).
+# with a tab or newline at <tip> (it cannot be named safely; SEC_FOXGUARD_ODD
+# holds it). A file renamed away from such a name is compared as a new file.
 sec_foxguard_paths() {
   local st p old raw="$3.raw"
   if [[ -n "$1" ]]; then
@@ -1127,7 +1166,9 @@ sec_foxguard_paths() {
     else
       p="$st"; old="$st"
     fi
-    case "$p$old" in *$'\t'*|*$'\n'*) return 2 ;; esac
+    case "$p" in *$'\t'*|*$'\n'*) SEC_FOXGUARD_ODD="$p"; return 2 ;; esac
+    # Renamed away from such a name: the fix asked for. Compared as a new file.
+    case "$old" in *$'\t'*|*$'\n'*) old="$p" ;; esac
     printf '%s\n' "$p" >> "$3" || return 1
     printf '%s\t%s\n' "$old" "$p" >> "$4" || return 1
   done < "$raw"
@@ -1209,7 +1250,9 @@ sec_foxguard_block() (
         rc=0; sec_foxguard_paths "$b" "$lsha" "$d/files" "$d/map$i" || rc=$?
         case "$rc" in
           0) ;;
-          2) sec_foxguard_refuse "$level" "$lref changes a path with a tab or newline, which foxguard cannot be pointed at"; exit 1 ;;
+          2) sec_foxguard_ctl_name "$SEC_FOXGUARD_ODD" | sec_foxguard_show '[pre-push] foxguard: tab or newline: '
+             sec_foxguard_refuse "$level" "$lref changes a path with a tab or newline, which foxguard cannot be pointed at" \
+               "Rename each file named above"; exit 1 ;;
           *) sec_foxguard_refuse "$level" "git could not list the files $lref changes"; exit 1 ;;
         esac
       done < "$d/bases"
@@ -1217,7 +1260,9 @@ sec_foxguard_block() (
       rc=0; sec_foxguard_paths "" "$lsha" "$d/files" "$d/map0" || rc=$?
       case "$rc" in
         0) ;;
-        2) sec_foxguard_refuse "$level" "$lref has a path with a tab or newline, which foxguard cannot be pointed at"; exit 1 ;;
+        2) sec_foxguard_ctl_name "$SEC_FOXGUARD_ODD" | sec_foxguard_show '[pre-push] foxguard: tab or newline: '
+           sec_foxguard_refuse "$level" "$lref has a path with a tab or newline, which foxguard cannot be pointed at" \
+             "Rename each file named above"; exit 1 ;;
         *) sec_foxguard_refuse "$level" "git could not list the files of $lref"; exit 1 ;;
       esac
     fi
