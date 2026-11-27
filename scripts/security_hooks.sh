@@ -1148,7 +1148,8 @@ sec_foxguard_scan() {
 # "<path at base><TAB><path at tip>" for each to <map>, so a renamed file is
 # compared with its old self. No <base>: every file of <tip>. Return 1 when git
 # or a write fails (a file left off the list is never scanned), 2 for a path
-# with a tab or newline (it cannot be named safely; SEC_FOXGUARD_ODD holds it).
+# with a tab or newline at <tip> (it cannot be named safely; SEC_FOXGUARD_ODD
+# holds it). A file renamed away from such a name is compared as a new file.
 sec_foxguard_paths() {
   local st p old raw="$3.raw"
   if [[ -n "$1" ]]; then
@@ -1165,10 +1166,9 @@ sec_foxguard_paths() {
     else
       p="$st"; old="$st"
     fi
-    case "$p$old" in *$'\t'*|*$'\n'*)
-      SEC_FOXGUARD_ODD="$p"; case "$p" in *$'\t'*|*$'\n'*) ;; *) SEC_FOXGUARD_ODD="$old" ;; esac
-      return 2 ;;
-    esac
+    case "$p" in *$'\t'*|*$'\n'*) SEC_FOXGUARD_ODD="$p"; return 2 ;; esac
+    # Renamed away from such a name: the fix asked for. Compared as a new file.
+    case "$old" in *$'\t'*|*$'\n'*) old="$p" ;; esac
     printf '%s\n' "$p" >> "$3" || return 1
     printf '%s\t%s\n' "$old" "$p" >> "$4" || return 1
   done < "$raw"

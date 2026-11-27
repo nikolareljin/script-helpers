@@ -422,6 +422,12 @@ for odd in tab newline; do
   expect "at off: only a path with a $odd does not block" 0 "$(check FOXGUARD_CMD="$tmp/okfox" SCRIPT_HELPERS_FOXGUARD_BLOCK=off)"
   has "and is named and counted ($odd alone)" "foxguard did NOT read 1 of 1 changed file(s)"
 done
+# Renaming such a file away, the remedy given, is not refused: it is
+# compared as a new file.
+setup; oddname "$(printf 'a\tb.py')"; publish
+gc -C "$tmp/repo" mv "$(printf 'a\tb.py')" ab.py; gc -C "$tmp/repo" commit -q -m rename
+check FOXGUARD_CMD="$tmp/oddfox" >/dev/null
+if grep -qF 'tab or newline' "$tmp/out"; then error "a rename away from a tab name was refused for it: $(tail -3 "$tmp/out")"; else ok "a rename away from a tab name is not refused for it"; fi
 # One the push deletes again is not named.
 setup; publish; oddname "$(printf 'a\tb.py')"; gc -C "$tmp/repo" rm -q --cached "$(printf 'a\tb.py')"; gc -C "$tmp/repo" commit -q -m gone
 check FOXGUARD_CMD="$tmp/okfox" SCRIPT_HELPERS_FOXGUARD_BLOCK=off >/dev/null
