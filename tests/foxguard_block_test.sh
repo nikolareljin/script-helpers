@@ -462,6 +462,77 @@ $high_code"
   (cd "$tmp/repo" && env "$F" bash -c 'source "$1/scripts/security_hooks.sh" && sec_foxguard_push "$2" "$3"' _ "$ROOT_DIR" "$tmp/refs" "$tmp/remote.git") >"$tmp/out" 2>&1
   expect "no base: no config, so the finding blocks" 1 "$?"
 
+  # Paths in the config (ignore_rules, baseline) are the repository's: they
+  # must match the pushed file at its real path, also when it is scanned as
+  # a copy (noise path, noise name, upper-case extension).
+  path_cfg='scan:
+  ignore_rules:
+    - path: src/app.py
+      rules: [py/no-yaml-load]
+    - path: build/app.py
+      rules: [py/no-yaml-load]
+    - path: src/Loader.PY
+      rules: [py/no-yaml-load]
+    - path: static/x.min.js
+      rules: [js/no-xss-innerhtml]'
+  setup; mkdir -p "$tmp/repo/src"; commit .foxguard.yml "$path_cfg"; publish; commit src/app.py "$high_code"
+  expect "a path-scoped ignore_rules entry of the remote's config applies" 0 "$(check "$F")"
+  setup; mkdir -p "$tmp/repo/build" "$tmp/repo/src" "$tmp/repo/static"; commit .foxguard.yml "$path_cfg"; publish
+  commit build/app.py "$high_code"; commit src/Loader.PY "$high_code"
+  commit static/x.min.js 'document.body.innerHTML = location.hash;'
+  expect "it applies to a noise path, an upper-case extension and a noise name" 0 "$(check "$F")"
+  # Where ln -s copies (MSYS without native symlinks): scanned, not failed.
+  expect "a copy that is not a symlink is still scanned" 1 \
+    "$(ln() { command cp -- "${@: -2:1}" "${@: -1}"; }; export -f ln; commit build/new.py "$high_code" >/dev/null; check "$F")"
+  has "and its finding blocks" "BLOCK (foxguard): high build/new.py:3 py/no-yaml-load (new)"
+  setup; mkdir -p "$tmp/repo/src"; publish; commit .foxguard.yml "$path_cfg"; commit src/app.py "$high_code"
+  expect "a pushed path-scoped ignore does not apply" 1 "$(check "$F")"
+  has "the finding blocks" "BLOCK (foxguard): high src/app.py:3 py/no-yaml-load (new)"
+  # A baseline written by foxguard in the repository, for a file the remote
+  # does not have yet.
+  setup; mkdir -p "$tmp/repo/src"; printf '%s\n' "$high_code" > "$tmp/repo/src/app.py"
+  (cd "$tmp/repo" && "$real_fox" baseline --write-baseline .foxguard/baseline.json . >/dev/null 2>&1 || "$real_fox" baseline . >/dev/null 2>&1)
+  rm -f "$tmp/repo/src/app.py"
+  grep -q 'src/app.py' "$tmp/repo/.foxguard/baseline.json" 2>/dev/null && ok "baseline written" || error "no baseline for src/app.py"
+  gc -C "$tmp/repo" add .foxguard/baseline.json
+  commit .foxguard.yml 'scan:
+  baseline: .foxguard/baseline.json'; publish; commit src/app.py "$high_code"
+  expect "a finding in the remote's baseline does not block" 0 "$(check "$F")"
+  cp "$tmp/repo/.foxguard/baseline.json" "$tmp/bl.json"
+  setup; mkdir -p "$tmp/repo/src" "$tmp/repo/.foxguard"; commit .foxguard.yml 'scan:
+  baseline: .foxguard/baseline.json'; publish
+  cp "$tmp/bl.json" "$tmp/repo/.foxguard/baseline.json"; gc -C "$tmp/repo" add .foxguard/baseline.json
+  commit src/app.py "$high_code"
+  expect "a pushed baseline does not apply" 1 "$(check "$F")"
+  has "the finding blocks" "BLOCK (foxguard): high src/app.py:3 py/no-yaml-load (new)"
+  # scan.rules is read from the remote too: rules in the push never judge it.
+  rule_yml='rules:
+  - id: base-yaml
+    pattern: yaml.load(...)
+    message: no yaml.load
+    languages: [python]
+    severity: ERROR'
+  rules_cfg='scan:
+  rules: rules
+  no_builtins: true'
+  setup; mkdir -p "$tmp/repo/src" "$tmp/repo/rules"; commit rules/r.yml "$rule_yml"; commit .foxguard.yml "$rules_cfg"; publish
+  commit src/app.py "$high_code"
+  expect "the remote's scan.rules judge the push" 1 "$(check "$F")"
+  has "with the remote's rules" "src/app.py:3 semgrep/base-yaml (new)"
+  commit rules/r.yml 'rules: []'
+  expect "pushed rules do not replace the remote's" 1 "$(check "$F")"
+  has "the remote's rule still blocks" "src/app.py:3 semgrep/base-yaml (new)"
+  setup; mkdir -p "$tmp/repo/src"; commit .foxguard.yml "$rules_cfg"; publish
+  commit src/app.py "$high_code"
+  expect "scan.rules the remote does not have refuses the push" 1 "$(check "$F")"
+  has "and says why" "the foxguard rules of the base could not be read"
+  setup; mkdir -p "$tmp/repo/src"; commit .foxguard.yml 'scan:
+  rules: ../rules
+  no_builtins: true'; publish
+  commit src/app.py "$high_code"
+  expect "scan.rules outside the repository refuses the push" 1 "$(check "$F")"
+  has "and says why" "the foxguard rules of the base could not be read"
+
   # A merge whose resolution adds a finding neither parent has.
   setup; publish
   gc -C "$tmp/repo" checkout -q -b side; commit side.txt "side"

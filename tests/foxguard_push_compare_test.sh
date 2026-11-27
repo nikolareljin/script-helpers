@@ -241,5 +241,47 @@ else
   error "sec_foxguard_show and shown() disagree: $(cat "$tmp/out")"
 fi
 
+# --config-baseline: scan.baseline of a config, with PyYAML and without.
+cb() {  # <description> <config text> <want>
+  local got nyg
+  printf '%b' "$2" > "$tmp/cb.yml"
+  got="$("$py" -I "$helper" --config-baseline "$tmp/cb.yml")"
+  nyg="$("$py" -I -c 'import sys; sys.modules["yaml"] = None; h, c = sys.argv[1:3]; sys.argv = [h, "--config-baseline", c]; exec(compile(open(h).read(), h, "exec"))' "$helper" "$tmp/cb.yml")"
+  if [[ "$got" == "$3" && "$nyg" == "$3" ]]; then ok "--config-baseline: $1"; else error "--config-baseline: $1: want '$3', got '$got' / without PyYAML '$nyg'"; fi
+}
+cb "block style" 'scan:\n  baseline: .foxguard/baseline.json\n' .foxguard/baseline.json
+cb "quoted, ./ and a comment" 'scan:\n  disable_rules: [x]\n  baseline: "./b.json"  # here\n' b.json
+cb "none set" 'scan:\n  disable_rules: [x]\n' ''
+cb "a nested key is not it" 'scan:\n  ignore_rules:\n    - path: a\n      baseline: z\n' ''
+cb "outside the config directory" 'scan:\n  baseline: ../b.json\n' ''
+cb "absolute" 'scan:\n  baseline: /etc/b.json\n' ''
+cr() {  # <description> <config text> <want> <want rc>
+  local got nyg rc=0 nrc=0
+  printf '%b' "$2" > "$tmp/cr.yml"
+  got="$("$py" -I "$helper" --config-rules "$tmp/cr.yml" 2>/dev/null)" || rc=$?
+  nyg="$("$py" -I -c 'import sys; sys.modules["yaml"] = None; h, c = sys.argv[1:3]; sys.argv = [h, "--config-rules", c]; exec(compile(open(h).read(), h, "exec"))' "$helper" "$tmp/cr.yml" 2>/dev/null)" || nrc=$?
+  if [[ "$got" == "$3" && "$nyg" == "$3" && "$rc" == "$4" && "$nrc" == "$4" ]]; then ok "--config-rules: $1"; else error "--config-rules: $1: want '$3' rc $4, got '$got' rc $rc / without PyYAML '$nyg' rc $nrc"; fi
+}
+cr "relative" 'scan:\n  rules: ./rules/\n  baseline: b.json\n' rules 0
+cr "none set" 'scan:\n  baseline: b.json\n' '' 0
+cr "absolute is kept" 'scan:\n  rules: /opt/rules\n' /opt/rules 0
+cr "outside the config directory" 'scan:\n  rules: ../rules\n' '' 5
+# Without PyYAML, YAML it cannot read in full exits 2: read as unset, scan.rules
+# would leave foxguard to read the pushed rules.
+nyrc() {  # <description> <config text>
+  local rc=0
+  printf '%b' "$2" > "$tmp/ny.yml"
+  "$py" -I -c 'import sys; sys.modules["yaml"] = None; h, c = sys.argv[1:3]; sys.argv = [h, "--config-rules", c]; exec(compile(open(h).read(), h, "exec"))' "$helper" "$tmp/ny.yml" >/dev/null 2>&1 || rc=$?
+  [[ "$rc" -eq 2 ]] && ok "without PyYAML: $1 exits 2" || error "without PyYAML: $1: want exit 2, got $rc"
+}
+nyrc "flow style" 'scan: {rules: r}\n'
+nyrc "a quoted key" '"scan":\n  rules: r\n'
+nyrc "a value on the next line" 'scan:\n  rules:\n    r\n'
+nyrc "a continued value" 'scan:\n  rules: a\n    b\n'
+nyrc "a quoted value with a hash" 'scan:\n  rules: "a # b"\n'
+nyrc "a tab in the indentation" 'scan:\n\trules: r\n'
+"$py" -I "$helper" --config-baseline "$tmp/nothere.yml" >/dev/null 2>&1
+[[ $? -eq 2 ]] && ok "--config-baseline: a missing config exits 2" || error "--config-baseline: a missing config did not exit 2"
+
 if [[ "$failures" -gt 0 ]]; then note "$failures failure(s)"; exit 1; fi
 note "all passed"

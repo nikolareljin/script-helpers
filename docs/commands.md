@@ -2672,6 +2672,8 @@ Usage: foxguard_push_compare.py --level <critical|high|medium|low>
        --tip <tip.json> [--base <base.json> ...] [--base-unscanned <list> ...]
        [--base-absent <list> ...] [--allow-unscanned] [--base-incomplete]
        foxguard_push_compare.py --names <list>
+       foxguard_push_compare.py --config-baseline <config>
+       foxguard_push_compare.py --config-rules <config>
 ```
 
 Exit codes:
@@ -2680,7 +2682,9 @@ Exit codes:
 0 nothing blocks; 3 a new finding at or above --level; 2 a report
 could not be read, or anything else went wrong (never read as a pass).
 With --names: 0 every path is UTF-8; 4 one is not; 2 the list could not
-be read.
+be read. With --config-baseline: 0, or 2 the file could not be read.
+With --config-rules: as --config-baseline, or 5 the path leaves the
+config's directory.
 ```
 
 ### `scripts/gen_command_reference.py`
